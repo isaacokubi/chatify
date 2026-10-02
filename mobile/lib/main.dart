@@ -291,12 +291,7 @@ class _ChatState extends State<Chat> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final title = widget.conversation['type'] == 'group'
-        ? (widget.conversation['title'] ?? 'Group').toString()
-        : 'Chat';
-    Future<void> extractMemory() async {
+  Future<void> extractMemory() async {
     try {
       final result = await app.api.call('POST', '/api/memories/extract', {'text': input.text.trim()});
       final candidates = List<dynamic>.from(result['candidates'] ?? []);
@@ -370,6 +365,8 @@ class _ChatState extends State<Chat> {
       await reactTo(message['_id'].toString(), action);
     }
   }
+
+
 
   @override
   Widget build(BuildContext context) {
