@@ -1,0 +1,2 @@
+export function createStorageProvider(config={}){return config.cloudinaryUrl?{name:'cloudinary',upload:async()=>{throw new Error('Cloudinary adapter wiring is intentionally isolated for production credentials')}}:{name:'development',upload:async file=>({url:file?.path||null,mock:true})};}
+export function createNotificationProvider(config={}){return config.fcmProjectId?{name:'fcm',send:async()=>({queued:true})}:{name:'mock',send:async()=>({mock:true})};}
