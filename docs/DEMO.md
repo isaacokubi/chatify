@@ -1,2 +1,5 @@
-# Defense demo
-Create Alice and Brian accounts. From Contacts, search for Brian and open a direct conversation. Send: “Let's meet at the library tomorrow at 2 PM to discuss the project.” Tap the sparkle action to extract and save the candidate. Open Memories to show the structured card. Send another message and choose Delete after reading or Delete after 1 hour. Create a group through POST /api/conversations/group when demonstrating the backend group controls. Explain that Socket.IO provides real-time delivery while MongoDB persists the source of truth.
+# Chatify Defense Demo
+
+Register Alice and Brian. Alice searches for Brian, starts a direct chat and sends: `Let's meet at the library tomorrow at 2 PM to discuss the project.` Use the Memory action to save the extracted event as `Project Meeting`, then open Memories. Send another message and choose `Delete after reading`; trigger the read flow and show the expired message is removed/hidden. Create a group, add a member, send a message and demonstrate administrator controls.
+
+Explain the innovations simply: Memory Cards turn useful conversational information into structured records; expiration gives a message a configurable application-level lifecycle.
