@@ -193,6 +193,159 @@ class _HomeState extends State<Home>{
   email.dispose();
 }
 }
+class Empty extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  const Empty({super.key, required this.icon, required this.title, required this.subtitle});
+  @override
+  Widget build(BuildContext context) {
+    return Center(child: Padding(
+      padding: const EdgeInsets.all(30),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(icon, size: 60),
+        const SizedBox(height: 12),
+        Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        Text(subtitle, textAlign: TextAlign.center),
+      ]),
+    ));
+  }
+}
+
+class Chat extends StatefulWidget {
+  final Map<String, dynamic> conversation;
+  const Chat({super.key, required this.conversation});
+  @override
+  State<Chat> createState() => _ChatState();
+}
+
+class _ChatState extends State<Chat> {
+  final input = TextEditingController();
+  List<dynamic> messages = [];
+  String expiry = 'NONE';
+  String? reply;
+  io.Socket? socket;
+  bool loading = true;
+  AppState get app => context.read<AppState>();
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+    connect();
+  }
+
+  Future<void> load() async {
+    try {
+      final result = await app.api.call('GET', '/api/conversations/${widget.conversation['_id']}/messages');
+      messages = List<dynamic>.from(result['messages'] ?? []);
+    } catch (_) {}
+    if (mounted) setState(() => loading = false);
+  }
+
+  void connect() {
+    socket = io.io(
+      app.api.base,
+      io.OptionBuilder().setTransports(['websocket']).setAuth({'token': app.api.token}).disableAutoConnect().build(),
+    );
+    socket!.connect();
+    socket!.onConnect((_) => socket!.emit('conversation:join', widget.conversation['_id']));
+    socket!.on('message:new', (data) {
+      if (!mounted || data is! Map) return;
+      if (data['conversationId']?.toString() == widget.conversation['_id']?.toString()) {
+        setState(() => messages.add(Map<String, dynamic>.from(data)));
+      }
+    });
+  }
+
+  Future<void> send() async {
+    final text = input.text.trim();
+    if (text.isEmpty) return;
+    try {
+      final result = await app.api.call('POST', '/api/conversations/${widget.conversation['_id']}/messages', {
+        'text': text,
+        'expiryType': expiry,
+        'expiresInSeconds': expiry == 'AFTER_TIME' ? 3600 : null,
+        'replyTo': reply,
+      });
+      if (!mounted) return;
+      setState(() {
+        messages.add(Map<String, dynamic>.from(result['message']));
+        reply = null;
+      });
+      input.clear();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  @override
+  void dispose() {
+    socket?.dispose();
+    input.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = widget.conversation['type'] == 'group'
+        ? (widget.conversation['title'] ?? 'Group').toString()
+        : 'Chat';
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: Column(children: [
+        Expanded(
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : messages.isEmpty
+                  ? const Empty(icon: Icons.chat_bubble_outline, title: 'Start the conversation', subtitle: 'Send the first message.')
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: messages.length,
+                      itemBuilder: (_, i) {
+                        final message = Map<String, dynamic>.from(messages[i]);
+                        final mine = message['senderId']?.toString() == app.user?['id']?.toString();
+                        final text = message['expiredAt'] != null ? 'This message has expired.' : (message['text'] ?? '[media]').toString();
+                        return GestureDetector(
+                          onLongPress: () => setState(() => reply = message['_id']?.toString()),
+                          child: Align(
+                            alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                            child: Container(
+                              constraints: const BoxConstraints(maxWidth: 330),
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: mine ? Theme.of(context).colorScheme.primaryContainer : Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Text(text),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+        ),
+        if (reply != null)
+          const Padding(padding: EdgeInsets.all(6), child: Align(alignment: Alignment.centerLeft, child: Text('Replying to a message'))),
+        SafeArea(child: Row(children: [
+          PopupMenuButton<String>(
+            onSelected: (value) => setState(() => expiry = value),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'NONE', child: Text('Permanent')),
+              PopupMenuItem(value: 'AFTER_READ', child: Text('After read')),
+              PopupMenuItem(value: 'AFTER_TIME', child: Text('After 1 hour')),
+              PopupMenuItem(value: 'AFTER_REPLY', child: Text('After reply')),
+            ],
+          ),
+          Expanded(child: TextField(controller: input, minLines: 1, maxLines: 5, decoration: const InputDecoration(hintText: 'Write a message…', border: InputBorder.none))),
+          IconButton(onPressed: send, icon: const Icon(Icons.send)),
+        ])),
+      ]),
+    );
+  }
+}
+
 class Profile extends StatefulWidget{const Profile({super.key});@override State<Profile> createState()=>_ProfileState();}
 class _ProfileState extends State<Profile>{late TextEditingController name,phone;bool lastSeen=true,receipts=true,messages=true,mentions=true,memories=true;
  @override void initState(){super.initState();final u=context.read<AppState>().user??{};name=TextEditingController(text:u['name']?.toString()??'');phone=TextEditingController(text:u['phone']?.toString()??'');final p=Map<String,dynamic>.from(u['privacy']??{}),n=Map<String,dynamic>.from(u['notificationPreferences']??{});lastSeen=p['lastSeen']??true;receipts=p['readReceipts']??true;messages=n['messages']??true;mentions=n['mentions']??true;memories=n['memories']??true;}
