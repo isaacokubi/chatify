@@ -1,2 +1,5 @@
-# Database
-MongoDB Atlas collections are User, Conversation, Message and Memory. Notifications can be added as a persisted collection when production FCM is enabled. Indexes cover user text search, conversation participants, message conversationId/createdAt and message expiry.
+# Chatify Database
+
+Core MongoDB collections are users, conversations, messages, memories and notifications. Small relationships such as participants, admins, reactions and read state are embedded where practical.
+
+Important indexes cover user email, conversation participants, message conversation/createdAt and expiry fields, plus memory user/conversation access patterns.
