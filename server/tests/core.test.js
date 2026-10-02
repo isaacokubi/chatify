@@ -1,0 +1,5 @@
+import test from 'node:test'; import assert from 'node:assert/strict';
+const extract=t=>{const a=[];const tm=t.match(/\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s?(AM|PM)\b/i);const pl=t.match(/\b(?:at|in|near)\s+([A-Za-z][A-Za-z\s]{2,50})/i);if(/meet|meeting|appointment|tomorrow|today|monday|tuesday|wednesday|thursday|friday/i.test(t))a.push({type:'EVENT',time:tm?.[0],location:pl?.[1]?.trim()});if(/remember to|todo|task/i.test(t))a.push({type:'TASK'});return a.length?a:[{type:'NOTE'}]};
+test('event extraction',()=>{const x=extract("Meet at the library tomorrow at 2 PM");assert.equal(x[0].type,'EVENT');assert.equal(x[0].time,'2 PM');assert.match(x[0].location,/library/i)});
+test('task extraction',()=>assert.equal(extract('Remember to submit assignment')[0].type,'TASK'));
+test('expiration modes',()=>assert.deepEqual(['NONE','AFTER_READ','AFTER_TIME','AFTER_REPLY'].sort(),['AFTER_READ','AFTER_REPLY','AFTER_TIME','NONE'].sort()));
