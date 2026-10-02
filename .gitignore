@@ -1,0 +1,12 @@
+# secrets
+.env
+.env.*
+!.env.example
+**/node_modules/
+**/.dart_tool/
+**/build/
+**/.gradle/
+*.jks
+*.keystore
+google-services.json
+firebase-service-account*.json
