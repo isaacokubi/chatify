@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {candidate} from '../src/index.js';
+import {candidate} from '../src/memory.js';
 
 test('memory extraction identifies an event with time and place', () => {
   const result = candidate('Meeting tomorrow at 3:30 PM at Nairobi office.');
