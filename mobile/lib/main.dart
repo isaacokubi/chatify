@@ -47,7 +47,34 @@ class _HomeState extends State<Home>{
  Future<void> loadChats()async{setState(()=>loading=true);try{chats=List<dynamic>.from((await app.api.call('GET','/api/conversations'))['conversations']??[]);}catch(_){}if(mounted)setState(()=>loading=false);}
  Future<void> search(String q)async{if(q.trim().length<2){setState(()=>users=[]);return;}try{users=List<dynamic>.from((await app.api.call('GET','/api/users/search?q=${Uri.encodeQueryComponent(q.trim())}'))['users']??[]);if(mounted)setState((){});}catch(_){}}
  Future<void> loadMemories()async{try{memories=List<dynamic>.from((await app.api.call('GET','/api/memories'))['memories']??[]);if(mounted)setState((){});}catch(_){}}
- @override Widget build(BuildContext context){final titles=['Chats','Memories','Contacts','Profile'];return Scaffold(appBar:AppBar(title:Text(titles[tab]),actions:[if(tab==0)IconButton(onPressed:loadChats,icon:const Icon(Icons.refresh)),if(tab==2)IconButton(onPressed:_newGroup,icon:const Icon(Icons.group_add))]),body:IndexedStack(index:tab,children:[_chats(),_memories(),_contacts(),const Profile()]),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(i){setState(()=>tab=i);if(i==0)loadChats();if(i==1)loadMemories();},destinations:const[NavigationDestination(icon:Icon(Icons.chat_bubble_outline),label:'Chats'),NavigationDestination(icon:Icon(Icons.auto_awesome_outlined),label:'Memories'),NavigationDestination(icon:Icon(Icons.people_outline),label:'Contacts'),NavigationDestination(icon:Icon(Icons.person_outline),label:'Profile')])));}
+ @override
+ Widget build(BuildContext context) {
+   final titles = ['Chats', 'Memories', 'Contacts', 'Profile'];
+   return Scaffold(
+     appBar: AppBar(
+       title: Text(titles[tab]),
+       actions: [
+         if (tab == 0) IconButton(onPressed: loadChats, icon: const Icon(Icons.refresh)),
+         if (tab == 2) IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
+       ],
+     ),
+     body: IndexedStack(index: tab, children: [_chats(), _memories(), _contacts(), const Profile()]),
+     bottomNavigationBar: NavigationBar(
+       selectedIndex: tab,
+       onDestinationSelected: (i) {
+         setState(() => tab = i);
+         if (i == 0) loadChats();
+         if (i == 1) loadMemories();
+       },
+       destinations: const [
+         NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Chats'),
+         NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), label: 'Memories'),
+         NavigationDestination(icon: Icon(Icons.people_outline), label: 'Contacts'),
+         NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
+       ],
+     ),
+   );
+ }
  Widget _chats() {
   if (loading) return const Center(child: CircularProgressIndicator());
   if (chats.isEmpty) return const Empty(icon: Icons.forum_outlined, title: 'No conversations', subtitle: 'Search Contacts to start a chat.');
@@ -122,17 +149,49 @@ class _HomeState extends State<Home>{
   );
  }
 
- Future<void> _newGroup()async{final title=TextEditingController(),email=TextEditingController();await showDialog<void>(context:context,builder:(d)=>AlertDialog(title:const Text('Create group'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:title,decoration:const InputDecoration(labelText:'Group name')),TextField(controller:email,decoration:const InputDecoration(labelText:'Member email'))]),actions:[TextButton(onPressed:()=>Navigator.pop(d),child:const Text('Cancel')),FilledButton(onPressed:()async{try{final s=await app.api.call('GET','/api/users/search?q=${Uri.encodeQueryComponent(email.text.trim())}');final found=List<dynamic>.from(s['users']??[]);if(found.isEmpty)throw Exception('Member not found');final x=await app.api.call('POST','/api/conversations/group',{'title':title.text.trim(),'memberIds':[found.first['_id']]});if(d.mounted)Navigator.pop(d);if(mounted)Navigator.push(context,MaterialPageRoute(builder:(_)=>Chat(conversation:Map<String,dynamic>.from(x['conversation']))));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}},child:const Text('Create'))]}));title.dispose();email.dispose();}
+ Future<void> _newGroup() async {
+  final title = TextEditingController();
+  final email = TextEditingController();
+  await showDialog<void>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: const Text('Create group'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(controller: title, decoration: const InputDecoration(labelText: 'Group name')),
+          TextField(controller: email, decoration: const InputDecoration(labelText: 'Member email')),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () async {
+            try {
+              final result = await app.api.call('GET', '/api/users/search?q=${Uri.encodeQueryComponent(email.text.trim())}');
+              final found = List<dynamic>.from(result['users'] ?? []);
+              if (found.isEmpty) throw Exception('Member not found');
+              final created = await app.api.call('POST', '/api/conversations/group', {
+                'title': title.text.trim(),
+                'memberIds': [found.first['_id']],
+              });
+              if (dialog.mounted) Navigator.pop(dialog);
+              if (!mounted) return;
+              Navigator.push(context, MaterialPageRoute(
+                builder: (_) => Chat(conversation: Map<String, dynamic>.from(created['conversation'])),
+              ));
+            } catch (error) {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+            }
+          },
+          child: const Text('Create'),
+        ),
+      ],
+    ),
+  );
+  title.dispose();
+  email.dispose();
 }
-class Empty extends StatelessWidget{final IconData icon;final String title,subtitle;const Empty({super.key,required this.icon,required this.title,required this.subtitle});@override Widget build(BuildContext c)=>Center(child:Padding(padding:const EdgeInsets.all(30),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(icon,size:60),const SizedBox(height:12),Text(title,style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(subtitle,textAlign:TextAlign.center)])));}
-class Chat extends StatefulWidget{final Map<String,dynamic> conversation;const Chat({super.key,required this.conversation});@override State<Chat> createState()=>_ChatState();}
-class _ChatState extends State<Chat>{final input=TextEditingController();List<dynamic> messages=[];String expiry='NONE';String? reply;io.Socket? socket;bool loading=true;AppState get app=>context.read<AppState>();
- @override void initState(){super.initState();load();connect();}
- Future<void> load()async{try{messages=List<dynamic>.from((await app.api.call('GET','/api/conversations/${widget.conversation['_id']}/messages'))['messages']??[]);}catch(_){}if(mounted)setState(()=>loading=false);}
- void connect(){socket=io.io(app.api.base,io.OptionBuilder().setTransports(['websocket']).setAuth({'token':app.api.token}).disableAutoConnect().build());socket!.connect();socket!.onConnect((_)=>socket!.emit('conversation:join',widget.conversation['_id']));socket!.on('message:new',(x){if(mounted&&x is Map&&x['conversationId']?.toString()==widget.conversation['_id']?.toString())setState(()=>messages.add(Map<String,dynamic>.from(x)));});}
- Future<void> send()async{final text=input.text.trim();if(text.isEmpty)return;try{final d=await app.api.call('POST','/api/conversations/${widget.conversation['_id']}/messages',{'text':text,'expiryType':expiry,'expiresInSeconds':expiry=='AFTER_TIME'?3600:null,'replyTo':reply});if(mounted){setState((){messages.add(d['message']);reply=null;});input.clear();}}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
- @override void dispose(){socket?.dispose();input.dispose();super.dispose();}
- @override Widget build(BuildContext context){final title=widget.conversation['type']=='group'?(widget.conversation['title']??'Group').toString():'Chat';return Scaffold(appBar:AppBar(title:Text(title)),body:Column(children:[Expanded(child:loading?const Center(child:CircularProgressIndicator()):ListView.builder(padding:const EdgeInsets.all(12),itemCount:messages.length,itemBuilder:(_,i){final m=Map<String,dynamic>.from(messages[i]);final mine=m['senderId']?.toString()==app.user?['id']?.toString();return GestureDetector(onLongPress:()=>setState(()=>reply=m['_id']?.toString()),child:Align(alignment:mine?Alignment.centerRight:Alignment.centerLeft,child:Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.all(12),constraints:const BoxConstraints(maxWidth:330),decoration:BoxDecoration(color:mine?Theme.of(context).colorScheme.primaryContainer:Colors.white,borderRadius:BorderRadius.circular(16)),child:Text(m['expiredAt']!=null?'This message has expired.':m['text']?.toString()??'[media]'))));})),if(reply!=null)const Padding(padding:EdgeInsets.all(6),child:Align(alignment:Alignment.centerLeft,child:Text('Replying to a message'))),SafeArea(child:Row(children:[PopupMenuButton<String>(onSelected:(v)=>setState(()=>expiry=v),itemBuilder:(_)=>const[PopupMenuItem(value:'NONE',child:Text('Permanent')),PopupMenuItem(value:'AFTER_READ',child:Text('After read')),PopupMenuItem(value:'AFTER_TIME',child:Text('After 1 hour')),PopupMenuItem(value:'AFTER_REPLY',child:Text('After reply'))]),Expanded(child:TextField(controller:input,minLines:1,maxLines:5,decoration:const InputDecoration(hintText:'Write a message…',border:InputBorder.none))),IconButton(onPressed:send,icon:const Icon(Icons.send))]))]));}
 }
 class Profile extends StatefulWidget{const Profile({super.key});@override State<Profile> createState()=>_ProfileState();}
 class _ProfileState extends State<Profile>{late TextEditingController name,phone;bool lastSeen=true,receipts=true,messages=true,mentions=true,memories=true;
