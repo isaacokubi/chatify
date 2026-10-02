@@ -12,10 +12,10 @@ class Api {
   Future<Map<String,dynamic>> call(String method,String path,[Map<String,dynamic>? body]) async {
     final h={'Content-Type':'application/json',if(token!=null)'Authorization':'Bearer $token'};
     final u=Uri.parse('$base$path'); late http.Response r;
-    if(method=='POST') r=await http.post(u,headers:h,body:jsonEncode(body??{}));
-    else if(method=='PATCH') r=await http.patch(u,headers:h,body:jsonEncode(body??{}));
-    else if(method=='DELETE') r=await http.delete(u,headers:h);
-    else r=await http.get(u,headers:h);
+    if (method == 'POST') { r = await http.post(u, headers: h, body: jsonEncode(body ?? {})); }
+    else if (method == 'PATCH') { r = await http.patch(u, headers: h, body: jsonEncode(body ?? {})); }
+    else if (method == 'DELETE') { r = await http.delete(u, headers: h); }
+    else { r = await http.get(u, headers: h); }
     final d=r.body.isEmpty?<String,dynamic>{}:jsonDecode(r.body);
     if(r.statusCode>=400) throw Exception(d is Map&&d['error']!=null?d['error']:'Request failed');
     return d is Map?Map<String,dynamic>.from(d):{'data':d};
@@ -350,5 +350,21 @@ class Profile extends StatefulWidget{const Profile({super.key});@override State<
 class _ProfileState extends State<Profile>{late TextEditingController name,phone;bool lastSeen=true,receipts=true,messages=true,mentions=true,memories=true;
  @override void initState(){super.initState();final u=context.read<AppState>().user??{};name=TextEditingController(text:u['name']?.toString()??'');phone=TextEditingController(text:u['phone']?.toString()??'');final p=Map<String,dynamic>.from(u['privacy']??{}),n=Map<String,dynamic>.from(u['notificationPreferences']??{});lastSeen=p['lastSeen']??true;receipts=p['readReceipts']??true;messages=n['messages']??true;mentions=n['mentions']??true;memories=n['memories']??true;}
  @override void dispose(){name.dispose();phone.dispose();super.dispose();}
- Future<void> save()async{try{final d=await context.read<AppState>().api.call('PATCH','/api/users/me',{'name':name.text.trim(),'phone':phone.text.trim(),'privacy':{'lastSeen':lastSeen,'readReceipts':receipts},'notificationPreferences':{'messages':messages,'mentions':mentions,'memories':memories}});context.read<AppState>().user=Map<String,dynamic>.from(d['user']);if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Profile saved')));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}}
+ Future<void> save() async {
+  final api = context.read<AppState>().api;
+  try {
+    final d = await api.call('PATCH', '/api/users/me', {
+      'name': name.text.trim(),
+      'phone': phone.text.trim(),
+      'privacy': {'lastSeen': lastSeen, 'readReceipts': receipts},
+      'notificationPreferences': {'messages': messages, 'mentions': mentions, 'memories': memories},
+    });
+    if (!mounted) return;
+    context.read<AppState>().user = Map<String, dynamic>.from(d['user']);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile saved')));
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+  }
+}
  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(18),children:[TextField(controller:name,decoration:const InputDecoration(labelText:'Name',border:OutlineInputBorder())),const SizedBox(height:12),TextField(controller:phone,decoration:const InputDecoration(labelText:'Phone',border:OutlineInputBorder())),const SizedBox(height:18),const Text('Privacy',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),SwitchListTile(value:lastSeen,onChanged:(v)=>setState(()=>lastSeen=v),title:const Text('Show last seen')),SwitchListTile(value:receipts,onChanged:(v)=>setState(()=>receipts=v),title:const Text('Read receipts')),const Text('Notifications',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),SwitchListTile(value:messages,onChanged:(v)=>setState(()=>messages=v),title:const Text('New messages')),SwitchListTile(value:mentions,onChanged:(v)=>setState(()=>mentions=v),title:const Text('Mentions')),SwitchListTile(value:memories,onChanged:(v)=>setState(()=>memories=v),title:const Text('Memory suggestions')),FilledButton(onPressed:save,child:const Text('Save changes')),TextButton(onPressed:()=>context.read<AppState>().logout(),child:const Text('Sign out'))]);}
