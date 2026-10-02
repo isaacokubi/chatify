@@ -254,7 +254,11 @@ class _ChatState extends State<Chat> {
     socket!.on('message:new', (data) {
       if (!mounted || data is! Map) return;
       if (data['conversationId']?.toString() == widget.conversation['_id']?.toString()) {
-        setState(() => messages.add(Map<String, dynamic>.from(data)));
+        final incoming = Map<String, dynamic>.from(data);
+        final id = incoming['_id']?.toString();
+        if (id == null || !messages.any((item) => item is Map && item['_id']?.toString() == id)) {
+          setState(() => messages.add(incoming));
+        }
       }
     });
   }
@@ -292,8 +296,93 @@ class _ChatState extends State<Chat> {
     final title = widget.conversation['type'] == 'group'
         ? (widget.conversation['title'] ?? 'Group').toString()
         : 'Chat';
+    Future<void> extractMemory() async {
+    try {
+      final result = await app.api.call('POST', '/api/memories/extract', {'text': input.text.trim()});
+      final candidates = List<dynamic>.from(result['candidates'] ?? []);
+      if (!mounted) return;
+      if (candidates.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No memory candidate found.')));
+        return;
+      }
+      final selected = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: const Text('Save a memory'),
+          content: SizedBox(
+            width: 420,
+            child: ListView(
+              shrinkWrap: true,
+              children: candidates.map((raw) {
+                final item = Map<String, dynamic>.from(raw);
+                return ListTile(
+                  leading: const Icon(Icons.auto_awesome),
+                  title: Text(item['title']?.toString() ?? 'Memory'),
+                  subtitle: Text(item['description']?.toString() ?? ''),
+                  onTap: () => Navigator.pop(dialog, item),
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Cancel'))],
+        ),
+      );
+      if (selected == null) return;
+      await app.api.call('POST', '/api/memories', {
+        ...selected,
+        'conversationId': widget.conversation['_id'],
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Memory saved')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> reactTo(String messageId, String emoji) async {
+    try {
+      final result = await app.api.call('POST', '/api/messages/$messageId/reactions', {'emoji': emoji});
+      final updated = Map<String, dynamic>.from(result['message']);
+      final index = messages.indexWhere((item) => item is Map && item['_id']?.toString() == messageId);
+      if (index >= 0 && mounted) setState(() => messages[index] = updated);
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> showMessageActions(Map<String, dynamic> message) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(leading: const Icon(Icons.reply), title: const Text('Reply'), onTap: () => Navigator.pop(sheet, 'reply')),
+            ListTile(leading: const Text('❤️', style: TextStyle(fontSize: 22)), title: const Text('React with ❤️'), onTap: () => Navigator.pop(sheet, '❤️')),
+            ListTile(leading: const Text('👍', style: TextStyle(fontSize: 22)), title: const Text('React with 👍'), onTap: () => Navigator.pop(sheet, '👍')),
+            ListTile(leading: const Text('😂', style: TextStyle(fontSize: 22)), title: const Text('React with 😂'), onTap: () => Navigator.pop(sheet, '😂')),
+          ],
+        ),
+      ),
+    );
+    if (action == null) return;
+    if (action == 'reply') {
+      setState(() => reply = message['_id']?.toString());
+    } else if (message['_id'] != null) {
+      await reactTo(message['_id'].toString(), action);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = widget.conversation['type'] == 'group'
+        ? (widget.conversation['title'] ?? 'Group').toString()
+        : 'Chat';
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          IconButton(onPressed: extractMemory, tooltip: 'Save memory', icon: const Icon(Icons.auto_awesome)),
+        ],
+      ),
       body: Column(children: [
         Expanded(
           child: loading
@@ -308,7 +397,7 @@ class _ChatState extends State<Chat> {
                         final mine = message['senderId']?.toString() == app.user?['id']?.toString();
                         final text = message['expiredAt'] != null ? 'This message has expired.' : (message['text'] ?? '[media]').toString();
                         return GestureDetector(
-                          onLongPress: () => setState(() => reply = message['_id']?.toString()),
+                          onLongPress: () => showMessageActions(message),
                           child: Align(
                             alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
                             child: Container(
