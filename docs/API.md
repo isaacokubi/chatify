@@ -1,10 +1,15 @@
-# API
-Health: GET /health
+# Chatify API
 
-Auth: POST /api/auth/register, POST /api/auth/login, GET /api/auth/me
-Users: GET /api/users/search?q=..., PATCH /api/users/me
-Conversations: GET /api/conversations, POST /api/conversations/direct, POST /api/conversations/group, POST/DELETE /api/conversations/:id/members
-Messages: GET/POST /api/conversations/:id/messages, POST /api/messages/:id/reactions, POST /api/messages/:id/read
-Memories: GET/POST /api/memories, POST /api/memories/extract, PATCH/DELETE /api/memories/:id
+Authentication: POST `/api/auth/register`, POST `/api/auth/login`.
 
-Socket events include conversation:join, message:new, message:read, message:reaction, typing:start and typing:stop.
+Users: GET `/api/users/search?q=...`.
+
+Conversations: GET `/api/conversations`, POST `/api/conversations/direct`, POST `/api/conversations/group`.
+
+Messages: GET `/api/conversations/:id/messages`, POST `/api/conversations/:id/messages`.
+
+Memories: POST `/api/memories/extract`, POST `/api/memories`, GET `/api/memories`.
+
+Protected endpoints require `Authorization: Bearer <JWT>`. Server-side membership and ownership checks are authoritative.
+
+Socket events include `message:new`, `message:read`, `message:reaction`, `message:deleted`, `message:expired`, `typing:start`, `typing:stop`, `user:online`, `user:offline`, and `conversation:updated`.
