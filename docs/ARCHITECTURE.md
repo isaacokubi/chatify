@@ -1,4 +1,9 @@
-# Architecture
-Flutter is the mobile client. Express exposes REST APIs. Socket.IO carries transient real-time events. MongoDB Atlas persists users, conversations, messages and memories. JWT is verified by both HTTP middleware and the socket handshake.
+# Chatify Architecture
 
-The project deliberately keeps domain rules simple enough for a final-year defense. Memory extraction is deterministic and local: regular expressions identify event, task, payment and place candidates. Message expiration is an application-level lifecycle rule, not cryptographic secure deletion.
+Chatify uses a practical client/server architecture. Flutter renders the mobile experience and calls a REST API for durable operations. Socket.IO supplies transient real-time events. Express middleware authenticates requests, controllers/services apply business rules, and Mongoose persists MongoDB Atlas data.
+
+Flutter → REST/Socket.IO → Express → services/models → MongoDB Atlas.
+
+Message → deterministic memory extraction → user confirmation → Memory Card. Message → expiry policy → server processing → hidden/removed message.
+
+Cloudinary, FCM, SMTP and optional AI services are isolated behind provider boundaries so core development does not depend on production credentials.
