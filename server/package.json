@@ -7,8 +7,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node --test",
-    "lint": "eslint src --ext .js --no-ignore || true",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "lint": "node --check src/index.js && node --check src/seed.js && node --check src/providers.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
