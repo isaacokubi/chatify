@@ -48,9 +48,80 @@ class _HomeState extends State<Home>{
  Future<void> search(String q)async{if(q.trim().length<2){setState(()=>users=[]);return;}try{users=List<dynamic>.from((await app.api.call('GET','/api/users/search?q=${Uri.encodeQueryComponent(q.trim())}'))['users']??[]);if(mounted)setState((){});}catch(_){}}
  Future<void> loadMemories()async{try{memories=List<dynamic>.from((await app.api.call('GET','/api/memories'))['memories']??[]);if(mounted)setState((){});}catch(_){}}
  @override Widget build(BuildContext context){final titles=['Chats','Memories','Contacts','Profile'];return Scaffold(appBar:AppBar(title:Text(titles[tab]),actions:[if(tab==0)IconButton(onPressed:loadChats,icon:const Icon(Icons.refresh)),if(tab==2)IconButton(onPressed:_newGroup,icon:const Icon(Icons.group_add))]),body:IndexedStack(index:tab,children:[_chats(),_memories(),_contacts(),const Profile()]),bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(i){setState(()=>tab=i);if(i==0)loadChats();if(i==1)loadMemories();},destinations:const[NavigationDestination(icon:Icon(Icons.chat_bubble_outline),label:'Chats'),NavigationDestination(icon:Icon(Icons.auto_awesome_outlined),label:'Memories'),NavigationDestination(icon:Icon(Icons.people_outline),label:'Contacts'),NavigationDestination(icon:Icon(Icons.person_outline),label:'Profile')])));}
- Widget _chats(){if(loading)return const Center(child:CircularProgressIndicator());if(chats.isEmpty)return const Empty(icon:Icons.forum_outlined,title:'No conversations',subtitle:'Search Contacts to start a chat.');return RefreshIndicator(onRefresh:loadChats,child:ListView.builder(itemCount:chats.length,itemBuilder:(_,i){final c=Map<String,dynamic>.from(chats[i]);final ps=List<dynamic>.from(c['participants']??[]);final me=app.user?['id'].toString();Map<String,dynamic>? other;for(final x in ps){final u=Map<String,dynamic>.from(x);if(u['_id']?.toString()!=me){other=u;break;}}final title=c['type']=='group'?(c['title']??'Group').toString():(other?['name']??'Chat').toString();return ListTile(leading:CircleAvatar(child:Text(title.isEmpty?'?':title[0].toUpperCase())),title:Text(title),subtitle:Text(c['lastMessage']?['text']?.toString()??'Start chatting'),onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>Chat(conversation:c))).then((_)=>loadChats()));}));}
- Widget _contacts()=>Column(children:[Padding(padding:const EdgeInsets.all(16),child:TextField(onChanged:search,decoration:const InputDecoration(labelText:'Search people',prefixIcon:Icon(Icons.search),border:OutlineInputBorder()))),Expanded(child:users.isEmpty?const Empty(icon:Icons.person_search,title:'Find people',subtitle:'Search by name or email.'):ListView.builder(itemCount:users.length,itemBuilder:(_,i){final u=Map<String,dynamic>.from(users[i]);final name=u['name']?.toString()??'User';return ListTile(leading:CircleAvatar(child:Text(name[0].toUpperCase())),title:Text(name),subtitle:Text(u['email']?.toString()??''),onTap:()async{try{final d=await app.api.call('POST','/api/conversations/direct',{'userId':u['_id']});if(mounted)Navigator.push(context,MaterialPageRoute(builder:(_)=>Chat(conversation:Map<String,dynamic>.from(d['conversation']))));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}});})))]);
- Widget _memories(){if(memories.isEmpty)return const Empty(icon:Icons.auto_awesome,title:'No memories saved',subtitle:'Save useful events, tasks, places and payments.');return ListView.builder(padding:const EdgeInsets.all(12),itemCount:memories.length,itemBuilder:(_,i){final m=Map<String,dynamic>.from(memories[i]);return Dismissible(key:ValueKey(m['_id']),direction:DismissDirection.endToStart,onDismissed:(_){app.api.call('DELETE','/api/memories/${m['_id']}');},background:Container(alignment:Alignment.centerRight,padding:const EdgeInsets.only(right:20),child:const Icon(Icons.delete_outline)),child:Card(child:ListTile(title:Text(m['title']?.toString()??'Memory'),subtitle:Text(m['description']?.toString()??''))));});}
+ Widget _chats() {
+  if (loading) return const Center(child: CircularProgressIndicator());
+  if (chats.isEmpty) return const Empty(icon: Icons.forum_outlined, title: 'No conversations', subtitle: 'Search Contacts to start a chat.');
+  return RefreshIndicator(
+    onRefresh: loadChats,
+    child: ListView.builder(
+      itemCount: chats.length,
+      itemBuilder: (_, i) {
+        final c = Map<String, dynamic>.from(chats[i]);
+        final ps = List<dynamic>.from(c['participants'] ?? []);
+        final me = app.user?['id']?.toString();
+        Map<String, dynamic>? other;
+        for (final raw in ps) {
+          final person = Map<String, dynamic>.from(raw);
+          if (person['_id']?.toString() != me) { other = person; break; }
+        }
+        final title = c['type'] == 'group' ? (c['title'] ?? 'Group').toString() : (other?['name'] ?? 'Chat').toString();
+        final last = c['lastMessage'];
+        final preview = last is Map ? (last['text'] ?? 'Start chatting').toString() : 'Start chatting';
+        return ListTile(
+          leading: CircleAvatar(child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
+          title: Text(title),
+          subtitle: Text(preview),
+          onTap: () { Navigator.push(context, MaterialPageRoute(builder: (_) => Chat(conversation: c))).then((_) => loadChats()); },
+        );
+      },
+    ),
+  );
+ }
+
+ Widget _contacts() {
+  return Column(children: [
+    Padding(padding: const EdgeInsets.all(16), child: TextField(onChanged: search, decoration: const InputDecoration(labelText: 'Search people', prefixIcon: Icon(Icons.search), border: OutlineInputBorder()))),
+    Expanded(child: users.isEmpty
+      ? const Empty(icon: Icons.person_search, title: 'Find people', subtitle: 'Search by name or email.')
+      : ListView.builder(itemCount: users.length, itemBuilder: (_, i) {
+          final u = Map<String, dynamic>.from(users[i]);
+          final displayName = u['name']?.toString() ?? 'User';
+          return ListTile(
+            leading: CircleAvatar(child: Text(displayName.isEmpty ? '?' : displayName[0].toUpperCase())),
+            title: Text(displayName),
+            subtitle: Text(u['email']?.toString() ?? ''),
+            onTap: () async {
+              try {
+                final d = await app.api.call('POST', '/api/conversations/direct', {'userId': u['_id']});
+                if (!mounted) return;
+                Navigator.push(context, MaterialPageRoute(builder: (_) => Chat(conversation: Map<String, dynamic>.from(d['conversation']))));
+              } catch (error) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+              }
+            },
+          );
+        })),
+  ]);
+ }
+
+ Widget _memories() {
+  if (memories.isEmpty) return const Empty(icon: Icons.auto_awesome, title: 'No memories saved', subtitle: 'Save useful events, tasks, places and payments.');
+  return ListView.builder(
+    padding: const EdgeInsets.all(12),
+    itemCount: memories.length,
+    itemBuilder: (_, i) {
+      final memory = Map<String, dynamic>.from(memories[i]);
+      return Dismissible(
+        key: ValueKey(memory['_id']),
+        direction: DismissDirection.endToStart,
+        background: Container(alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 20), child: const Icon(Icons.delete_outline)),
+        onDismissed: (_) async { try { await app.api.call('DELETE', '/api/memories/${memory['_id']}'); } catch (_) {} },
+        child: Card(child: ListTile(title: Text(memory['title']?.toString() ?? 'Memory'), subtitle: Text(memory['description']?.toString() ?? ''))),
+      );
+    },
+  );
+ }
+
  Future<void> _newGroup()async{final title=TextEditingController(),email=TextEditingController();await showDialog<void>(context:context,builder:(d)=>AlertDialog(title:const Text('Create group'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:title,decoration:const InputDecoration(labelText:'Group name')),TextField(controller:email,decoration:const InputDecoration(labelText:'Member email'))]),actions:[TextButton(onPressed:()=>Navigator.pop(d),child:const Text('Cancel')),FilledButton(onPressed:()async{try{final s=await app.api.call('GET','/api/users/search?q=${Uri.encodeQueryComponent(email.text.trim())}');final found=List<dynamic>.from(s['users']??[]);if(found.isEmpty)throw Exception('Member not found');final x=await app.api.call('POST','/api/conversations/group',{'title':title.text.trim(),'memberIds':[found.first['_id']]});if(d.mounted)Navigator.pop(d);if(mounted)Navigator.push(context,MaterialPageRoute(builder:(_)=>Chat(conversation:Map<String,dynamic>.from(x['conversation']))));}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));}},child:const Text('Create'))]}));title.dispose();email.dispose();}
 }
 class Empty extends StatelessWidget{final IconData icon;final String title,subtitle;const Empty({super.key,required this.icon,required this.title,required this.subtitle});@override Widget build(BuildContext c)=>Center(child:Padding(padding:const EdgeInsets.all(30),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(icon,size:60),const SizedBox(height:12),Text(title,style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),Text(subtitle,textAlign:TextAlign.center)])));}
