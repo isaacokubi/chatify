@@ -871,8 +871,14 @@ class _ChatState extends State<Chat> {
         'replyTo': reply,
       });
       if (!mounted) return;
+      final sent = Map<String, dynamic>.from(result['message']);
+      final sentId = sent['_id']?.toString();
       setState(() {
-        messages.add(Map<String, dynamic>.from(result['message']));
+        if (sentId == null ||
+            !messages.any(
+                (item) => item is Map && item['_id']?.toString() == sentId)) {
+          messages.add(sent);
+        }
         reply = null;
       });
       input.clear();
