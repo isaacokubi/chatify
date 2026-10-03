@@ -30,13 +30,15 @@ flutter analyze
 flutter test
 flutter build apk
 ```
-The sample Android-emulator API address is http://10.0.2.2:5000. For a physical device, change the API base URL in mobile/lib/main.dart to the development computer's LAN address.
+The sample Android-emulator API address is http://10.0.2.2:5000. Set a different API address at build/run time with `--dart-define=CHATIFY_API=https://your-api.example`; a physical device must use a reachable development LAN address.
 
 ## Demo
 Register Alice and Brian. From Contacts search for the other account and start a direct conversation. Send: “Let's meet at the library tomorrow at 2 PM to discuss the project.” Use the sparkle action to extract and save the candidate, then open Memories. Send another message and choose Delete after reading, Delete after 1 hour, or Delete after reply.
 
 ## Production providers
-MongoDB Atlas is supported directly through configuration. Cloudinary, Firebase/FCM, email/SMTP and optional AI providers are credential-dependent production integrations and are not hardcoded.
+MongoDB Atlas is supported directly through configuration. Storage, Firebase/FCM notifications, email/SMTP password reset delivery and optional AI services sit behind provider interfaces. The local storage/notification/email implementations are mocks; configure real adapters and credentials before production. The reset API is usable once an email delivery adapter is injected.
+
+For a local demo without an email service, the development email provider prints the one-time reset token to the server console. Set a persistent `JWT_SECRET` in the local environment if demo sessions must survive server restarts; production refuses to start without a 32-character secret.
 
 ## Security
 Passwords are bcrypt-hashed. JWTs protect REST and Socket.IO. Server-side membership/admin checks protect conversations and groups. Helmet, CORS and rate limiting are enabled. Secrets are excluded by Git ignore rules. Message expiration is application-level removal/hiding and is not cryptographic secure deletion.
