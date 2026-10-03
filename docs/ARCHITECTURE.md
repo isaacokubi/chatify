@@ -6,4 +6,4 @@ Flutter → REST/Socket.IO → Express → services/models → MongoDB Atlas.
 
 Message → deterministic memory extraction → user confirmation → Memory Card. Message → expiry policy → server processing → hidden/removed message.
 
-Cloudinary, FCM, SMTP and optional AI services are isolated behind provider boundaries so core development does not depend on production credentials.
+SMTP, Cloudinary, and Firebase Admin/FCM have production adapters isolated behind provider boundaries. Development mocks remain available without provider credentials. FCM tokens are registered through authenticated API routes; Flutter-side permission/token registration remains to be connected.
