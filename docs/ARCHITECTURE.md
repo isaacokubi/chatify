@@ -1,6 +1,6 @@
 # Chatify Architecture
 
-Chatify uses a practical client/server architecture. Flutter renders the mobile experience and calls a REST API for durable operations. Socket.IO supplies transient real-time events. Express middleware authenticates requests, controllers/services apply business rules, and Mongoose persists MongoDB Atlas data.
+Chatify uses a practical client/server architecture. Flutter renders the mobile experience and calls a REST API for durable operations. Socket.IO supplies transient real-time events. Express middleware authenticates requests, route handlers apply business rules, and Mongoose persists MongoDB Atlas data.
 
 Flutter → REST/Socket.IO → Express → services/models → MongoDB Atlas.
 
