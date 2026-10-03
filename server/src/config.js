@@ -1,3 +1,11 @@
+export function resolveNodeEnv(value) {
+  const environment = typeof value === 'string' ? value.trim() : '';
+  if (!['development', 'test', 'production'].includes(environment)) {
+    throw new Error('NODE_ENV must be explicitly set to development, test, or production');
+  }
+  return environment;
+}
+
 export function resolveClientOrigins(value, production = false) {
   const configured = typeof value === 'string' ? value.trim() : '';
   if (!production && (!configured || configured === '*')) {

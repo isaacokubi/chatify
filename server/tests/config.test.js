@@ -1,9 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {corsOriginCallback,resolveClientOrigins} from '../src/config.js';
+import {corsOriginCallback,resolveClientOrigins,resolveNodeEnv} from '../src/config.js';
 
 const isAllowed = (configuration, origin) => new Promise((resolve,reject) => {
   corsOriginCallback(configuration)(origin,(error,allowed) => error ? reject(error) : resolve(Boolean(allowed)));
+});
+
+test('runtime environment must be explicit and supported', () => {
+  assert.equal(resolveNodeEnv('production'), 'production');
+  assert.equal(resolveNodeEnv('development'), 'development');
+  assert.equal(resolveNodeEnv('test'), 'test');
+  assert.throws(() => resolveNodeEnv(undefined), /explicitly set/);
+  assert.throws(() => resolveNodeEnv('staging'), /explicitly set/);
 });
 
 test('development can retain wildcard CORS for local Flutter web use', async () => {

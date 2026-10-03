@@ -1,9 +1,10 @@
 import 'dotenv/config';
 import {randomBytes} from 'node:crypto';
-import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword} from './lifecycle.js';
+import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback,resolveNodeEnv} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword} from './lifecycle.js';
+const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
 const configuredJwt=process.env.JWT_SECRET?.trim();
-if(process.env.NODE_ENV==='production'&&(!configuredJwt||configuredJwt.length<32))throw new Error('Production requires JWT_SECRET with at least 32 characters');
-const production=process.env.NODE_ENV==='production';
+if(nodeEnv==='production'&&(!configuredJwt||configuredJwt.length<32))throw new Error('Production requires JWT_SECRET with at least 32 characters');
+const production=nodeEnv==='production';
 const env={port:+(process.env.PORT||5000),mongo:process.env.MONGODB_URI||'',jwt:configuredJwt||randomBytes(32).toString('hex'),jwtExpiresIn:process.env.JWT_EXPIRES_IN?.trim()||'7d',origin:process.env.CLIENT_ORIGIN||process.env.CLIENT_ORIGINS||process.env.CLIENT_URL||'*'};
 const origins=resolveClientOrigins(env.origin,production);
 if(production&&origins.origins.size===0)console.warn('CLIENT_ORIGIN is not configured; browser origins are denied.');

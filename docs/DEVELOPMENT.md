@@ -24,7 +24,7 @@ Set these as private Render environment variables. Never put real values in Git,
 
 | Variable | Production requirement |
 | --- | --- |
-| `NODE_ENV` | `production` |
+| `NODE_ENV` | Explicitly set to `production`; the server refuses to start if this is missing or unsupported |
 | `PORT` | Leave to Render's assigned port |
 | `MONGODB_URI` | MongoDB Atlas connection URI with least-privilege credentials |
 | `JWT_SECRET` | Existing strong secret, at least 32 characters; do not rotate as part of routine setup |
