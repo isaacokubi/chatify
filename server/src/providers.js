@@ -1,4 +1,7 @@
 export function createStorageProvider(config={}){
+  if (config.production && !config.cloudinaryUrl) {
+    return {name:'unavailable',upload:async()=>{throw new Error('Image storage is not configured');}};
+  }
   // The mock intentionally returns a data URL so the full image flow can be
   // demonstrated without storing user uploads or requiring credentials.
   return config.cloudinaryUrl

@@ -6,7 +6,17 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
+class ApiException implements Exception {
+  final int statusCode;
+  final String message;
+  const ApiException(this.statusCode, this.message);
+  @override
+  String toString() => message;
+}
+
 class Api {
+  final http.Client client;
+  Api({http.Client? client}) : client = client ?? http.Client();
   String get base => const String.fromEnvironment('CHATIFY_API',
       defaultValue: 'http://10.0.2.2:5000');
   String? token;
@@ -23,42 +33,76 @@ class Api {
     final u = Uri.parse('$base$path');
     late http.Response r;
     if (method == 'POST') {
-      r = await http
+      r = await client
           .post(u, headers: h, body: jsonEncode(body ?? {}))
           .timeout(const Duration(seconds: 20));
     } else if (method == 'PATCH') {
-      r = await http
+      r = await client
           .patch(u, headers: h, body: jsonEncode(body ?? {}))
           .timeout(const Duration(seconds: 20));
     } else if (method == 'DELETE') {
-      r = await http.delete(u, headers: h).timeout(const Duration(seconds: 20));
+      r = await client.delete(u, headers: h).timeout(const Duration(seconds: 20));
     } else {
-      r = await http.get(u, headers: h).timeout(const Duration(seconds: 20));
+      r = await client.get(u, headers: h).timeout(const Duration(seconds: 20));
     }
     final d = r.body.isEmpty ? <String, dynamic>{} : jsonDecode(r.body);
     if (r.statusCode >= 400) {
-      throw Exception(
+      throw ApiException(r.statusCode,
           d is Map && d['error'] != null ? d['error'] : 'Request failed');
     }
     return d is Map ? Map<String, dynamic>.from(d) : {'data': d};
   }
 }
 
+List<dynamic> mergeMessages(List<dynamic> current, List<dynamic> fetched) {
+  final merged = <dynamic>[];
+  final indices = <String, int>{};
+  for (final message in [...current, ...fetched]) {
+    if (message is! Map || message['_id'] == null) {
+      merged.add(message);
+      continue;
+    }
+    final id = message['_id'].toString();
+    final index = indices[id];
+    if (index == null) {
+      indices[id] = merged.length;
+      merged.add(message);
+    } else {
+      merged[index] = message;
+    }
+  }
+  merged.sort((a, b) {
+    if (a is! Map || b is! Map) return 0;
+    final aDate = DateTime.tryParse(a['createdAt']?.toString() ?? '');
+    final bDate = DateTime.tryParse(b['createdAt']?.toString() ?? '');
+    if (aDate == null || bDate == null) return 0;
+    return aDate.compareTo(bDate);
+  });
+  return merged;
+}
+
 class AppState extends ChangeNotifier {
-  final api = Api();
+  final Api api;
   bool ready = false;
   Map<String, dynamic>? user;
-  AppState() {
-    init();
+  String? restoreError;
+  AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
+    if (autoInit) init();
   }
   Future<void> init() async {
+    ready = false;
+    restoreError = null;
     await api.restore();
     if (api.token != null) {
       try {
         user = Map<String, dynamic>.from(
             (await api.call('GET', '/api/auth/me'))['user']);
-      } catch (_) {
-        await logout();
+      } catch (error) {
+        if (error is ApiException && error.statusCode == 401) {
+          await logout();
+        } else {
+          restoreError = error.toString();
+        }
       }
     }
     ready = true;
@@ -87,6 +131,7 @@ class AppState extends ChangeNotifier {
   Future<void> logout() async {
     api.token = null;
     user = null;
+    restoreError = null;
     await (await SharedPreferences.getInstance()).remove('token');
     notifyListeners();
   }
@@ -104,12 +149,30 @@ class ChatifyApp extends StatelessWidget {
       theme: ThemeData(
           useMaterial3: true, colorSchemeSeed: const Color(0xFF6558D3)),
       home: Consumer<AppState>(
-          builder: (_, a, __) => (a.ready && a.user != null)
-              ? const Home()
-              : a.ready
-                  ? const Auth()
-                  : const Scaffold(
-                      body: Center(child: CircularProgressIndicator()))));
+          builder: (_, a, __) => !a.ready
+              ? const Scaffold(
+                  body: Center(child: CircularProgressIndicator()))
+              : a.restoreError != null
+                  ? Scaffold(
+                      body: Center(
+                          child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('Could not restore your session.'),
+                            const SizedBox(height: 12),
+                            Text(a.restoreError!,
+                                textAlign: TextAlign.center),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                                onPressed: a.init,
+                                child: const Text('Retry'))
+                          ]),
+                    )))
+                  : a.user != null
+                      ? const Home()
+                      : const Auth()));
 }
 
 class Auth extends StatefulWidget {
@@ -752,8 +815,11 @@ class _ChatState extends State<Chat> {
           .addAll(Map<String, dynamic>.from(detail['conversation']));
       final result = await app.api.call(
           'GET', '/api/conversations/${widget.conversation['_id']}/messages');
-      messages = List<dynamic>.from(result['messages'] ?? []);
-      for (final item in messages) {
+      final fetched = List<dynamic>.from(result['messages'] ?? []);
+      if (mounted) {
+        setState(() => messages = mergeMessages(messages, fetched));
+      }
+      for (final item in fetched) {
         if (item is Map &&
             item['senderId']?.toString() != app.user?['id']?.toString()) {
           markReceived(item['_id'].toString());
@@ -972,8 +1038,15 @@ class _ChatState extends State<Chat> {
         'expiryType': expiry
       });
       if (mounted) {
-        setState(
-            () => messages.add(Map<String, dynamic>.from(sent['message'])));
+        final message = Map<String, dynamic>.from(sent['message']);
+        final id = message['_id']?.toString();
+        setState(() {
+          if (id == null ||
+              !messages.any((item) =>
+                  item is Map && item['_id']?.toString() == id)) {
+            messages.add(message);
+          }
+        });
       }
     } catch (error) {
       if (mounted) {

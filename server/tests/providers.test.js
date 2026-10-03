@@ -25,3 +25,11 @@ test('configured FCM never reports delivery without a transport', async () => {
     /adapter is not installed/,
   );
 });
+
+test('production media requests fail without Cloudinary instead of returning mock data', async () => {
+  const storage = createStorageProvider({production:true});
+  await assert.rejects(
+    storage.upload({data:'image-data',mimeType:'image/jpeg'}),
+    /Image storage is not configured/,
+  );
+});
