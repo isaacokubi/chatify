@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword} from '../src/lifecycle.js';
+import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials} from '../src/lifecycle.js';
 
 test('password reset tokens are high entropy and stored as non-reversible hashes', () => {
   const token = createResetToken();
@@ -28,4 +28,16 @@ test('message expiration is bounded and only set for AFTER_TIME', () => {
 test('AFTER_REPLY expires the replied-to message', () => {
   assert.equal(expiresWhenRepliedTo({expiryType:'AFTER_REPLY'}), true);
   assert.equal(expiresWhenRepliedTo({expiryType:'NONE'}), false);
+});
+
+test('login credentials reject malformed body types without throwing', () => {
+  assert.equal(normalizeLoginCredentials(null), null);
+  assert.equal(normalizeLoginCredentials({email:42,password:'password123'}), null);
+  assert.equal(normalizeLoginCredentials({email:'person@example.test',password:42}), null);
+  assert.equal(normalizeLoginCredentials({email:'not-an-email',password:'password123'}), null);
+  assert.equal(normalizeLoginCredentials({email:'person@example.test',password:'x'.repeat(73)}), null);
+  assert.deepEqual(
+    normalizeLoginCredentials({email:'  PERSON@EXAMPLE.TEST ',password:'password123'}),
+    {email:'person@example.test',password:'password123'},
+  );
 });
