@@ -91,7 +91,6 @@ class AppState extends ChangeNotifier {
   String? restoreError;
   StreamSubscription<String>? _tokenRefreshSubscription;
   StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
-  bool _firebaseInitialized = false;
   String? _registeredPushToken;
   AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
     if (autoInit) init();
@@ -124,7 +123,6 @@ class AppState extends ChangeNotifier {
     // must never prevent the user from signing in or using chat.
     try {
       if (Firebase.apps.isEmpty) await Firebase.initializeApp();
-      _firebaseInitialized = true;
       final messaging = FirebaseMessaging.instance;
       final settings = await messaging.requestPermission(
         alert: true,
@@ -148,7 +146,6 @@ class AppState extends ChangeNotifier {
       }
     } catch (_) {
       // No Firebase project or denied platform capability: chat remains usable.
-      _firebaseInitialized = false;
     }
   }
 
