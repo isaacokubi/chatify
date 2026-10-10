@@ -91,6 +91,7 @@ class AppState extends ChangeNotifier {
   String? restoreError;
   StreamSubscription<String>? _tokenRefreshSubscription;
   StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
+  StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
   String? _registeredPushToken;
   AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
     if (autoInit) init();
@@ -140,6 +141,15 @@ class AppState extends ChangeNotifier {
       await _messageOpenedSubscription?.cancel();
       _messageOpenedSubscription =
           FirebaseMessaging.onMessageOpenedApp.listen(_openConversationFromNotification);
+      await _foregroundMessageSubscription?.cancel();
+      _foregroundMessageSubscription = FirebaseMessaging.onMessage.listen((_) {
+        final context = chatifyNavigatorKey.currentContext;
+        if (context != null) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            const SnackBar(content: Text('You received a new message.')),
+          );
+        }
+      });
       final initialMessage = await messaging.getInitialMessage();
       if (initialMessage != null) {
         await _openConversationFromNotification(initialMessage);
@@ -219,6 +229,8 @@ class AppState extends ChangeNotifier {
     _tokenRefreshSubscription = null;
     await _messageOpenedSubscription?.cancel();
     _messageOpenedSubscription = null;
+    await _foregroundMessageSubscription?.cancel();
+    _foregroundMessageSubscription = null;
     api.token = null;
     user = null;
     restoreError = null;
