@@ -162,8 +162,16 @@ class AppState extends ChangeNotifier {
   Future<void> _registerPushToken(String token) async {
     if (api.token == null || token.isEmpty) return;
     try {
+      final previousToken = _registeredPushToken;
       await api.call('POST', '/api/devices', {'token': token});
       _registeredPushToken = token;
+      if (previousToken != null && previousToken != token) {
+        try {
+          await api.call('DELETE', '/api/devices', {'token': previousToken});
+        } catch (_) {
+          // The newly registered token remains usable if stale-token cleanup fails.
+        }
+      }
     } catch (_) {
       // Registration is best-effort; a later token refresh or sign-in retries it.
     }
