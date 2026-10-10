@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
@@ -41,7 +44,7 @@ class Api {
           .patch(u, headers: h, body: jsonEncode(body ?? {}))
           .timeout(const Duration(seconds: 20));
     } else if (method == 'DELETE') {
-      r = await client.delete(u, headers: h).timeout(const Duration(seconds: 20));
+      r = await client.delete(u, headers: h, body: body == null ? null : jsonEncode(body)).timeout(const Duration(seconds: 20));
     } else {
       r = await client.get(u, headers: h).timeout(const Duration(seconds: 20));
     }
@@ -86,6 +89,10 @@ class AppState extends ChangeNotifier {
   bool ready = false;
   Map<String, dynamic>? user;
   String? restoreError;
+  StreamSubscription<String>? _tokenRefreshSubscription;
+  StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
+  StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
+  String? _registeredPushToken;
   AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
     if (autoInit) init();
   }
@@ -105,8 +112,92 @@ class AppState extends ChangeNotifier {
         }
       }
     }
+    if (user != null) {
+      await _initializePushNotifications();
+    }
     ready = true;
     notifyListeners();
+  }
+
+  Future<void> _initializePushNotifications() async {
+    // Firebase is optional in development. Missing native Firebase configuration
+    // must never prevent the user from signing in or using chat.
+    try {
+      if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+      final messaging = FirebaseMessaging.instance;
+      final settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+      if (settings.authorizationStatus == AuthorizationStatus.denied) return;
+      final token = await messaging.getToken();
+      if (token != null && token.isNotEmpty) await _registerPushToken(token);
+      await _tokenRefreshSubscription?.cancel();
+      _tokenRefreshSubscription = messaging.onTokenRefresh.listen((token) {
+        unawaited(_registerPushToken(token));
+      }, onError: (_) {});
+      await _messageOpenedSubscription?.cancel();
+      _messageOpenedSubscription =
+          FirebaseMessaging.onMessageOpenedApp.listen(_openConversationFromNotification);
+      await _foregroundMessageSubscription?.cancel();
+      _foregroundMessageSubscription = FirebaseMessaging.onMessage.listen((_) {
+        chatifyScaffoldMessengerKey.currentState?.showSnackBar(
+          const SnackBar(content: Text('You received a new message.')),
+        );
+      });
+      final initialMessage = await messaging.getInitialMessage();
+      if (initialMessage != null) {
+        await _openConversationFromNotification(initialMessage);
+      }
+    } catch (_) {
+      // No Firebase project or denied platform capability: chat remains usable.
+    }
+  }
+
+  Future<void> _registerPushToken(String token) async {
+    if (api.token == null || token.isEmpty) return;
+    try {
+      final previousToken = _registeredPushToken;
+      await api.call('POST', '/api/devices', {'token': token});
+      _registeredPushToken = token;
+      if (previousToken != null && previousToken != token) {
+        try {
+          await api.call('DELETE', '/api/devices', {'token': previousToken});
+        } catch (_) {
+          // The newly registered token remains usable if stale-token cleanup fails.
+        }
+      }
+    } catch (_) {
+      // Registration is best-effort; a later token refresh or sign-in retries it.
+    }
+  }
+
+  Future<void> _openConversationFromNotification(RemoteMessage message) async {
+    final conversationId = message.data['conversationId']?.toString();
+    if (conversationId == null || conversationId.isEmpty || api.token == null) {
+      return;
+    }
+    try {
+      final response = await api.call('GET', '/api/conversations');
+      final conversations =
+          List<dynamic>.from(response['conversations'] ?? const []);
+      final matching = conversations.whereType<Map>().firstWhere(
+        (item) => item['_id']?.toString() == conversationId,
+        orElse: () => <String, dynamic>{},
+      );
+      if (matching.isEmpty) return;
+      final navigator = chatifyNavigatorKey.currentState;
+      if (navigator == null) return;
+      navigator.push(MaterialPageRoute<void>(
+        builder: (_) => Chat(
+          conversation: Map<String, dynamic>.from(matching),
+        ),
+      ));
+    } catch (_) {
+      // The server remains authoritative for conversation membership.
+    }
   }
 
   Future<String?> auth(bool reg, String name, String email, String pass) async {
@@ -121,6 +212,7 @@ class AppState extends ChangeNotifier {
       user = Map<String, dynamic>.from(d['user']);
       await (await SharedPreferences.getInstance())
           .setString('token', api.token!);
+      await _initializePushNotifications();
       notifyListeners();
       return null;
     } catch (e) {
@@ -129,6 +221,21 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    final registeredToken = _registeredPushToken;
+    if (registeredToken != null && api.token != null) {
+      try {
+        await api.call('DELETE', '/api/devices', {'token': registeredToken});
+      } catch (_) {
+        // Local sign-out must still complete when the API is unavailable.
+      }
+    }
+    _registeredPushToken = null;
+    await _tokenRefreshSubscription?.cancel();
+    _tokenRefreshSubscription = null;
+    await _messageOpenedSubscription?.cancel();
+    _messageOpenedSubscription = null;
+    await _foregroundMessageSubscription?.cancel();
+    _foregroundMessageSubscription = null;
     api.token = null;
     user = null;
     restoreError = null;
@@ -136,6 +243,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 }
+
+final GlobalKey<NavigatorState> chatifyNavigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<ScaffoldMessengerState> chatifyScaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
 
 void main() => runApp(ChangeNotifierProvider(
     create: (_) => AppState(), child: const ChatifyApp()));
@@ -146,6 +257,8 @@ class ChatifyApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Chatify',
+      navigatorKey: chatifyNavigatorKey,
+      scaffoldMessengerKey: chatifyScaffoldMessengerKey,
       theme: ThemeData(
           useMaterial3: true, colorSchemeSeed: const Color(0xFF6558D3)),
       home: Consumer<AppState>(

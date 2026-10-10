@@ -87,4 +87,19 @@ void main() {
             .text,
         'alice@example.test');
   });
+
+  test('device-token DELETE sends the token in its JSON request body', () async {
+    SharedPreferences.setMockInitialValues({});
+    String? requestBody;
+    final client = MockClient((request) async {
+      expect(request.method, 'DELETE');
+      expect(request.url.path, '/api/devices');
+      requestBody = request.body;
+      return http.Response('', 204);
+    });
+    final api = Api(client: client)..token = 'test-auth-token';
+    await api.call('DELETE', '/api/devices', {'token': 'fcm-token'});
+    expect(requestBody, '{"token":"fcm-token"}');
+    client.close();
+  });
 }
