@@ -143,12 +143,9 @@ class AppState extends ChangeNotifier {
           FirebaseMessaging.onMessageOpenedApp.listen(_openConversationFromNotification);
       await _foregroundMessageSubscription?.cancel();
       _foregroundMessageSubscription = FirebaseMessaging.onMessage.listen((_) {
-        final context = chatifyNavigatorKey.currentContext;
-        if (context != null) {
-          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            const SnackBar(content: Text('You received a new message.')),
-          );
-        }
+        chatifyScaffoldMessengerKey.currentState?.showSnackBar(
+          const SnackBar(content: Text('You received a new message.')),
+        );
       });
       final initialMessage = await messaging.getInitialMessage();
       if (initialMessage != null) {
@@ -248,6 +245,8 @@ class AppState extends ChangeNotifier {
 }
 
 final GlobalKey<NavigatorState> chatifyNavigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<ScaffoldMessengerState> chatifyScaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
 
 void main() => runApp(ChangeNotifierProvider(
     create: (_) => AppState(), child: const ChatifyApp()));
@@ -259,6 +258,7 @@ class ChatifyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Chatify',
       navigatorKey: chatifyNavigatorKey,
+      scaffoldMessengerKey: chatifyScaffoldMessengerKey,
       theme: ThemeData(
           useMaterial3: true, colorSchemeSeed: const Color(0xFF6558D3)),
       home: Consumer<AppState>(
