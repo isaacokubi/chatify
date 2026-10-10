@@ -10,3 +10,14 @@ export const messageExpiry = (mode, seconds, now = Date.now()) => {
   return new Date(now + boundedSeconds * 1000);
 };
 export const expiresWhenRepliedTo = message => message?.expiryType === 'AFTER_REPLY';
+
+export function normalizeLoginCredentials(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  if (!email || email.length > 254 || !/^\\S+@\\S+\\.\\S+$/.test(email) ||
+      !password || Buffer.byteLength(password, 'utf8') > 72) {
+    return null;
+  }
+  return {email, password};
+}
