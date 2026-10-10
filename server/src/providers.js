@@ -154,6 +154,7 @@ export function createNotificationProvider(config = {}, transport) {
         data: {
           type: String(payload.type || 'message'),
           messageId: String(payload.messageId || ''),
+          conversationId: String(payload.conversationId || ''),
         },
       };
       if (injected) return transport.send(message);
