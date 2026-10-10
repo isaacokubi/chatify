@@ -84,10 +84,10 @@ test('FCM sends the existing generic message notification through an injected tr
   const fcm = createNotificationProvider({production:true}, {
     send:async message => {delivered=message;return 'fcm-message-id';},
   });
-  assert.equal(await fcm.send({token:'test-device-token',messageId:'message-id',type:'message'}), 'fcm-message-id');
+  assert.equal(await fcm.send({token:'test-device-token',messageId:'message-id',conversationId:'conversation-id',type:'message'}), 'fcm-message-id');
   assert.equal(delivered.token, 'test-device-token');
   assert.deepEqual(delivered.notification, {title:'Chatify',body:'You received a new message.'});
-  assert.deepEqual(delivered.data, {type:'message',messageId:'message-id'});
+  assert.deepEqual(delivered.data, {type:'message',messageId:'message-id',conversationId:'conversation-id'});
 });
 
 test('production FCM refuses missing configuration instead of reporting mock success', async () => {
