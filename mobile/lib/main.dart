@@ -870,12 +870,36 @@ class _HomeState extends State<Home> {
     }
   }
 
+  Future<void> _openUserChat(String userId) async {
+    try {
+      final result = await app.api.call(
+        'POST',
+        '/api/conversations/direct',
+        {'userId': userId},
+      );
+      if (!mounted) return;
+      final conversation = Map<String, dynamic>.from(result['conversation']);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => Chat(conversation: conversation)),
+      );
+      if (mounted) loadChats();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString())),
+        );
+      }
+    }
+  }
+
   Future<void> saveUserContact(String userId) async {
     try {
       await app.api.call('POST', '/api/contacts', {'userId': userId});
       await loadSavedContacts();
       if (mounted) {
-        setState(() => users = []);
+        // Keep the live search results visible so the user can save or open
+        // another matching account without having to type the name again.
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact saved.')));
       }
     } catch (error) {
@@ -995,30 +1019,37 @@ class _HomeState extends State<Home> {
                           itemBuilder: (_, i) {
                             final user = Map<String, dynamic>.from(users[i]);
                             final name = user['name']?.toString() ?? 'User';
+                            final userId = user['_id']?.toString() ??
+                                user['id']?.toString() ??
+                                '';
                             return ListTile(
                               dense: true,
                               leading: const Icon(Icons.person_outline),
                               title: Text(name),
                               subtitle: Text(user['email']?.toString() ?? ''),
-                              trailing: IconButton(
-                                tooltip: 'Save contact',
-                                icon: const Icon(Icons.person_add_alt_1),
-                                onPressed: () {
-                                  final userId = user['_id']?.toString() ??
-                                      user['id']?.toString() ??
-                                      '';
-                                  if (userId.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Could not identify this Chatify user.',
-                                        ),
-                                      ),
-                                    );
-                                  } else {
-                                    saveUserContact(userId);
-                                  }
-                                },
+                              // A result is selectable as soon as it appears;
+                              // users do not need to finish typing the name.
+                              onTap: userId.isEmpty
+                                  ? null
+                                  : () => _openUserChat(userId),
+                              trailing: Wrap(
+                                spacing: 0,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Save contact',
+                                    icon: const Icon(Icons.person_add_alt_1),
+                                    onPressed: userId.isEmpty
+                                        ? null
+                                        : () => saveUserContact(userId),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Chat now',
+                                    icon: const Icon(Icons.chat_bubble_outline),
+                                    onPressed: userId.isEmpty
+                                        ? null
+                                        : () => _openUserChat(userId),
+                                  ),
+                                ],
                               ),
                             );
                           },
