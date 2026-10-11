@@ -4102,13 +4102,59 @@ class _ChatState extends State<Chat> {
             ],
           ),
           Expanded(
-              child: TextField(
+              child: Focus(
+                onKeyEvent: (_, event) {
+                  if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+                  final key = event.logicalKey;
+                  if (key == LogicalKeyboardKey.enter &&
+                      !HardwareKeyboard.instance.isShiftPressed) {
+                    if (!sending) send();
+                    return KeyEventResult.handled;
+                  }
+
+                  // When the composer is empty, use the arrow keys to browse
+                  // the conversation instead of moving an invisible caret.
+                  if (input.text.isEmpty &&
+                      _messagesScrollController.hasClients &&
+                      (key == LogicalKeyboardKey.arrowUp ||
+                          key == LogicalKeyboardKey.arrowDown)) {
+                    final position = _messagesScrollController.position;
+                    final distance = position.viewportDimension * 0.7;
+                    final target = (position.pixels +
+                            (key == LogicalKeyboardKey.arrowUp
+                                ? -distance
+                                : distance))
+                        .clamp(
+                          position.minScrollExtent,
+                          position.maxScrollExtent,
+                        )
+                        .toDouble();
+                    _messagesScrollController.animateTo(
+                      target,
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                    );
+                    return KeyEventResult.handled;
+                  }
+
+                  return KeyEventResult.ignored;
+                },
+                child: TextField(
                   controller: input,
                   minLines: 1,
                   maxLines: 5,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) {
+                    if (!sending) send();
+                  },
                   onChanged: _handleTyping,
                   decoration: const InputDecoration(
-                      hintText: 'Write a message…', border: InputBorder.none))),
+                    hintText: 'Write a message…',
+                    border: InputBorder.none,
+                  ),
+                ),
+              )),
           IconButton(
               onPressed: sending ? null : send,
               icon: sending
