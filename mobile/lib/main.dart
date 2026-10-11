@@ -21,7 +21,7 @@ class Api {
   final http.Client client;
   Api({http.Client? client}) : client = client ?? http.Client();
   String get base => const String.fromEnvironment('CHATIFY_API',
-      defaultValue: 'http://10.0.2.2:5000');
+      defaultValue: 'https://chatify-api-c1eh.onrender.com');
   String? token;
   Future<void> restore() async {
     token = (await SharedPreferences.getInstance()).getString('token');
