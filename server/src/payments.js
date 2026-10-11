@@ -1,3 +1,8 @@
+// PAYMENT DOMAIN LOGIC
+// Contains reusable rules for Kenyan M-Pesa phone/amount validation, payment IDs, provider selection,
+// legal status transitions, retry/cancel permissions, and validating Daraja callback results.
+// Keeping these rules separate makes payment handling easier to test without calling Safaricom.
+
 import {randomUUID} from 'node:crypto';
 import {isIP} from 'node:net';
 
