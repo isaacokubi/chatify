@@ -63,7 +63,7 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
     }
     const data = await response.json().catch(() => ({}));
     if (!response.ok || typeof data.access_token !== 'string') {
-      throw Object.assign(new Error('Daraja authentication was rejected'), {stage: 'oauth_auth'});
+      throw Object.assign(new Error('Daraja authentication failed'), {stage: 'oauth_auth'});
     }
     cachedToken = data.access_token;
     tokenExpiry = Date.now() + Math.max(0, Number(data.expires_in || 0) - 30) * 1000;
@@ -82,10 +82,11 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
         AccountReference: `Chatify-${paymentId.slice(-12)}`,
         TransactionDesc: description.slice(0, 50),
       };
+      const accessToken = await token();
       let response;
       try {
         response = await transport(`${host}/mpesa/stkpush/v1/processrequest`, {
-          method: 'POST', headers: {Authorization: `Bearer ${await token()}`, 'Content-Type': 'application/json'},
+          method: 'POST', headers: {Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json'},
           body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
         });
       } catch {
