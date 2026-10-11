@@ -36,7 +36,7 @@ test('either participant can reject a pending request before STK initiation', ()
 });
 
 test('only participants can reject a pending request', () => {
-  const payment = {requesterId:'requester', payerId:'payer', status:'PENDING'};
+  const payment = {requesterId:'requester', payerId:'payer', conversationId:'conversation', status:'PENDING'};
   assert.equal(canCancelPayment(payment, 'stranger'), false);
   assert.equal(canCancelPayment(payment, 'payer', false), false);
 });
