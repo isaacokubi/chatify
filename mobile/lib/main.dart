@@ -671,7 +671,7 @@ class Welcome extends StatelessWidget {
                           children: [
                             Expanded(flex: 11, child: _heroCopy(context, wide)),
                             const SizedBox(width: 48),
-                            const Expanded(flex: 9, child: _conversationPreview()),
+                            const Expanded(flex: 9, child: _ConversationPreview()),
                           ],
                         )
                       else ...[
@@ -692,7 +692,7 @@ class Welcome extends StatelessWidget {
                             iconColor: violet,
                             title: 'Conversations, in real time',
                             description: 'Stay close with responsive chats, live presence and instant updates.',
-                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600),
+                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600).toDouble(),
                           ),
                           _featureCard(
                             icon: Icons.auto_awesome_rounded,
