@@ -601,31 +601,45 @@ class ChatifyApp extends StatelessWidget {
         ),
       ),
       home: Consumer<AppState>(
-          builder: (_, a, __) => !a.ready
-              ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-              : a.restoreError != null
-                  ? Scaffold(
-                      body: Center(
-                          child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        const Text('Could not restore your session.'),
-                        const SizedBox(height: 12),
-                        Text(a.restoreError!, textAlign: TextAlign.center),
-                        const SizedBox(height: 12),
-                        FilledButton(
-                            onPressed: a.init, child: const Text('Retry'))
-                      ]),
-                    )))
-                  : a.user != null
-                      ? const Home()
-                      : a.authRequested
-                          ? Auth(startWithRegistration: a.startRegistration)
-                          : Welcome(
-                              onSignIn: () => a.openAuth(),
-                              onGetStarted: () => a.openAuth(register: true),
-                            ));
-}
+        builder: (_, appState, __) {
+          if (!appState.ready) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (appState.restoreError != null) {
+            return Scaffold(
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Could not restore your session.'),
+                      const SizedBox(height: 12),
+                      Text(appState.restoreError!, textAlign: TextAlign.center),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: appState.init,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+          if (appState.user != null) return const Home();
+          if (appState.authRequested) {
+            return Auth(startWithRegistration: appState.startRegistration);
+          }
+          return Welcome(
+            onSignIn: () => appState.openAuth(),
+            onGetStarted: () => appState.openAuth(register: true),
+          );
+        },
+      ),
+    );
 
 
 class Welcome extends StatelessWidget {
@@ -677,7 +691,7 @@ class Welcome extends StatelessWidget {
                       else ...[
                         _heroCopy(context, wide),
                         const SizedBox(height: 36),
-                        const _conversationPreview(),
+                        const _ConversationPreview(),
                       ],
                       const SizedBox(height: 72),
                       _sectionIntro(),
