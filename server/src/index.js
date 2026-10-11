@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import {resolveMpesaProvider,normalizeMpesaPhone,validPaymentAmount,newPaymentId,PAYMENT_STATUSES,resolveCallbackOutcome,canAccessPayment,canRetryPayment,canTransitionPayment} from './payments.js';
+import {createAuthMiddleware} from './auth.js';
 import {randomBytes} from 'node:crypto';
 import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback,resolveNodeEnv} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials} from './lifecycle.js';
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
@@ -29,7 +30,7 @@ Payment.schema.index({checkoutRequestId:1,merchantRequestId:1},{unique:true,spar
 const safe=u=>({id:String(u._id),name:u.name,email:u.email,phone:u.phone,profileImage:u.profileImage,status:u.status,lastSeen:u.lastSeen,privacy:u.privacy,notificationPreferences:u.notificationPreferences});
 const visibleUser=u=>{const value=u.toObject?u.toObject():{...u};if(value.privacy?.lastSeen===false)delete value.lastSeen;return value;};
 const sign=u=>jwt.sign({sub:String(u._id)},env.jwt,{expiresIn:env.jwtExpiresIn});
-async function auth(req,res,next){const h=req.headers.authorization||'';if(!h.startsWith('Bearer '))return res.status(401).json({error:'Authentication required'});let p;try{p=jwt.verify(h.slice(7),env.jwt);}catch{return res.status(401).json({error:'Authentication required'});}const u=await User.findById(p.sub);if(!u||u.status!=='active')return res.status(401).json({error:'Authentication required'});req.user=u;next();}
+const auth=createAuthMiddleware({verifyToken:token=>jwt.verify(token,env.jwt),findUser:id=>User.findById(id)});
 import {candidate} from './memory.js';
 const server=http.createServer(app); const io=new Server(server,{cors:{origin:corsOrigin,credentials:true}});
 io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);if(!await User.exists({_id:s.user.sub,status:'active'}))throw new Error('Inactive');n();}catch{n(new Error('Unauthorized'));}});
