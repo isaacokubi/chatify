@@ -1,3 +1,11 @@
+// CHATIFY MOBILE APP — READING GUIDE
+// This file contains the Flutter screens and much of the client-side state management.
+// Api sends authenticated HTTP requests to the Express server; AppState stores session,
+// conversations, contacts, memories, notifications and payment state; the widgets below
+// turn that data into the welcome, sign-in, chat, memory, payment and profile screens.
+// Real-time chat updates arrive through Socket.IO. Keep server-side authorization and
+// payment decisions on the server; a mobile-side check is never a security boundary.
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -11,6 +19,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
+// Represents a readable API failure so screens can show a useful message instead of raw transport errors.
 class ApiException implements Exception {
   final int statusCode;
   final String message;
@@ -19,6 +28,7 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+// Central HTTP client: adds the API base URL and authentication token, sends requests, and parses responses.
 class Api {
   final http.Client client;
   Api({http.Client? client}) : client = client ?? http.Client();
@@ -124,6 +134,7 @@ List<dynamic> mergePayment(
   return updated;
 }
 
+// Shared app state. Screens listen to this object and rebuild after login, chat, contact, memory, or payment data changes.
 class AppState extends ChangeNotifier {
   final Api api;
   bool ready = false;
@@ -357,6 +368,7 @@ final GlobalKey<ScaffoldMessengerState> chatifyScaffoldMessengerKey =
 void main() => runApp(ChangeNotifierProvider(
     create: (_) => AppState(), child: const ChatifyApp()));
 
+// Root widget that configures app-wide Material styling and chooses the first screen.
 class ChatifyApp extends StatelessWidget {
   const ChatifyApp({super.key});
   @override
@@ -651,6 +663,7 @@ class ChatifyApp extends StatelessWidget {
     );
 }
 
+// Public welcome/marketing screen shown before a user enters the authenticated app.
 class Welcome extends StatelessWidget {
   const Welcome({
     super.key,
@@ -1002,6 +1015,7 @@ class Welcome extends StatelessWidget {
   }
 }
 
+// Small illustrative conversation used by the welcome screen; it is presentation-only, not a real chat.
 class _ConversationPreview extends StatelessWidget {
   const _ConversationPreview();
 
@@ -1155,6 +1169,7 @@ class _ConversationPreview extends StatelessWidget {
   }
 }
 
+// Reusable message bubble for the welcome-screen preview.
 class _PreviewBubble extends StatelessWidget {
   const _PreviewBubble({
     required this.initials,
@@ -1203,6 +1218,7 @@ class _PreviewBubble extends StatelessWidget {
   }
 }
 
+// Reusable icon-and-text item for the welcome screen's feature/trust list.
 class _TrustPoint extends StatelessWidget {
   const _TrustPoint({required this.icon, required this.text});
   final IconData icon;
@@ -1218,6 +1234,7 @@ class _TrustPoint extends StatelessWidget {
   );
 }
 
+// Reusable short privacy explanation shown in the welcome experience.
 class _PrivacyMessage extends StatelessWidget {
   const _PrivacyMessage();
   @override
@@ -1240,6 +1257,7 @@ class _PrivacyMessage extends StatelessWidget {
   );
 }
 
+// Entry point for registration and login forms.
 class Auth extends StatefulWidget {
   const Auth({super.key, this.startWithRegistration = false});
   final bool startWithRegistration;
@@ -1247,6 +1265,7 @@ class Auth extends StatefulWidget {
   State<Auth> createState() => _AuthState();
 }
 
+// Validates the form, calls the authentication API, and updates AppState after success.
 class _AuthState extends State<Auth> {
   late bool reg;
   bool busy = false, hide = true;
@@ -1587,12 +1606,14 @@ class _AuthState extends State<Auth> {
       );
 }
 
+// Main authenticated workspace containing chats, contacts and saved memories.
 class Home extends StatefulWidget {
   const Home({super.key});
   @override
   State<Home> createState() => _HomeState();
 }
 
+// Coordinates the Home tabs and selections, and loads the data displayed in each section.
 class _HomeState extends State<Home> {
   int tab = 0;
   List<dynamic> chats = [], users = [], memories = [];
@@ -2255,6 +2276,7 @@ class _HomeState extends State<Home> {
   }
 }
 
+// Consistent empty-state message for screens that have no records to display yet.
 class Empty extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -2315,12 +2337,14 @@ class Empty extends StatelessWidget {
   }
 }
 
+// Displays payment requests and their current statuses for the signed-in user.
 class PaymentHistory extends StatefulWidget {
   const PaymentHistory({super.key});
   @override
   State<PaymentHistory> createState() => _PaymentHistoryState();
 }
 
+// Loads payment history and refreshes the list when payment data changes.
 class _PaymentHistoryState extends State<PaymentHistory> {
   List<dynamic> payments = [];
   bool loading = true;
@@ -2492,6 +2516,7 @@ class _PaymentHistoryState extends State<PaymentHistory> {
   }
 }
 
+// Presents one payment request, its amount, participants and status in a compact card.
 class PaymentCard extends StatelessWidget {
   final Map<String, dynamic> payment;
   final String? currentUserId;
@@ -2586,6 +2611,7 @@ class PaymentCard extends StatelessWidget {
   }
 }
 
+// Screen for one direct or group conversation, including messages and the composer.
 class Chat extends StatefulWidget {
   final Map<String, dynamic> conversation;
   const Chat({super.key, required this.conversation});
@@ -2593,6 +2619,7 @@ class Chat extends StatefulWidget {
   State<Chat> createState() => _ChatState();
 }
 
+// Owns the active conversation UI: loads messages, listens for real-time events, and sends message actions.
 class _ChatState extends State<Chat> {
   final input = TextEditingController();
   final searchInput = TextEditingController();
@@ -4116,12 +4143,14 @@ class _ChatState extends State<Chat> {
   }
 }
 
+// Screen for viewing and editing the signed-in user's profile and preferences.
 class Profile extends StatefulWidget {
   const Profile({super.key});
   @override
   State<Profile> createState() => _ProfileState();
 }
 
+// Loads profile data and submits profile/privacy/notification preference changes.
 class _ProfileState extends State<Profile> {
   late TextEditingController name, phone;
   bool lastSeen = true,

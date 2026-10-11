@@ -6,6 +6,7 @@ Chatify is a final-year-project mobile communication system built around real-ti
 - mobile/ — Flutter/Dart client
 - server/ — Node.js/Express/Socket.IO API
 - docs/ — architecture, API, database, development, security and demo notes
+- `docs/CODE_WALKTHROUGH.md` — plain-language explanation of the system, main files, request flows and how to explain the project during a defense.
 
 ## Core innovations
 - **Remember:** deterministic local extraction identifies event, task, payment, place and note candidates that users can save as Memory Cards.
