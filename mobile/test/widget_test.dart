@@ -70,9 +70,9 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Chatify'), findsOneWidget);
-    expect(find.text('Chat. Remember. Let Go.'), findsOneWidget);
-    expect(find.text('More than a message thread'), findsOneWidget);
-    expect(find.text('Get started — it’s free'), findsOneWidget);
+    expect(find.text('Your people. Your conversations.'), findsOneWidget);
+    expect(find.text('Start chatting'), findsOneWidget);
+    expect(find.text('Create account'), findsOneWidget);
     expect(find.text('Forgot password?'), findsNothing);
 
     await tester.tap(find.text('Sign in'));
@@ -89,7 +89,7 @@ void main() {
           create: (_) => AppState(), child: const ChatifyApp()),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Get started — it’s free'));
+    await tester.tap(find.text('Create account').first);
     await tester.pumpAndSettle();
     expect(find.text('Full name'), findsOneWidget);
     expect(find.text('Email address'), findsOneWidget);

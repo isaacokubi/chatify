@@ -682,142 +682,108 @@ class Welcome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FC),
+      backgroundColor: const Color(0xFFF3F5FA),
       body: LayoutBuilder(
         builder: (context, viewport) {
-          final wide = viewport.maxWidth >= 900;
-          final contentWidth = viewport.maxWidth > 1240 ? 1160.0 : 1160.0;
+          final wide = viewport.maxWidth >= 820;
+          final mobile = viewport.maxWidth < 600;
           return SingleChildScrollView(
             child: Center(
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: contentWidth),
+                constraints: const BoxConstraints(maxWidth: 1160),
                 child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: viewport.maxWidth < 600 ? 20 : 36,
-                    vertical: 18,
-                  ),
+                  padding: EdgeInsets.fromLTRB(mobile ? 16 : 30, 18, mobile ? 16 : 30, 30),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _topBar(context, wide),
-                      SizedBox(height: wide ? 70 : 42),
-                      if (wide)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Expanded(flex: 11, child: _heroCopy(context, wide)),
-                            const SizedBox(width: 48),
-                            const Expanded(flex: 9, child: _ConversationPreview()),
-                          ],
-                        )
-                      else ...[
-                        _heroCopy(context, wide),
-                        const SizedBox(height: 36),
-                        const _ConversationPreview(),
-                      ],
-                      const SizedBox(height: 72),
-                      _sectionIntro(),
-                      const SizedBox(height: 24),
-                      Wrap(
-                        spacing: 16,
-                        runSpacing: 16,
-                        children: [
-                          _featureCard(
-                            icon: Icons.bolt_rounded,
-                            color: const Color(0xFFE9E8FF),
-                            iconColor: violet,
-                            title: 'Conversations, in real time',
-                            description: 'Stay close with responsive chats, live presence and instant updates.',
-                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600).toDouble(),
+                      Row(children: [
+                        Container(
+                          height: 42, width: 42,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(colors: [Color(0xFF7167F8), Color(0xFF4938D2)]),
+                            borderRadius: BorderRadius.circular(14),
                           ),
-                          _featureCard(
-                            icon: Icons.auto_awesome_rounded,
-                            color: const Color(0xFFDDF8F0),
-                            iconColor: const Color(0xFF087F6A),
-                            title: 'Remember what matters',
-                            description: 'Turn useful details into personal memory cards you can revisit.',
-                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600),
-                          ),
-                          _featureCard(
-                            icon: Icons.hourglass_bottom_rounded,
-                            color: const Color(0xFFFFEEDB),
-                            iconColor: const Color(0xFFB66A13),
-                            title: 'More control, less clutter',
-                            description: 'Choose how long messages stay and manage what you have shared.',
-                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600),
-                          ),
-                          _featureCard(
-                            icon: Icons.devices_rounded,
-                            color: const Color(0xFFE5EEFF),
-                            iconColor: const Color(0xFF315EB8),
-                            title: 'Made for every screen',
-                            description: 'A considered experience across phones, tablets and desktops.',
-                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 46),
-                      Container(
-                        padding: EdgeInsets.all(wide ? 28 : 22),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF172033),
-                          borderRadius: BorderRadius.circular(28),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF202B48), Color(0xFF151B30)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+                          child: const Icon(Icons.forum_rounded, color: Colors.white, size: 22),
                         ),
-                        child: wide
-                            ? Row(
-                                children: [
-                                  const Expanded(child: _PrivacyMessage()),
-                                  const SizedBox(width: 24),
-                                  FilledButton.icon(
-                                    onPressed: onGetStarted,
-                                    icon: const Icon(Icons.arrow_forward_rounded),
-                                    label: const Text('Create your free account'),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: mint,
-                                      foregroundColor: const Color(0xFF102A2A),
-                                      minimumSize: const Size(220, 52),
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : const _PrivacyMessage(),
-                      ),
-                      if (!wide) ...[
-                        const SizedBox(height: 18),
+                        const SizedBox(width: 11),
+                        const Text('Chatify', style: TextStyle(color: ink, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
+                        const Spacer(),
+                        TextButton(onPressed: onSignIn, child: const Text('Sign in')),
+                        const SizedBox(width: 5),
                         FilledButton(
                           onPressed: onGetStarted,
                           style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(54),
                             backgroundColor: violet,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
                           ),
-                          child: const Text('Create your free account'),
+                          child: const Text('Create account'),
                         ),
-                      ],
-                      const SizedBox(height: 32),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.forum_rounded, size: 17, color: muted),
-                          const SizedBox(width: 8),
-                          const Flexible(
-                            child: Text(
-                              'Chatify  ·  Chat. Remember. Let Go.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: muted,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
+                      ]),
+                      SizedBox(height: wide ? 34 : 22),
+                      if (wide)
+                        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                          Expanded(
+                            flex: 4,
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 26),
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                                  decoration: BoxDecoration(color: const Color(0xFFE8E6FF), borderRadius: BorderRadius.circular(30)),
+                                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                                    Icon(Icons.circle, color: Color(0xFF35C997), size: 8),
+                                    SizedBox(width: 7),
+                                    Text('YOUR PEOPLE, RIGHT HERE', style: TextStyle(color: Color(0xFF4D42B8), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+                                  ]),
+                                ),
+                                const SizedBox(height: 20),
+                                const Text('Just chat.', style: TextStyle(color: ink, fontSize: 54, height: 1.0, fontWeight: FontWeight.w900, letterSpacing: -2.8)),
+                                const SizedBox(height: 10),
+                                const Text('The moments matter.', style: TextStyle(color: violet, fontSize: 30, height: 1.1, fontWeight: FontWeight.w800, letterSpacing: -1.2)),
+                                const SizedBox(height: 16),
+                                const Text('Real conversations. Memories worth keeping.', style: TextStyle(color: muted, fontSize: 14, height: 1.6)),
+                                const SizedBox(height: 24),
+                                FilledButton.icon(
+                                  onPressed: onGetStarted,
+                                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                                  label: const Text('Start chatting'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: violet,
+                                    minimumSize: const Size(190, 50),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                  ),
+                                ),
+                              ]),
                             ),
                           ),
-                        ],
-                      ),
+                          const Expanded(flex: 6, child: _ConversationPreview()),
+                        ])
+                      else ...[
+                        const Text('Your people. Your conversations.', style: TextStyle(color: ink, fontSize: 27, height: 1.1, fontWeight: FontWeight.w900, letterSpacing: -1)),
+                        const SizedBox(height: 7),
+                        const Text('Chat, remember, let go.', style: TextStyle(color: muted, fontSize: 13)),
+                        const SizedBox(height: 20),
+                        const _ConversationPreview(),
+                        const SizedBox(height: 18),
+                        FilledButton.icon(
+                          onPressed: onGetStarted,
+                          icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                          label: const Text('Start chatting'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: violet,
+                            minimumSize: const Size.fromHeight(50),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 18),
+                      const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Icon(Icons.lock_outline_rounded, color: muted, size: 15),
+                        SizedBox(width: 7),
+                        Flexible(child: Text('Private by design · Yours to manage', textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 11, fontWeight: FontWeight.w600))),
+                      ]),
                     ],
                   ),
                 ),
@@ -828,6 +794,7 @@ class Welcome extends StatelessWidget {
       ),
     );
   }
+
 
   Widget _topBar(BuildContext context, bool wide) {
     return Row(
