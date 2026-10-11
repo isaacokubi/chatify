@@ -2370,6 +2370,32 @@ class _ProfileState extends State<Profile> {
     }
   }
 
+  Future<void> saveDefaultPhone() async {
+    final normalized = normalizeKenyanPhone(phone.text);
+    if (normalized == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Enter a valid Kenyan M-Pesa number, e.g. 0712345678')));
+      return;
+    }
+    try {
+      final d = await context
+          .read<AppState>()
+          .api
+          .call('PATCH', '/api/users/me', {'phone': normalized});
+      if (!mounted) return;
+      final app = context.read<AppState>();
+      app.user = Map<String, dynamic>.from(d['user']);
+      phone.text = normalized;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Default M-Pesa number saved. Payment requests will use it automatically.')));
+      setState(() {});
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
   Future<void> changePassword() async {
     final current = TextEditingController();
     final next = TextEditingController();
@@ -2431,10 +2457,26 @@ class _ProfileState extends State<Profile> {
             decoration: const InputDecoration(
                 labelText: 'Name', border: OutlineInputBorder())),
         const SizedBox(height: 12),
+        const Text('Default M-Pesa number',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        const Text('Set this for your existing account. Chatify will prefill it when you send or receive payment requests. You can still change either number on an individual request.'),
+        const SizedBox(height: 10),
         TextField(
             controller: phone,
-            decoration: const InputDecoration(
-                labelText: 'M-Pesa phone number', hintText: '0712345678 or 254712345678', border: OutlineInputBorder())),
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+                labelText: 'M-Pesa phone number',
+                hintText: '0712345678 or 254712345678',
+                helperText: (context.watch<AppState>().user?['phone']?.toString().isNotEmpty ?? false)
+                    ? 'Saved default: ${context.watch<AppState>().user?['phone']}'
+                    : 'No default saved yet — add your number below.',
+                border: const OutlineInputBorder())),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+            onPressed: saveDefaultPhone,
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            label: const Text('Save default M-Pesa number')),
         const SizedBox(height: 18),
         const Text('Privacy',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
