@@ -892,7 +892,7 @@ class _HomeState extends State<Home> {
         ),
       if (phoneResults.isNotEmpty)
         SizedBox(
-          height: phoneResults.length > 2 ? 144 : phoneResults.length * 68.0,
+          height: phoneResults.length > 2 ? 144.0 : phoneResults.length * 68.0,
           child: ListView.builder(
             itemCount: phoneResults.length,
             itemBuilder: (_, i) {
