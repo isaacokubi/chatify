@@ -65,8 +65,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Chatify'), findsOneWidget);
     expect(find.text('Chat. Remember. Let Go.'), findsOneWidget);
-    expect(find.text('Conversations that '), findsNothing);
-    expect(find.textContaining('Conversations that'), findsWidgets);
+    expect(find.text('More than a message thread'), findsOneWidget);
     expect(find.text('Get started — it’s free'), findsOneWidget);
     expect(find.text('Forgot password?'), findsNothing);
 
