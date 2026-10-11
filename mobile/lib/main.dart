@@ -3561,7 +3561,6 @@ class _ChatState extends State<Chat> {
           bytes: bytes,
           fileExtension: extension,
           mimeType: saverMime,
-          customMimeType: 'image/$extension',
         );
       }
 
