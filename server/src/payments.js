@@ -113,6 +113,11 @@ export function canAccessPayment(payment, userId, isConversationMember = true) {
   return !payment.conversationId || isConversationMember;
 }
 
+export function canCancelPayment(payment, userId, isConversationMember = true) {
+  return canAccessPayment(payment, userId, isConversationMember) &&
+    payment.status === 'PENDING' && !payment.initiatedAt && payment.initiating !== true;
+}
+
 export function canRetryPayment(payment, userId, isConversationMember = true) {
   return canAccessPayment(payment, userId, isConversationMember) &&
     String(payment.payerId) === String(userId) && ['FAILED','CANCELLED'].includes(payment.status);
