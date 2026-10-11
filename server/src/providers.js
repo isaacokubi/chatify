@@ -1,3 +1,8 @@
+// EXTERNAL SERVICE ADAPTERS
+// Wraps optional email, image-storage and Firebase push-notification integrations behind common functions.
+// Configuration determines whether a real provider is available; mock/development behavior must never be
+// described as a real delivery, stored upload, notification or Safaricom transaction.
+
 import nodemailer from 'nodemailer';
 import {v2 as cloudinary} from 'cloudinary';
 import {cert, getApps, initializeApp} from 'firebase-admin/app';
