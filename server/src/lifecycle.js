@@ -1,3 +1,7 @@
+// TOKEN, EXPIRY AND PROCESS-LIFECYCLE HELPERS
+// Generates and hashes password-reset tokens, computes reset/message expiry times, validates credentials,
+// normalizes login data, and provides graceful shutdown behavior for the server process.
+
 import {createHash, randomBytes} from 'node:crypto';
 
 export const createResetToken = () => randomBytes(32).toString('hex');
