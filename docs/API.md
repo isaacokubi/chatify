@@ -25,3 +25,8 @@ Socket events include `message:new`, `message:read`, `message:reaction`, `messag
 - Create a request with `POST /api/payments` using `payerUserId`, `conversationId`, integer `amount`, `recipientPhone` (the recipient's Kenyan M-Pesa number), and `description`.
 - The payer enters the phone number to receive the STK prompt when they choose **Pay with M-Pesa**. Send it as `phone` to `POST /api/payments/:id/initiate`; the server normalizes and stores it separately from `recipientPhone`.
 - **Daraja STK Push is a customer-to-business payment:** funds settle to the configured `MPESA_SHORTCODE`/Paybill/Till, not directly to the recipient's personal phone. The recipient phone is recorded with the request; it is not the STK destination. Direct person-to-person Send Money is not provided by this STK endpoint.
+
+
+### Delete a sent message
+
+`DELETE /api/messages/:id` deletes a message for everyone in its conversation. Authentication is required and only the original sender may delete it. The API keeps a tombstone (`deletedAt`) so clients can show “This message was deleted” without exposing its original text or media. A `message:deleted` Socket.IO event updates participants in real time. Already-expired messages cannot be deleted again.
