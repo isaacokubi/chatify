@@ -34,21 +34,28 @@ class Api {
       if (token != null) 'Authorization': 'Bearer $token'
     };
     final u = Uri.parse('$base$path');
+    // Daraja may need one OAuth request followed by the STK request. Give
+    // payment initiation enough time to finish so the UI doesn't report a
+    // timeout while Safaricom may already be processing the prompt.
+    final requestTimeout =
+        path.contains('/api/payments/') && path.endsWith('/initiate')
+            ? const Duration(seconds: 35)
+            : const Duration(seconds: 20);
     late http.Response r;
     if (method == 'POST') {
       r = await client
           .post(u, headers: h, body: jsonEncode(body ?? {}))
-          .timeout(const Duration(seconds: 20));
+          .timeout(requestTimeout);
     } else if (method == 'PATCH') {
       r = await client
           .patch(u, headers: h, body: jsonEncode(body ?? {}))
-          .timeout(const Duration(seconds: 20));
+          .timeout(requestTimeout);
     } else if (method == 'DELETE') {
       r = await client
           .delete(u, headers: h, body: body == null ? null : jsonEncode(body))
-          .timeout(const Duration(seconds: 20));
+          .timeout(requestTimeout);
     } else {
-      r = await client.get(u, headers: h).timeout(const Duration(seconds: 20));
+      r = await client.get(u, headers: h).timeout(requestTimeout);
     }
     final d = r.body.isEmpty ? <String, dynamic>{} : jsonDecode(r.body);
     if (r.statusCode >= 400) {
@@ -2392,23 +2399,77 @@ class _PaymentHistoryState extends State<PaymentHistory> {
   Future<void> payHistoryPayment(Map<String, dynamic> payment) async {
     final app = context.read<AppState>();
     final messenger = ScaffoldMessenger.of(context);
+    final phone = TextEditingController(
+      text: payment['payerPhone']?.toString() ??
+          payment['phone']?.toString() ??
+          app.user?['phone']?.toString() ??
+          '',
+    );
+    final form = GlobalKey<FormState>();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Pay with M-Pesa'),
+        content: Form(
+          key: form,
+          child: TextFormField(
+            controller: phone,
+            autofocus: true,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Your M-Pesa phone number',
+              hintText: '0712345678 or 254712345678',
+              helperText: 'The STK prompt will be sent to this number.',
+            ),
+            validator: (value) => normalizeKenyanPhone(value ?? '') == null
+                ? 'Enter a valid Kenyan M-Pesa number'
+                : null,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (form.currentState!.validate()) {
+                Navigator.pop(dialog, true);
+              }
+            },
+            child: const Text('Send prompt'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted) {
+      phone.dispose();
+      return;
+    }
     try {
-      final result = await app.api
-          .call('POST', '/api/payments/${payment['paymentId']}/initiate', {});
+      final result = await app.api.call(
+        'POST',
+        '/api/payments/${payment['paymentId']}/initiate',
+        {'phone': normalizeKenyanPhone(phone.text)!},
+      );
       final updated = Map<String, dynamic>.from(result['payment']);
       final index = payments.indexWhere(
           (item) => item is Map && item['paymentId'] == updated['paymentId']);
       if (mounted && index >= 0) setState(() => payments[index] = updated);
       if (mounted) {
         messenger.showSnackBar(SnackBar(
-            content: Text(result['mock'] == true
-                ? 'Local demo payment started. No Safaricom transaction was made.'
-                : 'Check your phone for the M-Pesa STK prompt.')));
+          content: Text(result['mock'] == true
+              ? 'Local demo only: no Safaricom prompt was sent. Configure live Daraja on the API service to send real prompts.'
+              : 'STK request accepted. Check ${normalizeKenyanPhone(phone.text)} for the Safaricom prompt. Enter your PIN only in that prompt.'),
+          duration: const Duration(seconds: 6),
+        ));
       }
     } catch (e) {
       if (mounted) {
         messenger.showSnackBar(SnackBar(content: Text(e.toString())));
       }
+    } finally {
+      phone.dispose();
     }
   }
 
@@ -3006,7 +3067,7 @@ class _ChatState extends State<Chat> {
         });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(result['mock'] == true
-                ? 'Local demo payment started. No Safaricom transaction was made.'
+                ? 'Local demo only: no Safaricom prompt was sent. Configure live Daraja on the API service to send real prompts.'
                 : 'Check ${normalizeKenyanPhone(payerPhone.text)} for the M-Pesa prompt. Enter your PIN only in the Safaricom prompt.')));
       }
     } catch (error) {
@@ -3719,107 +3780,119 @@ class _ChatState extends State<Chat> {
                                     : (message['text'] ?? '[media]').toString();
                             return GestureDetector(
                               onLongPress: () => showMessageActions(message),
-                              child: Align(
-                                alignment: mine
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: Container(
-                                  constraints: BoxConstraints(
-                                    maxWidth: MediaQuery.sizeOf(context).width * 0.76,
-                                  ),
-                                  margin: const EdgeInsets.only(bottom: 8),
-                                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: mine
-                                        ? Theme.of(context).colorScheme.primaryContainer
-                                        : Theme.of(context).colorScheme.surfaceContainerHighest,
-                                    borderRadius: BorderRadius.only(
-                                      topLeft: const Radius.circular(18),
-                                      topRight: const Radius.circular(18),
-                                      bottomLeft: Radius.circular(mine ? 18 : 5),
-                                      bottomRight: Radius.circular(mine ? 5 : 18),
-                                    ),
-                                    border: Border.all(
-                                      color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
-                                    ),
-                                  ),
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        if (mine &&
-                                            message['deletedAt'] == null &&
-                                            message['expiredAt'] == null)
-                                          Align(
-                                            widthFactor: 1,
-                                            alignment: Alignment.centerRight,
-                                            child: PopupMenuButton<String>(
-                                              tooltip: 'Message options',
-                                              padding: EdgeInsets.zero,
-                                              constraints: const BoxConstraints(
-                                                minWidth: 44,
-                                                minHeight: 44,
-                                              ),
-                                              iconSize: 20,
-                                              icon: const Icon(
-                                                Icons.more_horiz,
-                                                color: Color(0xFF536078),
-                                              ),
-                                              onSelected: (action) {
-                                                if (action == 'delete') {
-                                                  deleteMessage(message);
-                                                }
-                                              },
-                                              itemBuilder: (_) => const [
-                                                PopupMenuItem<String>(
-                                                  value: 'delete',
-                                                  child: Row(
-                                                    children: [
-                                                      Icon(
-                                                        Icons.delete_outline,
-                                                        color: Color(0xFFDC2626),
-                                                        size: 20,
-                                                      ),
-                                                      SizedBox(width: 10),
-                                                      Text('Delete for everyone'),
-                                                    ],
+                              child: Row(
+                                mainAxisAlignment: mine
+                                    ? MainAxisAlignment.end
+                                    : MainAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Flexible(
+                                    child: Container(
+                                      // Keep bubbles content-sized and aligned like a
+                                      // modern messenger; long messages wrap instead of
+                                      // stretching across the phone screen.
+                                      constraints: BoxConstraints(
+                                        maxWidth:
+                                            (MediaQuery.sizeOf(context).width * 0.62)
+                                                .clamp(180.0, 520.0)
+                                                .toDouble(),
+                                      ),
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 13, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: mine
+                                            ? Theme.of(context).colorScheme.primaryContainer
+                                            : Theme.of(context).colorScheme.surfaceContainerHighest,
+                                        borderRadius: BorderRadius.only(
+                                          topLeft: const Radius.circular(18),
+                                          topRight: const Radius.circular(18),
+                                          bottomLeft: Radius.circular(mine ? 18 : 5),
+                                          bottomRight: Radius.circular(mine ? 5 : 18),
+                                        ),
+                                        border: Border.all(
+                                          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+                                        ),
+                                      ),
+                                      child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            if (mine &&
+                                                message['deletedAt'] == null &&
+                                                message['expiredAt'] == null)
+                                              Align(
+                                                widthFactor: 1,
+                                                alignment: Alignment.centerRight,
+                                                child: PopupMenuButton<String>(
+                                                  tooltip: 'Message options',
+                                                  padding: EdgeInsets.zero,
+                                                  constraints: const BoxConstraints(
+                                                    minWidth: 44,
+                                                    minHeight: 44,
                                                   ),
+                                                  iconSize: 20,
+                                                  icon: const Icon(
+                                                    Icons.more_horiz,
+                                                    color: Color(0xFF536078),
+                                                  ),
+                                                  onSelected: (action) {
+                                                    if (action == 'delete') {
+                                                      deleteMessage(message);
+                                                    }
+                                                  },
+                                                  itemBuilder: (_) => const [
+                                                    PopupMenuItem<String>(
+                                                      value: 'delete',
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons.delete_outline,
+                                                            color: Color(0xFFDC2626),
+                                                            size: 20,
+                                                          ),
+                                                          SizedBox(width: 10),
+                                                          Text('Delete for everyone'),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
-                                              ],
-                                            ),
-                                          ),
-                                        if (message['deletedAt'] == null &&
-                                            message['expiredAt'] == null &&
-                                            message['messageType'] == 'image' &&
-                                            message['mediaUrl'] != null)
-                                          renderImage(
-                                              message['mediaUrl'].toString())
-                                        else
-                                          Text(text),
-                                        if (message['deletedAt'] == null &&
-                                            message['reactions'] is List &&
-                                            (message['reactions'] as List)
-                                                .isNotEmpty)
-                                          Text((message['reactions'] as List)
-                                              .map((r) => r['emoji'])
-                                              .join(' ')),
-                                        if (mine &&
-                                            message['deliveredTo'] is List &&
-                                            (message['deliveredTo'] as List)
-                                                    .length >
-                                                1)
-                                          Text(
-                                              message['readBy'] is List &&
-                                                      (message['readBy']
-                                                                  as List)
-                                                              .length >
-                                                          1
-                                                  ? 'Read'
-                                                  : 'Delivered',
-                                              style:
-                                                  const TextStyle(fontSize: 10))
-                                      ]),
-                                ),
+                                              ),
+                                            if (message['deletedAt'] == null &&
+                                                message['expiredAt'] == null &&
+                                                message['messageType'] == 'image' &&
+                                                message['mediaUrl'] != null)
+                                              renderImage(
+                                                  message['mediaUrl'].toString())
+                                            else
+                                              Text(text),
+                                            if (message['deletedAt'] == null &&
+                                                message['reactions'] is List &&
+                                                (message['reactions'] as List)
+                                                    .isNotEmpty)
+                                              Text((message['reactions'] as List)
+                                                  .map((r) => r['emoji'])
+                                                  .join(' ')),
+                                            if (mine &&
+                                                message['deliveredTo'] is List &&
+                                                (message['deliveredTo'] as List)
+                                                        .length >
+                                                    1)
+                                              Text(
+                                                  message['readBy'] is List &&
+                                                          (message['readBy']
+                                                                      as List)
+                                                                  .length >
+                                                              1
+                                                      ? 'Read'
+                                                      : 'Delivered',
+                                                  style:
+                                                      const TextStyle(fontSize: 10))
+                                          ]),
+                                    ),
+                                  ),
+                                ],
                               ),
                             );
                           },

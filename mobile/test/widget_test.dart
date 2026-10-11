@@ -20,6 +20,12 @@ void main() {
     app.dispose();
   });
 
+  test('Kenyan M-Pesa numbers normalize before an STK request', () {
+    expect(normalizeKenyanPhone('0712 345 678'), '254712345678');
+    expect(normalizeKenyanPhone('+254 112 345 678'), '254112345678');
+    expect(normalizeKenyanPhone('12345'), isNull);
+  });
+
   test('message load merges socket arrivals without duplicate IDs', () {
     final socketMessage = {
       '_id': 'two',
