@@ -925,7 +925,7 @@ class _AuthState extends State<Auth> {
                         child: Text(
                           reg
                               ? 'Already have an account? Sign in'
-                              : 'New to Chatify? Create an account',
+                              : 'Create a new account',
                         ),
                       ),
                     ],
