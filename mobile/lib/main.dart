@@ -1086,6 +1086,10 @@ class Chat extends StatefulWidget {
 class _ChatState extends State<Chat> {
   final input = TextEditingController();
   final searchInput = TextEditingController();
+  final ScrollController _messagesScrollController = ScrollController();
+  Timer? _typingTimer;
+  Timer? _remoteTypingTimer;
+  bool _isTyping = false;
   List<dynamic> messages = [];
   List<dynamic> payments = [];
   String expiry = 'NONE';
@@ -1106,6 +1110,41 @@ class _ChatState extends State<Chat> {
     connect();
   }
 
+  void _scrollToLatestMessage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_messagesScrollController.hasClients) return;
+      final position = _messagesScrollController.position;
+      if (!position.hasContentDimensions) return;
+      _messagesScrollController.animateTo(
+        position.maxScrollExtent,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  void _stopTyping() {
+    _typingTimer?.cancel();
+    _typingTimer = null;
+    if (_isTyping) {
+      socket?.emit('typing:stop', widget.conversation['_id']);
+      _isTyping = false;
+    }
+  }
+
+  void _handleTyping(String value) {
+    if (value.trim().isEmpty) {
+      _stopTyping();
+      return;
+    }
+    if (!_isTyping) {
+      socket?.emit('typing:start', widget.conversation['_id']);
+      _isTyping = true;
+    }
+    _typingTimer?.cancel();
+    _typingTimer = Timer(const Duration(milliseconds: 1600), _stopTyping);
+  }
+
   Future<void> load() async {
     try {
       final detail = await app.api
@@ -1119,6 +1158,7 @@ class _ChatState extends State<Chat> {
         setState(() {
           messages = mergeMessages(messages, fetched);
         });
+        _scrollToLatestMessage();
       }
       try {
         final paymentResult = await app.api.call('GET', '/api/payments');
@@ -1142,7 +1182,10 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       loadError = error.toString();
     }
-    if (mounted) setState(() => loading = false);
+    if (mounted) {
+      setState(() => loading = false);
+      _scrollToLatestMessage();
+    }
   }
 
   void connect() {
@@ -1163,10 +1206,23 @@ class _ChatState extends State<Chat> {
           data['userId']?.toString() == app.user?['id']?.toString()) {
         return;
       }
-      setState(() => typingUser = data['userId']?.toString());
+      final userId = data['userId']?.toString();
+      if (userId == null || userId.isEmpty) return;
+      _remoteTypingTimer?.cancel();
+      setState(() => typingUser = userId);
+      // Recover automatically if a stop event is lost during a reconnect.
+      _remoteTypingTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted && typingUser == userId) {
+          setState(() => typingUser = null);
+        }
+      });
     });
-    socket!.on('typing:stop', (_) {
-      if (mounted) setState(() => typingUser = null);
+    socket!.on('typing:stop', (data) {
+      if (!mounted || data is! Map) return;
+      if (typingUser == data['userId']?.toString()) {
+        _remoteTypingTimer?.cancel();
+        setState(() => typingUser = null);
+      }
     });
     socket!.on('user:online', (data) {
       if (data is Map && mounted) {
@@ -1187,7 +1243,8 @@ class _ChatState extends State<Chat> {
         if (id == null ||
             !messages
                 .any((item) => item is Map && item['_id']?.toString() == id)) {
-          setState(() => messages.add(incoming));
+          setState(() => messages = mergeMessages(messages, [incoming]));
+          _scrollToLatestMessage();
         }
         if (id != null &&
             incoming['senderId']?.toString() != app.user?['id']?.toString()) {
@@ -1253,6 +1310,7 @@ class _ChatState extends State<Chat> {
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
+    _stopTyping();
     setState(() => sending = true);
     try {
       final result = await app.api.call(
@@ -1269,11 +1327,12 @@ class _ChatState extends State<Chat> {
         if (sentId == null ||
             !messages.any(
                 (item) => item is Map && item['_id']?.toString() == sentId)) {
-          messages.add(sent);
+          messages = mergeMessages(messages, [sent]);
         }
         reply = null;
       });
       input.clear();
+      _scrollToLatestMessage();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1428,7 +1487,9 @@ class _ChatState extends State<Chat> {
       final result = await app.api.call('GET',
           '/api/conversations/${widget.conversation['_id']}/messages?q=${Uri.encodeQueryComponent(query)}');
       if (mounted) {
-        setState(() => messages = List<dynamic>.from(result['messages'] ?? []));
+        setState(() => messages =
+            mergeMessages([], List<dynamic>.from(result['messages'] ?? [])));
+        _scrollToLatestMessage();
       }
     } catch (error) {
       if (mounted) {
@@ -1696,7 +1757,11 @@ class _ChatState extends State<Chat> {
 
   @override
   void dispose() {
+    _typingTimer?.cancel();
+    _remoteTypingTimer?.cancel();
+    if (_isTyping) socket?.emit('typing:stop', widget.conversation['_id']);
     socket?.dispose();
+    _messagesScrollController.dispose();
     input.dispose();
     searchInput.dispose();
     super.dispose();
@@ -1895,6 +1960,18 @@ class _ChatState extends State<Chat> {
                         onRetry: () => retryPayment(payment),
                         onRefresh: () => refreshPayment(payment));
                   })),
+        if (widget.conversation['type'] == 'direct')
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: requestMpesa,
+                icon: const Icon(Icons.payments_outlined),
+                label: const Text('Request M-Pesa'),
+              ),
+            ),
+          ),
         if (typingUser != null)
           const Padding(
               padding: EdgeInsets.only(top: 6),
@@ -1915,6 +1992,7 @@ class _ChatState extends State<Chat> {
                           title: 'Start the conversation',
                           subtitle: 'Send the first message.')
                       : ListView.builder(
+                          controller: _messagesScrollController,
                           padding: const EdgeInsets.all(12),
                           itemCount: messages.length,
                           itemBuilder: (_, i) {
@@ -2009,14 +2087,7 @@ class _ChatState extends State<Chat> {
                   controller: input,
                   minLines: 1,
                   maxLines: 5,
-                  onChanged: (value) {
-                    final id = widget.conversation['_id'];
-                    if (value.isEmpty) {
-                      socket?.emit('typing:stop', id);
-                    } else {
-                      socket?.emit('typing:start', id);
-                    }
-                  },
+                  onChanged: _handleTyping,
                   decoration: const InputDecoration(
                       hintText: 'Write a message…', border: InputBorder.none))),
           IconButton(
