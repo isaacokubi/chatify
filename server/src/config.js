@@ -1,3 +1,7 @@
+// SERVER CONFIGURATION HELPERS
+// Normalizes runtime environment settings and client origins, then creates the CORS policy used by Express
+// and Socket.IO. CORS is a browser access policy, not a replacement for authentication or authorization.
+
 export function resolveNodeEnv(value) {
   const environment = typeof value === 'string' ? value.trim() : '';
   if (!['development', 'test', 'production'].includes(environment)) {
