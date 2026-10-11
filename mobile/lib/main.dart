@@ -603,6 +603,8 @@ class _HomeState extends State<Home> {
   int tab = 0;
   List<dynamic> chats = [], users = [], memories = [];
   bool loading = false;
+  bool selectingChats = false;
+  final Set<String> selectedConversationIds = {};
   bool memoriesLoading = false, usersLoading = false;
   String contactQuery = '';
   String phoneQuery = '';
@@ -615,6 +617,37 @@ class _HomeState extends State<Home> {
     super.initState();
     loadChats();
     loadSavedContacts();
+  }
+
+  void _toggleConversationSelection(String id) {
+    setState(() {
+      if (!selectedConversationIds.add(id)) selectedConversationIds.remove(id);
+      if (selectedConversationIds.isEmpty) selectingChats = false;
+    });
+  }
+
+  Future<void> _deleteSelectedConversations() async {
+    final ids = selectedConversationIds.toList();
+    if (ids.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('Delete ${ids.length} conversation${ids.length == 1 ? '' : 's'}?'),
+        content: const Text('This removes the selected conversation${ids.length == 1 ? '' : 's'} from your chat list only. Other participants keep their copies. A new message can make a conversation appear again.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for me')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await app.api.call('POST', '/api/conversations/delete', {'conversationIds': ids});
+      setState(() { chats.removeWhere((c) => c is Map && ids.contains(c['_id']?.toString())); selectedConversationIds.clear(); selectingChats = false; });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${ids.length} conversation${ids.length == 1 ? '' : 's'} deleted from your chat list.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
   }
 
   Future<void> loadChats() async {
@@ -686,8 +719,14 @@ class _HomeState extends State<Home> {
               icon: const Icon(Icons.account_balance_wallet_outlined),
               onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const PaymentHistory()))),
-          if (tab == 0)
+          if (tab == 0 && selectingChats) ...[
+            IconButton(tooltip: 'Select all', icon: const Icon(Icons.select_all), onPressed: () => setState(() { selectedConversationIds..clear()..addAll(chats.whereType<Map>().map((c) => c['_id'].toString())); })),
+            IconButton(tooltip: 'Delete selected conversations', onPressed: selectedConversationIds.isEmpty ? null : _deleteSelectedConversations, icon: const Icon(Icons.delete_outline)),
+            IconButton(tooltip: 'Cancel selection', onPressed: () => setState(() { selectingChats = false; selectedConversationIds.clear(); }), icon: const Icon(Icons.close)),
+          ] else if (tab == 0) ...[
+            IconButton(tooltip: 'Select conversations', onPressed: () => setState(() => selectingChats = true), icon: const Icon(Icons.checklist)),
             IconButton(onPressed: loadChats, icon: const Icon(Icons.refresh)),
+          ],
           if (tab == 2)
             IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
         ],
@@ -755,12 +794,21 @@ class _HomeState extends State<Home> {
           final preview = last is Map
               ? (last['text'] ?? 'Start chatting').toString()
               : 'Start chatting';
+          final id = c['_id']?.toString() ?? '';
+          final selected = selectedConversationIds.contains(id);
           return ListTile(
-            leading: CircleAvatar(
-                child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
+            leading: selectingChats
+                ? Checkbox(value: selected, onChanged: (_) => _toggleConversationSelection(id))
+                : CircleAvatar(child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
             title: Text(title),
             subtitle: Text(preview),
+            selected: selected,
+            onLongPress: () {
+              if (!selectingChats) setState(() => selectingChats = true);
+              _toggleConversationSelection(id);
+            },
             onTap: () {
+              if (selectingChats) { _toggleConversationSelection(id); return; }
               Navigator.push(context,
                       MaterialPageRoute(builder: (_) => Chat(conversation: c)))
                   .then((_) => loadChats());
