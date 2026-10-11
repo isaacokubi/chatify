@@ -1477,7 +1477,7 @@ class _ChatState extends State<Chat> {
                               : null),
                       const SizedBox(height: 8),
                       const Text(
-                        'The payer will choose the phone that receives the M-Pesa prompt. STK Push payments settle to the configured business shortcode; this does not send money directly to a personal number.',
+                        'The selected payer number is the default for the STK prompt and can be changed before payment. STK Push payments settle to the configured business shortcode; this does not send money directly to a personal number.',
                         style: TextStyle(fontSize: 12),
                       ),
                     ]),
