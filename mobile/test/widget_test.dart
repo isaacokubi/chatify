@@ -129,6 +129,7 @@ void main() {
         'payerId': 'payer',
         'amount': 250,
         'description': 'Shared lunch',
+        'recipientPhone': '254712345678',
         'status': 'PENDING',
         'provider': 'mock'
       },
@@ -137,7 +138,7 @@ void main() {
       onPay: () => tapped = true,
     ))));
     expect(find.text('Shared lunch'), findsOneWidget);
-    expect(find.text('KSh 250 · PENDING · Local demo'), findsOneWidget);
+    expect(find.text('KSh 250 · PENDING · To 254712345678 · Local demo'), findsOneWidget);
     await tester.tap(find.text('Pay with M-Pesa'));
     expect(tapped, isTrue);
   });
