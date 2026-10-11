@@ -341,7 +341,249 @@ class ChatifyApp extends StatelessWidget {
       navigatorKey: chatifyNavigatorKey,
       scaffoldMessengerKey: chatifyScaffoldMessengerKey,
       theme: ThemeData(
-          useMaterial3: true, colorSchemeSeed: const Color(0xFF6558D3)),
+        useMaterial3: true,
+        visualDensity: VisualDensity.standard,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF4F46E5),
+          brightness: Brightness.light,
+        ).copyWith(
+          primary: const Color(0xFF4F46E5),
+          onPrimary: Colors.white,
+          secondary: const Color(0xFF0F9D8A),
+          onSecondary: Colors.white,
+          surface: Colors.white,
+          onSurface: const Color(0xFF172033),
+          error: const Color(0xFFDC2626),
+          outline: const Color(0xFFD9DFEA),
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF5F7FB),
+        canvasColor: const Color(0xFFF5F7FB),
+        cardColor: Colors.white,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFFF5F7FB),
+          foregroundColor: Color(0xFF172033),
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          centerTitle: false,
+          titleTextStyle: TextStyle(
+            color: Color(0xFF172033),
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.35,
+          ),
+        ),
+        textTheme: const TextTheme(
+          displayLarge: TextStyle(
+            color: Color(0xFF172033),
+            fontWeight: FontWeight.w800,
+            letterSpacing: -1.2,
+          ),
+          headlineMedium: TextStyle(
+            color: Color(0xFF172033),
+            fontWeight: FontWeight.w750,
+            letterSpacing: -0.65,
+          ),
+          titleLarge: TextStyle(
+            color: Color(0xFF172033),
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.3,
+          ),
+          titleMedium: TextStyle(
+            color: Color(0xFF253047),
+            fontWeight: FontWeight.w600,
+          ),
+          bodyLarge: TextStyle(
+            color: Color(0xFF253047),
+            fontSize: 16,
+            height: 1.45,
+          ),
+          bodyMedium: TextStyle(
+            color: Color(0xFF536078),
+            fontSize: 14,
+            height: 1.45,
+          ),
+          bodySmall: TextStyle(
+            color: Color(0xFF69758B),
+            fontSize: 12,
+            height: 1.4,
+          ),
+          labelLarge: TextStyle(
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.05,
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 15,
+          ),
+          hintStyle: const TextStyle(
+            color: Color(0xFF8A94A8),
+            fontSize: 14,
+          ),
+          labelStyle: const TextStyle(
+            color: Color(0xFF536078),
+            fontSize: 14,
+          ),
+          helperStyle: const TextStyle(
+            color: Color(0xFF69758B),
+            fontSize: 12,
+          ),
+          errorStyle: const TextStyle(
+            color: Color(0xFFDC2626),
+            fontSize: 12,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+            borderSide: BorderSide(color: Color(0xFFD9DFEA)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+            borderSide: BorderSide(color: Color(0xFFD9DFEA)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+            borderSide: BorderSide(color: Color(0xFF4F46E5), width: 1.6),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+            borderSide: BorderSide(color: Color(0xFFDC2626)),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(14)),
+            borderSide: BorderSide(color: Color(0xFFDC2626), width: 1.6),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF4F46E5),
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: const Color(0xFFE5E7EB),
+            disabledForegroundColor: const Color(0xFF8A94A8),
+            minimumSize: const Size(48, 50),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.1,
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF344054),
+            minimumSize: const Size(44, 48),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            side: const BorderSide(color: Color(0xFFD9DFEA)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: const Color(0xFF4F46E5),
+            minimumSize: const Size(40, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        iconButtonTheme: IconButtonThemeData(
+          style: IconButton.styleFrom(
+            foregroundColor: const Color(0xFF536078),
+            minimumSize: const Size(44, 44),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(13),
+            ),
+          ),
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: Colors.white,
+          indicatorColor: const Color(0xFFE9E8FF),
+          elevation: 0,
+          height: 70,
+        ),
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          backgroundColor: const Color(0xFF4F46E5),
+          foregroundColor: Colors.white,
+          elevation: 3,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+        snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF172033),
+          contentTextStyle: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        chipTheme: ChipThemeData(
+          backgroundColor: const Color(0xFFF0F2F8),
+          selectedColor: const Color(0xFFE9E8FF),
+          secondarySelectedColor: const Color(0xFFDDF7F1),
+          disabledColor: const Color(0xFFF5F7FB),
+          labelStyle: const TextStyle(
+            color: Color(0xFF344054),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+          side: const BorderSide(color: Color(0xFFE3E7EF)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        ),
+        listTileTheme: ListTileThemeData(
+          iconColor: const Color(0xFF536078),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        dividerTheme: const DividerThemeData(
+          color: Color(0xFFEAEDF3),
+          thickness: 1,
+          space: 1,
+        ),
+        progressIndicatorTheme: const ProgressIndicatorThemeData(
+          color: Color(0xFF4F46E5),
+          linearTrackColor: Color(0xFFE9E8FF),
+          circularTrackColor: Color(0xFFE9E8FF),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          titleTextStyle: const TextStyle(
+            color: Color(0xFF172033),
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
       home: Consumer<AppState>(
           builder: (_, a, __) => !a.ready
               ? const Scaffold(body: Center(child: CircularProgressIndicator()))
