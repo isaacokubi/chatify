@@ -807,6 +807,19 @@ class _HomeState extends State<Home> {
     }
   }
 
+  Future<void> saveUserContact(String userId) async {
+    try {
+      await app.api.call('POST', '/api/contacts', {'userId': userId});
+      await loadSavedContacts();
+      if (mounted) {
+        setState(() => users = []);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact saved.')));
+      }
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
   Future<void> removeSavedContact(Map<String, dynamic> contact) async {
     try { await app.api.call('DELETE', '/api/contacts/${contact['id']}'); await loadSavedContacts(); }
     catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
@@ -856,11 +869,11 @@ class _HomeState extends State<Home> {
             trailing: IconButton(tooltip: 'Remove contact', icon: const Icon(Icons.person_remove_outlined), onPressed: () => removeSavedContact(contact)),
           );
         })),
-      Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: TextField(onChanged: search, decoration: const InputDecoration(labelText: 'Or find by name/email', prefixIcon: Icon(Icons.person_search), border: OutlineInputBorder()))),
+      Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: TextField(onChanged: search, decoration: const InputDecoration(labelText: 'Search by user name or email', prefixIcon: Icon(Icons.person_search), border: OutlineInputBorder()))),
       if (contactQuery.trim().length >= 2) SizedBox(height: 180, child: usersLoading ? const Center(child: CircularProgressIndicator()) : usersError != null ? Center(child: Text(usersError!)) : ListView.builder(itemCount: users.length, itemBuilder: (_, i) {
         final u = Map<String, dynamic>.from(users[i]);
         return ListTile(leading: const Icon(Icons.person_outline), title: Text(u['name']?.toString() ?? 'User'), subtitle: Text(u['email']?.toString() ?? ''),
-          trailing: IconButton(tooltip: 'Save contact', icon: const Icon(Icons.person_add_alt_1), onPressed: () { final phone = u['phone']?.toString() ?? ''; if (phone.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This user has not added a phone number.'))); } else { savePhoneContact(phone); } }));
+          trailing: IconButton(tooltip: 'Save contact', icon: const Icon(Icons.person_add_alt_1), onPressed: () { final userId = u['_id']?.toString() ?? u['id']?.toString() ?? ''; if (userId.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not identify this Chatify user.'))); } else { saveUserContact(userId); } }));
       })),
     ]);
   }
