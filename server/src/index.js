@@ -15,7 +15,7 @@ const emailProvider=createEmailProvider({smtpUrl:process.env.SMTP_URL,from:proce
 const storageProvider=createStorageProvider({cloudinaryUrl:process.env.CLOUDINARY_URL,production:process.env.NODE_ENV==='production'});
 const notificationProvider=createNotificationProvider({fcmProjectId:process.env.FCM_PROJECT_ID,serviceAccountJson:process.env.FIREBASE_SERVICE_ACCOUNT_JSON,production});
 const mpesaProvider=resolveMpesaProvider(process.env);
-const app=express(); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'1mb'})); app.use(rateLimit({windowMs:900000,max:300}));
+const app=express(); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb'})); app.use(rateLimit({windowMs:900000,max:300}));
 const O=mongoose.Schema.Types.ObjectId;
 const User=mongoose.model('User',new mongoose.Schema({name:{type:String,required:true,trim:true,maxlength:80},email:{type:String,unique:true,lowercase:true,trim:true,required:true},phone:String,passwordHash:{type:String,required:true},profileImage:String,status:{type:String,default:'active'},lastSeen:Date,privacy:{lastSeen:{type:Boolean,default:true},readReceipts:{type:Boolean,default:true}},blockedUsers:[O],pushTokens:{type:[String],default:[]},notificationPreferences:{messages:{type:Boolean,default:true},mentions:{type:Boolean,default:true},memories:{type:Boolean,default:true}}},{timestamps:true}));
 User.schema.index({name:'text',email:'text'});
@@ -43,13 +43,13 @@ io.on('connection',async s=>{s.join('user:'+s.user.sub);const activeConversation
 });
 app.get('/health',(q,r)=>{const connected=mongoose.connection.readyState===1;r.status(connected?200:503).json({ok:connected,service:'chatify-api',database:connected?'connected':'unavailable',time:new Date().toISOString()});});
 app.post('/api/media',auth,async(q,r)=>{
-  if(q.body?.data!=null&&!isSupportedImageData(q.body.data,q.body.mimeType))return r.status(400).json({error:'Choose a valid JPEG, PNG or WebP image smaller than 650 KB'});
+  if(q.body?.data!=null&&!isSupportedImageData(q.body.data,q.body.mimeType))return r.status(400).json({error:'Choose a valid JPEG, PNG or WebP image no larger than 10 MB'});
   const {data,mimeType,url}=q.body||{};
   if(typeof url==='string'&&/^https:\/\//i.test(url)&&url.length<=2048){
     try{return r.status(201).json(await storageProvider.upload({path:url,mimetype:'image/remote'}));}
     catch{return r.status(503).json({error:'Image storage is not configured'});}
   }
-  if(typeof data!=='string'||data.length>900000||!isSupportedImageData(data,mimeType))return r.status(400).json({error:'Choose a valid JPEG, PNG or WebP image smaller than 650 KB'});
+  if(typeof data!=='string'||data.length>14*1024*1024||!isSupportedImageData(data,mimeType))return r.status(400).json({error:'Choose a valid JPEG, PNG or WebP image no larger than 10 MB'});
   try{r.status(201).json(await storageProvider.upload({data,mimeType}));}
   catch{return r.status(503).json({error:'Image storage is not configured'});}
 });
