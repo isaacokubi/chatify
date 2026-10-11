@@ -3,7 +3,7 @@ import {v2 as cloudinary} from 'cloudinary';
 import {cert, getApps, initializeApp} from 'firebase-admin/app';
 import {getMessaging} from 'firebase-admin/messaging';
 
-const maxImageBytes = 650 * 1024;
+const maxImageBytes = 10 * 1024 * 1024;
 const supportedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 export function isSupportedImageData(data, mimeType) {
@@ -31,7 +31,7 @@ export function isAllowedMessageMediaUrl(value, production = false) {
   const remote = url.protocol === 'https:' && value.length <= 2048 &&
     (!production || url.hostname === 'res.cloudinary.com');
   const developmentMock = !production &&
-    /^data:image\/(jpeg|png|webp);base64,/i.test(value) && value.length <= 900000;
+    /^data:image\/(jpeg|png|webp);base64,/i.test(value) && value.length <= 14 * 1024 * 1024;
   return remote || developmentMock;
 }
 
@@ -75,7 +75,7 @@ async function uploadToCloudinary(file, uploader) {
     source = file.path;
   } else {
     if (!isSupportedImageData(file.data, file.mimeType)) {
-      throw new Error('Choose a valid JPEG, PNG or WebP image smaller than 650 KB');
+      throw new Error('Choose a valid JPEG, PNG or WebP image no larger than 10 MB');
     }
     source = `data:${file.mimeType};base64,${file.data}`;
   }
