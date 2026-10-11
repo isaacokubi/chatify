@@ -603,6 +603,8 @@ class _HomeState extends State<Home> {
   int tab = 0;
   List<dynamic> chats = [], users = [], memories = [];
   bool loading = false;
+  bool selectingChats = false;
+  final Set<String> selectedConversationIds = {};
   bool memoriesLoading = false, usersLoading = false;
   String contactQuery = '';
   String phoneQuery = '';
@@ -616,6 +618,37 @@ class _HomeState extends State<Home> {
     super.initState();
     loadChats();
     loadSavedContacts();
+  }
+
+  void _toggleConversationSelection(String id) {
+    setState(() {
+      if (!selectedConversationIds.add(id)) selectedConversationIds.remove(id);
+      if (selectedConversationIds.isEmpty) selectingChats = false;
+    });
+  }
+
+  Future<void> _deleteSelectedConversations() async {
+    final ids = selectedConversationIds.toList();
+    if (ids.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('Delete ${ids.length} conversation${ids.length == 1 ? '' : 's'}?'),
+        content: Text('This removes the selected conversation${ids.length == 1 ? '' : 's'} from your chat list only. Other participants keep their copies. A new message can make a conversation appear again.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for me')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await app.api.call('POST', '/api/conversations/delete', {'conversationIds': ids});
+      setState(() { chats.removeWhere((c) => c is Map && ids.contains(c['_id']?.toString())); selectedConversationIds.clear(); selectingChats = false; });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${ids.length} conversation${ids.length == 1 ? '' : 's'} deleted from your chat list.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
   }
 
   Future<void> loadChats() async {
@@ -687,8 +720,14 @@ class _HomeState extends State<Home> {
               icon: const Icon(Icons.account_balance_wallet_outlined),
               onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const PaymentHistory()))),
-          if (tab == 0)
+          if (tab == 0 && selectingChats) ...[
+            IconButton(tooltip: 'Select all', icon: const Icon(Icons.select_all), onPressed: () => setState(() { selectedConversationIds..clear()..addAll(chats.whereType<Map>().map((c) => c['_id'].toString())); })),
+            IconButton(tooltip: 'Delete selected conversations', onPressed: selectedConversationIds.isEmpty ? null : _deleteSelectedConversations, icon: const Icon(Icons.delete_outline)),
+            IconButton(tooltip: 'Cancel selection', onPressed: () => setState(() { selectingChats = false; selectedConversationIds.clear(); }), icon: const Icon(Icons.close)),
+          ] else if (tab == 0) ...[
+            IconButton(tooltip: 'Select conversations', onPressed: () => setState(() => selectingChats = true), icon: const Icon(Icons.checklist)),
             IconButton(onPressed: loadChats, icon: const Icon(Icons.refresh)),
+          ],
           if (tab == 2)
             IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
         ],
@@ -756,12 +795,21 @@ class _HomeState extends State<Home> {
           final preview = last is Map
               ? (last['text'] ?? 'Start chatting').toString()
               : 'Start chatting';
+          final id = c['_id']?.toString() ?? '';
+          final selected = selectedConversationIds.contains(id);
           return ListTile(
-            leading: CircleAvatar(
-                child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
+            leading: selectingChats
+                ? Checkbox(value: selected, onChanged: (_) => _toggleConversationSelection(id))
+                : CircleAvatar(child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
             title: Text(title),
             subtitle: Text(preview),
+            selected: selected,
+            onLongPress: () {
+              if (!selectingChats) setState(() => selectingChats = true);
+              _toggleConversationSelection(id);
+            },
             onTap: () {
+              if (selectingChats) { _toggleConversationSelection(id); return; }
               Navigator.push(context,
                       MaterialPageRoute(builder: (_) => Chat(conversation: c)))
                   .then((_) => loadChats());
@@ -1652,6 +1700,20 @@ class _ChatState extends State<Chat> {
       if (id == null) return;
       setState(() => payments = mergePayment(payments, incoming));
     });
+    socket!.on('message:deleted', (data) {
+      if (!mounted || data is! Map || data['conversationId']?.toString() != widget.conversation['_id']?.toString()) return;
+      final index = messages.indexWhere((m) => m is Map && m['_id']?.toString() == data['messageId']?.toString());
+      if (index < 0) return;
+      setState(() {
+        final copy = Map<String, dynamic>.from(messages[index]);
+        copy['deletedAt'] = data['deletedAt'] ?? DateTime.now().toIso8601String();
+        copy['text'] = '';
+        copy['mediaUrl'] = null;
+        copy['messageType'] = 'text';
+        copy['reactions'] = [];
+        messages[index] = copy;
+      });
+    });
     socket!.on('message:expired', (data) {
       if (!mounted || data is! Map) return;
       final index = messages.indexWhere((m) =>
@@ -2397,28 +2459,47 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> deleteMessage(Map<String, dynamic> message) async {
+    final id = message['_id']?.toString();
+    if (id == null || id.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Delete this message?'),
+        content: const Text('This removes the message for everyone in the conversation. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for everyone')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final result = await app.api.call('DELETE', '/api/messages/$id', {});
+      final updated = Map<String, dynamic>.from(result['message']);
+      final index = messages.indexWhere((item) => item is Map && item['_id']?.toString() == id);
+      if (index >= 0 && mounted) setState(() => messages[index] = updated);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message deleted for everyone.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
   Future<void> showMessageActions(Map<String, dynamic> message) async {
+    final mine = message['senderId']?.toString() == app.user?['id']?.toString();
+    final deleted = message['deletedAt'] != null || message['expiredAt'] != null;
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (sheet) => SafeArea(
         child: Wrap(
           children: [
-            ListTile(
-                leading: const Icon(Icons.reply),
-                title: const Text('Reply'),
-                onTap: () => Navigator.pop(sheet, 'reply')),
-            ListTile(
-                leading: const Text('❤️', style: TextStyle(fontSize: 22)),
-                title: const Text('React with ❤️'),
-                onTap: () => Navigator.pop(sheet, '❤️')),
-            ListTile(
-                leading: const Text('👍', style: TextStyle(fontSize: 22)),
-                title: const Text('React with 👍'),
-                onTap: () => Navigator.pop(sheet, '👍')),
-            ListTile(
-                leading: const Text('😂', style: TextStyle(fontSize: 22)),
-                title: const Text('React with 😂'),
-                onTap: () => Navigator.pop(sheet, '😂')),
+            if (!deleted) ...[
+              ListTile(leading: const Icon(Icons.reply), title: const Text('Reply'), onTap: () => Navigator.pop(sheet, 'reply')),
+              ListTile(leading: const Text('❤️', style: TextStyle(fontSize: 22)), title: const Text('React with ❤️'), onTap: () => Navigator.pop(sheet, '❤️')),
+              ListTile(leading: const Text('👍', style: TextStyle(fontSize: 22)), title: const Text('React with 👍'), onTap: () => Navigator.pop(sheet, '👍')),
+              ListTile(leading: const Text('😂', style: TextStyle(fontSize: 22)), title: const Text('React with 😂'), onTap: () => Navigator.pop(sheet, '😂')),
+            ],
+            if (mine && !deleted) ListTile(leading: const Icon(Icons.delete_outline, color: Colors.red), title: const Text('Delete for everyone'), onTap: () => Navigator.pop(sheet, 'delete')),
           ],
         ),
       ),
@@ -2426,6 +2507,8 @@ class _ChatState extends State<Chat> {
     if (action == null) return;
     if (action == 'reply') {
       setState(() => reply = message['_id']?.toString());
+    } else if (action == 'delete') {
+      await deleteMessage(message);
     } else if (message['_id'] != null) {
       await reactTo(message['_id'].toString(), action);
     }
@@ -2581,9 +2664,11 @@ class _ChatState extends State<Chat> {
                                 Map<String, dynamic>.from(messages[i]);
                             final mine = message['senderId']?.toString() ==
                                 app.user?['id']?.toString();
-                            final text = message['expiredAt'] != null
-                                ? 'This message has expired.'
-                                : (message['text'] ?? '[media]').toString();
+                            final text = message['deletedAt'] != null
+                                ? 'This message was deleted.'
+                                : message['expiredAt'] != null
+                                    ? 'This message has expired.'
+                                    : (message['text'] ?? '[media]').toString();
                             return GestureDetector(
                               onLongPress: () => showMessageActions(message),
                               child: Align(
@@ -2607,14 +2692,16 @@ class _ChatState extends State<Chat> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        if (message['expiredAt'] == null &&
+                                        if (message['deletedAt'] == null &&
+                                            message['expiredAt'] == null &&
                                             message['messageType'] == 'image' &&
                                             message['mediaUrl'] != null)
                                           renderImage(
                                               message['mediaUrl'].toString())
                                         else
                                           Text(text),
-                                        if (message['reactions'] is List &&
+                                        if (message['deletedAt'] == null &&
+                                            message['reactions'] is List &&
                                             (message['reactions'] as List)
                                                 .isNotEmpty)
                                           Text((message['reactions'] as List)
