@@ -86,8 +86,14 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
 }
 
 export function resolveMpesaProvider(env = process.env, transport) {
-  const mode = env.MPESA_ENV?.trim() || 'mock';
-  if (env.NODE_ENV === 'production' && mode !== 'production') throw new Error('Production requires explicit MPESA_ENV=production');
+  const configuredMode = env.MPESA_ENV?.trim();
+  const mode = configuredMode || 'mock';
+  if (env.NODE_ENV === 'production' && !configuredMode) {
+    throw new Error('Production requires explicit MPESA_ENV=mock for a demo or MPESA_ENV=production for live Daraja payments');
+  }
+  if (env.NODE_ENV === 'production' && mode === 'sandbox') {
+    throw new Error('MPESA_ENV=sandbox is not allowed in production; use mock for a demo or production for live Daraja payments');
+  }
   if (mode === 'mock') return createMockMpesaProvider();
   if (mode !== 'sandbox' && mode !== 'production') throw new Error('MPESA_ENV must be mock, sandbox, or production');
   return createDarajaProvider({
