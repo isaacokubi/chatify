@@ -1,3 +1,7 @@
+// AUTHENTICATION HELPER
+// Builds Express middleware that extracts a Bearer token, verifies its signature/expiry,
+// loads the corresponding user, and rejects missing or invalid sessions before route logic runs.
+
 export function createAuthMiddleware({verifyToken, findUser}) {
   return async function auth(req, res, next) {
     const header = req.headers.authorization || '';
