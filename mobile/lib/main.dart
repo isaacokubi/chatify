@@ -608,6 +608,7 @@ class _HomeState extends State<Home> {
   String phoneQuery = '';
   List<dynamic> savedContacts = [], phoneResults = [];
   bool contactsLoading = false, phoneSearching = false;
+  Timer? _phoneSearchDebounce;
   String? chatsError, memoriesError, usersError;
   AppState get app => context.read<AppState>();
   @override
@@ -781,17 +782,31 @@ class _HomeState extends State<Home> {
     } finally { if (mounted) setState(() => contactsLoading = false); }
   }
 
-  Future<void> searchPhone() async {
-    final value = phoneQuery.trim();
-    if (value.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a phone number to search.'))); return; }
-    setState(() { phoneSearching = true; phoneResults = []; });
+  @override
+  void dispose() {
+    _phoneSearchDebounce?.cancel();
+    super.dispose();
+  }
+
+  Future<void> searchPhone([String? query]) async {
+    final value = (query ?? phoneQuery).trim();
+    if (query != null) phoneQuery = query;
+    if (value.replaceAll(RegExp(r'\D'), '').length < 3) {
+      if (mounted) setState(() { phoneResults = []; phoneSearching = false; });
+      return;
+    }
+    setState(() => phoneSearching = true);
     try {
       final result = await app.api.call('GET', '/api/contacts/search?q=${Uri.encodeQueryComponent(value)}');
-      if (mounted) setState(() => phoneResults = List<dynamic>.from(result['users'] ?? []));
-      if (mounted && phoneResults.isEmpty) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No Chatify account found for that phone number.')));
+      if (mounted && phoneQuery.trim() == value) setState(() => phoneResults = List<dynamic>.from(result['users'] ?? []));
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
-    } finally { if (mounted) setState(() => phoneSearching = false); }
+      if (mounted && phoneQuery.trim() == value) {
+        setState(() => phoneResults = []);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted && phoneQuery.trim() == value) setState(() => phoneSearching = false);
+    }
   }
 
   Future<void> savePhoneContact(String phone) async {
@@ -829,7 +844,11 @@ class _HomeState extends State<Home> {
     return Column(children: [
       Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 8), child: TextField(
         keyboardType: TextInputType.phone,
-        onChanged: (value) => phoneQuery = value,
+        onChanged: (value) {
+          phoneQuery = value;
+          _phoneSearchDebounce?.cancel();
+          _phoneSearchDebounce = Timer(const Duration(milliseconds: 300), () => searchPhone(value));
+        },
         onSubmitted: (_) => searchPhone(),
         decoration: InputDecoration(
           labelText: 'Find by phone number', hintText: 'e.g. 0712345678 or +254712345678',
@@ -838,8 +857,12 @@ class _HomeState extends State<Home> {
             icon: phoneSearching ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search)),
         ),
       )),
+      if (phoneQuery.trim().replaceAll(RegExp(r'\D'), '').length >= 3 && phoneSearching)
+        const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
+      if (phoneQuery.trim().replaceAll(RegExp(r'\D'), '').length >= 3 && !phoneSearching && phoneResults.isEmpty)
+        const Padding(padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Align(alignment: Alignment.centerLeft, child: Text('No registered accounts match this number yet. Keep typing or check the digits.'))),
       if (phoneResults.isNotEmpty) ...[
-        const Padding(padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Align(alignment: Alignment.centerLeft, child: Text('Matching account', style: TextStyle(fontWeight: FontWeight.bold)))),
+        const Padding(padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Align(alignment: Alignment.centerLeft, child: Text('Matching accounts', style: TextStyle(fontWeight: FontWeight.bold)))),
         ...phoneResults.whereType<Map>().map((raw) {
           final person = Map<String, dynamic>.from(raw);
           return ListTile(leading: CircleAvatar(child: Text((person['name']?.toString() ?? '?').isEmpty ? '?' : person['name'].toString()[0].toUpperCase())),
