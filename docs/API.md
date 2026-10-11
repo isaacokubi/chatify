@@ -19,3 +19,9 @@ Statuses are `PENDING`, `SUCCESS`, `FAILED`, and `CANCELLED`. STK acceptance lea
 Protected endpoints require `Authorization: Bearer <JWT>`. Server-side membership and ownership checks are authoritative. Production CORS allows only origins listed in `CLIENT_ORIGIN` (comma-separated HTTPS origins); `*` is supported only in development. Native clients without a browser Origin remain supported.
 
 Socket events include `message:new`, `message:read`, `message:reaction`, `message:expired`, `payment:updated`, `typing:start`, `typing:stop`, `user:online`, `user:offline`, and `conversation:updated`. Payment status events are sent to the authenticated payer/requester private rooms. Clients can join only conversations where they are members; typing events are restricted to joined rooms.
+
+## Payments
+
+- Create a request with `POST /api/payments` using `payerUserId`, `conversationId`, integer `amount`, `recipientPhone` (the recipient's Kenyan M-Pesa number), and `description`.
+- The payer enters the phone number to receive the STK prompt when they choose **Pay with M-Pesa**. Send it as `phone` to `POST /api/payments/:id/initiate`; the server normalizes and stores it separately from `recipientPhone`.
+- **Daraja STK Push is a customer-to-business payment:** funds settle to the configured `MPESA_SHORTCODE`/Paybill/Till, not directly to the recipient's personal phone. The recipient phone is recorded with the request; it is not the STK destination. Direct person-to-person Send Money is not provided by this STK endpoint.

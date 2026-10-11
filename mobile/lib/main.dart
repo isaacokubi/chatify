@@ -62,6 +62,17 @@ class Api {
       call('GET', '/api/payments/$paymentId');
 }
 
+String? normalizeKenyanPhone(String value) {
+  final digits = value.trim().replaceAll(RegExp(r'[\s()+-]'), '');
+  if (RegExp(r'^0[17]\d{8}$').hasMatch(digits)) {
+    return '254${digits.substring(1)}';
+  }
+  if (RegExp(r'^\+?254[17]\d{8}$').hasMatch(digits)) {
+    return digits.replaceFirst('+', '');
+  }
+  return null;
+}
+
 List<dynamic> mergeMessages(List<dynamic> current, List<dynamic> fetched) {
   final merged = <dynamic>[];
   final indices = <String, int>{};
@@ -1059,7 +1070,7 @@ class PaymentCard extends StatelessWidget {
             leading: const Icon(Icons.payments_outlined),
             title: Text(payment['description']?.toString() ?? 'M-Pesa payment'),
             subtitle: Text(
-                'KSh ${payment['amount'] ?? ''} · $status${isMock ? ' · Local demo' : ''}'),
+                'KSh ${payment['amount'] ?? ''} · $status · To ${payment['recipientPhone'] ?? 'recipient'}${isMock ? ' · Local demo' : ''}'),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               if (status == 'PENDING' && isPayer && onPay != null)
                 TextButton(
@@ -1357,7 +1368,7 @@ class _ChatState extends State<Chat> {
       return;
     }
     final amount = TextEditingController();
-    final phone = TextEditingController();
+    final recipientPhone = TextEditingController();
     final description = TextEditingController();
     final form = GlobalKey<FormState>();
     final submit = await showDialog<bool>(
@@ -1366,30 +1377,43 @@ class _ChatState extends State<Chat> {
               title: const Text('Request M-Pesa'),
               content: Form(
                   key: form,
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    TextFormField(
-                        controller: amount,
-                        keyboardType: TextInputType.number,
-                        decoration:
-                            const InputDecoration(labelText: 'Amount (KSh)'),
-                        validator: (v) {
-                          final value = int.tryParse(v ?? '');
-                          return value == null || value < 1 || value > 150000
-                              ? 'Enter KSh 1–150,000'
-                              : null;
-                        }),
-                    TextFormField(
-                        controller: phone,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                            labelText: 'Payer Safaricom number',
-                            hintText: '0712345678')),
-                    TextFormField(
-                        controller: description,
-                        maxLength: 80,
-                        decoration:
-                            const InputDecoration(labelText: 'Description')),
-                  ])),
+                  child: SingleChildScrollView(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      TextFormField(
+                          controller: amount,
+                          keyboardType: TextInputType.number,
+                          decoration:
+                              const InputDecoration(labelText: 'Amount (KSh)'),
+                          validator: (v) {
+                            final value = int.tryParse(v ?? '');
+                            return value == null || value < 1 || value > 150000
+                                ? 'Enter KSh 1–150,000'
+                                : null;
+                          }),
+                      TextFormField(
+                          controller: recipientPhone,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                              labelText: 'Recipient M-Pesa phone number',
+                              hintText: '0712345678 or 254712345678'),
+                          validator: (v) => normalizeKenyanPhone(v ?? '') == null
+                              ? 'Enter a valid Kenyan M-Pesa number'
+                              : null),
+                      TextFormField(
+                          controller: description,
+                          maxLength: 80,
+                          decoration:
+                              const InputDecoration(labelText: 'Description'),
+                          validator: (v) => v == null || v.trim().isEmpty
+                              ? 'Enter a description'
+                              : null),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'The payer will choose the phone that receives the M-Pesa prompt. STK Push payments settle to the configured business shortcode; this does not send money directly to a personal number.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ]),
+                  )),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(dialog, false),
@@ -1409,7 +1433,7 @@ class _ChatState extends State<Chat> {
           'payerUserId': payerId,
           'conversationId': widget.conversation['_id'],
           'amount': int.parse(amount.text),
-          'phone': phone.text.trim(),
+          'recipientPhone': normalizeKenyanPhone(recipientPhone.text)!,
           'description': description.text.trim()
         });
         final payment = Map<String, dynamic>.from(response['payment']);
@@ -1422,14 +1446,56 @@ class _ChatState extends State<Chat> {
       }
     }
     amount.dispose();
-    phone.dispose();
+    recipientPhone.dispose();
     description.dispose();
   }
 
   Future<void> payPayment(Map<String, dynamic> payment) async {
+    final payerPhone = TextEditingController(
+        text: app.user?['phone']?.toString() ?? '');
+    final form = GlobalKey<FormState>();
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+              title: const Text('Pay with M-Pesa'),
+              content: Form(
+                key: form,
+                child: TextFormField(
+                  controller: payerPhone,
+                  autofocus: true,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Your M-Pesa phone number',
+                    hintText: '0712345678 or 254712345678',
+                    helperText: 'The STK prompt will be sent to this number.',
+                  ),
+                  validator: (v) => normalizeKenyanPhone(v ?? '') == null
+                      ? 'Enter a valid Kenyan M-Pesa number'
+                      : null,
+                ),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialog, false),
+                    child: const Text('Cancel')),
+                FilledButton(
+                    onPressed: () {
+                      if (form.currentState!.validate()) {
+                        Navigator.pop(dialog, true);
+                      }
+                    },
+                    child: const Text('Continue')),
+              ],
+            ));
+    if (accepted != true || !mounted) {
+      payerPhone.dispose();
+      return;
+    }
     try {
-      final result = await app.api
-          .call('POST', '/api/payments/${payment['paymentId']}/initiate', {});
+      final result = await app.api.call(
+          'POST', '/api/payments/${payment['paymentId']}/initiate', {
+        'phone': normalizeKenyanPhone(payerPhone.text)!,
+      });
       final updated = Map<String, dynamic>.from(result['payment']);
       if (mounted) {
         final i = payments.indexWhere(
@@ -1440,13 +1506,15 @@ class _ChatState extends State<Chat> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(result['mock'] == true
                 ? 'Local demo payment started. No Safaricom transaction was made.'
-                : 'Check your phone for the M-Pesa STK prompt. Enter your PIN only in the Safaricom prompt.')));
+                : 'Check ${normalizeKenyanPhone(payerPhone.text)} for the M-Pesa prompt. Enter your PIN only in the Safaricom prompt.')));
       }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(error.toString())));
       }
+    } finally {
+      payerPhone.dispose();
     }
   }
 
