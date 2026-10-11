@@ -1246,7 +1246,9 @@ class _ChatState extends State<Chat> {
     final currentUserId = app.user?['id']?.toString();
     for (final participant in participants) {
       if (participant is! Map) continue;
-      final id = (participant['_id'] ?? participant['id'])?.toString();
+      final rawId = participant['_id'] ?? participant['id'];
+      if (rawId == null) continue;
+      final id = rawId.toString();
       if (id.isNotEmpty && id != currentUserId) return id;
     }
     return null;
@@ -1261,7 +1263,9 @@ class _ChatState extends State<Chat> {
     if (shouldBeOnline == isOnline) return;
     setState(() {
       onlineIds.clear();
-      if (shouldBeOnline && peerId != null) onlineIds.add(peerId);
+      if (peerId != null && app.onlineUserIds.contains(peerId)) {
+        onlineIds.add(peerId);
+      }
     });
   }
 
