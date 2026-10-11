@@ -3724,17 +3724,24 @@ class _ChatState extends State<Chat> {
                                     ? Alignment.centerRight
                                     : Alignment.centerLeft,
                                 child: Container(
-                                  constraints:
-                                      const BoxConstraints(maxWidth: 330),
+                                  constraints: BoxConstraints(
+                                    maxWidth: MediaQuery.sizeOf(context).width * 0.76,
+                                  ),
                                   margin: const EdgeInsets.only(bottom: 8),
-                                  padding: const EdgeInsets.all(12),
+                                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
                                   decoration: BoxDecoration(
                                     color: mine
-                                        ? Theme.of(context)
-                                            .colorScheme
-                                            .primaryContainer
-                                        : Colors.white,
-                                    borderRadius: BorderRadius.circular(16),
+                                        ? Theme.of(context).colorScheme.primaryContainer
+                                        : Theme.of(context).colorScheme.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.only(
+                                      topLeft: const Radius.circular(18),
+                                      topRight: const Radius.circular(18),
+                                      bottomLeft: Radius.circular(mine ? 18 : 5),
+                                      bottomRight: Radius.circular(mine ? 5 : 18),
+                                    ),
+                                    border: Border.all(
+                                      color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+                                    ),
                                   ),
                                   child: Column(
                                       crossAxisAlignment:
@@ -3744,6 +3751,7 @@ class _ChatState extends State<Chat> {
                                             message['deletedAt'] == null &&
                                             message['expiredAt'] == null)
                                           Align(
+                                            widthFactor: 1,
                                             alignment: Alignment.centerRight,
                                             child: PopupMenuButton<String>(
                                               tooltip: 'Message options',

@@ -53,11 +53,18 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
   async function token() {
     if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
     const basic = Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64');
-    const response = await transport(`${host}/oauth/v1/generate?grant_type=client_credentials`, {
-      headers: {Authorization: `Basic ${basic}`}, signal: AbortSignal.timeout(10000),
-    });
+    let response;
+    try {
+      response = await transport(`${host}/oauth/v1/generate?grant_type=client_credentials`, {
+        headers: {Authorization: `Basic ${basic}`}, signal: AbortSignal.timeout(10000),
+      });
+    } catch {
+      throw Object.assign(new Error('Daraja OAuth network request failed'), {stage: 'oauth_transport'});
+    }
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || typeof data.access_token !== 'string') throw new Error('Daraja authentication failed');
+    if (!response.ok || typeof data.access_token !== 'string') {
+      throw Object.assign(new Error('Daraja authentication was rejected'), {stage: 'oauth_auth'});
+    }
     cachedToken = data.access_token;
     tokenExpiry = Date.now() + Math.max(0, Number(data.expires_in || 0) - 30) * 1000;
     return cachedToken;
@@ -75,13 +82,18 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
         AccountReference: `Chatify-${paymentId.slice(-12)}`,
         TransactionDesc: description.slice(0, 50),
       };
-      const response = await transport(`${host}/mpesa/stkpush/v1/processrequest`, {
-        method: 'POST', headers: {Authorization: `Bearer ${await token()}`, 'Content-Type': 'application/json'},
-        body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
-      });
+      let response;
+      try {
+        response = await transport(`${host}/mpesa/stkpush/v1/processrequest`, {
+          method: 'POST', headers: {Authorization: `Bearer ${await token()}`, 'Content-Type': 'application/json'},
+          body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
+        });
+      } catch {
+        throw Object.assign(new Error('Daraja STK network request failed'), {stage: 'stk_transport'});
+      }
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.ResponseCode !== '0' || !data.CheckoutRequestID || !data.MerchantRequestID) {
-        throw new Error('Daraja could not initiate the payment');
+        throw Object.assign(new Error('Daraja rejected the STK request'), {stage: 'stk_rejected'});
       }
       return {checkoutRequestId: data.CheckoutRequestID, merchantRequestId: data.MerchantRequestID};
     },

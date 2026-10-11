@@ -19,3 +19,8 @@ Local demo mode requires no Daraja account or credentials. Leave `MPESA_ENV=mock
 5. Create a payment request in a conversation, then have the payer initiate it. The phone receives the STK prompt; the user enters their PIN only in that Safaricom prompt. The API returns pending after acceptance and changes status only after a matching callback. Confirm the callback reaches the public HTTPS endpoint and appears on both connected clients.
 
 For deployment, use a stable HTTPS backend URL and configure that exact callback path in `MPESA_CALLBACK_URL`. Production requires `NODE_ENV=production` and explicit `MPESA_ENV=production` plus approved production Daraja credentials. Production mode refuses to start when credentials or callback URL are missing. Do not point a production app at sandbox or enable production merely for a demo.
+
+
+## Production M-Pesa STK Push
+
+For the required backend environment, real-prompt prerequisites, and safe verification checklist, see [M-PESA-DEPLOYMENT.md](M-PESA-DEPLOYMENT.md). Mock mode is a simulation and never sends a Safaricom prompt.
