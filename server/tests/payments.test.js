@@ -7,6 +7,7 @@ test('validates whole KSh amounts and Kenyan Safaricom numbers', () => {
   assert.equal(validPaymentAmount(150000), true);
   for (const value of [0, -1, 1.5, '100', Number.MAX_SAFE_INTEGER, 150001]) assert.equal(validPaymentAmount(value), false);
   assert.equal(normalizeMpesaPhone('0712 345 678'), '254712345678');
+  assert.equal(normalizeMpesaPhone('0112 345 678'), '254112345678');
   assert.equal(normalizeMpesaPhone('+254 112 345 678'), '254112345678');
   for (const value of ['254012345678', '07123', '1234567890', '+1 555 123 4567', 254712345678]) assert.equal(normalizeMpesaPhone(value), null);
 });
