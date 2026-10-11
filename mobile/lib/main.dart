@@ -1743,8 +1743,8 @@ class _ChatState extends State<Chat> {
         final file = await ImagePicker().pickImage(source: ImageSource.gallery);
         if (file == null) return;
         final bytes = await file.readAsBytes();
-        if (bytes.length > 650 * 1024) {
-          throw Exception('Choose an image smaller than 650 KB');
+        if (bytes.length > 10 * 1024 * 1024) {
+          throw Exception('Choose an image no larger than 10 MB');
         }
         final name = file.name.toLowerCase();
         final mimeType = name.endsWith('.png')
