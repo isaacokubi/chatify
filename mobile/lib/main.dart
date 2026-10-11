@@ -750,89 +750,192 @@ class _AuthState extends State<Auth> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-      body: SafeArea(
+        body: SafeArea(
           child: Center(
-              child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(28),
-                  child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 430),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            const Icon(Icons.forum_rounded, size: 70),
-                            const SizedBox(height: 10),
-                            const Text('Chatify',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    fontSize: 40, fontWeight: FontWeight.w800)),
-                            const Text('Chat. Remember. Let Go.',
-                                textAlign: TextAlign.center),
-                            const SizedBox(height: 30),
-                            if (reg)
-                              TextField(
-                                  controller: n,
-                                  autofillHints: const [AutofillHints.name],
-                                  decoration: const InputDecoration(
-                                      labelText: 'Full name',
-                                      border: OutlineInputBorder())),
-                            if (reg) const SizedBox(height: 12),
-                            if (reg)
-                              TextField(
-                                  controller: mpesaPhone,
-                                  keyboardType: TextInputType.phone,
-                                  autofillHints: const [AutofillHints.telephoneNumber],
-                                  decoration: const InputDecoration(
-                                      labelText: 'M-Pesa phone number',
-                                      hintText: '0712345678 or 254712345678',
-                                      helperText: 'Used as your default sender or recipient number. You can change it for each request.',
-                                      border: OutlineInputBorder())),
-                            if (reg) const SizedBox(height: 12),
-                            TextField(
-                                controller: e,
-                                keyboardType: TextInputType.emailAddress,
-                                autofillHints: const [AutofillHints.email],
-                                decoration: const InputDecoration(
-                                    labelText: 'Email address',
-                                    border: OutlineInputBorder())),
-                            const SizedBox(height: 12),
-                            TextField(
-                                controller: p,
-                                obscureText: hide,
-                                autofillHints: [
-                                  reg
-                                      ? AutofillHints.newPassword
-                                      : AutofillHints.password
-                                ],
-                                onSubmitted: (_) => submit(),
-                                decoration: InputDecoration(
-                                    labelText: 'Password',
-                                    border: const OutlineInputBorder(),
-                                    suffixIcon: IconButton(
-                                        onPressed: () =>
-                                            setState(() => hide = !hide),
-                                        icon: Icon(hide
-                                            ? Icons.visibility
-                                            : Icons.visibility_off)))),
-                            const SizedBox(height: 18),
-                            FilledButton(
-                                onPressed: busy ? null : submit,
-                                child: busy
-                                    ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2))
-                                    : Text(reg ? 'Create account' : 'Sign in')),
-                            if (!reg)
-                              TextButton(
-                                  onPressed: busy ? null : recover,
-                                  child: const Text('Forgot password?')),
-                            TextButton(
-                                onPressed: () => setState(() => reg = !reg),
-                                child: Text(reg
-                                    ? 'Already have an account? Sign in'
-                                    : 'Create a new account'))
-                          ]))))));
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(color: const Color(0xFFE8EBF3)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x0D172033),
+                        blurRadius: 36,
+                        offset: Offset(0, 14),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          height: 68,
+                          width: 68,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF6259F5), Color(0xFF4338CA)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(22),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x264F46E5),
+                                blurRadius: 18,
+                                offset: Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.forum_rounded,
+                            color: Colors.white,
+                            size: 34,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Chatify',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFF172033),
+                          fontSize: 34,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      const Text(
+                        'Chat. Remember. Let Go.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFF69758B),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 30),
+                      Text(
+                        reg ? 'Create your account' : 'Welcome back',
+                        style: const TextStyle(
+                          color: Color(0xFF172033),
+                          fontSize: 23,
+                          fontWeight: FontWeight.w750,
+                          letterSpacing: -0.55,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        reg
+                            ? 'Join the conversation and keep what matters.'
+                            : 'Sign in to pick up where your conversations left off.',
+                        style: const TextStyle(
+                          color: Color(0xFF69758B),
+                          fontSize: 14,
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      if (reg)
+                        TextField(
+                          controller: n,
+                          autofillHints: const [AutofillHints.name],
+                          textCapitalization: TextCapitalization.words,
+                          decoration: const InputDecoration(
+                            labelText: 'Full name',
+                            prefixIcon: Icon(Icons.person_outline_rounded),
+                          ),
+                        ),
+                      if (reg) const SizedBox(height: 14),
+                      if (reg)
+                        TextField(
+                          controller: mpesaPhone,
+                          keyboardType: TextInputType.phone,
+                          autofillHints: const [AutofillHints.telephoneNumber],
+                          decoration: const InputDecoration(
+                            labelText: 'M-Pesa phone number',
+                            hintText: '0712345678 or 254712345678',
+                            helperText:
+                                'Your default payment number. You can change it per request.',
+                            prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                          ),
+                        ),
+                      if (reg) const SizedBox(height: 14),
+                      TextField(
+                        controller: e,
+                        keyboardType: TextInputType.emailAddress,
+                        autofillHints: const [AutofillHints.email],
+                        decoration: const InputDecoration(
+                          labelText: 'Email address',
+                          prefixIcon: Icon(Icons.alternate_email_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: p,
+                        obscureText: hide,
+                        autofillHints: [
+                          reg ? AutofillHints.newPassword : AutofillHints.password,
+                        ],
+                        onSubmitted: (_) => submit(),
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          prefixIcon: const Icon(Icons.lock_outline_rounded),
+                          suffixIcon: IconButton(
+                            tooltip: hide ? 'Show password' : 'Hide password',
+                            onPressed: () => setState(() => hide = !hide),
+                            icon: Icon(
+                              hide
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      FilledButton(
+                        onPressed: busy ? null : submit,
+                        child: busy
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Text(reg ? 'Create account' : 'Sign in'),
+                      ),
+                      if (!reg)
+                        Align(
+                          alignment: Alignment.center,
+                          child: TextButton(
+                            onPressed: busy ? null : recover,
+                            child: const Text('Forgot password?'),
+                          ),
+                        ),
+                      const SizedBox(height: 4),
+                      const Divider(),
+                      const SizedBox(height: 6),
+                      TextButton(
+                        onPressed: busy ? null : () => setState(() => reg = !reg),
+                        child: Text(
+                          reg
+                              ? 'Already have an account? Sign in'
+                              : 'New to Chatify? Create an account',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class Home extends StatefulWidget {
