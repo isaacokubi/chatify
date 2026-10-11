@@ -1581,25 +1581,59 @@ class Empty extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  const Empty(
-      {super.key,
-      required this.icon,
-      required this.title,
-      required this.subtitle});
+  const Empty({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
   @override
   Widget build(BuildContext context) {
     return Center(
-        child: Padding(
-      padding: const EdgeInsets.all(30),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, size: 60),
-        const SizedBox(height: 12),
-        Text(title,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        Text(subtitle, textAlign: TextAlign.center),
-      ]),
-    ));
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                height: 84,
+                width: 84,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE9E8FF),
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: Icon(
+                  icon,
+                  size: 38,
+                  color: const Color(0xFF4F46E5),
+                ),
+              ),
+              const SizedBox(height: 22),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontSize: 21,
+                      letterSpacing: -0.4,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF69758B),
+                      height: 1.55,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
