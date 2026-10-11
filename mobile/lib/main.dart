@@ -3801,9 +3801,11 @@ class _ChatState extends State<Chat> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 13, vertical: 10),
                                       decoration: BoxDecoration(
+                                        // Strongly distinct, high-contrast colors make
+                                        // sent and received messages easy to scan.
                                         color: mine
-                                            ? Theme.of(context).colorScheme.primaryContainer
-                                            : Theme.of(context).colorScheme.surfaceContainerHighest,
+                                            ? const Color(0xFF4F46E5)
+                                            : const Color(0xFFFFFFFF),
                                         borderRadius: BorderRadius.only(
                                           topLeft: const Radius.circular(18),
                                           topRight: const Radius.circular(18),
@@ -3811,10 +3813,18 @@ class _ChatState extends State<Chat> {
                                           bottomRight: Radius.circular(mine ? 5 : 18),
                                         ),
                                         border: Border.all(
-                                          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+                                          color: mine
+                                              ? const Color(0xFF4338CA)
+                                              : const Color(0xFFD9DFEA),
                                         ),
                                       ),
-                                      child: Column(
+                                      child: DefaultTextStyle.merge(
+                                        style: TextStyle(
+                                          color: mine
+                                              ? Colors.white
+                                              : const Color(0xFF253047),
+                                        ),
+                                        child: Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
@@ -3832,9 +3842,11 @@ class _ChatState extends State<Chat> {
                                                     minHeight: 44,
                                                   ),
                                                   iconSize: 20,
-                                                  icon: const Icon(
+                                                  icon: Icon(
                                                     Icons.more_horiz,
-                                                    color: Color(0xFF536078),
+                                                    color: mine
+                                                        ? Colors.white
+                                                        : const Color(0xFF536078),
                                                   ),
                                                   onSelected: (action) {
                                                     if (action == 'delete') {
@@ -3890,6 +3902,7 @@ class _ChatState extends State<Chat> {
                                                   style:
                                                       const TextStyle(fontSize: 10))
                                           ]),
+                                      ),
                                     ),
                                   ),
                                 ],
