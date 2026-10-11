@@ -842,64 +842,222 @@ class _HomeState extends State<Home> {
 
   Widget _contacts() {
     return Column(children: [
-      Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 8), child: TextField(
-        keyboardType: TextInputType.phone,
-        onChanged: (value) {
-          phoneQuery = value;
-          _phoneSearchDebounce?.cancel();
-          _phoneSearchDebounce = Timer(const Duration(milliseconds: 300), () => searchPhone(value));
-        },
-        onSubmitted: (_) => searchPhone(),
-        decoration: InputDecoration(
-          labelText: 'Find by phone number', hintText: 'e.g. 0712345678 or +254712345678',
-          prefixIcon: const Icon(Icons.phone), border: const OutlineInputBorder(),
-          suffixIcon: IconButton(tooltip: 'Search phone number', onPressed: phoneSearching ? null : searchPhone,
-            icon: phoneSearching ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search)),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+        child: TextField(
+          keyboardType: TextInputType.phone,
+          onChanged: (value) {
+            phoneQuery = value;
+            _phoneSearchDebounce?.cancel();
+            _phoneSearchDebounce = Timer(
+              const Duration(milliseconds: 300),
+              () => searchPhone(value),
+            );
+          },
+          onSubmitted: (_) => searchPhone(),
+          decoration: InputDecoration(
+            labelText: 'Find by phone number',
+            hintText: 'Type a number, e.g. 0712 or +254712',
+            prefixIcon: const Icon(Icons.phone),
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              tooltip: 'Search phone number',
+              onPressed: phoneSearching ? null : searchPhone,
+              icon: phoneSearching
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.search),
+            ),
+          ),
         ),
-      )),
-      if (phoneQuery.trim().replaceAll(RegExp(r'\D'), '').length >= 3 && phoneSearching)
-        const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
-      if (phoneQuery.trim().replaceAll(RegExp(r'\D'), '').length >= 3 && !phoneSearching && phoneResults.isEmpty)
-        const Padding(padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Align(alignment: Alignment.centerLeft, child: Text('No registered accounts match this number yet. Keep typing or check the digits.'))),
-      if (phoneResults.isNotEmpty) ...[
-        const Padding(padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Align(alignment: Alignment.centerLeft, child: Text('Matching accounts', style: TextStyle(fontWeight: FontWeight.bold)))),
-        ...phoneResults.whereType<Map>().map((raw) {
-          final person = Map<String, dynamic>.from(raw);
-          return ListTile(leading: CircleAvatar(child: Text((person['name']?.toString() ?? '?').isEmpty ? '?' : person['name'].toString()[0].toUpperCase())),
-            title: Text(person['name']?.toString() ?? 'Chatify user'),
-            subtitle: Text(person['phone']?.toString() ?? ''),
-            trailing: FilledButton.tonalIcon(onPressed: () => savePhoneContact(person['phone']?.toString() ?? phoneQuery), icon: const Icon(Icons.person_add_alt_1), label: const Text('Save')));
-        }),
-      ],
-      Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 4), child: Row(children: [
-        const Expanded(child: Text('Saved contacts', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
-        IconButton(tooltip: 'Refresh contacts', onPressed: loadSavedContacts, icon: const Icon(Icons.refresh)),
-      ])),
-      Expanded(child: contactsLoading ? const Center(child: CircularProgressIndicator()) : savedContacts.isEmpty
-        ? const Empty(icon: Icons.contacts_outlined, title: 'No saved contacts', subtitle: 'Search for a registered Chatify phone number and save it here.')
-        : ListView.builder(itemCount: savedContacts.length, itemBuilder: (_, i) {
-          final contact = Map<String, dynamic>.from(savedContacts[i]);
-          final name = contact['name']?.toString() ?? 'Contact';
-          return ListTile(leading: CircleAvatar(child: Text(name.isEmpty ? '?' : name[0].toUpperCase())),
-            title: Text(name), subtitle: Text(contact['phone']?.toString() ?? contact['email']?.toString() ?? ''),
-            onTap: () async {
-              try {
-                final result = await app.api.call('POST', '/api/conversations/direct', {'userId': contact['userId']});
-                if (!mounted) return;
-                Navigator.push(context, MaterialPageRoute(builder: (_) => Chat(conversation: Map<String, dynamic>.from(result['conversation'])))).then((_) => loadChats());
-              } catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
+      ),
+      if (phoneQuery.trim().replaceAll(RegExp(r'\D'), '').length >= 3 &&
+          phoneSearching)
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 6, 16, 6),
+          child: LinearProgressIndicator(),
+        ),
+      if (phoneQuery.trim().replaceAll(RegExp(r'\D'), '').length >= 3 &&
+          !phoneSearching &&
+          phoneResults.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text('No accounts match that number yet. Keep typing or check the digits.'),
+          ),
+        ),
+      if (phoneResults.isNotEmpty)
+        SizedBox(
+          height: phoneResults.length > 2 ? 144 : phoneResults.length * 68.0,
+          child: ListView.builder(
+            itemCount: phoneResults.length,
+            itemBuilder: (_, i) {
+              final person = Map<String, dynamic>.from(phoneResults[i]);
+              final name = person['name']?.toString() ?? 'Chatify user';
+              return ListTile(
+                dense: true,
+                leading: CircleAvatar(
+                  child: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
+                ),
+                title: Text(name),
+                subtitle: Text(person['phone']?.toString() ?? ''),
+                trailing: IconButton(
+                  tooltip: 'Save contact',
+                  icon: const Icon(Icons.person_add_alt_1),
+                  onPressed: () => savePhoneContact(
+                    person['phone']?.toString() ?? phoneQuery,
+                  ),
+                ),
+              );
             },
-            trailing: IconButton(tooltip: 'Remove contact', icon: const Icon(Icons.person_remove_outlined), onPressed: () => removeSavedContact(contact)),
-          );
-        })),
-      Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: TextField(onChanged: search, decoration: const InputDecoration(labelText: 'Search by user name or email', prefixIcon: Icon(Icons.person_search), border: OutlineInputBorder()))),
-      if (contactQuery.trim().length >= 2) SizedBox(height: 180, child: usersLoading ? const Center(child: CircularProgressIndicator()) : usersError != null ? Center(child: Text(usersError!)) : ListView.builder(itemCount: users.length, itemBuilder: (_, i) {
-        final u = Map<String, dynamic>.from(users[i]);
-        return ListTile(leading: const Icon(Icons.person_outline), title: Text(u['name']?.toString() ?? 'User'), subtitle: Text(u['email']?.toString() ?? ''),
-          trailing: IconButton(tooltip: 'Save contact', icon: const Icon(Icons.person_add_alt_1), onPressed: () { final userId = u['_id']?.toString() ?? u['id']?.toString() ?? ''; if (userId.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not identify this Chatify user.'))); } else { saveUserContact(userId); } }));
-      })),
+          ),
+        ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+        child: TextField(
+          onChanged: search,
+          decoration: const InputDecoration(
+            labelText: 'Search by user name or email',
+            hintText: 'Type at least 2 letters',
+            prefixIcon: Icon(Icons.person_search),
+            border: OutlineInputBorder(),
+          ),
+        ),
+      ),
+      if (contactQuery.trim().length >= 2)
+        SizedBox(
+          height: 156,
+          child: usersLoading
+              ? const Center(child: CircularProgressIndicator())
+              : usersError != null
+                  ? Center(child: Text(usersError!))
+                  : users.isEmpty
+                      ? Center(
+                          child: Text(
+                            'No registered users match “${contactQuery.trim()}”.',
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: users.length,
+                          itemBuilder: (_, i) {
+                            final user = Map<String, dynamic>.from(users[i]);
+                            final name = user['name']?.toString() ?? 'User';
+                            return ListTile(
+                              dense: true,
+                              leading: const Icon(Icons.person_outline),
+                              title: Text(name),
+                              subtitle: Text(user['email']?.toString() ?? ''),
+                              trailing: IconButton(
+                                tooltip: 'Save contact',
+                                icon: const Icon(Icons.person_add_alt_1),
+                                onPressed: () {
+                                  final userId = user['_id']?.toString() ??
+                                      user['id']?.toString() ??
+                                      '';
+                                  if (userId.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Could not identify this Chatify user.',
+                                        ),
+                                      ),
+                                    );
+                                  } else {
+                                    saveUserContact(userId);
+                                  }
+                                },
+                              ),
+                            );
+                          },
+                        ),
+        ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Saved contacts',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Refresh contacts',
+              onPressed: loadSavedContacts,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+      ),
+      Expanded(
+        child: contactsLoading
+            ? const Center(child: CircularProgressIndicator())
+            : savedContacts.isEmpty
+                ? const Empty(
+                    icon: Icons.contacts_outlined,
+                    title: 'No saved contacts',
+                    subtitle:
+                        'Search for a registered phone number or user name and save it here.',
+                  )
+                : ListView.builder(
+                    itemCount: savedContacts.length,
+                    itemBuilder: (_, i) {
+                      final contact =
+                          Map<String, dynamic>.from(savedContacts[i]);
+                      final name = contact['name']?.toString() ?? 'Contact';
+                      return ListTile(
+                        leading: CircleAvatar(
+                          child: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
+                        ),
+                        title: Text(name),
+                        subtitle: Text(
+                          contact['phone']?.toString() ??
+                              contact['email']?.toString() ??
+                              '',
+                        ),
+                        onTap: () async {
+                          try {
+                            final result = await app.api.call(
+                              'POST',
+                              '/api/conversations/direct',
+                              {'userId': contact['userId']},
+                            );
+                            if (!mounted) return;
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => Chat(
+                                  conversation: Map<String, dynamic>.from(
+                                    result['conversation'],
+                                  ),
+                                ),
+                              ),
+                            ).then((_) => loadChats());
+                          } catch (error) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(error.toString())),
+                              );
+                            }
+                          }
+                        },
+                        trailing: IconButton(
+                          tooltip: 'Remove contact',
+                          icon: const Icon(Icons.person_remove_outlined),
+                          onPressed: () => removeSavedContact(contact),
+                        ),
+                      );
+                    },
+                  ),
+      ),
     ]);
   }
+
   Widget _memories() {
     if (memoriesLoading) {
       return const Center(child: CircularProgressIndicator());
