@@ -633,7 +633,7 @@ class _HomeState extends State<Home> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: Text('Delete ${ids.length} conversation${ids.length == 1 ? '' : 's'}?'),
-        content: const Text('This removes the selected conversation${ids.length == 1 ? '' : 's'} from your chat list only. Other participants keep their copies. A new message can make a conversation appear again.'),
+        content: Text('This removes the selected conversation${ids.length == 1 ? '' : 's'} from your chat list only. Other participants keep their copies. A new message can make a conversation appear again.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for me')),
