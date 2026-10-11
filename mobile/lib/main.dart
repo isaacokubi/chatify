@@ -3100,6 +3100,46 @@ class _ChatState extends State<Chat> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
+                                        if (mine &&
+                                            message['deletedAt'] == null &&
+                                            message['expiredAt'] == null)
+                                          Align(
+                                            alignment: Alignment.centerRight,
+                                            child: PopupMenuButton<String>(
+                                              tooltip: 'Message options',
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(
+                                                minWidth: 44,
+                                                minHeight: 44,
+                                              ),
+                                              iconSize: 20,
+                                              icon: const Icon(
+                                                Icons.more_horiz,
+                                                color: Color(0xFF536078),
+                                              ),
+                                              onSelected: (action) {
+                                                if (action == 'delete') {
+                                                  deleteMessage(message);
+                                                }
+                                              },
+                                              itemBuilder: (_) => const [
+                                                PopupMenuItem<String>(
+                                                  value: 'delete',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(
+                                                        Icons.delete_outline,
+                                                        color: Color(0xFFDC2626),
+                                                        size: 20,
+                                                      ),
+                                                      SizedBox(width: 10),
+                                                      Text('Delete for everyone'),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
                                         if (message['deletedAt'] == null &&
                                             message['expiredAt'] == null &&
                                             message['messageType'] == 'image' &&
