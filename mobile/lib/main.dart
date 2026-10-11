@@ -1182,7 +1182,10 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       loadError = error.toString();
     }
-    if (mounted) setState(() => loading = false);
+    if (mounted) {
+      setState(() => loading = false);
+      _scrollToLatestMessage();
+    }
   }
 
   void connect() {
