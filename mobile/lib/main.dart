@@ -231,13 +231,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> auth(bool reg, String name, String email, String pass) async {
+  Future<String?> auth(bool reg, String name, String email, String pass, String phone) async {
     try {
       final d = await api.call(
           'POST',
           reg ? '/api/auth/register' : '/api/auth/login',
           reg
-              ? {'name': name, 'email': email, 'password': pass}
+              ? {'name': name, 'email': email, 'password': pass, 'phone': normalizeKenyanPhone(phone)}
               : {'email': email, 'password': pass});
       api.token = d['token'];
       user = Map<String, dynamic>.from(d['user']);
@@ -325,12 +325,14 @@ class _AuthState extends State<Auth> {
   bool reg = false, busy = false, hide = true;
   final n = TextEditingController(),
       e = TextEditingController(),
-      p = TextEditingController();
+      p = TextEditingController(),
+      mpesaPhone = TextEditingController();
   @override
   void dispose() {
     n.dispose();
     e.dispose();
     p.dispose();
+    mpesaPhone.dispose();
     super.dispose();
   }
 
@@ -436,7 +438,7 @@ class _AuthState extends State<Auth> {
   Future<void> submit() async {
     if (e.text.trim().isEmpty ||
         p.text.length < 8 ||
-        (reg && n.text.trim().isEmpty)) {
+        (reg && (n.text.trim().isEmpty || normalizeKenyanPhone(mpesaPhone.text) == null))) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content:
               Text('Complete all fields. Password must be 8+ characters.')));
@@ -445,7 +447,7 @@ class _AuthState extends State<Auth> {
     setState(() => busy = true);
     final err = await context
         .read<AppState>()
-        .auth(reg, n.text.trim(), e.text.trim(), p.text);
+        .auth(reg, n.text.trim(), e.text.trim(), p.text, mpesaPhone.text.trim());
     if (mounted) {
       setState(() => busy = false);
       if (err != null) {
@@ -481,6 +483,17 @@ class _AuthState extends State<Auth> {
                                   autofillHints: const [AutofillHints.name],
                                   decoration: const InputDecoration(
                                       labelText: 'Full name',
+                                      border: OutlineInputBorder())),
+                            if (reg) const SizedBox(height: 12),
+                            if (reg)
+                              TextField(
+                                  controller: mpesaPhone,
+                                  keyboardType: TextInputType.phone,
+                                  autofillHints: const [AutofillHints.telephoneNumber],
+                                  decoration: const InputDecoration(
+                                      labelText: 'M-Pesa phone number',
+                                      hintText: '0712345678 or 254712345678',
+                                      helperText: 'Used as your default sender or recipient number. You can change it for each request.',
                                       border: OutlineInputBorder())),
                             if (reg) const SizedBox(height: 12),
                             TextField(
@@ -1411,7 +1424,8 @@ class _ChatState extends State<Chat> {
       return;
     }
     final amount = TextEditingController();
-    final recipientPhone = TextEditingController();
+    final payerPhone = TextEditingController(text: other['phone']?.toString() ?? '');
+    final recipientPhone = TextEditingController(text: app.user?['phone']?.toString() ?? '');
     final description = TextEditingController();
     final form = GlobalKey<FormState>();
     final submit = await showDialog<bool>(
@@ -1434,11 +1448,22 @@ class _ChatState extends State<Chat> {
                                 : null;
                           }),
                       TextFormField(
+                          controller: payerPhone,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                              labelText: 'Sender / Payer M-Pesa Number',
+                              hintText: '0712345678 or 254712345678',
+                              helperText: 'Defaults to the other participant’s registered number. You can edit it for this request.'),
+                          validator: (v) => normalizeKenyanPhone(v ?? '') == null
+                              ? 'Enter a valid Kenyan M-Pesa number'
+                              : null),
+                      TextFormField(
                           controller: recipientPhone,
                           keyboardType: TextInputType.phone,
                           decoration: const InputDecoration(
-                              labelText: 'Recipient M-Pesa phone number',
-                              hintText: '0712345678 or 254712345678'),
+                              labelText: 'Recipient M-Pesa Number',
+                              hintText: '0712345678 or 254712345678',
+                              helperText: 'Defaults to your registered number. Editing affects this request only.'),
                           validator: (v) => normalizeKenyanPhone(v ?? '') == null
                               ? 'Enter a valid Kenyan M-Pesa number'
                               : null),
@@ -1477,6 +1502,7 @@ class _ChatState extends State<Chat> {
           'conversationId': widget.conversation['_id'],
           'amount': int.parse(amount.text),
           'recipientPhone': normalizeKenyanPhone(recipientPhone.text)!,
+          'payerPhone': normalizeKenyanPhone(payerPhone.text)!,
           'description': description.text.trim()
         });
         final payment = Map<String, dynamic>.from(response['payment']);
@@ -1489,13 +1515,14 @@ class _ChatState extends State<Chat> {
       }
     }
     amount.dispose();
+    payerPhone.dispose();
     recipientPhone.dispose();
     description.dispose();
   }
 
   Future<void> payPayment(Map<String, dynamic> payment) async {
     final payerPhone = TextEditingController(
-        text: app.user?['phone']?.toString() ?? '');
+        text: payment['payerPhone']?.toString() ?? payment['phone']?.toString() ?? app.user?['phone']?.toString() ?? '');
     final form = GlobalKey<FormState>();
     final accepted = await showDialog<bool>(
         context: context,
@@ -2407,7 +2434,7 @@ class _ProfileState extends State<Profile> {
         TextField(
             controller: phone,
             decoration: const InputDecoration(
-                labelText: 'Phone', border: OutlineInputBorder())),
+                labelText: 'M-Pesa phone number', hintText: '0712345678 or 254712345678', border: OutlineInputBorder())),
         const SizedBox(height: 18),
         const Text('Privacy',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
