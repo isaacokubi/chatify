@@ -3509,16 +3509,29 @@ class _ChatState extends State<Chat> {
                         ? 'heic'
                         : 'jpg';
 
-        // On the web, hand the original URL to the browser. This avoids
-        // re-encoding the image and does not depend on cross-origin fetch access.
+        // Browsers ignore the download attribute for many cross-origin URLs.
+        // Cloudinary supports fl_attachment, which makes the original asset
+        // respond with Content-Disposition: attachment so the browser saves it.
         if (kIsWeb) {
+          var downloadUri = uri;
+          if (uri.host.toLowerCase() == 'res.cloudinary.com' &&
+              uri.path.contains('/image/upload/') &&
+              !uri.path.contains('/image/upload/fl_attachment/')) {
+            downloadUri = uri.replace(
+              path: uri.path.replaceFirst(
+                '/image/upload/',
+                '/image/upload/fl_attachment/',
+              ),
+            );
+          }
+
           await FileSaver.instance.downloadLink(
-            link: LinkDetails(link: uri.toString()),
+            link: LinkDetails(link: downloadUri.toString()),
             name: 'chatify_image_$timestamp.$guessedExtension',
           );
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Image download started. Original image quality is preserved.'),
+              content: Text('Image download requested. Check your browser downloads.'),
             ));
           }
           return;
