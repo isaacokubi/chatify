@@ -381,7 +381,7 @@ class ChatifyApp extends StatelessWidget {
           ),
           headlineMedium: TextStyle(
             color: Color(0xFF172033),
-            fontWeight: FontWeight.w750,
+            fontWeight: FontWeight.w700,
             letterSpacing: -0.65,
           ),
           titleLarge: TextStyle(
@@ -826,7 +826,7 @@ class _AuthState extends State<Auth> {
                         style: const TextStyle(
                           color: Color(0xFF172033),
                           fontSize: 23,
-                          fontWeight: FontWeight.w750,
+                          fontWeight: FontWeight.w700,
                           letterSpacing: -0.55,
                         ),
                       ),
