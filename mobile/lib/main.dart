@@ -753,7 +753,7 @@ class _AuthState extends State<Auth> {
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(16),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Container(
@@ -769,21 +769,21 @@ class _AuthState extends State<Auth> {
                       ),
                     ],
                   ),
-                  padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Center(
                         child: Container(
-                          height: 68,
-                          width: 68,
+                          height: 56,
+                          width: 56,
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
                               colors: [Color(0xFF6259F5), Color(0xFF4338CA)],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
-                            borderRadius: BorderRadius.circular(22),
+                            borderRadius: BorderRadius.circular(18),
                             boxShadow: const [
                               BoxShadow(
                                 color: Color(0x264F46E5),
@@ -795,22 +795,22 @@ class _AuthState extends State<Auth> {
                           child: const Icon(
                             Icons.forum_rounded,
                             color: Colors.white,
-                            size: 34,
+                            size: 28,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       const Text(
                         'Chatify',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Color(0xFF172033),
-                          fontSize: 34,
+                          fontSize: 30,
                           fontWeight: FontWeight.w800,
                           letterSpacing: -1.2,
                         ),
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 4),
                       const Text(
                         'Chat. Remember. Let Go.',
                         textAlign: TextAlign.center,
@@ -820,17 +820,17 @@ class _AuthState extends State<Auth> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(height: 30),
+                      const SizedBox(height: 14),
                       Text(
                         reg ? 'Create your account' : 'Welcome back',
                         style: const TextStyle(
                           color: Color(0xFF172033),
-                          fontSize: 23,
+                          fontSize: 21,
                           fontWeight: FontWeight.w700,
                           letterSpacing: -0.55,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       Text(
                         reg
                             ? 'Join the conversation and keep what matters.'
@@ -841,7 +841,7 @@ class _AuthState extends State<Auth> {
                           height: 1.45,
                         ),
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 16),
                       if (reg)
                         TextField(
                           controller: n,
@@ -852,7 +852,7 @@ class _AuthState extends State<Auth> {
                             prefixIcon: Icon(Icons.person_outline_rounded),
                           ),
                         ),
-                      if (reg) const SizedBox(height: 14),
+                      if (reg) const SizedBox(height: 10),
                       if (reg)
                         TextField(
                           controller: mpesaPhone,
@@ -866,7 +866,7 @@ class _AuthState extends State<Auth> {
                             prefixIcon: Icon(Icons.account_balance_wallet_outlined),
                           ),
                         ),
-                      if (reg) const SizedBox(height: 14),
+                      if (reg) const SizedBox(height: 10),
                       TextField(
                         controller: e,
                         keyboardType: TextInputType.emailAddress,
@@ -917,9 +917,9 @@ class _AuthState extends State<Auth> {
                             child: const Text('Forgot password?'),
                           ),
                         ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 0),
                       const Divider(),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 2),
                       TextButton(
                         onPressed: busy ? null : () => setState(() => reg = !reg),
                         child: Text(
