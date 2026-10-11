@@ -9,8 +9,8 @@ import 'package:http/testing.dart';
 void main() {
   test('temporary API failure preserves the stored login token', () async {
     SharedPreferences.setMockInitialValues({'token': 'existing-token'});
-    final client = MockClient((_) async =>
-        http.Response('{"error":"Temporarily unavailable"}', 503));
+    final client = MockClient(
+        (_) async => http.Response('{"error":"Temporarily unavailable"}', 503));
     final app = AppState(api: Api(client: client), autoInit: false);
     await app.init();
     expect(app.api.token, 'existing-token');
@@ -26,7 +26,9 @@ void main() {
       'text': 'socket arrival',
       'createdAt': '2026-10-03T10:00:00.000Z',
     };
-    final merged = mergeMessages([socketMessage], [
+    final merged = mergeMessages([
+      socketMessage
+    ], [
       {
         '_id': 'one',
         'text': 'earlier message',
@@ -88,7 +90,8 @@ void main() {
         'alice@example.test');
   });
 
-  test('device-token DELETE sends the token in its JSON request body', () async {
+  test('device-token DELETE sends the token in its JSON request body',
+      () async {
     SharedPreferences.setMockInitialValues({});
     String? requestBody;
     final client = MockClient((request) async {
@@ -101,5 +104,29 @@ void main() {
     await api.call('DELETE', '/api/devices', {'token': 'fcm-token'});
     expect(requestBody, '{"token":"fcm-token"}');
     client.close();
+  });
+
+  testWidgets('payment card shows amount, state, mock label and payer action',
+      (tester) async {
+    var tapped = false;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: PaymentCard(
+      payment: {
+        'paymentId': 'demo-id',
+        'payerId': 'payer',
+        'amount': 250,
+        'description': 'Shared lunch',
+        'status': 'PENDING',
+        'provider': 'mock'
+      },
+      currentUserId: 'payer',
+      onRefresh: () {},
+      onPay: () => tapped = true,
+    ))));
+    expect(find.text('Shared lunch'), findsOneWidget);
+    expect(find.text('KSh 250 · PENDING · Local demo'), findsOneWidget);
+    await tester.tap(find.text('Pay with M-Pesa'));
+    expect(tapped, isTrue);
   });
 }
