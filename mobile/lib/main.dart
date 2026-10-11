@@ -89,6 +89,21 @@ List<dynamic> mergeMessages(List<dynamic> current, List<dynamic> fetched) {
   return merged;
 }
 
+List<dynamic> mergePayment(
+    List<dynamic> current, Map<String, dynamic> payment) {
+  final updated = List<dynamic>.from(current);
+  final id = payment['paymentId']?.toString();
+  if (id == null) return updated;
+  final index = updated
+      .indexWhere((item) => item is Map && item['paymentId']?.toString() == id);
+  if (index < 0) {
+    updated.insert(0, payment);
+  } else {
+    updated[index] = payment;
+  }
+  return updated;
+}
+
 class AppState extends ChangeNotifier {
   final Api api;
   bool ready = false;
@@ -1099,20 +1114,24 @@ class _ChatState extends State<Chat> {
           .addAll(Map<String, dynamic>.from(detail['conversation']));
       final result = await app.api.call(
           'GET', '/api/conversations/${widget.conversation['_id']}/messages');
-      final paymentResult = await app.api.call('GET', '/api/payments');
-      final conversationPayments =
-          List<dynamic>.from(paymentResult['payments'] ?? [])
-              .where((item) =>
-                  item is Map &&
-                  item['conversationId']?.toString() ==
-                      widget.conversation['_id']?.toString())
-              .toList();
       final fetched = List<dynamic>.from(result['messages'] ?? []);
       if (mounted) {
         setState(() {
           messages = mergeMessages(messages, fetched);
-          payments = conversationPayments;
         });
+      }
+      try {
+        final paymentResult = await app.api.call('GET', '/api/payments');
+        final conversationPayments =
+            List<dynamic>.from(paymentResult['payments'] ?? [])
+                .where((item) =>
+                    item is Map &&
+                    item['conversationId']?.toString() ==
+                        widget.conversation['_id']?.toString())
+                .toList();
+        if (mounted) setState(() => payments = conversationPayments);
+      } catch (_) {
+        // Payment history is optional to loading a conversation and its messages.
       }
       for (final item in fetched) {
         if (item is Map &&
@@ -1186,15 +1205,7 @@ class _ChatState extends State<Chat> {
       final incoming = Map<String, dynamic>.from(data);
       final id = incoming['paymentId']?.toString();
       if (id == null) return;
-      final index = payments.indexWhere(
-          (item) => item is Map && item['paymentId']?.toString() == id);
-      setState(() {
-        if (index < 0) {
-          payments.insert(0, incoming);
-        } else {
-          payments[index] = incoming;
-        }
-      });
+      setState(() => payments = mergePayment(payments, incoming));
     });
     socket!.on('message:expired', (data) {
       if (!mounted || data is! Map) return;
@@ -1343,7 +1354,7 @@ class _ChatState extends State<Chat> {
           'description': description.text.trim()
         });
         final payment = Map<String, dynamic>.from(response['payment']);
-        if (mounted) setState(() => payments.insert(0, payment));
+        if (mounted) setState(() => payments = mergePayment(payments, payment));
       } catch (error) {
         if (mounted) {
           ScaffoldMessenger.of(context)
@@ -1401,8 +1412,8 @@ class _ChatState extends State<Chat> {
       final result = await app.api
           .call('POST', '/api/payments/${payment['paymentId']}/retry', {});
       if (mounted) {
-        setState(() =>
-            payments.insert(0, Map<String, dynamic>.from(result['payment'])));
+        setState(() => payments = mergePayment(
+            payments, Map<String, dynamic>.from(result['payment'])));
       }
     } catch (error) {
       if (mounted) {
@@ -1840,10 +1851,11 @@ class _ChatState extends State<Chat> {
                           style: Theme.of(context).textTheme.labelSmall)
                   ]),
         actions: [
-          IconButton(
-              onPressed: requestMpesa,
-              tooltip: 'Request M-Pesa',
-              icon: const Icon(Icons.payments_outlined)),
+          if (widget.conversation['type'] == 'direct')
+            IconButton(
+                onPressed: requestMpesa,
+                tooltip: 'Request M-Pesa',
+                icon: const Icon(Icons.payments_outlined)),
           IconButton(
               onPressed: () {
                 setState(() {

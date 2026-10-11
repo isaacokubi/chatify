@@ -1,17 +1,14 @@
-# chatify
+# Chatify mobile
 
-A new Flutter project.
+Flutter client for the existing Chatify Express API. From this directory:
 
-## Getting Started
+```sh
+flutter pub get
+flutter analyze
+flutter test
+flutter run --dart-define=CHATIFY_API=http://10.0.2.2:5000
+```
 
-This project is a starting point for a Flutter application.
+The default API address is for the Android emulator. For a physical device use a reachable development host; for a deployed API pass its HTTPS origin with `--dart-define=CHATIFY_API=https://your-api.example`.
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Firebase platform configuration is optional for local development. Without it, chat works while push notifications remain unavailable. See the repository [development guide](../docs/DEVELOPMENT.md) and [demo guide](../docs/DEMO.md) for backend setup, mock payments, and Daraja sandbox configuration.

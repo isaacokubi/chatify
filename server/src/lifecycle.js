@@ -11,6 +11,16 @@ export const messageExpiry = (mode, seconds, now = Date.now()) => {
 };
 export const expiresWhenRepliedTo = message => message?.expiryType === 'AFTER_REPLY';
 
+export function createShutdownHandler({stopTimers,closeSockets,closeHttp,disconnectDb}) {
+  let shutdown;
+  return () => shutdown ||= (async()=>{
+    stopTimers();
+    await closeSockets();
+    await closeHttp();
+    await disconnectDb();
+  })();
+}
+
 export function normalizeLoginCredentials(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';

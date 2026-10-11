@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {isIP} from 'node:net';
 
 export const PAYMENT_STATUSES = Object.freeze(['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED']);
 export const MAX_PAYMENT_AMOUNT = 150000;
@@ -40,7 +41,9 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
   }
   let callback;
   try { callback = new URL(config.callbackUrl); } catch { throw new Error('Daraja callback URL must be a public HTTPS URL'); }
-  if (callback.protocol !== 'https:' || callback.username || callback.password || ['localhost','127.0.0.1','::1'].includes(callback.hostname) || callback.hostname.endsWith('.local')) throw new Error('Daraja callback URL must be a public HTTPS URL');
+  const hostname=callback.hostname.toLowerCase().replace(/^\[|\]$/g,'');
+  const reservedHost=['localhost','local','internal','test','example','invalid','lan'].some(suffix=>hostname===suffix||hostname.endsWith(`.${suffix}`));
+  if (callback.protocol !== 'https:' || callback.username || callback.password || isIP(hostname) || !hostname.includes('.') || reservedHost) throw new Error('Daraja callback URL must be a public HTTPS URL');
   if (typeof transport !== 'function') throw new Error('HTTP transport is unavailable');
   const host = mode === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke';
   const type = config.transactionType || 'CustomerPayBillOnline';

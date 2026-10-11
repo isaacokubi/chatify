@@ -44,6 +44,18 @@ void main() {
     expect(merged.last['text'], 'fetched copy');
   });
 
+  test(
+      'payment socket updates replace the matching card instead of duplicating it',
+      () {
+    final original = {'paymentId': 'pay-1', 'status': 'PENDING'};
+    final updated =
+        mergePayment([original], {'paymentId': 'pay-1', 'status': 'SUCCESS'});
+    expect(updated, hasLength(1));
+    expect(updated.single['status'], 'SUCCESS');
+    expect(mergePayment(updated, {'paymentId': 'pay-2', 'status': 'PENDING'}),
+        hasLength(2));
+  });
+
   testWidgets('Chatify renders branded authentication screen', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(

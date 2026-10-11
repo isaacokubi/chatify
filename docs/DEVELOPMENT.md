@@ -47,7 +47,7 @@ SMTP, Cloudinary, and Firebase adapters are implemented but require their corres
 
 The API exposes authenticated POST and DELETE `/api/devices` for FCM token registration/removal. The Flutter app requests notification permission, registers the current FCM token, handles token refresh, unregisters the active token at logout, and routes notification taps to a conversation after checking the authenticated conversation list. For Android, add the Firebase project configuration (including `google-services.json` and the required FlutterFire/Gradle setup) for the same project configured by `FCM_PROJECT_ID` and `FIREBASE_SERVICE_ACCOUNT_JSON`. Firebase setup is optional in development; without native Firebase configuration, push notifications remain unavailable while normal chat continues to work.
 
-Run `npm run seed` only against an explicitly selected development/demo Atlas database. Never seed production or commit production credentials.
+The demo seed command is guarded: it requires `NODE_ENV=development`, `CHATIFY_SEED_DEMO=YES`, an explicitly selected `MONGODB_URI`, and `DEMO_SEED_PASSWORD` (12–72 UTF-8 bytes). The password is never printed. Use only a disposable development/demo database; the seeder refuses other environments and has no built-in account password. Never seed production or commit credentials.
 
 ## Payments and test commands
 
