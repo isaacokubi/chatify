@@ -640,7 +640,7 @@ class ChatifyApp extends StatelessWidget {
         },
       ),
     );
-
+}
 
 class Welcome extends StatelessWidget {
   const Welcome({
