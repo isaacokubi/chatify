@@ -44,7 +44,9 @@ class Api {
           .patch(u, headers: h, body: jsonEncode(body ?? {}))
           .timeout(const Duration(seconds: 20));
     } else if (method == 'DELETE') {
-      r = await client.delete(u, headers: h, body: body == null ? null : jsonEncode(body)).timeout(const Duration(seconds: 20));
+      r = await client
+          .delete(u, headers: h, body: body == null ? null : jsonEncode(body))
+          .timeout(const Duration(seconds: 20));
     } else {
       r = await client.get(u, headers: h).timeout(const Duration(seconds: 20));
     }
@@ -55,6 +57,9 @@ class Api {
     }
     return d is Map ? Map<String, dynamic>.from(d) : {'data': d};
   }
+
+  Future<Map<String, dynamic>> paymentStatus(String paymentId) =>
+      call('GET', '/api/payments/$paymentId');
 }
 
 List<dynamic> mergeMessages(List<dynamic> current, List<dynamic> fetched) {
@@ -139,8 +144,8 @@ class AppState extends ChangeNotifier {
         unawaited(_registerPushToken(token));
       }, onError: (_) {});
       await _messageOpenedSubscription?.cancel();
-      _messageOpenedSubscription =
-          FirebaseMessaging.onMessageOpenedApp.listen(_openConversationFromNotification);
+      _messageOpenedSubscription = FirebaseMessaging.onMessageOpenedApp
+          .listen(_openConversationFromNotification);
       await _foregroundMessageSubscription?.cancel();
       _foregroundMessageSubscription = FirebaseMessaging.onMessage.listen((_) {
         chatifyScaffoldMessengerKey.currentState?.showSnackBar(
@@ -184,9 +189,9 @@ class AppState extends ChangeNotifier {
       final conversations =
           List<dynamic>.from(response['conversations'] ?? const []);
       final matching = conversations.whereType<Map>().firstWhere(
-        (item) => item['_id']?.toString() == conversationId,
-        orElse: () => <String, dynamic>{},
-      );
+            (item) => item['_id']?.toString() == conversationId,
+            orElse: () => <String, dynamic>{},
+          );
       if (matching.isEmpty) return;
       final navigator = chatifyNavigatorKey.currentState;
       if (navigator == null) return;
@@ -244,7 +249,8 @@ class AppState extends ChangeNotifier {
   }
 }
 
-final GlobalKey<NavigatorState> chatifyNavigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<NavigatorState> chatifyNavigatorKey =
+    GlobalKey<NavigatorState>();
 final GlobalKey<ScaffoldMessengerState> chatifyScaffoldMessengerKey =
     GlobalKey<ScaffoldMessengerState>();
 
@@ -263,25 +269,20 @@ class ChatifyApp extends StatelessWidget {
           useMaterial3: true, colorSchemeSeed: const Color(0xFF6558D3)),
       home: Consumer<AppState>(
           builder: (_, a, __) => !a.ready
-              ? const Scaffold(
-                  body: Center(child: CircularProgressIndicator()))
+              ? const Scaffold(body: Center(child: CircularProgressIndicator()))
               : a.restoreError != null
                   ? Scaffold(
                       body: Center(
                           child: Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('Could not restore your session.'),
-                            const SizedBox(height: 12),
-                            Text(a.restoreError!,
-                                textAlign: TextAlign.center),
-                            const SizedBox(height: 12),
-                            FilledButton(
-                                onPressed: a.init,
-                                child: const Text('Retry'))
-                          ]),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        const Text('Could not restore your session.'),
+                        const SizedBox(height: 12),
+                        Text(a.restoreError!, textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                            onPressed: a.init, child: const Text('Retry'))
+                      ]),
                     )))
                   : a.user != null
                       ? const Home()
@@ -588,6 +589,11 @@ class _HomeState extends State<Home> {
       appBar: AppBar(
         title: Text(titles[tab]),
         actions: [
+          IconButton(
+              tooltip: 'Payment history',
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const PaymentHistory()))),
           if (tab == 0)
             IconButton(onPressed: loadChats, icon: const Icon(Icons.refresh)),
           if (tab == 2)
@@ -891,6 +897,170 @@ class Empty extends StatelessWidget {
   }
 }
 
+class PaymentHistory extends StatefulWidget {
+  const PaymentHistory({super.key});
+  @override
+  State<PaymentHistory> createState() => _PaymentHistoryState();
+}
+
+class _PaymentHistoryState extends State<PaymentHistory> {
+  List<dynamic> payments = [];
+  bool loading = true;
+  String? error;
+  Future<void> load() async {
+    try {
+      final result =
+          await context.read<AppState>().api.call('GET', '/api/payments');
+      if (mounted) {
+        setState(() {
+          payments = List<dynamic>.from(result['payments'] ?? []);
+          error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    }
+    if (mounted) setState(() => loading = false);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.read<AppState>();
+    final messenger = ScaffoldMessenger.of(context);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Payment history'), actions: [
+        IconButton(onPressed: load, icon: const Icon(Icons.refresh))
+      ]),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null
+              ? Center(child: Text(error!))
+              : payments.isEmpty
+                  ? const Empty(
+                      icon: Icons.payments_outlined,
+                      title: 'No payments yet',
+                      subtitle: 'Requests and payments will appear here.')
+                  : RefreshIndicator(
+                      onRefresh: load,
+                      child: ListView.builder(
+                          itemCount: payments.length,
+                          itemBuilder: (_, i) {
+                            final p = Map<String, dynamic>.from(payments[i]);
+                            return PaymentCard(
+                                payment: p,
+                                currentUserId: app.user?['id']?.toString(),
+                                onPay: () => payHistoryPayment(p),
+                                onRetry: () => retryHistoryPayment(p),
+                                onRefresh: () async {
+                                  try {
+                                    final result = await app.api.paymentStatus(
+                                        p['paymentId'].toString());
+                                    final index = payments.indexWhere((item) =>
+                                        item is Map &&
+                                        item['paymentId'] == p['paymentId']);
+                                    if (mounted && index >= 0) {
+                                      setState(() =>
+                                          payments[index] = result['payment']);
+                                    }
+                                  } catch (e) {
+                                    if (mounted) {
+                                      messenger.showSnackBar(SnackBar(
+                                          content: Text(e.toString())));
+                                    }
+                                  }
+                                });
+                          }),
+                    ),
+    );
+  }
+
+  Future<void> payHistoryPayment(Map<String, dynamic> payment) async {
+    final app = context.read<AppState>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/initiate', {});
+      final updated = Map<String, dynamic>.from(result['payment']);
+      final index = payments.indexWhere(
+          (item) => item is Map && item['paymentId'] == updated['paymentId']);
+      if (mounted && index >= 0) setState(() => payments[index] = updated);
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(
+            content: Text(result['mock'] == true
+                ? 'Local demo payment started. No Safaricom transaction was made.'
+                : 'Check your phone for the M-Pesa STK prompt.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> retryHistoryPayment(Map<String, dynamic> payment) async {
+    final app = context.read<AppState>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/retry', {});
+      final created = Map<String, dynamic>.from(result['payment']);
+      if (mounted) setState(() => payments.insert(0, created));
+      if (mounted) await payHistoryPayment(created);
+    } catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+}
+
+class PaymentCard extends StatelessWidget {
+  final Map<String, dynamic> payment;
+  final String? currentUserId;
+  final VoidCallback? onPay;
+  final VoidCallback? onRetry;
+  final VoidCallback onRefresh;
+  const PaymentCard(
+      {super.key,
+      required this.payment,
+      required this.currentUserId,
+      required this.onRefresh,
+      this.onPay,
+      this.onRetry});
+  @override
+  Widget build(BuildContext context) {
+    final status = (payment['status'] ?? 'PENDING').toString();
+    final isPayer = payment['payerId']?.toString() == currentUserId;
+    final isMock = payment['provider']?.toString() == 'mock';
+    return Card(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        child: ListTile(
+            leading: const Icon(Icons.payments_outlined),
+            title: Text(payment['description']?.toString() ?? 'M-Pesa payment'),
+            subtitle: Text(
+                'KSh ${payment['amount'] ?? ''} · $status${isMock ? ' · Local demo' : ''}'),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (status == 'PENDING' && isPayer && onPay != null)
+                TextButton(
+                    onPressed: onPay, child: const Text('Pay with M-Pesa')),
+              if ((status == 'FAILED' || status == 'CANCELLED') &&
+                  isPayer &&
+                  onRetry != null)
+                TextButton(onPressed: onRetry, child: const Text('Retry')),
+              IconButton(
+                  tooltip: 'Check status',
+                  onPressed: onRefresh,
+                  icon: const Icon(Icons.refresh))
+            ])));
+  }
+}
+
 class Chat extends StatefulWidget {
   final Map<String, dynamic> conversation;
   const Chat({super.key, required this.conversation});
@@ -902,6 +1072,7 @@ class _ChatState extends State<Chat> {
   final input = TextEditingController();
   final searchInput = TextEditingController();
   List<dynamic> messages = [];
+  List<dynamic> payments = [];
   String expiry = 'NONE';
   String? reply;
   String? typingUser;
@@ -928,9 +1099,20 @@ class _ChatState extends State<Chat> {
           .addAll(Map<String, dynamic>.from(detail['conversation']));
       final result = await app.api.call(
           'GET', '/api/conversations/${widget.conversation['_id']}/messages');
+      final paymentResult = await app.api.call('GET', '/api/payments');
+      final conversationPayments =
+          List<dynamic>.from(paymentResult['payments'] ?? [])
+              .where((item) =>
+                  item is Map &&
+                  item['conversationId']?.toString() ==
+                      widget.conversation['_id']?.toString())
+              .toList();
       final fetched = List<dynamic>.from(result['messages'] ?? []);
       if (mounted) {
-        setState(() => messages = mergeMessages(messages, fetched));
+        setState(() {
+          messages = mergeMessages(messages, fetched);
+          payments = conversationPayments;
+        });
       }
       for (final item in fetched) {
         if (item is Map &&
@@ -993,6 +1175,26 @@ class _ChatState extends State<Chat> {
           markReceived(id);
         }
       }
+    });
+    socket!.on('payment:updated', (data) {
+      if (!mounted ||
+          data is! Map ||
+          data['conversationId']?.toString() !=
+              widget.conversation['_id']?.toString()) {
+        return;
+      }
+      final incoming = Map<String, dynamic>.from(data);
+      final id = incoming['paymentId']?.toString();
+      if (id == null) return;
+      final index = payments.indexWhere(
+          (item) => item is Map && item['paymentId']?.toString() == id);
+      setState(() {
+        if (index < 0) {
+          payments.insert(0, incoming);
+        } else {
+          payments[index] = incoming;
+        }
+      });
     });
     socket!.on('message:expired', (data) {
       if (!mounted || data is! Map) return;
@@ -1068,6 +1270,145 @@ class _ChatState extends State<Chat> {
       }
     } finally {
       if (mounted) setState(() => sending = false);
+    }
+  }
+
+  Future<void> requestMpesa() async {
+    final participants =
+        List<dynamic>.from(widget.conversation['participants'] ?? []);
+    final me = app.user?['id']?.toString();
+    final other = participants.whereType<Map>().firstWhere(
+        (p) => p['_id']?.toString() != me,
+        orElse: () => <String, dynamic>{});
+    final payerId = other['_id']?.toString();
+    if (payerId == null || payerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Conversation member details are unavailable.')));
+      return;
+    }
+    final amount = TextEditingController();
+    final phone = TextEditingController();
+    final description = TextEditingController();
+    final form = GlobalKey<FormState>();
+    final submit = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+              title: const Text('Request M-Pesa'),
+              content: Form(
+                  key: form,
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextFormField(
+                        controller: amount,
+                        keyboardType: TextInputType.number,
+                        decoration:
+                            const InputDecoration(labelText: 'Amount (KSh)'),
+                        validator: (v) {
+                          final value = int.tryParse(v ?? '');
+                          return value == null || value < 1 || value > 150000
+                              ? 'Enter KSh 1–150,000'
+                              : null;
+                        }),
+                    TextFormField(
+                        controller: phone,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                            labelText: 'Payer Safaricom number',
+                            hintText: '0712345678')),
+                    TextFormField(
+                        controller: description,
+                        maxLength: 80,
+                        decoration:
+                            const InputDecoration(labelText: 'Description')),
+                  ])),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialog, false),
+                    child: const Text('Cancel')),
+                FilledButton(
+                    onPressed: () {
+                      if (form.currentState!.validate()) {
+                        Navigator.pop(dialog, true);
+                      }
+                    },
+                    child: const Text('Request'))
+              ],
+            ));
+    if (submit == true && mounted) {
+      try {
+        final response = await app.api.call('POST', '/api/payments', {
+          'payerUserId': payerId,
+          'conversationId': widget.conversation['_id'],
+          'amount': int.parse(amount.text),
+          'phone': phone.text.trim(),
+          'description': description.text.trim()
+        });
+        final payment = Map<String, dynamic>.from(response['payment']);
+        if (mounted) setState(() => payments.insert(0, payment));
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(error.toString())));
+        }
+      }
+    }
+    amount.dispose();
+    phone.dispose();
+    description.dispose();
+  }
+
+  Future<void> payPayment(Map<String, dynamic> payment) async {
+    try {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/initiate', {});
+      final updated = Map<String, dynamic>.from(result['payment']);
+      if (mounted) {
+        final i = payments.indexWhere(
+            (p) => p is Map && p['paymentId'] == updated['paymentId']);
+        setState(() {
+          if (i >= 0) payments[i] = updated;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(result['mock'] == true
+                ? 'Local demo payment started. No Safaricom transaction was made.'
+                : 'Check your phone for the M-Pesa STK prompt. Enter your PIN only in the Safaricom prompt.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> refreshPayment(Map<String, dynamic> payment) async {
+    try {
+      final result =
+          await app.api.paymentStatus(payment['paymentId'].toString());
+      final updated = Map<String, dynamic>.from(result['payment']);
+      final i = payments.indexWhere(
+          (p) => p is Map && p['paymentId'] == updated['paymentId']);
+      if (mounted && i >= 0) setState(() => payments[i] = updated);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> retryPayment(Map<String, dynamic> payment) async {
+    try {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/retry', {});
+      if (mounted) {
+        setState(() =>
+            payments.insert(0, Map<String, dynamic>.from(result['payment'])));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
     }
   }
 
@@ -1155,8 +1496,8 @@ class _ChatState extends State<Chat> {
         final id = message['_id']?.toString();
         setState(() {
           if (id == null ||
-              !messages.any((item) =>
-                  item is Map && item['_id']?.toString() == id)) {
+              !messages.any(
+                  (item) => item is Map && item['_id']?.toString() == id)) {
             messages.add(message);
           }
         });
@@ -1500,6 +1841,10 @@ class _ChatState extends State<Chat> {
                   ]),
         actions: [
           IconButton(
+              onPressed: requestMpesa,
+              tooltip: 'Request M-Pesa',
+              icon: const Icon(Icons.payments_outlined)),
+          IconButton(
               onPressed: () {
                 setState(() {
                   searching = !searching;
@@ -1523,6 +1868,21 @@ class _ChatState extends State<Chat> {
         ],
       ),
       body: Column(children: [
+        if (payments.isNotEmpty)
+          SizedBox(
+              height: payments.length > 2 ? 170 : null,
+              child: ListView.builder(
+                  shrinkWrap: payments.length <= 2,
+                  itemCount: payments.length,
+                  itemBuilder: (_, index) {
+                    final payment = Map<String, dynamic>.from(payments[index]);
+                    return PaymentCard(
+                        payment: payment,
+                        currentUserId: app.user?['id']?.toString(),
+                        onPay: () => payPayment(payment),
+                        onRetry: () => retryPayment(payment),
+                        onRefresh: () => refreshPayment(payment));
+                  })),
         if (typingUser != null)
           const Padding(
               padding: EdgeInsets.only(top: 6),

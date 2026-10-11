@@ -35,8 +35,14 @@ The sample Android-emulator API address is http://10.0.2.2:5000. Set a different
 ## Demo
 Register Alice and Brian. From Contacts search for the other account and start a direct conversation. Send: “Let's meet at the library tomorrow at 2 PM to discuss the project.” Use the sparkle action to extract and save the candidate, then open Memories. Send another message and choose Delete after reading, Delete after 1 hour, or Delete after reply.
 
+### Chatify Pay demo
+
+With the default `MPESA_ENV=mock`, request an amount from the other conversation member and tap **Pay with M-Pesa**. The UI labels the request **Local demo**; no Safaricom transaction is made and the app never collects an M-Pesa PIN. To use Daraja sandbox, follow [docs/DEMO.md](docs/DEMO.md). Never select production mode for a classroom demo.
+
+Payment requests move from `PENDING` to `SUCCESS`, `FAILED`, or `CANCELLED`. A real request stays pending until Daraja's callback confirms its result; an accepted STK request is not proof that money was received.
+
 ## Production providers
-MongoDB Atlas is supported directly through configuration. SMTP password-reset email, Cloudinary image storage, and Firebase Admin/FCM message notifications use production adapters behind provider interfaces. Set their environment variables before enabling those features. Development storage, email, and notification providers remain mocks; the development email mock never prints reset tokens. The Flutter app registers its FCM token with the authenticated `/api/devices` endpoint when Firebase is configured, retries on token refresh, unregisters the active token on logout, and opens authorized conversations from notification taps. Add the platform-specific Firebase configuration before expecting device notifications; Firebase initialization failures are non-fatal so development chat remains usable without credentials.
+MongoDB Atlas is supported directly through configuration. SMTP password-reset email, Cloudinary image storage, Firebase Admin/FCM message notifications, and Daraja STK Push use production adapters behind small provider boundaries. Set their environment variables before enabling those features. Development storage, email, notification and payment providers remain mocks; the development email mock never prints reset tokens, and mock payments are labeled and never contact Safaricom. The Flutter app registers its FCM token with the authenticated `/api/devices` endpoint when Firebase is configured, retries on token refresh, unregisters the active token on logout, and opens authorized conversations from notification taps. Add the platform-specific Firebase configuration before expecting device notifications; Firebase initialization failures are non-fatal so development chat remains usable without credentials.
 
 Set a persistent `JWT_SECRET` in the local environment if demo sessions must survive server restarts; production refuses to start without a 32-character secret. Production CORS requires exact HTTPS Flutter Web origins in `CLIENT_ORIGIN`; the Flutter Web host is not currently specified in this repository.
 
