@@ -799,21 +799,210 @@ class Welcome extends StatelessWidget {
 
 }
 
-class _TrustPoint extends StatelessWidget {
-  const _TrustPoint({required this.icon, required this.text});
-  final IconData icon;
-  final String text;
+// Small illustrative conversation used by the welcome screen; it is presentation-only, not a real chat.
+class _ConversationPreview extends StatelessWidget {
+  const _ConversationPreview();
+
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(icon, color: const Color(0xFF0F9D8A), size: 17),
-      const SizedBox(width: 7),
-      Text(text, style: const TextStyle(color: Welcome.muted, fontSize: 12, fontWeight: FontWeight.w600)),
-    ],
-  );
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(32),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF292C57), Color(0xFF151B30)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(color: Color(0x1C292C57), blurRadius: 44, offset: Offset(0, 22)),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.forum_rounded, color: Welcome.mint, size: 20),
+              const SizedBox(width: 8),
+              const Text('A little preview', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(color: const Color(0x223DD7B0), borderRadius: BorderRadius.circular(20)),
+                child: const Row(
+                  children: [
+                    Icon(Icons.circle, color: Welcome.mint, size: 7),
+                    SizedBox(width: 6),
+                    Text('CONNECTED', style: TextStyle(color: Welcome.mint, fontSize: 9, letterSpacing: 1.1, fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [Color(0xFF79D8C1), Color(0xFF6C85E8)]),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: const Icon(Icons.people_alt_rounded, color: Colors.white),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Weekend plans', style: TextStyle(color: Welcome.ink, fontWeight: FontWeight.w800)),
+                          SizedBox(height: 3),
+                          Text('Maya, Alex · 3 members', style: TextStyle(color: Welcome.muted, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.more_horiz, color: Welcome.muted),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const _PreviewBubble(
+                  initials: 'M',
+                  name: 'Maya',
+                  text: 'Let’s meet at 10 on Saturday ☀️',
+                  mine: false,
+                ),
+                const SizedBox(height: 10),
+                const _PreviewBubble(
+                  initials: 'Y',
+                  name: 'You',
+                  text: 'Perfect! I’ll save that so we don’t forget.',
+                  mine: true,
+                ),
+                const SizedBox(height: 15),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5FBF4),
+                    border: Border.all(color: const Color(0xFFC8F1E6)),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.auto_awesome_rounded, color: Color(0xFF087F6A), size: 19),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('MEMORY CARD', style: TextStyle(color: Color(0xFF087F6A), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                            SizedBox(height: 5),
+                            Text('Saturday · 10:00 AM', style: TextStyle(color: Color(0xFF17483E), fontSize: 14, fontWeight: FontWeight.w800)),
+                            SizedBox(height: 3),
+                            Text('A detail worth keeping, right when you need it.', style: TextStyle(color: Color(0xFF4F766D), fontSize: 11, height: 1.45)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Icon(Icons.add_circle_outline_rounded, color: Color(0xFF929AAF), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Container(
+                        height: 38,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        alignment: Alignment.centerLeft,
+                        decoration: BoxDecoration(color: const Color(0xFFF4F6FA), borderRadius: BorderRadius.circular(13)),
+                        child: const Text('Write a message…', style: TextStyle(color: Color(0xFF929AAF), fontSize: 11)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      height: 38,
+                      width: 38,
+                      decoration: BoxDecoration(color: Welcome.violet, borderRadius: BorderRadius.circular(13)),
+                      child: const Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 19),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.lock_outline_rounded, color: Color(0xFFBAC3E5), size: 14),
+              SizedBox(width: 7),
+              Text('Your conversations, with you in control', style: TextStyle(color: Color(0xFFBAC3E5), fontSize: 10)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
+// Reusable message bubble for the welcome-screen preview.
+class _PreviewBubble extends StatelessWidget {
+  const _PreviewBubble({
+    required this.initials,
+    required this.name,
+    required this.text,
+    required this.mine,
+  });
+  final String initials;
+  final String name;
+  final String text;
+  final bool mine;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
+      children: [
+        if (!mine) ...[
+          CircleAvatar(radius: 15, backgroundColor: const Color(0xFFE7E8FF), child: Text(initials, style: const TextStyle(color: Welcome.violet, fontSize: 11, fontWeight: FontWeight.w800))),
+          const SizedBox(width: 8),
+        ],
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            decoration: BoxDecoration(
+              color: mine ? const Color(0xFFE9E8FF) : const Color(0xFFF3F5FA),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(15),
+                topRight: const Radius.circular(15),
+                bottomLeft: Radius.circular(mine ? 15 : 5),
+                bottomRight: Radius.circular(mine ? 5 : 15),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: const TextStyle(color: Welcome.violet, fontSize: 10, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text(text, style: const TextStyle(color: Welcome.ink, fontSize: 12, height: 1.4)),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Reusable icon-and-text item for the welcome screen's feature/trust list.
 class Auth extends StatefulWidget {
   const Auth({super.key, this.startWithRegistration = false});
   final bool startWithRegistration;
