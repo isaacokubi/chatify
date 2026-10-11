@@ -1471,6 +1471,20 @@ class _ChatState extends State<Chat> {
       if (id == null) return;
       setState(() => payments = mergePayment(payments, incoming));
     });
+    socket!.on('message:deleted', (data) {
+      if (!mounted || data is! Map || data['conversationId']?.toString() != widget.conversation['_id']?.toString()) return;
+      final index = messages.indexWhere((m) => m is Map && m['_id']?.toString() == data['messageId']?.toString());
+      if (index < 0) return;
+      setState(() {
+        final copy = Map<String, dynamic>.from(messages[index]);
+        copy['deletedAt'] = data['deletedAt'] ?? DateTime.now().toIso8601String();
+        copy['text'] = '';
+        copy['mediaUrl'] = null;
+        copy['messageType'] = 'text';
+        copy['reactions'] = [];
+        messages[index] = copy;
+      });
+    });
     socket!.on('message:expired', (data) {
       if (!mounted || data is! Map) return;
       final index = messages.indexWhere((m) =>
@@ -2216,28 +2230,47 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> deleteMessage(Map<String, dynamic> message) async {
+    final id = message['_id']?.toString();
+    if (id == null || id.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Delete this message?'),
+        content: const Text('This removes the message for everyone in the conversation. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for everyone')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final result = await app.api.call('DELETE', '/api/messages/$id', {});
+      final updated = Map<String, dynamic>.from(result['message']);
+      final index = messages.indexWhere((item) => item is Map && item['_id']?.toString() == id);
+      if (index >= 0 && mounted) setState(() => messages[index] = updated);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message deleted for everyone.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
   Future<void> showMessageActions(Map<String, dynamic> message) async {
+    final mine = message['senderId']?.toString() == app.user?['id']?.toString();
+    final deleted = message['deletedAt'] != null || message['expiredAt'] != null;
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (sheet) => SafeArea(
         child: Wrap(
           children: [
-            ListTile(
-                leading: const Icon(Icons.reply),
-                title: const Text('Reply'),
-                onTap: () => Navigator.pop(sheet, 'reply')),
-            ListTile(
-                leading: const Text('❤️', style: TextStyle(fontSize: 22)),
-                title: const Text('React with ❤️'),
-                onTap: () => Navigator.pop(sheet, '❤️')),
-            ListTile(
-                leading: const Text('👍', style: TextStyle(fontSize: 22)),
-                title: const Text('React with 👍'),
-                onTap: () => Navigator.pop(sheet, '👍')),
-            ListTile(
-                leading: const Text('😂', style: TextStyle(fontSize: 22)),
-                title: const Text('React with 😂'),
-                onTap: () => Navigator.pop(sheet, '😂')),
+            if (!deleted) ...[
+              ListTile(leading: const Icon(Icons.reply), title: const Text('Reply'), onTap: () => Navigator.pop(sheet, 'reply')),
+              ListTile(leading: const Text('❤️', style: TextStyle(fontSize: 22)), title: const Text('React with ❤️'), onTap: () => Navigator.pop(sheet, '❤️')),
+              ListTile(leading: const Text('👍', style: TextStyle(fontSize: 22)), title: const Text('React with 👍'), onTap: () => Navigator.pop(sheet, '👍')),
+              ListTile(leading: const Text('😂', style: TextStyle(fontSize: 22)), title: const Text('React with 😂'), onTap: () => Navigator.pop(sheet, '😂')),
+            ],
+            if (mine && !deleted) ListTile(leading: const Icon(Icons.delete_outline, color: Colors.red), title: const Text('Delete for everyone'), onTap: () => Navigator.pop(sheet, 'delete')),
           ],
         ),
       ),
@@ -2245,6 +2278,8 @@ class _ChatState extends State<Chat> {
     if (action == null) return;
     if (action == 'reply') {
       setState(() => reply = message['_id']?.toString());
+    } else if (action == 'delete') {
+      await deleteMessage(message);
     } else if (message['_id'] != null) {
       await reactTo(message['_id'].toString(), action);
     }
@@ -2400,9 +2435,11 @@ class _ChatState extends State<Chat> {
                                 Map<String, dynamic>.from(messages[i]);
                             final mine = message['senderId']?.toString() ==
                                 app.user?['id']?.toString();
-                            final text = message['expiredAt'] != null
-                                ? 'This message has expired.'
-                                : (message['text'] ?? '[media]').toString();
+                            final text = message['deletedAt'] != null
+                                ? 'This message was deleted.'
+                                : message['expiredAt'] != null
+                                    ? 'This message has expired.'
+                                    : (message['text'] ?? '[media]').toString();
                             return GestureDetector(
                               onLongPress: () => showMessageActions(message),
                               child: Align(
@@ -2426,14 +2463,16 @@ class _ChatState extends State<Chat> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        if (message['expiredAt'] == null &&
+                                        if (message['deletedAt'] == null &&
+                                            message['expiredAt'] == null &&
                                             message['messageType'] == 'image' &&
                                             message['mediaUrl'] != null)
                                           renderImage(
                                               message['mediaUrl'].toString())
                                         else
                                           Text(text),
-                                        if (message['reactions'] is List &&
+                                        if (message['deletedAt'] == null &&
+                                            message['reactions'] is List &&
                                             (message['reactions'] as List)
                                                 .isNotEmpty)
                                           Text((message['reactions'] as List)
