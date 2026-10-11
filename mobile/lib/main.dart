@@ -1247,7 +1247,7 @@ class _ChatState extends State<Chat> {
     for (final participant in participants) {
       if (participant is! Map) continue;
       final id = (participant['_id'] ?? participant['id'])?.toString();
-      if (id != null && id.isNotEmpty && id != currentUserId) return id;
+      if (id.isNotEmpty && id != currentUserId) return id;
     }
     return null;
   }
