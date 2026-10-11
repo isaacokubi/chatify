@@ -1051,39 +1051,82 @@ class PaymentCard extends StatelessWidget {
   final String? currentUserId;
   final VoidCallback? onPay;
   final VoidCallback? onRetry;
+  final VoidCallback? onClose;
+  final VoidCallback? onReject;
+  final String? rejectLabel;
   final VoidCallback onRefresh;
-  const PaymentCard(
-      {super.key,
-      required this.payment,
-      required this.currentUserId,
-      required this.onRefresh,
-      this.onPay,
-      this.onRetry});
+  const PaymentCard({
+    super.key,
+    required this.payment,
+    required this.currentUserId,
+    required this.onRefresh,
+    this.onPay,
+    this.onRetry,
+    this.onClose,
+    this.onReject,
+    this.rejectLabel,
+  });
+
   @override
   Widget build(BuildContext context) {
     final status = (payment['status'] ?? 'PENDING').toString();
     final isPayer = payment['payerId']?.toString() == currentUserId;
     final isMock = payment['provider']?.toString() == 'mock';
+    final canReject = status == 'PENDING' &&
+        payment['initiatedAt'] == null &&
+        payment['initiating'] != true &&
+        onReject != null;
     return Card(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-        child: ListTile(
-            leading: const Icon(Icons.payments_outlined),
-            title: Text(payment['description']?.toString() ?? 'M-Pesa payment'),
-            subtitle: Text(
-                'KSh ${payment['amount'] ?? ''} · $status · To ${payment['recipientPhone'] ?? 'recipient'}${isMock ? ' · Local demo' : ''}'),
-            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (status == 'PENDING' && isPayer && onPay != null)
-                TextButton(
-                    onPressed: onPay, child: const Text('Pay with M-Pesa')),
-              if ((status == 'FAILED' || status == 'CANCELLED') &&
-                  isPayer &&
-                  onRetry != null)
-                TextButton(onPressed: onRetry, child: const Text('Retry')),
-              IconButton(
-                  tooltip: 'Check status',
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.payments_outlined),
+              title: Text(payment['description']?.toString() ?? 'M-Pesa payment'),
+              subtitle: Text(
+                'KSh ${payment['amount'] ?? ''} · $status · To ${payment['recipientPhone'] ?? 'recipient'}${isMock ? ' · Local demo' : ''}',
+              ),
+            ),
+            Wrap(
+              spacing: 4,
+              runSpacing: 0,
+              children: [
+                if (status == 'PENDING' && isPayer && onPay != null)
+                  TextButton(
+                    onPressed: onPay,
+                    child: const Text('Pay with M-Pesa'),
+                  ),
+                if ((status == 'FAILED' || status == 'CANCELLED') &&
+                    isPayer &&
+                    onRetry != null)
+                  TextButton(onPressed: onRetry, child: const Text('Retry')),
+                if (canReject)
+                  TextButton.icon(
+                    onPressed: onReject,
+                    icon: const Icon(Icons.cancel_outlined, size: 18),
+                    label: Text(rejectLabel ?? 'Reject request'),
+                  ),
+                if (onClose != null)
+                  TextButton.icon(
+                    onPressed: onClose,
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('Close for me'),
+                  ),
+                TextButton.icon(
                   onPressed: onRefresh,
-                  icon: const Icon(Icons.refresh))
-            ])));
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Status'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1550,6 +1593,64 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> closePayment(Map<String, dynamic> payment) async {
+    try {
+      final result = await app.api.call(
+          'POST', '/api/payments/${payment['paymentId']}/close', {});
+      if (mounted) {
+        setState(() => payments = mergePayment(
+            payments, Map<String, dynamic>.from(result['payment'])));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Closed for you. The other person can still see this request.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> rejectPayment(Map<String, dynamic> payment) async {
+    final isPayer =
+        payment['payerId']?.toString() == app.user?['id']?.toString();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(isPayer ? 'Reject M-Pesa request?' : 'Withdraw M-Pesa request?'),
+        content: const Text(
+          'This cancels the request for both people and is only available before an M-Pesa prompt has started. If a prompt was already sent, close it for yourself and cancel it on your phone if it is still open.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Keep request')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(isPayer ? 'Reject request' : 'Withdraw request')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final result = await app.api.call(
+          'POST', '/api/payments/${payment['paymentId']}/reject', {});
+      if (mounted) {
+        setState(() => payments = mergePayment(
+            payments, Map<String, dynamic>.from(result['payment'])));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(isPayer
+                ? 'Payment request rejected.'
+                : 'Payment request withdrawn.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
   Future<void> searchMessages(String query) async {
     try {
       final result = await app.api.call('GET',
@@ -1965,6 +2066,12 @@ class _ChatState extends State<Chat> {
     final title = widget.conversation['type'] == 'group'
         ? (widget.conversation['title'] ?? 'Group').toString()
         : 'Chat';
+    final currentUserId = app.user?['id']?.toString();
+    final visiblePayments = payments.where((item) {
+      if (item is! Map) return false;
+      final dismissedBy = List<dynamic>.from(item['dismissedBy'] ?? []);
+      return !dismissedBy.any((id) => id.toString() == currentUserId);
+    }).toList();
     return Scaffold(
       appBar: AppBar(
         title: searching
@@ -2013,19 +2120,24 @@ class _ChatState extends State<Chat> {
         ],
       ),
       body: Column(children: [
-        if (payments.isNotEmpty)
+        if (visiblePayments.isNotEmpty)
           SizedBox(
-              height: payments.length > 2 ? 170 : null,
+              height: visiblePayments.length > 2 ? 220 : null,
               child: ListView.builder(
-                  shrinkWrap: payments.length <= 2,
-                  itemCount: payments.length,
+                  shrinkWrap: visiblePayments.length <= 2,
+                  itemCount: visiblePayments.length,
                   itemBuilder: (_, index) {
-                    final payment = Map<String, dynamic>.from(payments[index]);
+                    final payment = Map<String, dynamic>.from(visiblePayments[index]);
+                    final isPayer =
+                        payment['payerId']?.toString() == currentUserId;
                     return PaymentCard(
                         payment: payment,
-                        currentUserId: app.user?['id']?.toString(),
+                        currentUserId: currentUserId,
                         onPay: () => payPayment(payment),
                         onRetry: () => retryPayment(payment),
+                        onClose: () => closePayment(payment),
+                        onReject: () => rejectPayment(payment),
+                        rejectLabel: isPayer ? 'Reject request' : 'Withdraw request',
                         onRefresh: () => refreshPayment(payment));
                   })),
         if (widget.conversation['type'] == 'direct')
