@@ -777,7 +777,7 @@ class _HomeState extends State<Home> {
       final result = await app.api.call('GET', '/api/contacts');
       if (mounted) setState(() => savedContacts = List<dynamic>.from(result['contacts'] ?? []));
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load contacts: ' + error.toString())));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load contacts: $error')));
     } finally { if (mounted) setState(() => contactsLoading = false); }
   }
 
@@ -786,7 +786,7 @@ class _HomeState extends State<Home> {
     if (value.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a phone number to search.'))); return; }
     setState(() { phoneSearching = true; phoneResults = []; });
     try {
-      final result = await app.api.call('GET', '/api/contacts/search?q=' + Uri.encodeQueryComponent(value));
+      final result = await app.api.call('GET', '/api/contacts/search?q=${Uri.encodeQueryComponent(value)}');
       if (mounted) setState(() => phoneResults = List<dynamic>.from(result['users'] ?? []));
       if (mounted && phoneResults.isEmpty) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No Chatify account found for that phone number.')));
     } catch (error) {
@@ -808,7 +808,7 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> removeSavedContact(Map<String, dynamic> contact) async {
-    try { await app.api.call('DELETE', '/api/contacts/' + contact['id'].toString()); await loadSavedContacts(); }
+    try { await app.api.call('DELETE', '/api/contacts/${contact['id']}'); await loadSavedContacts(); }
     catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
   }
 
