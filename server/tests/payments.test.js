@@ -16,8 +16,14 @@ test('mock mode needs no Daraja credentials and clearly identifies itself', asyn
   assert.equal(provider.name, 'mock');
   assert.equal(provider.isMock, true);
   assert.match((await provider.initiate({paymentId:'payment-123'})).checkoutRequestId, /^MOCK-/);
-  assert.throws(() => resolveMpesaProvider({NODE_ENV:'production'}), /explicit MPESA_ENV=production/);
+  assert.throws(() => resolveMpesaProvider({NODE_ENV:'production'}), /explicit MPESA_ENV=mock for a demo or MPESA_ENV=production/);
   assert.throws(() => resolveMpesaProvider({NODE_ENV:'production',MPESA_ENV:'production'}), /credentials and callback URL/);
+});
+
+test('Daraja rejects loopback, private IP literals and reserved callback hosts', () => {
+  for (const callbackUrl of ['http://public.example/callback','https://localhost/callback','https://127.0.0.1/callback','https://192.168.1.10/callback','https://chatify.internal/callback','https://demo.test/callback']) {
+    assert.throws(()=>createDarajaProvider({mode:'sandbox',consumerKey:'key',consumerSecret:'secret',shortcode:'123456',passkey:'pass',callbackUrl}),/public HTTPS URL/);
+  }
 });
 
 test('Daraja uses the sandbox host, timestamp password, timeout and STK request fields', async () => {
@@ -27,7 +33,7 @@ test('Daraja uses the sandbox host, timestamp password, timeout and STK request 
     if (url.includes('/oauth/')) return new Response(JSON.stringify({access_token:'test-access',expires_in:'3600'}), {status:200});
     return new Response(JSON.stringify({ResponseCode:'0',CheckoutRequestID:'ws_CO_1',MerchantRequestID:'merchant_1'}), {status:200});
   };
-  const provider = createDarajaProvider({mode:'sandbox',consumerKey:'key',consumerSecret:'secret',shortcode:'123456',passkey:'pass',callbackUrl:'https://demo.example/callback'}, transport);
+  const provider = createDarajaProvider({mode:'sandbox',consumerKey:'key',consumerSecret:'secret',shortcode:'123456',passkey:'pass',callbackUrl:'https://chatify-test.example.com/callback'}, transport);
   const refs = await provider.initiate({paymentId:'12345678901234567890',amount:500,phone:'254712345678',description:'Lunch',now:new Date('2026-10-11T06:08:07Z')});
   assert.equal(provider.isMock, false);
   assert.deepEqual(refs,{checkoutRequestId:'ws_CO_1',merchantRequestId:'merchant_1'});
@@ -42,7 +48,7 @@ test('Daraja uses the sandbox host, timestamp password, timeout and STK request 
 });
 
 test('provider errors do not look like accepted payments', async () => {
-  const failing = createDarajaProvider({mode:'sandbox',consumerKey:'key',consumerSecret:'secret',shortcode:'123456',passkey:'pass',callbackUrl:'https://demo.example/callback'}, async () => new Response('{}',{status:401}));
+  const failing = createDarajaProvider({mode:'sandbox',consumerKey:'key',consumerSecret:'secret',shortcode:'123456',passkey:'pass',callbackUrl:'https://chatify-test.example.com/callback'}, async () => new Response('{}',{status:401}));
   await assert.rejects(failing.initiate({amount:100,phone:'254712345678',description:'Test',paymentId:'abcdef'}), /authentication failed/);
 });
 

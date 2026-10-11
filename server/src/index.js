@@ -2,7 +2,7 @@ import 'dotenv/config';
 import {resolveMpesaProvider,normalizeMpesaPhone,validPaymentAmount,newPaymentId,PAYMENT_STATUSES,resolveCallbackOutcome,canAccessPayment,canRetryPayment,canTransitionPayment} from './payments.js';
 import {createAuthMiddleware} from './auth.js';
 import {randomBytes} from 'node:crypto';
-import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback,resolveNodeEnv} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials} from './lifecycle.js';
+import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback,resolveNodeEnv} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials,createShutdownHandler} from './lifecycle.js';
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
 const configuredJwt=process.env.JWT_SECRET?.trim();
 if(nodeEnv==='production'&&(!configuredJwt||configuredJwt.length<32))throw new Error('Production requires JWT_SECRET with at least 32 characters');
@@ -117,7 +117,23 @@ app.post('/api/memories',auth,async(q,r)=>{const b=q.body||{};const title=typeof
 app.patch('/api/memories/:id',auth,async(q,r)=>{const b=q.body||{};const allowed={};if('type'in b){if(!['EVENT','PAYMENT','PLACE','TASK','NOTE','OTHER'].includes(b.type))return r.status(400).json({error:'Unsupported memory type'});allowed.type=b.type;}for(const [key,max] of [['title',120],['description',2000],['time',80],['location',200]])if(key in b){if(typeof b[key]!=='string'||!b[key].trim()||b[key].trim().length>max)return r.status(400).json({error:`${key} must be between 1 and ${max} characters`});allowed[key]=b[key].trim();}if('date'in b){const date=b.date==null?null:new Date(b.date);if(date!=null&&Number.isNaN(date.getTime()))return r.status(400).json({error:'Enter a valid memory date'});allowed.date=date;}if('completed'in b){if(typeof b.completed!=='boolean')return r.status(400).json({error:'Completed must be true or false'});allowed.completed=b.completed;}const m=await Memory.findOneAndUpdate({_id:q.params.id,userId:q.user._id},{$set:allowed},{new:true,runValidators:true});if(!m)return r.status(404).json({error:'Memory not found'});r.json({memory:m});});
 app.delete('/api/memories/:id',auth,async(q,r)=>{await Memory.deleteOne({_id:q.params.id,userId:q.user._id});r.status(204).end();});
 app.use((err,q,r,n)=>{if(r.headersSent)return n(err);const status=err.code===11000?409:err.status||err.statusCode||(['ValidationError','CastError'].includes(err.name)?400:500);const message=status===409?'A record with that value already exists':status<500?(err.message||'Request failed'):'Request failed';r.status(status).json({error:message});});
-setInterval(async()=>{try{const due=await Message.find({expiresAt:{$lte:new Date()},expiredAt:{$exists:false}}).select('_id conversationId');for(const item of due){const expired=await Message.findOneAndUpdate({_id:item._id,expiredAt:{$exists:false}},{$set:{expiredAt:new Date(),text:'',mediaUrl:null}},{new:true});if(expired)io.to(String(item.conversationId)).emit('message:expired',{messageId:item._id});}}catch(error){console.error('Message expiration cleanup failed:',error.message);}},60000);
+const expiryTimer=setInterval(async()=>{try{const due=await Message.find({expiresAt:{$lte:new Date()},expiredAt:{$exists:false}}).select('_id conversationId');for(const item of due){const expired=await Message.findOneAndUpdate({_id:item._id,expiredAt:{$exists:false}},{$set:{expiredAt:new Date(),text:'',mediaUrl:null}},{new:true});if(expired)io.to(String(item.conversationId)).emit('message:expired',{messageId:item._id});}}catch(error){console.error('Message expiration cleanup failed:',error.message);}},60000);
+expiryTimer.unref();
 if(env.mongo)await mongoose.connect(env.mongo); else console.warn('MONGODB_URI not set; configure Atlas before persistent use.');
 server.listen(env.port,()=>console.log('Chatify API listening on '+env.port));
+const shutdown=createShutdownHandler({
+  stopTimers:()=>clearInterval(expiryTimer),
+  closeSockets:()=>new Promise(resolve=>io.close(resolve)),
+  closeHttp:()=>new Promise((resolve,reject)=>{
+    if(!server.listening)return resolve();
+    server.close(error=>error?reject(error):resolve());
+  }),
+  disconnectDb:()=>mongoose.disconnect(),
+});
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{
+  shutdown().then(()=>{console.log('Chatify API shut down cleanly.');},()=>{
+    console.error('Chatify API shutdown failed.');
+    process.exitCode=1;
+  });
+});
 export {app,candidate};

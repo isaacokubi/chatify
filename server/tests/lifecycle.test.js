@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials} from '../src/lifecycle.js';
+import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials,createShutdownHandler} from '../src/lifecycle.js';
 
 test('password reset tokens are high entropy and stored as non-reversible hashes', () => {
   const token = createResetToken();
@@ -40,4 +40,16 @@ test('login credentials reject malformed body types without throwing', () => {
     normalizeLoginCredentials({email:'  PERSON@EXAMPLE.TEST ',password:'password123'}),
     {email:'person@example.test',password:'password123'},
   );
+});
+
+test('shutdown stops timers and closes sockets, HTTP, and MongoDB once', async () => {
+  const calls=[];
+  const shutdown=createShutdownHandler({
+    stopTimers:()=>calls.push('timers'),
+    closeSockets:async()=>calls.push('sockets'),
+    closeHttp:async()=>calls.push('http'),
+    disconnectDb:async()=>calls.push('database'),
+  });
+  await Promise.all([shutdown(),shutdown()]);
+  assert.deepEqual(calls,['timers','sockets','http','database']);
 });
