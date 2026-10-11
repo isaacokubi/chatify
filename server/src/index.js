@@ -36,10 +36,30 @@ const server=http.createServer(app); const io=new Server(server,{cors:{origin:co
 io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);if(!await User.exists({_id:s.user.sub,status:'active'}))throw new Error('Inactive');n();}catch{n(new Error('Unauthorized'));}});
 const onlineUsers=new Set();
 const leaveUserConversation=(userId,conversationId)=>io.in('user:'+String(userId)).socketsLeave(String(conversationId));
-io.on('connection',async s=>{s.join('user:'+s.user.sub);const activeConversations=await Conversation.find({participants:s.user.sub}).select('_id participants');for(const c of activeConversations)s.join(String(c._id));onlineUsers.add(s.user.sub);for(const c of activeConversations){s.to(String(c._id)).emit('user:online',{userId:s.user.sub});for(const id of c.participants)if(String(id)!==s.user.sub&&onlineUsers.has(String(id)))s.emit('user:online',{userId:String(id)});}
- s.on('conversation:join',async id=>{if(typeof id!=='string'||!mongoose.isValidObjectId(id))return;const c=await Conversation.exists({_id:id,participants:s.user.sub});if(c)s.join(id);});
- for(const event of ['typing:start','typing:stop'])s.on(event,async id=>{if(typeof id!=='string'||!s.rooms.has(id))return;s.to(id).emit(event,{userId:s.user.sub});});
- s.on('disconnect',async()=>{const sockets=await io.in('user:'+s.user.sub).fetchSockets();if(!sockets.length){onlineUsers.delete(s.user.sub);const u=await User.findByIdAndUpdate(s.user.sub,{lastSeen:new Date()});if(u)for(const c of activeConversations)io.to(String(c._id)).emit('user:offline',{userId:s.user.sub,...(u.privacy?.lastSeen!==false?{lastSeen:u.lastSeen}:{})});}});
+io.on('connection',async s=>{
+ const userId=String(s.user.sub);
+ s.join('user:'+userId);
+ const activeConversations=await Conversation.find({participants:userId}).select('_id participants');
+ for(const c of activeConversations)s.join(String(c._id));
+ const peerIds=new Set(activeConversations.flatMap(c=>c.participants.map(id=>String(id))).filter(id=>id!==userId));
+ s.emit('presence:initial',{userIds:[...peerIds].filter(id=>onlineUsers.has(id))});
+ const firstSocket=!onlineUsers.has(userId);
+ onlineUsers.add(userId);
+ if(firstSocket)for(const peerId of peerIds)io.to('user:'+peerId).emit('user:online',{userId});
+ for(const c of activeConversations){s.to(String(c._id)).emit('user:online',{userId});for(const id of c.participants)if(String(id)!==userId&&onlineUsers.has(String(id)))s.emit('user:online',{userId:String(id)});}
+ s.on('conversation:join',async id=>{if(typeof id!=='string'||!mongoose.isValidObjectId(id))return;const c=await Conversation.exists({_id:id,participants:userId});if(c)s.join(id);});
+ for(const event of ['typing:start','typing:stop'])s.on(event,async id=>{if(typeof id!=='string'||!s.rooms.has(id))return;s.to(id).emit(event,{userId});});
+ s.on('disconnect',async()=>{
+   const sockets=await io.in('user:'+userId).fetchSockets();
+   if(!sockets.length){
+     onlineUsers.delete(userId);
+     const u=await User.findByIdAndUpdate(userId,{lastSeen:new Date()});
+     const conversations=await Conversation.find({participants:userId}).select('_id participants');
+     const peers=new Set(conversations.flatMap(c=>c.participants.map(id=>String(id))).filter(id=>id!==userId));
+     for(const peerId of peers)io.to('user:'+peerId).emit('user:offline',{userId,...(u?.privacy?.lastSeen!==false?{lastSeen:u?.lastSeen}:{})});
+     if(u)for(const conversation of conversations)io.to(String(conversation._id)).emit('user:offline',{userId,...(u.privacy?.lastSeen!==false?{lastSeen:u.lastSeen}:{})});
+   }
+ });
 });
 app.get('/health',(q,r)=>{const connected=mongoose.connection.readyState===1;r.status(connected?200:503).json({ok:connected,service:'chatify-api',database:connected?'connected':'unavailable',time:new Date().toISOString()});});
 app.post('/api/media',auth,async(q,r)=>{
@@ -109,6 +129,7 @@ app.post('/api/payments/:id/initiate',auth,async(q,r)=>{const payerPhone=normali
 app.get('/api/payments',auth,async(q,r)=>{const rows=await Payment.find({$or:[{requesterId:q.user._id},{payerId:q.user._id}]}).sort({createdAt:-1}).limit(100);const payments=[];for(const payment of rows)if(await paymentAllowed(payment,q.user._id))payments.push(payment);r.json({payments});});
 app.get('/api/payments/:id',auth,async(q,r)=>{const payment=await Payment.findOne({paymentId:q.params.id});if(!await paymentAllowed(payment,q.user._id))return r.status(404).json({error:'Payment not found'});r.json({payment});});
 app.post('/api/payments/:id/close',auth,async(q,r)=>{const payment=await Payment.findOne({paymentId:q.params.id});if(!await paymentAllowed(payment,q.user._id))return r.status(404).json({error:'Payment not found'});const updated=await Payment.findOneAndUpdate({_id:payment._id},{$addToSet:{dismissedBy:q.user._id}},{new:true});emitPayment(updated||payment);r.json({payment:updated||payment});});
+app.post('/api/payments/:id/reopen',auth,async(q,r)=>{const payment=await Payment.findOne({paymentId:q.params.id});if(!await paymentAllowed(payment,q.user._id))return r.status(404).json({error:'Payment not found'});const updated=await Payment.findOneAndUpdate({_id:payment._id},{$pull:{dismissedBy:q.user._id}},{new:true});emitPayment(updated||payment);r.json({payment:updated||payment});});
 app.post('/api/payments/:id/reject',auth,async(q,r)=>{const payment=await Payment.findOne({paymentId:q.params.id});if(!await paymentAllowed(payment,q.user._id))return r.status(404).json({error:'Payment not found'});if(!canCancelPayment(payment,q.user._id,true))return r.status(409).json({error:'This request can only be rejected before an M-Pesa prompt is initiated. If a prompt was already sent, close it for yourself and cancel it on your phone if it is still open.'});const byPayer=String(q.user._id)===String(payment.payerId);const updated=await Payment.findOneAndUpdate({_id:payment._id,status:'PENDING',initiatedAt:{$exists:false},initiating:{$ne:true}},{$set:{status:'CANCELLED',resultDescription:byPayer?'Request rejected by payer':'Request withdrawn by requester',completedAt:new Date(),callbackProcessedAt:new Date()},$addToSet:{dismissedBy:q.user._id}},{new:true});if(!updated)return r.status(409).json({error:'This request has already started or has been closed'});emitPayment(updated);r.json({payment:updated});});
 app.post('/api/payments/:id/mock-result',auth,async(q,r)=>{if(!mpesaProvider.isMock)return r.status(404).json({error:'Payment not found'});if(!['SUCCESS','FAILED','CANCELLED'].includes(q.body?.status))return r.status(400).json({error:'Choose SUCCESS, FAILED or CANCELLED'});const payment=await Payment.findOne({paymentId:q.params.id});if(!payment||String(payment.payerId)!==String(q.user._id)||!payment.initiatedAt||!await paymentAllowed(payment,q.user._id))return r.status(404).json({error:'Payment not found'});const changed=await Payment.findOneAndUpdate({paymentId:payment.paymentId,status:'PENDING',provider:'mock'},{$set:{status:q.body.status,resultCode:q.body.status==='SUCCESS'?0:1,resultDescription:'Local mock result; not a Safaricom transaction',completedAt:new Date(),callbackProcessedAt:new Date()}},{new:true});if(!changed)return r.status(409).json({error:'Payment is already complete'});emitPayment(changed);r.json({payment:changed,mock:true});});
 app.post('/api/payments/:id/retry',auth,async(q,r)=>{const previous=await Payment.findOne({paymentId:q.params.id});if(!previous||!canRetryPayment(previous,q.user._id,await paymentAllowed(previous,q.user._id)))return r.status(404).json({error:'Retry is unavailable for this payment'});const payment=await Payment.create({paymentId:newPaymentId(),requesterId:previous.requesterId,payerId:previous.payerId,conversationId:previous.conversationId,amount:previous.amount,recipientPhone:previous.recipientPhone,payerPhone:previous.payerPhone,description:previous.description,provider:mpesaProvider.name,requestedAt:new Date()});emitPayment(payment);r.status(201).json({payment});});

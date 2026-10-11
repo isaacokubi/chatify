@@ -120,6 +120,8 @@ class AppState extends ChangeNotifier {
   bool ready = false;
   Map<String, dynamic>? user;
   String? restoreError;
+  final Set<String> onlineUserIds = {};
+  io.Socket? _presenceSocket;
   StreamSubscription<String>? _tokenRefreshSubscription;
   StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
   StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
@@ -144,10 +146,53 @@ class AppState extends ChangeNotifier {
       }
     }
     if (user != null) {
+      _connectPresence();
       await _initializePushNotifications();
     }
     ready = true;
     notifyListeners();
+  }
+
+  void _connectPresence() {
+    final token = api.token;
+    if (token == null || token.isEmpty) return;
+    _presenceSocket?.dispose();
+    onlineUserIds.clear();
+    _presenceSocket = io.io(
+      api.base,
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .setAuth({'token': token})
+          .disableAutoConnect()
+          .enableReconnection()
+          .build(),
+    );
+    _presenceSocket!.on('presence:initial', (data) {
+      if (data is! Map || data['userIds'] is! List) return;
+      onlineUserIds
+        ..clear()
+        ..addAll((data['userIds'] as List).map((id) => id.toString()));
+      notifyListeners();
+    });
+    _presenceSocket!.on('user:online', (data) {
+      if (data is Map && data['userId'] != null &&
+          onlineUserIds.add(data['userId'].toString())) {
+        notifyListeners();
+      }
+    });
+    _presenceSocket!.on('user:offline', (data) {
+      if (data is Map && data['userId'] != null &&
+          onlineUserIds.remove(data['userId'].toString())) {
+        notifyListeners();
+      }
+    });
+    _presenceSocket!.onDisconnect((_) {
+      if (onlineUserIds.isNotEmpty) {
+        onlineUserIds.clear();
+        notifyListeners();
+      }
+    });
+    _presenceSocket!.connect();
   }
 
   Future<void> _initializePushNotifications() async {
@@ -243,6 +288,7 @@ class AppState extends ChangeNotifier {
       user = Map<String, dynamic>.from(d['user']);
       await (await SharedPreferences.getInstance())
           .setString('token', api.token!);
+      _connectPresence();
       await _initializePushNotifications();
       notifyListeners();
       return null;
@@ -261,6 +307,9 @@ class AppState extends ChangeNotifier {
       }
     }
     _registeredPushToken = null;
+    _presenceSocket?.dispose();
+    _presenceSocket = null;
+    onlineUserIds.clear();
     await _tokenRefreshSubscription?.cancel();
     _tokenRefreshSubscription = null;
     await _messageOpenedSubscription?.cancel();
@@ -1066,6 +1115,7 @@ class PaymentCard extends StatelessWidget {
   final VoidCallback? onRetry;
   final VoidCallback? onClose;
   final VoidCallback? onReject;
+  final VoidCallback? onReopen;
   final String? rejectLabel;
   final VoidCallback onRefresh;
   const PaymentCard({
@@ -1077,6 +1127,7 @@ class PaymentCard extends StatelessWidget {
     this.onRetry,
     this.onClose,
     this.onReject,
+    this.onReopen,
     this.rejectLabel,
   });
 
@@ -1108,22 +1159,30 @@ class PaymentCard extends StatelessWidget {
               spacing: 4,
               runSpacing: 0,
               children: [
-                if (status == 'PENDING' && isPayer && onPay != null)
+                if (onReopen != null)
+                  TextButton.icon(
+                    onPressed: onReopen,
+                    icon: const Icon(Icons.unarchive_outlined, size: 18),
+                    label: const Text('Reopen request'),
+                  ),
+                if (onReopen == null &&
+                    status == 'PENDING' && isPayer && onPay != null)
                   TextButton(
                     onPressed: onPay,
                     child: const Text('Pay with M-Pesa'),
                   ),
-                if ((status == 'FAILED' || status == 'CANCELLED') &&
+                if (onReopen == null &&
+                    (status == 'FAILED' || status == 'CANCELLED') &&
                     isPayer &&
                     onRetry != null)
                   TextButton(onPressed: onRetry, child: const Text('Retry')),
-                if (canReject)
+                if (onReopen == null && canReject)
                   TextButton.icon(
                     onPressed: onReject,
                     icon: const Icon(Icons.cancel_outlined, size: 18),
                     label: Text(rejectLabel ?? 'Reject request'),
                   ),
-                if (onClose != null)
+                if (onReopen == null && onClose != null)
                   TextButton.icon(
                     onPressed: onClose,
                     icon: const Icon(Icons.close, size: 18),
@@ -1159,6 +1218,7 @@ class _ChatState extends State<Chat> {
   bool _isTyping = false;
   List<dynamic> messages = [];
   List<dynamic> payments = [];
+  bool showClosedPayments = false;
   String expiry = 'NONE';
   String? reply;
   String? typingUser;
@@ -1173,8 +1233,40 @@ class _ChatState extends State<Chat> {
   @override
   void initState() {
     super.initState();
+    app.addListener(_syncPresence);
+    _syncPresence();
     load();
     connect();
+  }
+
+  String? _directPeerId() {
+    if (widget.conversation['type'] != 'direct') return null;
+    final participants = widget.conversation['participants'];
+    if (participants is! List) return null;
+    final currentUserId = app.user?['id']?.toString();
+    for (final participant in participants) {
+      if (participant is! Map) continue;
+      final rawId = participant['_id'] ?? participant['id'];
+      if (rawId == null) continue;
+      final id = rawId.toString();
+      if (id.isNotEmpty && id != currentUserId) return id;
+    }
+    return null;
+  }
+
+  void _syncPresence() {
+    if (!mounted) return;
+    final peerId = _directPeerId();
+    final shouldBeOnline =
+        peerId != null && app.onlineUserIds.contains(peerId);
+    final isOnline = peerId != null && onlineIds.contains(peerId);
+    if (shouldBeOnline == isOnline) return;
+    setState(() {
+      onlineIds.clear();
+      if (peerId != null && app.onlineUserIds.contains(peerId)) {
+        onlineIds.add(peerId);
+      }
+    });
   }
 
   void _scrollToLatestMessage() {
@@ -1292,13 +1384,17 @@ class _ChatState extends State<Chat> {
       }
     });
     socket!.on('user:online', (data) {
-      if (data is Map && mounted) {
-        setState(() => onlineIds.add(data['userId'].toString()));
+      final peerId = _directPeerId();
+      if (data is Map && mounted && peerId != null &&
+          data['userId']?.toString() == peerId) {
+        setState(() => onlineIds.add(peerId));
       }
     });
     socket!.on('user:offline', (data) {
-      if (data is Map && mounted) {
-        setState(() => onlineIds.remove(data['userId'].toString()));
+      final peerId = _directPeerId();
+      if (data is Map && mounted && peerId != null &&
+          data['userId']?.toString() == peerId) {
+        setState(() => onlineIds.remove(peerId));
       }
     });
     socket!.on('message:new', (data) {
@@ -1638,6 +1734,27 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> reopenPayment(Map<String, dynamic> payment) async {
+    try {
+      final result = await app.api.call(
+          'POST', '/api/payments/${payment['paymentId']}/reopen', {});
+      if (mounted) {
+        setState(() {
+          payments = mergePayment(
+              payments, Map<String, dynamic>.from(result['payment']));
+          showClosedPayments = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Request reopened in this conversation.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
   Future<void> rejectPayment(Map<String, dynamic> payment) async {
     final isPayer =
         payment['payerId']?.toString() == app.user?['id']?.toString();
@@ -1953,6 +2070,7 @@ class _ChatState extends State<Chat> {
 
   @override
   void dispose() {
+    app.removeListener(_syncPresence);
     _typingTimer?.cancel();
     _remoteTypingTimer?.cancel();
     if (_isTyping) socket?.emit('typing:stop', widget.conversation['_id']);
@@ -2094,10 +2212,17 @@ class _ChatState extends State<Chat> {
         ? (widget.conversation['title'] ?? 'Group').toString()
         : 'Chat';
     final currentUserId = app.user?['id']?.toString();
+    final closedPaymentCount = payments.where((item) {
+      if (item is! Map) return false;
+      return List<dynamic>.from(item['dismissedBy'] ?? [])
+          .any((id) => id.toString() == currentUserId);
+    }).length;
     final visiblePayments = payments.where((item) {
       if (item is! Map) return false;
       final dismissedBy = List<dynamic>.from(item['dismissedBy'] ?? []);
-      return !dismissedBy.any((id) => id.toString() == currentUserId);
+      final isClosedForMe =
+          dismissedBy.any((id) => id.toString() == currentUserId);
+      return showClosedPayments || !isClosedForMe;
     }).toList();
     return Scaffold(
       appBar: AppBar(
@@ -2147,6 +2272,20 @@ class _ChatState extends State<Chat> {
         ],
       ),
       body: Column(children: [
+        if (closedPaymentCount > 0)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () =>
+                  setState(() => showClosedPayments = !showClosedPayments),
+              icon: Icon(showClosedPayments
+                  ? Icons.visibility_off_outlined
+                  : Icons.history),
+              label: Text(showClosedPayments
+                  ? 'Hide closed requests'
+                  : 'Show closed requests ($closedPaymentCount)'),
+            ),
+          ),
         if (visiblePayments.isNotEmpty)
           SizedBox(
               height: visiblePayments.length > 2 ? 220 : null,
@@ -2154,17 +2293,27 @@ class _ChatState extends State<Chat> {
                   shrinkWrap: visiblePayments.length <= 2,
                   itemCount: visiblePayments.length,
                   itemBuilder: (_, index) {
-                    final payment = Map<String, dynamic>.from(visiblePayments[index]);
+                    final payment =
+                        Map<String, dynamic>.from(visiblePayments[index]);
                     final isPayer =
                         payment['payerId']?.toString() == currentUserId;
+                    final isClosedForMe =
+                        List<dynamic>.from(payment['dismissedBy'] ?? [])
+                            .any((id) => id.toString() == currentUserId);
                     return PaymentCard(
                         payment: payment,
                         currentUserId: currentUserId,
-                        onPay: () => payPayment(payment),
-                        onRetry: () => retryPayment(payment),
-                        onClose: () => closePayment(payment),
-                        onReject: () => rejectPayment(payment),
-                        rejectLabel: isPayer ? 'Reject request' : 'Withdraw request',
+                        onPay: isClosedForMe ? null : () => payPayment(payment),
+                        onRetry:
+                            isClosedForMe ? null : () => retryPayment(payment),
+                        onClose:
+                            isClosedForMe ? null : () => closePayment(payment),
+                        onReject:
+                            isClosedForMe ? null : () => rejectPayment(payment),
+                        onReopen:
+                            isClosedForMe ? () => reopenPayment(payment) : null,
+                        rejectLabel:
+                            isPayer ? 'Reject request' : 'Withdraw request',
                         onRefresh: () => refreshPayment(payment));
                   })),
         if (widget.conversation['type'] == 'direct')
