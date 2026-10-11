@@ -30,3 +30,8 @@ Socket events include `message:new`, `message:read`, `message:reaction`, `messag
 ### Delete a sent message
 
 `DELETE /api/messages/:id` deletes a message for everyone in its conversation. Authentication is required and only the original sender may delete it. The API keeps a tombstone (`deletedAt`) so clients can show “This message was deleted” without exposing its original text or media. A `message:deleted` Socket.IO event updates participants in real time. Already-expired messages cannot be deleted again.
+
+
+### Delete conversations from your chat list
+
+`POST /api/conversations/delete` accepts `{ "conversationIds": ["..."] }` for 1–100 conversations in which the authenticated user is a participant. This hides those conversations only for that user; it does not delete the other participants' history or erase stored messages. Hidden conversations are omitted from that user's conversation and message endpoints. A new message restores the conversation to the chat list.
