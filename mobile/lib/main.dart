@@ -118,6 +118,8 @@ List<dynamic> mergePayment(
 class AppState extends ChangeNotifier {
   final Api api;
   bool ready = false;
+  bool authRequested = false;
+  bool startRegistration = false;
   Map<String, dynamic>? user;
   String? restoreError;
   final Set<String> onlineUserIds = {};
@@ -297,6 +299,18 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  void openAuth({bool register = false}) {
+    authRequested = true;
+    startRegistration = register;
+    notifyListeners();
+  }
+
+  void returnToWelcome() {
+    authRequested = false;
+    startRegistration = false;
+    notifyListeners();
+  }
+
   Future<void> logout() async {
     final registeredToken = _registeredPushToken;
     if (registeredToken != null && api.token != null) {
@@ -318,6 +332,8 @@ class AppState extends ChangeNotifier {
     _foregroundMessageSubscription = null;
     api.token = null;
     user = null;
+    authRequested = false;
+    startRegistration = false;
     restoreError = null;
     await (await SharedPreferences.getInstance()).remove('token');
     notifyListeners();
@@ -585,35 +601,652 @@ class ChatifyApp extends StatelessWidget {
         ),
       ),
       home: Consumer<AppState>(
-          builder: (_, a, __) => !a.ready
-              ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-              : a.restoreError != null
-                  ? Scaffold(
-                      body: Center(
-                          child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        const Text('Could not restore your session.'),
-                        const SizedBox(height: 12),
-                        Text(a.restoreError!, textAlign: TextAlign.center),
-                        const SizedBox(height: 12),
+        builder: (_, appState, __) {
+          if (!appState.ready) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (appState.restoreError != null) {
+            return Scaffold(
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Could not restore your session.'),
+                      const SizedBox(height: 12),
+                      Text(appState.restoreError!, textAlign: TextAlign.center),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: appState.init,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+          if (appState.user != null) return const Home();
+          if (appState.authRequested) {
+            return Auth(startWithRegistration: appState.startRegistration);
+          }
+          return Welcome(
+            onSignIn: () => appState.openAuth(),
+            onGetStarted: () => appState.openAuth(register: true),
+          );
+        },
+      ),
+    );
+}
+
+class Welcome extends StatelessWidget {
+  const Welcome({
+    super.key,
+    required this.onSignIn,
+    required this.onGetStarted,
+  });
+
+  final VoidCallback onSignIn;
+  final VoidCallback onGetStarted;
+
+  static const ink = Color(0xFF172033);
+  static const muted = Color(0xFF68758B);
+  static const violet = Color(0xFF5548E8);
+  static const mint = Color(0xFF41D6B0);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F8FC),
+      body: LayoutBuilder(
+        builder: (context, viewport) {
+          final wide = viewport.maxWidth >= 900;
+          final contentWidth = viewport.maxWidth > 1240 ? 1160.0 : 1160.0;
+          return SingleChildScrollView(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: contentWidth),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: viewport.maxWidth < 600 ? 20 : 36,
+                    vertical: 18,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _topBar(context, wide),
+                      SizedBox(height: wide ? 70 : 42),
+                      if (wide)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(flex: 11, child: _heroCopy(context, wide)),
+                            const SizedBox(width: 48),
+                            const Expanded(flex: 9, child: _ConversationPreview()),
+                          ],
+                        )
+                      else ...[
+                        _heroCopy(context, wide),
+                        const SizedBox(height: 36),
+                        const _ConversationPreview(),
+                      ],
+                      const SizedBox(height: 72),
+                      _sectionIntro(),
+                      const SizedBox(height: 24),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        children: [
+                          _featureCard(
+                            icon: Icons.bolt_rounded,
+                            color: const Color(0xFFE9E8FF),
+                            iconColor: violet,
+                            title: 'Conversations, in real time',
+                            description: 'Stay close with responsive chats, live presence and instant updates.',
+                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600).toDouble(),
+                          ),
+                          _featureCard(
+                            icon: Icons.auto_awesome_rounded,
+                            color: const Color(0xFFDDF8F0),
+                            iconColor: const Color(0xFF087F6A),
+                            title: 'Remember what matters',
+                            description: 'Turn useful details into personal memory cards you can revisit.',
+                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600),
+                          ),
+                          _featureCard(
+                            icon: Icons.hourglass_bottom_rounded,
+                            color: const Color(0xFFFFEEDB),
+                            iconColor: const Color(0xFFB66A13),
+                            title: 'More control, less clutter',
+                            description: 'Choose how long messages stay and manage what you have shared.',
+                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600),
+                          ),
+                          _featureCard(
+                            icon: Icons.devices_rounded,
+                            color: const Color(0xFFE5EEFF),
+                            iconColor: const Color(0xFF315EB8),
+                            title: 'Made for every screen',
+                            description: 'A considered experience across phones, tablets and desktops.',
+                            width: wide ? 270 : (viewport.maxWidth - 56).clamp(240, 600),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 46),
+                      Container(
+                        padding: EdgeInsets.all(wide ? 28 : 22),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF172033),
+                          borderRadius: BorderRadius.circular(28),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF202B48), Color(0xFF151B30)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: wide
+                            ? Row(
+                                children: [
+                                  const Expanded(child: _PrivacyMessage()),
+                                  const SizedBox(width: 24),
+                                  FilledButton.icon(
+                                    onPressed: onGetStarted,
+                                    icon: const Icon(Icons.arrow_forward_rounded),
+                                    label: const Text('Create your free account'),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: mint,
+                                      foregroundColor: const Color(0xFF102A2A),
+                                      minimumSize: const Size(220, 52),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : const _PrivacyMessage(),
+                      ),
+                      if (!wide) ...[
+                        const SizedBox(height: 18),
                         FilledButton(
-                            onPressed: a.init, child: const Text('Retry'))
-                      ]),
-                    )))
-                  : a.user != null
-                      ? const Home()
-                      : const Auth()));
+                          onPressed: onGetStarted,
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(54),
+                            backgroundColor: violet,
+                          ),
+                          child: const Text('Create your free account'),
+                        ),
+                      ],
+                      const SizedBox(height: 32),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.forum_rounded, size: 17, color: muted),
+                          const SizedBox(width: 8),
+                          const Flexible(
+                            child: Text(
+                              'Chatify  ·  Chat. Remember. Let Go.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _topBar(BuildContext context, bool wide) {
+    return Row(
+      children: [
+        Container(
+          height: 44,
+          width: 44,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(15),
+            gradient: const LinearGradient(
+              colors: [Color(0xFF6B5FF6), Color(0xFF4338CA)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: const [
+              BoxShadow(color: Color(0x244F46E5), blurRadius: 18, offset: Offset(0, 7)),
+            ],
+          ),
+          child: const Icon(Icons.forum_rounded, color: Colors.white, size: 23),
+        ),
+        const SizedBox(width: 12),
+        const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Chatify', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, letterSpacing: -0.8, color: ink)),
+            Text('Chat. Remember. Let Go.', style: TextStyle(fontSize: 10, color: muted, fontWeight: FontWeight.w600)),
+          ],
+        ),
+        const Spacer(),
+        if (wide) ...[
+          TextButton(onPressed: onSignIn, child: const Text('Sign in')),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: onGetStarted,
+            style: FilledButton.styleFrom(
+              backgroundColor: violet,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+            ),
+            child: const Text('Get started'),
+          ),
+        ] else
+          TextButton(onPressed: onSignIn, child: const Text('Sign in')),
+      ],
+    );
+  }
+
+  Widget _heroCopy(BuildContext context, bool wide) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE9E8FF),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: const Color(0xFFDCD9FF)),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.auto_awesome_rounded, size: 15, color: violet),
+              SizedBox(width: 7),
+              Text('A little more meaning in every message',
+                  style: TextStyle(color: Color(0xFF4438B8), fontSize: 12, fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text.rich(
+          TextSpan(
+            style: TextStyle(
+              fontSize: wide ? 58 : 43,
+              height: 1.04,
+              letterSpacing: wide ? -2.6 : -1.8,
+              fontWeight: FontWeight.w800,
+              color: ink,
+            ),
+            children: const [
+              TextSpan(text: 'Conversations that '),
+              TextSpan(text: 'stay with you.', style: TextStyle(color: violet)),
+            ],
+          ),
+          maxLines: wide ? 3 : null,
+        ),
+        const SizedBox(height: 20),
+        const Text(
+          'A calmer way to keep in touch. Share moments in real time, save the details worth remembering, and let the rest go when you are ready.',
+          style: TextStyle(color: muted, fontSize: 16, height: 1.7),
+        ),
+        const SizedBox(height: 28),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            FilledButton.icon(
+              onPressed: onGetStarted,
+              icon: const Icon(Icons.arrow_forward_rounded),
+              label: const Text('Get started — it’s free'),
+              style: FilledButton.styleFrom(
+                backgroundColor: violet,
+                minimumSize: const Size(190, 54),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: onSignIn,
+              icon: const Icon(Icons.login_rounded, size: 18),
+              label: const Text('I already have an account'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(190, 54),
+                side: const BorderSide(color: Color(0xFFD9DEEB)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 26),
+        const Wrap(
+          spacing: 18,
+          runSpacing: 10,
+          children: [
+            _TrustPoint(icon: Icons.flash_on_rounded, text: 'Real-time chat'),
+            _TrustPoint(icon: Icons.bookmark_added_outlined, text: 'Useful memories'),
+            _TrustPoint(icon: Icons.devices_rounded, text: 'Phone to desktop'),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionIntro() {
+    return const Column(
+      children: [
+        Text('More than a message thread',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: ink, fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -1)),
+        SizedBox(height: 10),
+        Text(
+          'Everything you need for thoughtful, connected conversations.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: muted, fontSize: 14, height: 1.6),
+        ),
+      ],
+    );
+  }
+
+  static Widget _featureCard({
+    required IconData icon,
+    required Color color,
+    required Color iconColor,
+    required String title,
+    required String description,
+    required double width,
+  }) {
+    return SizedBox(
+      width: width,
+      child: Container(
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: const Color(0xFFE9ECF4)),
+          boxShadow: const [
+            BoxShadow(color: Color(0x07172033), blurRadius: 24, offset: Offset(0, 8)),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(15)),
+              child: Icon(icon, color: iconColor, size: 24),
+            ),
+            const SizedBox(height: 18),
+            Text(title, style: const TextStyle(color: ink, fontSize: 16, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Text(description, style: const TextStyle(color: muted, fontSize: 13, height: 1.6)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConversationPreview extends StatelessWidget {
+  const _ConversationPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(32),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF292C57), Color(0xFF151B30)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(color: Color(0x1C292C57), blurRadius: 44, offset: Offset(0, 22)),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.forum_rounded, color: Welcome.mint, size: 20),
+              const SizedBox(width: 8),
+              const Text('A little preview', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(color: const Color(0x223DD7B0), borderRadius: BorderRadius.circular(20)),
+                child: const Row(
+                  children: [
+                    Icon(Icons.circle, color: Welcome.mint, size: 7),
+                    SizedBox(width: 6),
+                    Text('CONNECTED', style: TextStyle(color: Welcome.mint, fontSize: 9, letterSpacing: 1.1, fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [Color(0xFF79D8C1), Color(0xFF6C85E8)]),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: const Icon(Icons.people_alt_rounded, color: Colors.white),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Weekend plans', style: TextStyle(color: Welcome.ink, fontWeight: FontWeight.w800)),
+                          SizedBox(height: 3),
+                          Text('Maya, Alex · 3 members', style: TextStyle(color: Welcome.muted, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.more_horiz, color: Welcome.muted),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const _PreviewBubble(
+                  initials: 'M',
+                  name: 'Maya',
+                  text: 'Let’s meet at 10 on Saturday ☀️',
+                  mine: false,
+                ),
+                const SizedBox(height: 10),
+                const _PreviewBubble(
+                  initials: 'Y',
+                  name: 'You',
+                  text: 'Perfect! I’ll save that so we don’t forget.',
+                  mine: true,
+                ),
+                const SizedBox(height: 15),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5FBF4),
+                    border: Border.all(color: const Color(0xFFC8F1E6)),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.auto_awesome_rounded, color: Color(0xFF087F6A), size: 19),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('MEMORY CARD', style: TextStyle(color: Color(0xFF087F6A), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                            SizedBox(height: 5),
+                            Text('Saturday · 10:00 AM', style: TextStyle(color: Color(0xFF17483E), fontSize: 14, fontWeight: FontWeight.w800)),
+                            SizedBox(height: 3),
+                            Text('A detail worth keeping, right when you need it.', style: TextStyle(color: Color(0xFF4F766D), fontSize: 11, height: 1.45)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Icon(Icons.add_circle_outline_rounded, color: Color(0xFF929AAF), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Container(
+                        height: 38,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        alignment: Alignment.centerLeft,
+                        decoration: BoxDecoration(color: const Color(0xFFF4F6FA), borderRadius: BorderRadius.circular(13)),
+                        child: const Text('Write a message…', style: TextStyle(color: Color(0xFF929AAF), fontSize: 11)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      height: 38,
+                      width: 38,
+                      decoration: BoxDecoration(color: Welcome.violet, borderRadius: BorderRadius.circular(13)),
+                      child: const Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 19),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.lock_outline_rounded, color: Color(0xFFBAC3E5), size: 14),
+              SizedBox(width: 7),
+              Text('Your conversations, with you in control', style: TextStyle(color: Color(0xFFBAC3E5), fontSize: 10)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreviewBubble extends StatelessWidget {
+  const _PreviewBubble({
+    required this.initials,
+    required this.name,
+    required this.text,
+    required this.mine,
+  });
+  final String initials;
+  final String name;
+  final String text;
+  final bool mine;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
+      children: [
+        if (!mine) ...[
+          CircleAvatar(radius: 15, backgroundColor: const Color(0xFFE7E8FF), child: Text(initials, style: const TextStyle(color: Welcome.violet, fontSize: 11, fontWeight: FontWeight.w800))),
+          const SizedBox(width: 8),
+        ],
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            decoration: BoxDecoration(
+              color: mine ? const Color(0xFFE9E8FF) : const Color(0xFFF3F5FA),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(15),
+                topRight: const Radius.circular(15),
+                bottomLeft: Radius.circular(mine ? 15 : 5),
+                bottomRight: Radius.circular(mine ? 5 : 15),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: const TextStyle(color: Welcome.violet, fontSize: 10, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text(text, style: const TextStyle(color: Welcome.ink, fontSize: 12, height: 1.4)),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrustPoint extends StatelessWidget {
+  const _TrustPoint({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, color: const Color(0xFF0F9D8A), size: 17),
+      const SizedBox(width: 7),
+      Text(text, style: const TextStyle(color: Welcome.muted, fontSize: 12, fontWeight: FontWeight.w600)),
+    ],
+  );
+}
+
+class _PrivacyMessage extends StatelessWidget {
+  const _PrivacyMessage();
+  @override
+  Widget build(BuildContext context) => const Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Icon(Icons.shield_moon_rounded, color: Welcome.mint, size: 23),
+          SizedBox(width: 10),
+          Text('Your conversations. Your control.', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+        ],
+      ),
+      SizedBox(height: 10),
+      Text(
+        'Keep the moments that matter. Manage your messages and memories with thoughtful controls designed around you.',
+        style: TextStyle(color: Color(0xFFD2D8E9), fontSize: 13, height: 1.6),
+      ),
+    ],
+  );
 }
 
 class Auth extends StatefulWidget {
-  const Auth({super.key});
+  const Auth({super.key, this.startWithRegistration = false});
+  final bool startWithRegistration;
   @override
   State<Auth> createState() => _AuthState();
 }
 
 class _AuthState extends State<Auth> {
-  bool reg = false, busy = false, hide = true;
+  late bool reg;
+  bool busy = false, hide = true;
+
+  @override
+  void initState() {
+    super.initState();
+    reg = widget.startWithRegistration;
+  }
   final n = TextEditingController(),
       e = TextEditingController(),
       p = TextEditingController(),
@@ -927,6 +1560,13 @@ class _AuthState extends State<Auth> {
                               ? 'Already have an account? Sign in'
                               : 'Create a new account',
                         ),
+                      ),
+                      TextButton.icon(
+                        onPressed: busy
+                            ? null
+                            : () => context.read<AppState>().returnToWelcome(),
+                        icon: const Icon(Icons.arrow_back_rounded, size: 17),
+                        label: const Text('Back to homepage'),
                       ),
                     ],
                   ),
@@ -3100,6 +3740,46 @@ class _ChatState extends State<Chat> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
+                                        if (mine &&
+                                            message['deletedAt'] == null &&
+                                            message['expiredAt'] == null)
+                                          Align(
+                                            alignment: Alignment.centerRight,
+                                            child: PopupMenuButton<String>(
+                                              tooltip: 'Message options',
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(
+                                                minWidth: 44,
+                                                minHeight: 44,
+                                              ),
+                                              iconSize: 20,
+                                              icon: const Icon(
+                                                Icons.more_horiz,
+                                                color: Color(0xFF536078),
+                                              ),
+                                              onSelected: (action) {
+                                                if (action == 'delete') {
+                                                  deleteMessage(message);
+                                                }
+                                              },
+                                              itemBuilder: (_) => const [
+                                                PopupMenuItem<String>(
+                                                  value: 'delete',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(
+                                                        Icons.delete_outline,
+                                                        color: Color(0xFFDC2626),
+                                                        size: 20,
+                                                      ),
+                                                      SizedBox(width: 10),
+                                                      Text('Delete for everyone'),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
                                         if (message['deletedAt'] == null &&
                                             message['expiredAt'] == null &&
                                             message['messageType'] == 'image' &&
