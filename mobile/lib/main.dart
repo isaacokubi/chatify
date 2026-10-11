@@ -605,12 +605,16 @@ class _HomeState extends State<Home> {
   bool loading = false;
   bool memoriesLoading = false, usersLoading = false;
   String contactQuery = '';
+  String phoneQuery = '';
+  List<dynamic> savedContacts = [], phoneResults = [];
+  bool contactsLoading = false, phoneSearching = false;
   String? chatsError, memoriesError, usersError;
   AppState get app => context.read<AppState>();
   @override
   void initState() {
     super.initState();
     loadChats();
+    loadSavedContacts();
   }
 
   Future<void> loadChats() async {
@@ -767,72 +771,99 @@ class _HomeState extends State<Home> {
     );
   }
 
-  Widget _contacts() {
-    return Column(children: [
-      Padding(
-          padding: const EdgeInsets.all(16),
-          child: TextField(
-              onChanged: search,
-              decoration: const InputDecoration(
-                  labelText: 'Search people',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder()))),
-      Expanded(
-          child: usersLoading
-              ? const Center(child: CircularProgressIndicator())
-              : usersError != null
-                  ? Center(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Text(usersError!, textAlign: TextAlign.center),
-                      const SizedBox(height: 12),
-                      FilledButton(
-                          onPressed: () => search(contactQuery),
-                          child: const Text('Retry'))
-                    ]))
-                  : users.isEmpty
-                      ? const Empty(
-                          icon: Icons.person_search,
-                          title: 'Find people',
-                          subtitle: 'Search by name or email.')
-                      : ListView.builder(
-                          itemCount: users.length,
-                          itemBuilder: (_, i) {
-                            final u = Map<String, dynamic>.from(users[i]);
-                            final displayName = u['name']?.toString() ?? 'User';
-                            return ListTile(
-                              leading: CircleAvatar(
-                                  child: Text(displayName.isEmpty
-                                      ? '?'
-                                      : displayName[0].toUpperCase())),
-                              title: Text(displayName),
-                              subtitle: Text(u['email']?.toString() ?? ''),
-                              onTap: () async {
-                                try {
-                                  final d = await app.api.call(
-                                      'POST',
-                                      '/api/conversations/direct',
-                                      {'userId': u['_id']});
-                                  if (!mounted) return;
-                                  Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                          builder: (_) => Chat(
-                                              conversation:
-                                                  Map<String, dynamic>.from(
-                                                      d['conversation']))));
-                                } catch (error) {
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                            content: Text(error.toString())));
-                                  }
-                                }
-                              },
-                            );
-                          })),
-    ]);
+  Future<void> loadSavedContacts() async {
+    if (mounted) setState(() => contactsLoading = true);
+    try {
+      final result = await app.api.call('GET', '/api/contacts');
+      if (mounted) setState(() => savedContacts = List<dynamic>.from(result['contacts'] ?? []));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load contacts: ' + error.toString())));
+    } finally { if (mounted) setState(() => contactsLoading = false); }
   }
 
+  Future<void> searchPhone() async {
+    final value = phoneQuery.trim();
+    if (value.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a phone number to search.'))); return; }
+    setState(() { phoneSearching = true; phoneResults = []; });
+    try {
+      final result = await app.api.call('GET', '/api/contacts/search?q=' + Uri.encodeQueryComponent(value));
+      if (mounted) setState(() => phoneResults = List<dynamic>.from(result['users'] ?? []));
+      if (mounted && phoneResults.isEmpty) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No Chatify account found for that phone number.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally { if (mounted) setState(() => phoneSearching = false); }
+  }
+
+  Future<void> savePhoneContact(String phone) async {
+    try {
+      await app.api.call('POST', '/api/contacts', {'phone': phone});
+      await loadSavedContacts();
+      if (mounted) {
+        setState(() => phoneResults = []);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact saved.')));
+      }
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> removeSavedContact(Map<String, dynamic> contact) async {
+    try { await app.api.call('DELETE', '/api/contacts/' + contact['id'].toString()); await loadSavedContacts(); }
+    catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
+  }
+
+  Widget _contacts() {
+    return Column(children: [
+      Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 8), child: TextField(
+        keyboardType: TextInputType.phone,
+        onChanged: (value) => phoneQuery = value,
+        onSubmitted: (_) => searchPhone(),
+        decoration: InputDecoration(
+          labelText: 'Find by phone number', hintText: 'e.g. 0712345678 or +254712345678',
+          prefixIcon: const Icon(Icons.phone), border: const OutlineInputBorder(),
+          suffixIcon: IconButton(tooltip: 'Search phone number', onPressed: phoneSearching ? null : searchPhone,
+            icon: phoneSearching ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search)),
+        ),
+      )),
+      if (phoneResults.isNotEmpty) ...[
+        const Padding(padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Align(alignment: Alignment.centerLeft, child: Text('Matching account', style: TextStyle(fontWeight: FontWeight.bold)))),
+        ...phoneResults.whereType<Map>().map((raw) {
+          final person = Map<String, dynamic>.from(raw);
+          return ListTile(leading: CircleAvatar(child: Text((person['name']?.toString() ?? '?').isEmpty ? '?' : person['name'].toString()[0].toUpperCase())),
+            title: Text(person['name']?.toString() ?? 'Chatify user'),
+            subtitle: Text(person['phone']?.toString() ?? ''),
+            trailing: FilledButton.tonalIcon(onPressed: () => savePhoneContact(person['phone']?.toString() ?? phoneQuery), icon: const Icon(Icons.person_add_alt_1), label: const Text('Save')));
+        }),
+      ],
+      Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 4), child: Row(children: [
+        const Expanded(child: Text('Saved contacts', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+        IconButton(tooltip: 'Refresh contacts', onPressed: loadSavedContacts, icon: const Icon(Icons.refresh)),
+      ])),
+      Expanded(child: contactsLoading ? const Center(child: CircularProgressIndicator()) : savedContacts.isEmpty
+        ? const Empty(icon: Icons.contacts_outlined, title: 'No saved contacts', subtitle: 'Search for a registered Chatify phone number and save it here.')
+        : ListView.builder(itemCount: savedContacts.length, itemBuilder: (_, i) {
+          final contact = Map<String, dynamic>.from(savedContacts[i]);
+          final name = contact['name']?.toString() ?? 'Contact';
+          return ListTile(leading: CircleAvatar(child: Text(name.isEmpty ? '?' : name[0].toUpperCase())),
+            title: Text(name), subtitle: Text(contact['phone']?.toString() ?? contact['email']?.toString() ?? ''),
+            onTap: () async {
+              try {
+                final result = await app.api.call('POST', '/api/conversations/direct', {'userId': contact['userId']});
+                if (!mounted) return;
+                Navigator.push(context, MaterialPageRoute(builder: (_) => Chat(conversation: Map<String, dynamic>.from(result['conversation'])))).then((_) => loadChats());
+              } catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
+            },
+            trailing: IconButton(tooltip: 'Remove contact', icon: const Icon(Icons.person_remove_outlined), onPressed: () => removeSavedContact(contact)),
+          );
+        })),
+      Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: TextField(onChanged: search, decoration: const InputDecoration(labelText: 'Or find by name/email', prefixIcon: Icon(Icons.person_search), border: OutlineInputBorder()))),
+      if (contactQuery.trim().length >= 2) SizedBox(height: 180, child: usersLoading ? const Center(child: CircularProgressIndicator()) : usersError != null ? Center(child: Text(usersError!)) : ListView.builder(itemCount: users.length, itemBuilder: (_, i) {
+        final u = Map<String, dynamic>.from(users[i]);
+        return ListTile(leading: const Icon(Icons.person_outline), title: Text(u['name']?.toString() ?? 'User'), subtitle: Text(u['email']?.toString() ?? ''),
+          trailing: IconButton(tooltip: 'Save contact', icon: const Icon(Icons.person_add_alt_1), onPressed: () { final phone = u['phone']?.toString() ?? ''; if (phone.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This user has not added a phone number.'))); } else { savePhoneContact(phone); } }));
+      })),
+    ]);
+  }
   Widget _memories() {
     if (memoriesLoading) {
       return const Center(child: CircularProgressIndicator());
