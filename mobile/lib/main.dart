@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -3450,18 +3452,179 @@ class _ChatState extends State<Chat> {
             ])));
   }
 
+  Future<void> downloadImage(String url) async {
+    if (url.trim().isEmpty) return;
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      Uint8List? bytes;
+      var mime = 'image/jpeg';
+
+      if (url.startsWith('data:image/')) {
+        final comma = url.indexOf(',');
+        if (comma < 0) throw const FormatException('Invalid image data.');
+        mime = url.substring(5, comma).split(';').first.toLowerCase();
+        bytes = Uint8List.fromList(
+            base64Decode(url.substring(comma + 1)));
+      } else {
+        final uri = Uri.parse(url);
+        if (uri.scheme != 'https' && uri.scheme != 'http') {
+          throw Exception('This image URL cannot be downloaded safely.');
+        }
+
+        final path = uri.path.toLowerCase();
+        final guessedExtension = path.endsWith('.png')
+            ? 'png'
+            : path.endsWith('.webp')
+                ? 'webp'
+                : path.endsWith('.gif')
+                    ? 'gif'
+                    : path.endsWith('.heic')
+                        ? 'heic'
+                        : 'jpg';
+
+        // On the web, hand the original URL to the browser. This avoids
+        // re-encoding the image and does not depend on cross-origin fetch access.
+        if (kIsWeb) {
+          await FileSaver.instance.downloadLink(
+            link: LinkDetails(link: uri.toString()),
+            name: 'chatify_image_$timestamp.$guessedExtension',
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Image download started. Original image quality is preserved.'),
+            ));
+          }
+          return;
+        }
+
+        final response = await http.get(uri).timeout(
+              const Duration(seconds: 45),
+            );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception('Image download failed (HTTP ${response.statusCode}).');
+        }
+        bytes = response.bodyBytes;
+        mime = (response.headers['content-type'] ?? '').split(';').first.toLowerCase();
+        if (!mime.startsWith('image/')) {
+          mime = guessedExtension == 'png'
+              ? 'image/png'
+              : guessedExtension == 'webp'
+                  ? 'image/webp'
+                  : guessedExtension == 'gif'
+                      ? 'image/gif'
+                      : 'image/jpeg';
+        }
+      }
+
+      final extension = mime.contains('png')
+          ? 'png'
+          : mime.contains('webp')
+              ? 'webp'
+              : mime.contains('gif')
+                  ? 'gif'
+                  : mime.contains('heic')
+                      ? 'heic'
+                      : mime.contains('svg')
+                          ? 'svg'
+                          : 'jpg';
+      final saverMime = extension == 'png'
+          ? MimeType.png
+          : extension == 'webp'
+              ? MimeType.webp
+              : extension == 'gif'
+                  ? MimeType.gif
+                  : extension == 'heic'
+                      ? MimeType.heic
+                      : extension == 'svg'
+                          ? MimeType.svg
+                          : MimeType.jpeg;
+
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('The image file is empty.');
+      }
+
+      // Save the original response bytes directly. Never resize, recompress,
+      // decode or re-encode the image during download.
+      if (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS) &&
+          extension != 'svg') {
+        await FileSaver.instance.saveToGallery(
+          name: 'chatify_image_$timestamp',
+          bytes: bytes,
+          fileExtension: extension,
+          mimeType: saverMime,
+        );
+      } else {
+        await FileSaver.instance.saveFile(
+          name: 'chatify_image_$timestamp',
+          bytes: bytes,
+          fileExtension: extension,
+          mimeType: saverMime,
+          customMimeType: 'image/$extension',
+        );
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Image saved in its original quality.'),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not download image: $error')),
+        );
+      }
+    }
+  }
+
   Widget renderImage(String url) {
+    Widget image;
     if (url.startsWith('data:image/')) {
       try {
-        return Image.memory(base64Decode(url.substring(url.indexOf(',') + 1)),
-            width: 220);
+        image = Image.memory(
+          base64Decode(url.substring(url.indexOf(',') + 1)),
+          width: 220,
+          fit: BoxFit.contain,
+        );
       } catch (_) {
         return const Text('Image unavailable');
       }
-    }
-    return Image.network(url,
+    } else {
+      image = Image.network(
+        url,
         width: 220,
-        errorBuilder: (_, __, ___) => const Text('Image unavailable'));
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => const Text('Image unavailable'),
+      );
+    }
+
+    return Stack(
+      alignment: Alignment.topRight,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: image,
+        ),
+        Padding(
+          padding: const EdgeInsets.all(6),
+          child: Material(
+            color: const Color(0xE6172033),
+            borderRadius: BorderRadius.circular(24),
+            child: IconButton(
+              tooltip: 'Download original image',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints.tightFor(width: 38, height: 38),
+              padding: EdgeInsets.zero,
+              color: Colors.white,
+              icon: const Icon(Icons.download_rounded, size: 20),
+              onPressed: () => downloadImage(url),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
