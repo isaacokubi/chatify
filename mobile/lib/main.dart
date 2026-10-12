@@ -5162,7 +5162,18 @@ class _BusinessHubState extends State<BusinessHub> {
   // Seller M-Pesa settings start with the registered account phone, but owners can
   // save a different Kenyan number for customer-facing storefront payments.
   Future<void> _configureMpesaNumbers() async {
-    final registeredPhone = app.user?['phone']?.toString() ?? '';
+    var registeredPhone = app.user?['phone']?.toString() ?? '';
+    final slug = organization?['slug']?.toString() ?? '';
+    // The storefront API resolves the actual owner account default, even if a manager is editing settings.
+    if (slug.isNotEmpty) {
+      try {
+        final storefrontResponse = await app.api.call('GET', '/api/storefront/${Uri.encodeComponent(slug)}');
+        final sellerDefault = storefrontResponse['storefront']?['sellerMpesaPhone']?.toString() ?? '';
+        if (sellerDefault.isNotEmpty) registeredPhone = sellerDefault;
+      } catch (_) {
+        // Keep the signed-in user's registered number as a useful offline/fallback default.
+      }
+    }
     final currentSettings = organization?['settings'] is Map
         ? Map<String, dynamic>.from(organization!['settings'] as Map)
         : <String, dynamic>{};
