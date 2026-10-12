@@ -53,7 +53,7 @@ jobs:
           test -n "$FILE_PICKER_DIR"
           FILE_PICKER_GRADLE=$(find "$FILE_PICKER_DIR/android" -maxdepth 1 -type f \( -name 'build.gradle' -o -name 'build.gradle.kts' \) -print -quit)
           test -n "$FILE_PICKER_GRADLE"
-          sed -i -E 's/compileSdkVersion.*/compileSdkVersion 36/; s/compileSdk = .*/compileSdk = 36/' "$FILE_PICKER_GRADLE"
+          sed -i -E 's/^[[:space:]]*compileSdkVersion.*/    compileSdkVersion 36/; s/^[[:space:]]*compileSdk[[:space:]]*=.*/    compileSdk = 36/; s/^[[:space:]]*compileSdk[[:space:]]+[0-9]+.*/    compileSdk 36/' "$FILE_PICKER_GRADLE"
           grep -n 'compileSdk' "$FILE_PICKER_GRADLE"
-          grep -Eq 'compileSdkVersion 36|compileSdk = 36' "$FILE_PICKER_GRADLE"
+          grep -Eq 'compileSdkVersion 36|compileSdk = 36|compileSdk 36' "$FILE_PICKER_GRADLE"
       - run: flutter build apk --debug
