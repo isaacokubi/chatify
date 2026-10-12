@@ -7,6 +7,26 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test('Business API reports HTML responses as a readable API error', () async {
+    final api = Api(
+      client: MockClient((_) async => http.Response(
+        '<!doctype html><html><body>Service unavailable</body></html>',
+        200,
+        headers: {'content-type': 'text/html; charset=utf-8'},
+      )),
+    );
+
+    await expectLater(
+      api.call('GET', '/api/business/organizations'),
+      throwsA(isA<ApiException>().having(
+        (error) => error.message,
+        'message',
+        allOf(contains('HTML page instead of JSON'), contains('/api/business/organizations')),
+      )),
+    );
+    api.client.close();
+  });
+
   test('temporary API failure preserves the stored login token', () async {
     SharedPreferences.setMockInitialValues({'token': 'existing-token'});
     final client = MockClient(
