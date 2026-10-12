@@ -4508,6 +4508,8 @@ class _BusinessHubState extends State<BusinessHub> {
   Map<String, dynamic> dashboard = {};
   List<dynamic> organizations = [], catalog = [], customers = [], documents = [], tasks = [];
   bool loading = true, saving = false;
+  int pendingOfflineCount = 0;
+  List<String> syncConflicts = [];
   String? error;
   AppState get app => context.read<AppState>();
 
@@ -4541,7 +4543,7 @@ class _BusinessHubState extends State<BusinessHub> {
     }
   }
 
-  Future<void> loadWorkspaceData() async {
+  Future<void> loadWorkspaceData({bool syncPending = true}) async {
     final id = organization?['_id']?.toString();
     if (id == null) return;
     try {
@@ -4561,6 +4563,10 @@ class _BusinessHubState extends State<BusinessHub> {
       error = null;
     } catch (e) {
       error = e.toString();
+    }
+    if (syncPending && error == null) {
+      final applied = await _flushOfflineQueue(id);
+      if (applied > 0) { await loadWorkspaceData(syncPending: false); return; }
     }
     if (mounted) setState(() {});
   }
@@ -4671,6 +4677,211 @@ class _BusinessHubState extends State<BusinessHub> {
       if (mounted) setState(() => saving = false);
     }
   }
+
+
+  String _offlineQueueKey(String id) => 'chatify_business_offline_$id';
+  String _offlineIssuesKey(String id) => 'chatify_business_sync_issues_$id';
+
+  // Persist only offline record creates; each mutation ID makes retry safe if the response is lost.
+  Future<void> _enqueueOfflineCreate(String id, String entityType, Map<String, dynamic> changes) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _offlineQueueKey(id);
+    final queue = prefs.getStringList(key) ?? <String>[];
+    queue.add(jsonEncode({'mutationId': 'mobile:$entityType:${DateTime.now().microsecondsSinceEpoch}', 'operation': 'create', 'entityType': entityType, 'changes': changes}));
+    await prefs.setStringList(key, queue);
+    if (mounted) setState(() => pendingOfflineCount = queue.length);
+  }
+
+  Future<int> _flushOfflineQueue(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _offlineQueueKey(id);
+    final queue = prefs.getStringList(key) ?? <String>[];
+    if (queue.isEmpty) { if (mounted) setState(() => pendingOfflineCount = 0); return 0; }
+    try {
+      final mutations = queue.map((entry) => Map<String, dynamic>.from(jsonDecode(entry) as Map)).toList();
+      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/sync', {'mutations': mutations});
+      final results = List<dynamic>.from(response['results'] ?? []);
+      final byId = <String, Map<String, dynamic>>{for (final result in results.whereType<Map>()) result['mutationId'].toString(): Map<String, dynamic>.from(result)};
+      final remaining = <String>[];
+      final issues = prefs.getStringList(_offlineIssuesKey(id)) ?? <String>[];
+      var applied = 0;
+      for (final entry in queue) {
+        final mutation = Map<String, dynamic>.from(jsonDecode(entry) as Map);
+        final result = byId[mutation['mutationId'].toString()];
+        if (result == null) { remaining.add(entry); }
+        else if (result['status'] == 'applied') { applied++; }
+        else { issues.add(jsonEncode({'mutation': mutation, 'result': result})); }
+      }
+      await prefs.setStringList(key, remaining);
+      await prefs.setStringList(_offlineIssuesKey(id), issues.take(100).toList());
+      if (mounted) setState(() { pendingOfflineCount = remaining.length; syncConflicts = issues.take(100).toList(); });
+      if (issues.isNotEmpty && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Some offline changes need review in Business Tools.')));
+      return applied;
+    } catch (_) {
+      if (mounted) setState(() => pendingOfflineCount = queue.length);
+      return 0;
+    }
+  }
+
+  Future<void> _configureTaxProfile() async {
+    final country = TextEditingController(text: organization?['country']?.toString() ?? 'KE');
+    final currency = TextEditingController(text: organization?['currency']?.toString() ?? 'KES');
+    final rate = TextEditingController(text: '0');
+    String mode = 'exclusive';
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Tax and currency profile'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: country, maxLength: 2, decoration: const InputDecoration(labelText: 'Country code (e.g. KE)')),
+        TextField(controller: currency, maxLength: 3, decoration: const InputDecoration(labelText: 'Currency (e.g. KES)')),
+        TextField(controller: rate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Tax rate (%)')),
+        DropdownButtonFormField<String>(initialValue: mode, decoration: const InputDecoration(labelText: 'Tax treatment'), items: const [DropdownMenuItem(value: 'exclusive', child: Text('Tax added on top')), DropdownMenuItem(value: 'inclusive', child: Text('Tax included')), DropdownMenuItem(value: 'none', child: Text('No tax'))], onChanged: (value) { if (value != null) setDialogState(() => mode = value); }),
+        const Text('Confirm local rates with your accountant or tax authority.', style: TextStyle(fontSize: 12)),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save'))],
+    )));
+    if (accepted != true) return;
+    try {
+      final id = organization!['_id'].toString();
+      final response = await app.api.call('PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}/tax-profile', {'country': country.text.trim().toUpperCase(), 'currency': currency.text.trim().toUpperCase(), 'rate': double.tryParse(rate.text) ?? -1, 'mode': mode});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Tax profile saved.')));
+      await loadOrganizations();
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _translateBusinessText() async {
+    final source = TextEditingController();
+    final target = TextEditingController(text: 'Kiswahili');
+    bool consent = false;
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Translate business text'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: source, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: 'Text to translate')),
+        TextField(controller: target, decoration: const InputDecoration(labelText: 'Target language')),
+        CheckboxListTile(value: consent, contentPadding: EdgeInsets.zero, title: const Text('I consent to sending this text to the configured AI provider'), onChanged: (value) => setDialogState(() => consent = value ?? false)),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: consent ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Translate'))],
+    )));
+    if (accepted != true) return;
+    try {
+      final id = organization!['_id'].toString();
+      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/translate', {'text': source.text, 'targetLanguage': target.text.trim(), 'consent': true});
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Translation'), content: SelectableText(response['translated']?.toString() ?? 'No translation returned.'), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))]));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _memorySuggestions() async {
+    final source = TextEditingController();
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Business Memory suggestions'), content: TextField(controller: source, autofocus: true, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: 'Paste a conversation or business note')), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Find suggestions'))]));
+    if (accepted != true || source.text.trim().isEmpty) return;
+    try {
+      final id = organization!['_id'].toString();
+      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/memory-candidates', {'text': source.text});
+      final candidates = List<dynamic>.from(response['candidates'] ?? []);
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Review suggestions'), content: SizedBox(width: 420, child: candidates.isEmpty ? const Text('No clear candidates found.') : ListView(shrinkWrap: true, children: candidates.whereType<Map>().map((item) => ListTile(title: Text(item['title']?.toString() ?? 'Suggestion'), subtitle: Text('${item['type']}: ${item['description']}'))).toList())), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))]));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _sendCustomerMessage() async {
+    final eligible = customers.whereType<Map>().toList();
+    if (eligible.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add a customer before sending a message.'))); return; }
+    String? customerId = eligible.first['_id']?.toString();
+    String channel = 'whatsapp';
+    bool confirmedOptIn = false;
+    final message = TextEditingController();
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Message a customer'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        DropdownButtonFormField<String>(initialValue: customerId, decoration: const InputDecoration(labelText: 'Customer'), items: eligible.map((item) => DropdownMenuItem<String>(value: item['_id']?.toString(), child: Text(item['name']?.toString() ?? 'Customer', overflow: TextOverflow.ellipsis))).toList(), onChanged: (value) => setDialogState(() => customerId = value)),
+        DropdownButtonFormField<String>(initialValue: channel, decoration: const InputDecoration(labelText: 'Channel'), items: const [DropdownMenuItem(value: 'whatsapp', child: Text('WhatsApp')), DropdownMenuItem(value: 'sms', child: Text('SMS'))], onChanged: (value) { if (value != null) setDialogState(() => channel = value); }),
+        TextField(controller: message, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Message')),
+        CheckboxListTile(value: confirmedOptIn, contentPadding: EdgeInsets.zero, title: const Text('Customer has explicitly opted in'), onChanged: (value) => setDialogState(() => confirmedOptIn = value ?? false)),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: confirmedOptIn && message.text.trim().isNotEmpty ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Send'))],
+    )));
+    if (accepted != true || customerId == null) return;
+    try {
+      final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
+      await app.api.call('PATCH', '$base/customers/${Uri.encodeComponent(customerId!)}/messaging-consent', {'consent': true});
+      final response = await app.api.call('POST', '$base/communications/send', {'customerId': customerId, 'channel': channel, 'message': message.text.trim()});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Message submitted.')));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _createScheduledWorkflow() async {
+    final name = TextEditingController(text: 'Daily follow-up reminder');
+    final interval = TextEditingController(text: '60');
+    final actionText = TextEditingController(text: 'Review open customer follow-ups');
+    String action = 'create_task';
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Scheduled workflow'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: name, decoration: const InputDecoration(labelText: 'Workflow name')),
+        TextField(controller: interval, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Repeat every minutes (5–10080)')),
+        DropdownButtonFormField<String>(initialValue: action, decoration: const InputDecoration(labelText: 'Action'), items: const [DropdownMenuItem(value: 'create_task', child: Text('Create follow-up task')), DropdownMenuItem(value: 'notify_team', child: Text('Notify team in Chatify'))], onChanged: (value) { if (value != null) setDialogState(() => action = value); }),
+        TextField(controller: actionText, decoration: InputDecoration(labelText: action == 'create_task' ? 'Task title' : 'Notification')),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create and enable'))],
+    )));
+    if (accepted != true) return;
+    try {
+      final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
+      final created = await app.api.call('POST', '$base/workflows', {'name': name.text.trim(), 'trigger': 'schedule', 'scheduleEveryMinutes': int.tryParse(interval.text) ?? 60, 'actions': [{'actionType': action, 'config': action == 'create_task' ? {'title': actionText.text.trim()} : {'message': actionText.text.trim()}}]});
+      final workflowId = (created['workflow'] as Map?)?['_id']?.toString();
+      if (workflowId == null) throw const FormatException('Workflow was created but its ID was missing.');
+      await app.api.call('POST', '$base/workflows/${Uri.encodeComponent(workflowId)}/test', {'sample': {'source': 'mobile setup'}});
+      await app.api.call('PATCH', '$base/workflows/${Uri.encodeComponent(workflowId)}', {'enabled': true});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Workflow enabled. Keep the backend worker running.')));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _invoiceIntegration(String documentId, String action) async {
+    try {
+      final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(documentId)}';
+      Map<String, dynamic> response;
+      if (action == 'mpesa') {
+        final phone = TextEditingController();
+        final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Request M-Pesa payment'), content: TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Customer M-Pesa phone')), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send STK prompt'))]));
+        if (accepted != true) return;
+        response = await app.api.call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
+      } else {
+        response = await app.api.call('POST', '$base/etims-submit', {});
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Request submitted.')));
+      await loadWorkspaceData();
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _showDocumentActions(Map item) async {
+    final type = item['type']?.toString() ?? '';
+    final status = item['status']?.toString() ?? '';
+    final action = await showModalBottomSheet<String>(context: context, builder: (context) => SafeArea(child: Wrap(children: [
+      ListTile(title: Text(item['number']?.toString() ?? 'Sales document'), subtitle: Text('Status: $status')),
+      if (status == 'draft') ListTile(leading: const Icon(Icons.send), title: const Text('Issue / send document'), onTap: () => Navigator.pop(context, 'issue')),
+      if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.payments), title: const Text('Request M-Pesa STK payment'), onTap: () => Navigator.pop(context, 'mpesa')),
+      if (type == 'invoice' && status != 'draft' && !['cancelled','rejected'].contains(status)) ListTile(leading: const Icon(Icons.receipt_long), title: const Text('Submit through configured eTIMS gateway'), onTap: () => Navigator.pop(context, 'etims')),
+    ])));
+    if (action == null) return;
+    final id = item['_id']?.toString();
+    if (id == null) return;
+    try {
+      if (action == 'issue') {
+        final path = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(id)}/status';
+        await app.api.call('PATCH', path, {'status': 'sent'});
+        await loadWorkspaceData();
+      } else { await _invoiceIntegration(id, action); }
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Widget toolsPanel() => ListView(padding: const EdgeInsets.all(12), children: [
+    Card(child: ListTile(leading: const Icon(Icons.public), title: const Text('Tax and currency profile'), subtitle: const Text('Configure jurisdiction and tax treatment'), trailing: const Icon(Icons.chevron_right), onTap: _configureTaxProfile)),
+    Card(child: ListTile(leading: const Icon(Icons.translate), title: const Text('Translate business text'), subtitle: const Text('Consent-gated AI translation'), trailing: const Icon(Icons.chevron_right), onTap: _translateBusinessText)),
+    Card(child: ListTile(leading: const Icon(Icons.psychology_alt), title: const Text('Business Memory suggestions'), subtitle: const Text('Find possible tasks, dates and payment details'), trailing: const Icon(Icons.chevron_right), onTap: _memorySuggestions)),
+    Card(child: ListTile(leading: const Icon(Icons.mark_chat_unread_outlined), title: const Text('Message a customer'), subtitle: const Text('WhatsApp / SMS; opt-in required'), trailing: const Icon(Icons.chevron_right), onTap: _sendCustomerMessage)),
+    Card(child: ListTile(leading: const Icon(Icons.schedule), title: const Text('Scheduled workflow'), subtitle: const Text('Create, test and enable an allowed action'), trailing: const Icon(Icons.chevron_right), onTap: _createScheduledWorkflow)),
+    Card(child: ListTile(leading: const Icon(Icons.sync), title: Text('Sync offline records ($pendingOfflineCount)'), subtitle: Text(syncConflicts.isEmpty ? 'Queued creates sync when connected' : '${syncConflicts.length} changes need review'), trailing: const Icon(Icons.chevron_right), onTap: () async { final id = organization!['_id'].toString(); final applied = await _flushOfflineQueue(id); if (applied > 0) await loadWorkspaceData(syncPending: false); if (syncConflicts.isNotEmpty && mounted) await showDialog<void>(context: context, builder: (context) => AlertDialog(title: const Text('Sync conflicts'), content: SizedBox(width: 420, child: ListView(shrinkWrap: true, children: syncConflicts.map((entry) { final item = jsonDecode(entry) as Map; final result = item['result'] as Map? ?? {}; return ListTile(title: Text(result['status']?.toString() ?? 'Needs review'), subtitle: Text(result['error']?.toString() ?? result['reason']?.toString() ?? 'Server record changed; compare versions before retrying.')); }).toList())), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))])); })),
+  ]);
 
   Widget metric(String label, dynamic value, IconData icon) => Card(
     child: Padding(
