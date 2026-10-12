@@ -7,10 +7,27 @@ const maxImageBytes = 10 * 1024 * 1024;
 const supportedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 export function isSupportedImageData(data, mimeType) {
+  // Reject oversized and malformed-length payloads before running any regular
+  // expression or allocating a decoded buffer. Base64 can expand a 10 MB image
+  // to roughly 14 MB, and checking a huge string first can exhaust the JS stack.
   if (typeof data !== 'string' || !supportedImageTypes.has(mimeType) ||
-      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) {
+      data.length === 0 || data.length % 4 !== 0 ||
+      data.length > 4 * Math.ceil(maxImageBytes / 3)) {
     return false;
   }
+
+  // Derive the decoded byte count from the encoded length and trailing padding.
+  // This distinguishes a 10 MB payload from a slightly larger image that has
+  // the same rounded-up base64 character count.
+  const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+  const estimatedBytes = (data.length / 4) * 3 - padding;
+  if (estimatedBytes > maxImageBytes) return false;
+
+  // Only run the full base64 syntax check after the cheap size guards above.
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) {
+    return false;
+  }
+
   const bytes = Buffer.from(data, 'base64');
   if (!bytes.length || bytes.length > maxImageBytes) return false;
   if (bytes.toString('base64') !== data) return false;
