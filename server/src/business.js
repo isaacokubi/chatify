@@ -1,9 +1,12 @@
+import {normalizeMpesaPhone, validPaymentAmount, newPaymentId} from './payments.js';
+import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMessagingProviders, createLanguageProvider, createEtimsProvider, createIdempotencyKey, detectOfflineConflict, newIntegrationRequestId} from './business-integrations.js';
 // CHATIFY BUSINESS PLATFORM
 // Business records live beside chat records, with organization-level authorization.
 // This module deliberately keeps payment confirmation server-owned: a screenshot or
 // client-submitted "paid" flag is never accepted as proof of payment.
 
 const ROLES = Object.freeze(['owner', 'admin', 'manager', 'sales', 'finance', 'support', 'fulfilment', 'viewer']);
+const TAX_MODES = Object.freeze(['exclusive','inclusive','none']);
 const INDUSTRIES = Object.freeze(['retail', 'wholesale', 'consulting', 'tourism', 'hospitality', 'logistics', 'construction', 'salon', 'education', 'agriculture', 'real_estate', 'health_admin', 'legal', 'automotive', 'events', 'other']);
 const DOCUMENT_TYPES = Object.freeze(['quote', 'order', 'invoice', 'receipt', 'purchase_order']);
 const DOCUMENT_STATUSES = Object.freeze(['draft', 'sent', 'accepted', 'rejected', 'part_paid', 'paid', 'fulfilled', 'cancelled']);
@@ -47,8 +50,11 @@ export function buildBusinessBriefing({tasks = [], documents = [], cases = [], n
   return {generatedAt: now.toISOString(), overdueTasks: overdue.length, tasksDueWithin24Hours: dueSoon.length, outstandingDocuments: outstanding.length, outstandingAmount: Math.round(outstanding.reduce((sum, item) => sum + Math.max(0, Number(item.total || 0) - Number(item.paidAmount || 0)), 0) * 100) / 100, unresolvedCases: unresolved.length, nextActions: [...overdue, ...dueSoon].slice(0, 10).map(item => ({id: String(item._id || item.id || ''), title: item.title, dueAt: item.dueAt, status: item.status}))};
 }
 
-export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io}) {
+export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io, mpesaProvider}) {
   const O = mongoose.Schema.Types.ObjectId;
+  const messaging = createMessagingProviders(process.env);
+  const language = createLanguageProvider(process.env);
+  const etims = createEtimsProvider(process.env);
   const memberSchema = new mongoose.Schema({userId: {type: O, ref: 'User', required: true}, role: {type: String, enum: ROLES, default: 'viewer'}, branchIds: {type: [O], default: []}}, {_id: false});
   const Organization = mongoose.models.BusinessOrganization || mongoose.model('BusinessOrganization', new mongoose.Schema({
     name: {type: String, required: true, trim: true, maxlength: 120}, slug: {type: String, required: true, unique: true, lowercase: true},
@@ -64,6 +70,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     organizationId: {type: O, required: true, index: true}, name: {type: String, required: true, trim: true, maxlength: 160},
     email: String, phone: String, company: String, notes: {type: String, maxlength: 4000}, tags: {type: [String], default: []},
     source: {type: String, enum: ['manual', 'chat', 'storefront', 'referral', 'import', 'other'], default: 'manual'},
+    messagingConsent: {type: Boolean, default: false}, consentCapturedAt: Date,
     conversationId: O, assignedTo: O, lastContactAt: Date, customFields: {type: mongoose.Schema.Types.Mixed, default: {}},
   }, {timestamps: true}));
   Customer.schema.index({organizationId: 1, name: 1});
@@ -79,9 +86,10 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     organizationId: {type: O, required: true, index: true}, customerId: {type: O, index: true}, conversationId: O,
     type: {type: String, enum: DOCUMENT_TYPES, required: true}, number: {type: String, required: true},
     status: {type: String, enum: DOCUMENT_STATUSES, default: 'draft', index: true},
-    items: {type: [{catalogItemId: O, name: String, quantity: Number, unitPrice: Number, lineTotal: Number}], default: []},
-    subtotal: {type: Number, default: 0}, taxRate: {type: Number, default: 0}, tax: {type: Number, default: 0},
+    items: {type: [{catalogItemId: O, name: String, quantity: Number, unitPrice: Number, discount: Number, lineTotal: Number}], default: []},
+    subtotal: {type: Number, default: 0}, taxRate: {type: Number, default: 0}, taxMode: {type: String, enum: TAX_MODES, default: 'exclusive'}, tax: {type: Number, default: 0},
     total: {type: Number, default: 0}, paidAmount: {type: Number, default: 0}, currency: {type: String, default: 'KES'},
+    etimsStatus: {type: String, enum: ['not_submitted','pending_review','submitted_pending_verification','rejected'], default: 'not_submitted'}, etimsControlUnitInvoiceNumber: String, etimsSubmittedAt: Date, etimsProviderStatus: String, etimsIdempotencyKey: String,
     dueDate: Date, notes: {type: String, maxlength: 4000}, paymentRecords: {type: [{amount: Number, method: String, reference: String, verified: {type: Boolean, default: false}, recordedAt: Date, recordedBy: O}], default: []},
     acceptedAt: Date, fulfilledAt: Date, createdBy: O, branchId: O,
   }, {timestamps: true}));
@@ -105,7 +113,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   }, {timestamps: true}));
   const Workflow = mongoose.models.BusinessWorkflow || mongoose.model('BusinessWorkflow', new mongoose.Schema({
     organizationId: {type: O, required: true, index: true}, name: {type: String, required: true, maxlength: 160},
-    description: {type: String, maxlength: 1000}, trigger: {type: String, enum: ['order_created', 'payment_confirmed', 'task_overdue', 'new_enquiry', 'manual'], default: 'manual'},
+    description: {type: String, maxlength: 1000}, trigger: {type: String, enum: ['order_created', 'payment_confirmed', 'task_overdue', 'new_enquiry', 'manual', 'schedule'], default: 'manual'},
+    scheduleEveryMinutes: {type: Number, min: 5, max: 10080, default: 60}, lastScheduledAt: Date,
     enabled: {type: Boolean, default: false}, actions: {type: [{actionType: {type: String, enum: ['create_task', 'notify_team', 'customer_message', 'create_receipt'], required: true}, config: mongoose.Schema.Types.Mixed}], default: []},
     runs: {type: [{status: String, triggerData: mongoose.Schema.Types.Mixed, result: mongoose.Schema.Types.Mixed, ranAt: Date, ranBy: O}], default: []},
   }, {timestamps: true}));
@@ -121,6 +130,13 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     action: {type: String, required: true, maxlength: 100}, entityType: {type: String, maxlength: 80},
     entityId: String, summary: {type: String, maxlength: 300}, occurredAt: {type: Date, default: Date.now, index: true},
   }, {timestamps: false}));
+  // Offline mutations are idempotent and retain a compact conflict result for safe retry.
+  const BusinessSyncMutation = mongoose.models.BusinessSyncMutation || mongoose.model('BusinessSyncMutation', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, mutationId: {type: String, required: true}, actorId: {type: O, required: true},
+    entityType: {type: String, enum: ['customer','catalog','task','case'], required: true}, entityId: {type: String, required: true},
+    status: {type: String, enum: ['applied','conflict','rejected'], required: true}, result: mongoose.Schema.Types.Mixed,
+  }, {timestamps: true}));
+  BusinessSyncMutation.schema.index({organizationId: 1, mutationId: 1}, {unique: true});
   const TradeRequest = mongoose.models.BusinessTradeRequest || mongoose.model('BusinessTradeRequest', new mongoose.Schema({
     organizationId: {type: O, required: true, index: true}, buyerId: O, supplierId: O, title: {type: String, required: true, maxlength: 200},
     quantity: {type: Number, min: 1}, budget: Number, currency: {type: String, default: 'KES'}, details: String,
@@ -135,12 +151,13 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const org = await getOrg(req.params.orgId, req.user._id);
     if (!org) { res.status(404).json({error: 'Business workspace not found'}); return null; }
     // Cache the authenticated member's role for subsequent route-level write checks.
-    req.businessRole = String(org.ownerId) === String(userId) ? 'owner' : (org.members.find(member => String(member.userId) === String(userId))?.role || 'viewer');
+    req.businessRole = String(org.ownerId) === String(req.user._id) ? 'owner' : (org.members.find(member => String(member.userId) === String(req.user._id))?.role || 'viewer');
     return org;
   };
   const canManage = (org, userId) => String(org.ownerId) === String(userId) || org.members.some(m => String(m.userId) === String(userId) && ['admin', 'manager'].includes(m.role));
   const requireManager = (org, req, res) => { if (!canManage(org, req.user._id)) { res.status(403).json({error: 'Business manager permission required'}); return false; } return true; };
   const requireContributor = (org, req, res) => { if (req.businessRole === 'viewer') { res.status(403).json({error: 'This business role is read-only'}); return false; } return true; };
+  const requireFinance = (org, req, res) => { if (!['owner','admin','manager','finance'].includes(req.businessRole)) { res.status(403).json({error:'Finance or manager permission required'}); return false; } return true; };
   const safeError = (res, error) => {
     if (error?.code === 11000) return res.status(409).json({error: 'A record with that identifier already exists'});
     if (error?.name === 'ValidationError' || error instanceof TypeError || error instanceof RangeError) return res.status(400).json({error: error.message || 'Invalid business data'});
@@ -218,7 +235,10 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const type = req.body?.type; if (!DOCUMENT_TYPES.includes(type)) return res.status(400).json({error:'Document type must be quote, order, invoice, receipt or purchase_order'});
     if (req.body.customerId && !validId(req.body.customerId)) return res.status(400).json({error:'Invalid customer ID'});
     if (req.body.customerId && !await Customer.exists({_id:req.body.customerId,organizationId:org._id})) return res.status(404).json({error:'Customer not found in this business'});
-    let totals; try { totals = calculateDocumentTotals(req.body.items, Number(req.body.taxRate)||0); } catch (error) { return res.status(400).json({error:error.message}); }
+    const taxProfile = org.settings?.taxProfile && typeof org.settings.taxProfile === 'object' ? org.settings.taxProfile : {currency:org.currency,mode:'exclusive',rate:0};
+    let totals;
+    try { totals = calculateInternationalTotals(req.body.items, {currency:taxProfile.currency || org.currency, mode:taxProfile.mode || 'exclusive', rate:Number(taxProfile.rate || 0)}); }
+    catch (error) { return res.status(400).json({error:error.message}); }
     // If a line references a catalogue item, its name and price come from this organization's
     // active catalogue—not from a client-submitted amount. Ad-hoc lines remain supported.
     for (const line of totals.items) {
@@ -230,11 +250,11 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       line.unitPrice = catalogItem.price;
       line.lineTotal = Math.round(line.quantity * line.unitPrice * 100) / 100;
     }
-    totals.subtotal = Math.round(totals.items.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
-    totals.tax = Math.round(totals.subtotal * totals.taxRate) / 100;
-    totals.total = Math.round((totals.subtotal + totals.tax) * 100) / 100;
+    totals.subtotal = Math.round(totals.subtotal * 100) / 100;
+    totals.tax = Math.round(totals.tax * 100) / 100;
+    totals.total = Math.round(totals.total * 100) / 100;
     const number = shortText(req.body.number,60) || `${type.toUpperCase().slice(0,3)}-${Date.now().toString(36).toUpperCase()}`;
-    try { const document = await BusinessDocument.create({organizationId:org._id,customerId:req.body.customerId,conversationId:validId(req.body.conversationId)?req.body.conversationId:undefined,type,number,status:'draft',...totals,currency:shortText(req.body.currency,3)||org.currency,dueDate:req.body.dueDate?new Date(req.body.dueDate):undefined,notes:shortText(req.body.notes,4000),createdBy:req.user._id,branchId:validId(req.body.branchId)?req.body.branchId:undefined}); await recordAudit(org, req.user._id, 'document.created', 'document', document._id, 'Created ' + type); res.status(201).json({document}); } catch (error) { safeError(res,error); }
+    try { const document = await BusinessDocument.create({organizationId:org._id,customerId:req.body.customerId,conversationId:validId(req.body.conversationId)?req.body.conversationId:undefined,type,number,status:'draft',...totals,currency:totals.currency,taxMode:totals.taxMode,dueDate:req.body.dueDate?new Date(req.body.dueDate):undefined,notes:shortText(req.body.notes,4000),createdBy:req.user._id,branchId:validId(req.body.branchId)?req.body.branchId:undefined}); await recordAudit(org, req.user._id, 'document.created', 'document', document._id, 'Created ' + type); res.status(201).json({document}); } catch (error) { safeError(res,error); }
   });
   app.patch('/api/business/organizations/:orgId/documents/:documentId/status', auth, async (req, res) => {
     const org = await requireOrg(req,res); if (!org || !requireContributor(org, req, res)) return;
@@ -298,8 +318,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   // Workflow definitions are reviewable and logged. Automatic execution is opt-in and actions
   // are intentionally not executed as arbitrary code; financial actions require separate confirmation.
   app.get('/api/business/organizations/:orgId/workflows', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;res.json({workflows:await Workflow.find({organizationId:org._id}).sort({updatedAt:-1}).limit(100)});});
-  app.post('/api/business/organizations/:orgId/workflows', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const name=shortText(req.body?.name,160);const actions=Array.isArray(req.body?.actions)?req.body.actions.slice(0,10):[];if(!name||!actions.length||actions.some(a=>!['create_task','notify_team','customer_message','create_receipt'].includes(a.actionType)))return res.status(400).json({error:'Provide a workflow name and supported actions'});const workflow=await Workflow.create({organizationId:org._id,name,description:shortText(req.body.description,1000),trigger:['order_created','payment_confirmed','task_overdue','new_enquiry','manual'].includes(req.body.trigger)?req.body.trigger:'manual',enabled:false,actions:actions.map(a=>({actionType:a.actionType,config:typeof a.config==='object'&&a.config? a.config : {}}))});res.status(201).json({workflow,notice:'Created disabled for review. Enable only after testing permissions and outcomes.'});});
-  app.patch('/api/business/organizations/:orgId/workflows/:workflowId', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const workflow=await Workflow.findOne({_id:req.params.workflowId,organizationId:org._id});if(!workflow)return res.status(404).json({error:'Workflow not found'});if(typeof req.body?.enabled==='boolean')workflow.enabled=req.body.enabled;if(req.body?.name)workflow.name=shortText(req.body.name,160);await workflow.save();res.json({workflow});});
+  app.post('/api/business/organizations/:orgId/workflows', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const name=shortText(req.body?.name,160);const actions=Array.isArray(req.body?.actions)?req.body.actions.slice(0,10):[];if(!name||!actions.length||actions.some(a=>!['create_task','notify_team','customer_message','create_receipt'].includes(a.actionType)))return res.status(400).json({error:'Provide a workflow name and supported actions'});const workflow=await Workflow.create({organizationId:org._id,name,description:shortText(req.body.description,1000),trigger:['order_created','payment_confirmed','task_overdue','new_enquiry','manual','schedule'].includes(req.body.trigger)?req.body.trigger:'manual',scheduleEveryMinutes:Math.min(10080,Math.max(5,Number(req.body.scheduleEveryMinutes)||60)),enabled:false,actions:actions.map(a=>({actionType:a.actionType,config:typeof a.config==='object'&&a.config? a.config : {}}))});res.status(201).json({workflow,notice:'Created disabled for review. Enable only after testing permissions and outcomes.'});});
+  app.patch('/api/business/organizations/:orgId/workflows/:workflowId', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const workflow=await Workflow.findOne({_id:req.params.workflowId,organizationId:org._id});if(!workflow)return res.status(404).json({error:'Workflow not found'});if(typeof req.body?.enabled==='boolean'){if(req.body.enabled&&!workflow.runs.some(run=>run.status==='test_only'))return res.status(409).json({error:'Run a test-only preview before enabling this workflow'});workflow.enabled=req.body.enabled;}if(req.body?.name)workflow.name=shortText(req.body.name,160);if(req.body?.scheduleEveryMinutes!==undefined){const interval=Number(req.body.scheduleEveryMinutes);if(!Number.isInteger(interval)||interval<5||interval>10080)return res.status(400).json({error:'Schedule interval must be between 5 minutes and 7 days'});workflow.scheduleEveryMinutes=interval;}await workflow.save();res.json({workflow});});
   app.post('/api/business/organizations/:orgId/workflows/:workflowId/test', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const workflow=await Workflow.findOne({_id:req.params.workflowId,organizationId:org._id});if(!workflow)return res.status(404).json({error:'Workflow not found'});const run={status:'test_only',triggerData:req.body?.sample||{},result:{wouldRun:workflow.actions.map(a=>a.actionType),executed:false},ranAt:new Date(),ranBy:req.user._id};workflow.runs.push(run);if(workflow.runs.length>100)workflow.runs=workflow.runs.slice(-100);await workflow.save();res.json({workflowId:String(workflow._id),test:run,notice:'Test mode records the proposed actions but does not send messages or move money.'});});
 
   // Dashboard, search, portability and a public read-only storefront for a verified slug.
@@ -312,4 +332,128 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   app.get('/api/business/organizations/:orgId/export', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const [customers,catalog,documents,tasks,cases,suppliers,workflows]=await Promise.all([Customer.find({organizationId:org._id}).lean(),CatalogItem.find({organizationId:org._id}).lean(),BusinessDocument.find({organizationId:org._id}).lean(),BusinessTask.find({organizationId:org._id}).lean(),BusinessCase.find({organizationId:org._id}).lean(),Supplier.find({organizationId:org._id}).lean(),Workflow.find({organizationId:org._id}).lean()]);res.setHeader('Content-Disposition',`attachment; filename="chatify-business-${org.slug}-${new Date().toISOString().slice(0,10)}.json"`);res.json({schemaVersion:1,exportedAt:new Date().toISOString(),organization:org.toObject(),customers,catalog,documents,tasks,cases,suppliers,workflows});});
   app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase()}).select('name slug description industry country currency phone website');if(!org)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);res.json({business:org,items});});
   app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase()}).select('_id');if(!org)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
+  // Organization tax profiles make jurisdiction settings explicit; rates are operator-configured
+  // and should be reviewed against current local tax rules before production invoicing.
+  app.patch('/api/business/organizations/:orgId/tax-profile', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;const country=shortText(req.body?.country,2).toUpperCase();const currency=shortText(req.body?.currency,3).toUpperCase();const mode=req.body?.mode;const rate=Number(req.body?.rate);if(!/^[A-Z]{2}$/.test(country)||!SUPPORTED_TAX_MODES.includes(mode)||!Number.isFinite(rate)||rate<0||rate>100)return res.status(400).json({error:'Provide ISO country code, valid tax mode and a tax rate from 0 to 100'});try{calculateInternationalTotals([{name:'validation',quantity:1,unitPrice:1}],{currency,mode,rate});}catch(error){return res.status(400).json({error:error.message});}org.settings={...(org.settings||{}),taxProfile:{country,currency,mode,rate,taxLabel:shortText(req.body.taxLabel,80),registrationNumber:shortText(req.body.registrationNumber,80),updatedAt:new Date()}};org.currency=currency;org.country=country;await org.save();await recordAudit(org,req.user._id,'tax_profile.updated','organization',org._id,'Updated tax profile');res.json({taxProfile:org.settings.taxProfile,notice:'Tax profile saved. Verify rates and filing requirements with the relevant tax authority.'});});
+  app.get('/api/business/organizations/:orgId/tax-profile', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;res.json({taxProfile:org.settings?.taxProfile||{country:org.country,currency:org.currency,mode:'exclusive',rate:0}});});
+
+  // Invoice-linked STK Push uses the existing provider-confirmed payment lifecycle. Mock mode is
+  // clearly marked and cannot be represented as a real Safaricom payment.
+  app.post('/api/business/organizations/:orgId/documents/:documentId/mpesa-stk', auth, async (req,res)=>{
+    const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;
+    if(!mpesaProvider)return res.status(503).json({error:'M-Pesa provider is unavailable'});
+    const document=await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id});
+    if(!document)return res.status(404).json({error:'Invoice not found'});
+    if(document.type!=='invoice'||['draft','rejected','cancelled','fulfilled'].includes(document.status))return res.status(409).json({error:'Only a sent or accepted invoice can request payment'});
+    if(document.currency!=='KES')return res.status(400).json({error:'M-Pesa STK is currently supported for KES invoices only'});
+    const outstanding=Math.round((document.total-document.paidAmount)*100)/100;
+    if(!Number.isSafeInteger(outstanding)||!validPaymentAmount(outstanding))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
+    const phone=normalizeMpesaPhone(req.body?.phone);if(!phone)return res.status(400).json({error:'Enter a valid Kenyan customer M-Pesa phone number'});
+    const pending=await Payment.findOne({businessDocumentId:document._id,status:'PENDING',initiatedAt:{$exists:true}});
+    if(pending)return res.status(409).json({error:'An M-Pesa request is already pending for this invoice',paymentId:pending.paymentId});
+    const payment=await Payment.create({paymentId:newPaymentId(),requesterId:req.user._id,payerId:req.user._id,businessOrganizationId:org._id,businessDocumentId:document._id,amount:outstanding,recipientPhone:normalizeMpesaPhone(org.phone)||phone,payerPhone:phone,phone,description:('Invoice '+document.number).slice(0,80),provider:mpesaProvider.name,requestedAt:new Date(),initiating:true});
+    try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.amount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
+    catch(error){payment.status='FAILED';payment.initiating=false;payment.completedAt=new Date();payment.callbackProcessedAt=new Date();payment.resultDescription='Provider initiation failed';await payment.save();console.error('Invoice M-Pesa initiation failed',{stage:error?.stage||'unknown'});res.status(503).json({error:'M-Pesa request could not be initiated. Check provider configuration and retry.'});}
+  });
+
+  // Only the explicitly configured approved gateway is contacted for eTIMS submission. HTTP 200
+  // alone is not proof of fiscal acceptance; responses remain pending verification until reconciled.
+  app.post('/api/business/organizations/:orgId/documents/:documentId/etims-submit', auth, async (req,res)=>{
+    const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;
+    const document=await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id});
+    if(!document)return res.status(404).json({error:'Invoice not found'});
+    if(document.type!=='invoice'||['draft','rejected','cancelled'].includes(document.status))return res.status(409).json({error:'Only issued invoices can be submitted'});
+    if(document.etimsStatus!=='not_submitted')return res.status(409).json({error:'This invoice already has an eTIMS submission attempt',status:document.etimsStatus});
+    if(!etims.configured)return res.status(503).json({error:'eTIMS is not configured. Add the approved gateway URL, token and taxpayer PIN to the server environment.'});
+    const customer=document.customerId?await Customer.findOne({_id:document.customerId,organizationId:org._id}).lean():null;
+    const idempotencyKey='etims:'+String(org._id)+':'+String(document._id);
+    document.etimsIdempotencyKey=idempotencyKey;document.etimsStatus='pending_review';document.etimsSubmittedAt=new Date();await document.save();
+    try{const result=await etims.submitInvoice({number:document.number,idempotencyKey,issueDate:document.createdAt?.toISOString(),currency:document.currency,customer:customer?{name:customer.name,email:customer.email,phone:customer.phone}:null,items:document.items,subtotal:document.subtotal,taxRate:document.taxRate,tax:document.tax,total:document.total});document.etimsStatus=result.status==='submitted_pending_verification'?'submitted_pending_verification':'pending_review';document.etimsControlUnitInvoiceNumber=result.controlUnitInvoiceNumber;document.etimsProviderStatus=result.providerResponse?.status||'awaiting verification';await document.save();await recordAudit(org,req.user._id,'invoice.etims_submitted','document',document._id,'Submitted invoice through configured gateway');res.status(202).json({document,submission:result,notice:'Verify the returned invoice identifier and fiscal status with your authorized eTIMS provider.'});}
+    catch(error){document.etimsStatus='rejected';document.etimsProviderStatus='request_failed';await document.save();console.error('eTIMS gateway request failed',{status:error?.status||'unknown'});res.status(502).json({error:'The configured eTIMS gateway failed. Verify the gateway and provider logs before retrying.'});}
+  });
+
+  // Consent-gated communications: recipients must be customers in this workspace with recorded
+  // opt-in. Message text and provider credentials are never written to audit logs.
+  app.patch('/api/business/organizations/:orgId/customers/:customerId/messaging-consent', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;if(typeof req.body?.consent!=='boolean')return res.status(400).json({error:'consent must be true or false'});const customer=await Customer.findOne({_id:req.params.customerId,organizationId:org._id});if(!customer)return res.status(404).json({error:'Customer not found'});customer.messagingConsent=req.body.consent;customer.consentCapturedAt=req.body.consent?new Date():undefined;await customer.save();await recordAudit(org,req.user._id,'customer.messaging_consent_changed','customer',customer._id,req.body.consent?'Customer opted in':'Customer opt-in withdrawn');res.json({customer:{id:String(customer._id),messagingConsent:customer.messagingConsent,consentCapturedAt:customer.consentCapturedAt}});});
+  app.post('/api/business/organizations/:orgId/communications/send', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const customer=await Customer.findOne({_id:req.body?.customerId,organizationId:org._id});if(!customer)return res.status(404).json({error:'Customer not found'});if(!customer.messagingConsent)return res.status(403).json({error:'Record the customer opt-in before sending a business message'});const channel=req.body?.channel;const message=shortText(req.body?.message,1500);if(!message)return res.status(400).json({error:'Message is required'});try{let delivery;if(channel==='whatsapp')delivery=await messaging.sendWhatsApp({to:customer.phone,text:message});else if(channel==='sms')delivery=await messaging.sendSms({to:customer.phone,text:message});else return res.status(400).json({error:'Channel must be whatsapp or sms'});await recordAudit(org,req.user._id,'customer.message_sent','customer',customer._id,'Sent '+channel+' message via configured provider');res.status(202).json({delivery,notice:'Provider accepted the message request; delivery is not guaranteed until provider status confirms it.'});}catch(error){console.error('Business messaging failed',{channel:String(channel||''),status:error?.status||'unconfigured'});res.status(503).json({error:'Messaging provider is unavailable or rejected the request. Check provider configuration.'});}});
+  app.post('/api/business/organizations/:orgId/translate', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org)return;if(req.body?.consent!==true)return res.status(400).json({error:'Explicit consent is required before sending content to the configured translation provider'});try{const result=await language.translateText({text:req.body?.text,targetLanguage:req.body?.targetLanguage,sourceLanguage:req.body?.sourceLanguage});res.json(result);}catch(error){res.status(error.message?.includes('not configured')?503:400).json({error:error.message||'Translation failed'});}});
+  app.post('/api/business/organizations/:orgId/voice-translate', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org)return;if(req.body?.consent!==true)return res.status(400).json({error:'Explicit consent is required before sending audio to the configured speech provider'});try{const result=await language.transcribeAndTranslate({audioBase64:req.body?.audioBase64,mimeType:req.body?.mimeType,targetLanguage:req.body?.targetLanguage});res.json(result);}catch(error){res.status(error.message?.includes('not configured')?503:400).json({error:error.message||'Voice translation failed'});}});
+  app.post('/api/business/organizations/:orgId/memory-candidates', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org)return;const source=typeof req.body?.text==='string'?req.body.text:'';if(!source.trim()||source.length>5000)return res.status(400).json({error:'Provide business text up to 5000 characters'});res.json({candidates:extractBusinessMemoryCandidates(source),notice:'Suggestions only. Review before saving to Memory Cards or creating a task.'});});
+
+  // Offline-first sync supports idempotent edits and returns a conflict instead of overwriting newer
+  // server data. Clients can keep conflicts locally and ask the user which version to retain.
+  app.post('/api/business/organizations/:orgId/sync', auth, async(req,res)=>{
+    const org=await requireOrg(req,res);if(!org||!requireContributor(org,req,res))return;
+    const mutations=Array.isArray(req.body?.mutations)?req.body.mutations:[];
+    if(!mutations.length||mutations.length>50)return res.status(400).json({error:'Submit between 1 and 50 offline mutations'});
+    const results=[];
+    for(const mutation of mutations){
+      let mutationId;try{mutationId=createIdempotencyKey(mutation?.mutationId);}catch(error){results.push({mutationId:null,status:'rejected',error:error.message});continue;}
+      const prior=await BusinessSyncMutation.findOne({organizationId:org._id,mutationId});if(prior){results.push({mutationId,status:prior.status,...(prior.result||{})});continue;}
+      const entityType=mutation?.entityType;const id=String(mutation?.entityId||'');const baseUpdatedAt=mutation?.baseUpdatedAt;
+      const Model=entityType==='customer'?Customer:entityType==='catalog'?CatalogItem:entityType==='task'?BusinessTask:entityType==='case'?BusinessCase:null;
+      if(!Model||!validId(id)||!mutation?.changes||typeof mutation.changes!=='object'||Array.isArray(mutation.changes)){results.push({mutationId,status:'rejected',error:'Unsupported entity or malformed mutation'});continue;}
+      const record=await Model.findOne({_id:id,organizationId:org._id});if(!record){results.push({mutationId,status:'rejected',error:'Record not found in this business'});continue;}
+      const conflict=detectOfflineConflict(record.updatedAt,baseUpdatedAt);
+      if(conflict.conflict){const result={reason:conflict.reason,current:record.toObject()};await BusinessSyncMutation.create({organizationId:org._id,mutationId,actorId:req.user._id,entityType,entityId:id,status:'conflict',result});results.push({mutationId,status:'conflict',...result});continue;}
+      const allowed=entityType==='customer'?['name','email','phone','company','notes','tags']:entityType==='catalog'?['name','sku','description','price','stock','active']:entityType==='task'?['title','description','status','priority','dueAt']:['title','description','status','priority','dueAt'];
+      const changes=mutation.changes;const keys=Object.keys(changes);
+      if(!keys.length||keys.some(key=>!allowed.includes(key))){results.push({mutationId,status:'rejected',error:'Mutation contains unsupported fields'});continue;}
+      for(const key of keys){if(['price','stock'].includes(key)){const value=Number(changes[key]);if(!Number.isFinite(value)||value<0){results.push({mutationId,status:'rejected',error:'Price and stock must be non-negative numbers'});continue;}record[key]=value;}else if(key==='active'){if(typeof changes[key]!=='boolean'){results.push({mutationId,status:'rejected',error:'active must be boolean'});continue;}record[key]=changes[key];}else if(key==='status'&&entityType==='task'){if(!TASK_STATUSES.includes(changes[key])){results.push({mutationId,status:'rejected',error:'Invalid task status'});continue;}record[key]=changes[key];}else if(key==='priority'&&['task','case'].includes(entityType)){if(!['low','normal','high','urgent'].includes(changes[key])){results.push({mutationId,status:'rejected',error:'Invalid priority'});continue;}record[key]=changes[key];}else if(key==='dueAt'){const date=changes[key]==null?null:new Date(changes[key]);if(date&&Number.isNaN(date.getTime())){results.push({mutationId,status:'rejected',error:'Invalid due date'});continue;}record[key]=date;}else if(key==='tags'){if(!Array.isArray(changes[key])||changes[key].length>30||changes[key].some(v=>typeof v!=='string')){results.push({mutationId,status:'rejected',error:'Tags must be a list of up to 30 strings'});continue;}record[key]=changes[key].map(v=>v.slice(0,40));}else if(typeof changes[key]==='string')record[key]=changes[key].trim().slice(0,key==='notes'||key==='description'?4000:500);else{results.push({mutationId,status:'rejected',error:'Invalid field value'});}}
+      await record.save();const result={record:record.toObject()};await BusinessSyncMutation.create({organizationId:org._id,mutationId,actorId:req.user._id,entityType,entityId:id,status:'applied',result});results.push({mutationId,status:'applied',...result});await recordAudit(org,req.user._id,'offline_sync.applied',entityType,id,'Applied offline change');
+    }
+    res.json({results,applied:results.filter(item=>item.status==='applied').length,conflicts:results.filter(item=>item.status==='conflict').length,rejected:results.filter(item=>item.status==='rejected').length});
+  });
+
+  // Scheduled workflows use a database compare-and-set so multiple app instances do not normally
+  // run the same interval twice. Actions are intentionally allow-listed and audited.
+  const runWorkflowTick = async () => {
+    const now=new Date();
+    const due=await Workflow.find({enabled:true,trigger:'schedule'}).limit(100);
+    for(const candidate of due){
+      const interval=Math.min(10080,Math.max(5,Number(candidate.scheduleEveryMinutes)||60));
+      const cutoff=new Date(now.getTime()-interval*60000);
+      const workflow=await Workflow.findOneAndUpdate({_id:candidate._id,enabled:true,trigger:'schedule',$or:[{lastScheduledAt:{$exists:false}},{lastScheduledAt:{$lte:cutoff}}]},{$set:{lastScheduledAt:now}},{new:true});
+      if(!workflow)continue;
+      const results=[];
+      try{
+        const organization=await Organization.findById(workflow.organizationId);if(!organization)continue;
+        for(const action of workflow.actions){
+          const config=action.config||{};
+          if(action.actionType==='create_task'){
+            const title=shortText(config.title,200)||workflow.name+' follow-up';
+            const task=await BusinessTask.create({organizationId:organization._id,title,description:shortText(config.description,4000),type:'task',priority:['low','normal','high','urgent'].includes(config.priority)?config.priority:'normal',dueAt:config.dueInMinutes?new Date(now.getTime()+Math.min(525600,Math.max(1,Number(config.dueInMinutes)))*60000):undefined,createdBy:workflow.ownerId||organization.ownerId});
+            results.push({actionType:action.actionType,status:'completed',taskId:String(task._id)});
+          }else if(action.actionType==='notify_team'){
+            const event={organizationId:String(organization._id),workflowId:String(workflow._id),title:workflow.name,message:shortText(config.message,300)||'A scheduled business workflow ran',occurredAt:now};
+            io?.to('user:'+String(organization.ownerId)).emit('business:workflow-notification',event);
+            for(const member of organization.members||[])io?.to('user:'+String(member.userId)).emit('business:workflow-notification',event);
+            results.push({actionType:action.actionType,status:'completed'});
+          }else if(action.actionType==='customer_message'){
+            const customer=await Customer.findOne({_id:config.customerId,organizationId:organization._id,messagingConsent:true});
+            if(!customer){results.push({actionType:action.actionType,status:'skipped',reason:'customer_consent_or_record_missing'});continue;}
+            const message=shortText(config.message,1500);
+            if(config.channel==='whatsapp')await messaging.sendWhatsApp({to:customer.phone,text:message});
+            else if(config.channel==='sms')await messaging.sendSms({to:customer.phone,text:message});
+            else {results.push({actionType:action.actionType,status:'skipped',reason:'unsupported_channel'});continue;}
+            results.push({actionType:action.actionType,status:'submitted'});
+          }else if(action.actionType==='create_receipt'){
+            const document=await BusinessDocument.findOne({_id:config.documentId,organizationId:organization._id,type:'invoice',status:'paid'});
+            if(!document){results.push({actionType:action.actionType,status:'skipped',reason:'paid_invoice_not_found'});continue;}
+            const note='Automated receipt for '+document.number;
+            if(await BusinessDocument.exists({organizationId:organization._id,type:'receipt',notes:note})){results.push({actionType:action.actionType,status:'skipped',reason:'receipt_already_exists'});continue;}
+            const receipt=await BusinessDocument.create({organizationId:organization._id,type:'receipt',number:'REC-'+newIntegrationRequestId().slice(0,10).toUpperCase(),status:'paid',items:document.items,subtotal:document.paidAmount,taxRate:0,taxMode:'none',tax:0,total:document.paidAmount,paidAmount:document.paidAmount,currency:document.currency,notes:note,createdBy:organization.ownerId});
+            results.push({actionType:action.actionType,status:'completed',receiptId:String(receipt._id)});
+          }
+        }
+        workflow.runs.push({status:'completed',triggerData:{trigger:'schedule',scheduledAt:now},result:{actions:results},ranAt:now});
+        if(workflow.runs.length>100)workflow.runs=workflow.runs.slice(-100);
+        await workflow.save();
+      }catch(error){workflow.runs.push({status:'failed',triggerData:{trigger:'schedule',scheduledAt:now},result:{error:'Workflow action failed'},ranAt:now});if(workflow.runs.length>100)workflow.runs=workflow.runs.slice(-100);await workflow.save().catch(()=>{});console.error('Business workflow failed',{workflowId:String(workflow._id)});}
+    }
+  };
+  const workflowTimer=setInterval(()=>runWorkflowTick().catch(()=>console.error('Business workflow scheduler tick failed')),60000);
+  workflowTimer.unref();
+  app.post('/api/internal/business/workflows/tick',async(req,res)=>{const secret=process.env.BUSINESS_WORKFLOW_CRON_SECRET?.trim();if(!secret||req.get('authorization')!=='Bearer '+secret)return res.status(404).json({error:'Not found'});try{await runWorkflowTick();res.json({ok:true});}catch(error){res.status(500).json({error:'Workflow scheduler tick failed'});}});
+
 }
