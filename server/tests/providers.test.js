@@ -79,6 +79,7 @@ test('image validation accepts images larger than 650 KB and rejects images abov
   assert.equal(isSupportedImageData('iVBORw0KGgo=', 'image/jpeg'), false);
   assert.equal(isSupportedImageData('not-base64?', 'image/png'), false);
   assert.equal(isSupportedImageData(encodedPngOfSize(700 * 1024), 'image/png'), true);
+  assert.equal(isSupportedImageData(encodedPngOfSize(10 * 1024 * 1024), 'image/png'), true);
   assert.equal(isSupportedImageData(encodedPngOfSize(10 * 1024 * 1024 + 1), 'image/png'), false);
 });
 

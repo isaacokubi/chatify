@@ -23,11 +23,8 @@ export function isSupportedImageData(data, mimeType) {
   const estimatedBytes = (data.length / 4) * 3 - padding;
   if (estimatedBytes > maxImageBytes) return false;
 
-  // Only run the full base64 syntax check after the cheap size guards above.
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) {
-    return false;
-  }
-
+  // Buffer's base64 decoder is permissive, so the canonical round-trip below
+  // validates the alphabet and padding without a large-input regular expression.
   const bytes = Buffer.from(data, 'base64');
   if (!bytes.length || bytes.length > maxImageBytes) return false;
   if (bytes.toString('base64') !== data) return false;
