@@ -77,12 +77,46 @@ class Api {
     } else {
       r = await client.get(u, headers: h).timeout(requestTimeout);
     }
-    final d = r.body.isEmpty ? <String, dynamic>{} : jsonDecode(r.body);
+    // API routes must return JSON. Render/Vercel error pages and stale deployments
+    // sometimes return HTML (starting with "<"), which jsonDecode would expose as
+    // an unhelpful FormatException when the Business tab loads.
+    dynamic decoded;
+    if (r.body.trim().isNotEmpty) {
+      try {
+        decoded = jsonDecode(r.body);
+      } on FormatException {
+        final contentType = r.headers['content-type'] ?? '';
+        final bodyStart = r.body.trimLeft();
+        final looksLikeHtml = contentType.contains('text/html') ||
+            bodyStart.startsWith('<!DOCTYPE') ||
+            bodyStart.startsWith('<html') ||
+            bodyStart.startsWith('<');
+        if (looksLikeHtml) {
+          throw ApiException(
+            r.statusCode,
+            'Chatify API returned an HTML page instead of JSON for $path '
+            '(HTTP ${r.statusCode}). This usually means the backend deployment '
+            'is outdated or CHATIFY_API points to the wrong service. '
+            'Check the Render deployment for https://chatify-api-c1eh.onrender.com '
+            'and confirm it is running the latest main branch.',
+          );
+        }
+        throw ApiException(r.statusCode,
+            'Chatify API returned an invalid JSON response for $path '
+            '(HTTP ${r.statusCode}).');
+      }
+    } else {
+      decoded = <String, dynamic>{};
+    }
     if (r.statusCode >= 400) {
       throw ApiException(r.statusCode,
-          d is Map && d['error'] != null ? d['error'] : 'Request failed');
+          decoded is Map && decoded['error'] != null
+              ? decoded['error'].toString()
+              : 'Request failed (HTTP ${r.statusCode})');
     }
-    return d is Map ? Map<String, dynamic>.from(d) : {'data': d};
+    return decoded is Map
+        ? Map<String, dynamic>.from(decoded)
+        : {'data': decoded};
   }
 
   Future<Map<String, dynamic>> paymentStatus(String paymentId) =>
@@ -1535,9 +1569,27 @@ class _HomeState extends State<Home> {
   Widget build(BuildContext context) {
     final titles = ['Chats', 'Business', 'Memories', 'Contacts', 'Profile'];
     return Scaffold(
+      // Keep Business discoverable from the primary chat screen as well as the
+      // dedicated bottom-navigation tab. This is especially helpful on web,
+      // where users may overlook the fifth navigation destination.
+      floatingActionButton: tab == 0
+          ? FloatingActionButton.extended(
+              heroTag: 'open-business-workspace',
+              onPressed: () => setState(() => tab = 1),
+              icon: const Icon(Icons.business_center_outlined),
+              label: const Text('Business'),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       appBar: AppBar(
         title: Text(titles[tab]),
         actions: [
+          if (tab != 1)
+            IconButton(
+              tooltip: 'Open Business workspace',
+              icon: const Icon(Icons.business_center_outlined),
+              onPressed: () => setState(() => tab = 1),
+            ),
           IconButton(
               tooltip: 'Payment history',
               icon: const Icon(Icons.account_balance_wallet_outlined),
