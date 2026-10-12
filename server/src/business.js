@@ -51,6 +51,13 @@ export function buildBusinessBriefing({tasks = [], documents = [], cases = [], n
 }
 
 // Build immutable server-priced storefront lines. A customer can choose quantities, but never submit their own prices.
+// Resolve the seller's checkout number in preference order: saved choice, registered account, business contact.
+export function resolveSellerMpesaPhone(settings = {}, ownerPhone = '', businessPhone = '') {
+  return normalizeMpesaPhone(settings?.mpesaRecipientPhone) ||
+    normalizeMpesaPhone(ownerPhone) ||
+    normalizeMpesaPhone(businessPhone);
+}
+
 export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []) {
   if (!Array.isArray(requestedItems) || requestedItems.length < 1 || requestedItems.length > 50) {
     throw new Error('Choose between 1 and 50 products');
@@ -229,7 +236,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       if (!org) return res.status(404).json({error: 'Storefront not found'});
       const owner = await User.findById(org.ownerId).select('phone');
       // Prefer the seller's explicitly chosen M-Pesa number; otherwise use their registered account phone.
-      const sellerMpesaPhone = normalizeMpesaPhone(org.settings?.mpesaRecipientPhone) || normalizeMpesaPhone(owner?.phone) || normalizeMpesaPhone(org.phone);
+      const sellerMpesaPhone = resolveSellerMpesaPhone(org.settings, owner?.phone, org.phone);
       const items = await CatalogItem.find({organizationId: org._id, active: true}).sort({category: 1, name: 1}).limit(500).select('name description price currency images category type stock');
       res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
       res.json({storefront: {name: org.name, slug: org.slug, description: org.description, website: org.website, currency: org.currency, sellerMpesaPhone}, items});
@@ -251,7 +258,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const seller = await User.findById(org.ownerId).select('phone');
       // The buyer may change their payer phone; the seller controls their own recipient preference in Business settings.
       // Never trust a client-supplied seller phone during checkout.
-      const sellerMpesaPhone = normalizeMpesaPhone(org.settings?.mpesaRecipientPhone) || normalizeMpesaPhone(seller?.phone) || normalizeMpesaPhone(org.phone);
+      const sellerMpesaPhone = resolveSellerMpesaPhone(org.settings, seller?.phone, org.phone);
       if (!sellerMpesaPhone) return res.status(400).json({error: 'The seller has not registered a valid M-Pesa number yet. Ask the seller to update Business > M-Pesa settings.'});
       const requested = req.body?.items;
       if (!Array.isArray(requested) || requested.length < 1 || requested.length > 50) return res.status(400).json({error: 'Choose at least one product'});
@@ -320,6 +327,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
           if (!normalizedPhone) return res.status(400).json({error: 'Enter a valid Kenyan seller M-Pesa phone number'});
           settings.mpesaRecipientPhone = normalizedPhone;
         } else {
+          org.settings = {...org.settings};
           delete org.settings.mpesaRecipientPhone;
           delete settings.mpesaRecipientPhone;
         }
