@@ -834,7 +834,7 @@ class Welcome extends StatelessWidget {
                         const SizedBox(width: 11),
                         const Text('Chatify', style: TextStyle(color: ink, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
                         const Spacer(),
-                        TextButton(onPressed: () => _browseStore(context), child: const Text('Shop a store')),
+                        IconButton(tooltip: 'Shop a store', onPressed: () => _browseStore(context), icon: const Icon(Icons.storefront_outlined)),
                         TextButton(onPressed: onSignIn, child: const Text('Sign in')),
                         const SizedBox(width: 5),
                         FilledButton(
