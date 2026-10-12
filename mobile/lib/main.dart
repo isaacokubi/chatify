@@ -4687,6 +4687,14 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
       appBar: AppBar(
         title: const Text('Explore stores'),
         actions: [
+          // Give customers a clearly labeled route to their payment records while browsing.
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PaymentHistory()),
+            ),
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            label: const Text('Payment history'),
+          ),
           IconButton(tooltip: 'Refresh stores', onPressed: () => loadStores(), icon: const Icon(Icons.refresh)),
         ],
       ),
@@ -4960,7 +4968,17 @@ class _StorefrontPageState extends State<StorefrontPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(storefront['name']?.toString() ?? 'Storefront'),
-        actions: [IconButton(tooltip: 'Refresh products', onPressed: loadStore, icon: const Icon(Icons.refresh))],
+        actions: [
+          // Keep payment history visible from the customer storefront, not hidden behind an icon-only menu.
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PaymentHistory()),
+            ),
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            label: const Text('Payments'),
+          ),
+          IconButton(tooltip: 'Refresh products', onPressed: loadStore, icon: const Icon(Icons.refresh)),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: loadStore,
