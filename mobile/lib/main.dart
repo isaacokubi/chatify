@@ -1485,7 +1485,7 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
-    final titles = ['Chats', 'Memories', 'Contacts', 'Profile'];
+    final titles = ['Chats', 'Business', 'Memories', 'Contacts', 'Profile'];
     return Scaffold(
       appBar: AppBar(
         title: Text(titles[tab]),
@@ -1503,7 +1503,7 @@ class _HomeState extends State<Home> {
             IconButton(tooltip: 'Select conversations', onPressed: () => setState(() => selectingChats = true), icon: const Icon(Icons.checklist)),
             IconButton(onPressed: loadChats, icon: const Icon(Icons.refresh)),
           ],
-          if (tab == 2)
+          if (tab == 3)
             IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
         ],
       ),
@@ -1515,11 +1515,13 @@ class _HomeState extends State<Home> {
         onDestinationSelected: (i) {
           setState(() => tab = i);
           if (i == 0) loadChats();
-          if (i == 1) loadMemories();
+          if (i == 2) loadMemories();
         },
         destinations: const [
           NavigationDestination(
               icon: Icon(Icons.chat_bubble_outline), label: 'Chats'),
+          NavigationDestination(
+              icon: Icon(Icons.business_center_outlined), label: 'Business'),
           NavigationDestination(
               icon: Icon(Icons.auto_awesome_outlined), label: 'Memories'),
           NavigationDestination(
@@ -4485,4 +4487,282 @@ class _ProfileState extends State<Profile> {
             onPressed: () => context.read<AppState>().logout(),
             child: const Text('Sign out'))
       ]);
+}
+
+
+/// Business operations workspace: lightweight mobile entry points to the authenticated
+/// organization, catalogue, customer CRM, sales documents and follow-up task APIs.
+class BusinessHub extends StatefulWidget {
+  const BusinessHub({super.key});
+  @override
+  State<BusinessHub> createState() => _BusinessHubState();
+}
+
+class _BusinessHubState extends State<BusinessHub> {
+  Map<String, dynamic>? organization;
+  Map<String, dynamic> dashboard = {};
+  List<dynamic> organizations = [], catalog = [], customers = [], documents = [], tasks = [];
+  bool loading = true, saving = false;
+  String? error;
+  AppState get app => context.read<AppState>();
+
+  @override
+  void initState() {
+    super.initState();
+    loadOrganizations();
+  }
+
+  Future<void> loadOrganizations() async {
+    if (mounted) setState(() { loading = true; error = null; });
+    try {
+      final result = await app.api.call('GET', '/api/business/organizations');
+      organizations = List<dynamic>.from(result['organizations'] ?? []);
+      if (organizations.isNotEmpty) {
+        final currentId = organization?['_id']?.toString();
+        organization = organizations.firstWhere(
+          (item) => item is Map && item['_id']?.toString() == currentId,
+          orElse: () => organizations.first,
+        ) as Map<String, dynamic>;
+        await loadWorkspaceData();
+      } else {
+        organization = null;
+        dashboard = {};
+        catalog = []; customers = []; documents = []; tasks = [];
+      }
+    } catch (e) {
+      error = e.toString();
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> loadWorkspaceData() async {
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    try {
+      final encoded = Uri.encodeComponent(id);
+      final results = await Future.wait([
+        app.api.call('GET', '/api/business/organizations/' + encoded + '/dashboard'),
+        app.api.call('GET', '/api/business/organizations/' + encoded + '/catalog'),
+        app.api.call('GET', '/api/business/organizations/' + encoded + '/customers'),
+        app.api.call('GET', '/api/business/organizations/' + encoded + '/documents'),
+        app.api.call('GET', '/api/business/organizations/' + encoded + '/tasks'),
+      ]);
+      dashboard = Map<String, dynamic>.from(results[0]['metrics'] ?? {});
+      catalog = List<dynamic>.from(results[1]['items'] ?? []);
+      customers = List<dynamic>.from(results[2]['customers'] ?? []);
+      documents = List<dynamic>.from(results[3]['documents'] ?? []);
+      tasks = List<dynamic>.from(results[4]['tasks'] ?? []);
+      error = null;
+    } catch (e) {
+      error = e.toString();
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> createOrganization() async {
+    final name = TextEditingController();
+    final industry = ValueNotifier<String>('retail');
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create a business workspace'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'Business name')),
+          const SizedBox(height: 12),
+          ValueListenableBuilder<String>(
+            valueListenable: industry,
+            builder: (_, value, __) => DropdownButtonFormField<String>(
+              value: value,
+              decoration: const InputDecoration(labelText: 'Industry'),
+              items: const [
+                DropdownMenuItem(value: 'retail', child: Text('Retail / wholesale')),
+                DropdownMenuItem(value: 'consulting', child: Text('Consultants / agencies')),
+                DropdownMenuItem(value: 'tourism', child: Text('Tourism / hospitality')),
+                DropdownMenuItem(value: 'logistics', child: Text('Transport / logistics')),
+                DropdownMenuItem(value: 'construction', child: Text('Construction / trades')),
+                DropdownMenuItem(value: 'salon', child: Text('Salon / personal services')),
+                DropdownMenuItem(value: 'education', child: Text('Schools / training')),
+                DropdownMenuItem(value: 'agriculture', child: Text('Agriculture / produce')),
+                DropdownMenuItem(value: 'real_estate', child: Text('Real estate / property')),
+                DropdownMenuItem(value: 'other', child: Text('Other')),
+              ],
+              onChanged: (next) { if (next != null) industry.value = next; },
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (accepted != true || name.text.trim().isEmpty) return;
+    try {
+      await app.api.call('POST', '/api/business/organizations', {'name': name.text.trim(), 'industry': industry.value});
+      await loadOrganizations();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> createRecord(String kind) async {
+    final name = TextEditingController();
+    final detail = TextEditingController();
+    final amount = TextEditingController();
+    final quantity = TextEditingController(text: '1');
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    final title = kind == 'catalog' ? 'Add product or service' : kind == 'customer' ? 'Add customer' : kind == 'document' ? 'Create quotation' : 'Create follow-up task';
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: name, autofocus: true, decoration: InputDecoration(labelText: kind == 'catalog' ? 'Product / service name' : kind == 'customer' ? 'Customer name' : kind == 'document' ? 'Quotation title / item' : 'Task title')),
+          if (kind == 'catalog') ...[
+            TextField(controller: detail, decoration: const InputDecoration(labelText: 'Description')),
+            TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Price')),
+            TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Stock quantity')),
+          ] else if (kind == 'customer') ...[
+            TextField(controller: detail, decoration: const InputDecoration(labelText: 'Email or phone')),
+          ] else if (kind == 'document') ...[
+            TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Unit price')),
+            TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantity')),
+          ] else ...[
+            TextField(controller: detail, decoration: const InputDecoration(labelText: 'Notes / description')),
+          ],
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (accepted != true || name.text.trim().isEmpty) return;
+    setState(() => saving = true);
+    try {
+      final base = '/api/business/organizations/' + Uri.encodeComponent(id);
+      if (kind == 'catalog') {
+        final price = double.tryParse(amount.text) ?? -1;
+        if (price < 0) throw const FormatException('Enter a valid non-negative price.');
+        await app.api.call('POST', base + '/catalog', {'name': name.text.trim(), 'description': detail.text.trim(), 'price': price, 'stock': int.tryParse(quantity.text) ?? 0});
+      } else if (kind == 'customer') {
+        final contact = detail.text.trim();
+        await app.api.call('POST', base + '/customers', {'name': name.text.trim(), if (contact.contains('@')) 'email': contact else 'phone': contact});
+      } else if (kind == 'document') {
+        final price = double.tryParse(amount.text) ?? -1;
+        final count = int.tryParse(quantity.text) ?? 0;
+        if (price < 0 || count < 1) throw const FormatException('Enter a valid price and quantity.');
+        await app.api.call('POST', base + '/documents', {'type': 'quote', 'items': [{'name': name.text.trim(), 'quantity': count, 'unitPrice': price}]});
+      } else {
+        await app.api.call('POST', base + '/tasks', {'title': name.text.trim(), 'description': detail.text.trim(), 'type': 'follow_up'});
+      }
+      await loadWorkspaceData();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Business record saved.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Widget metric(String label, dynamic value, IconData icon) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(children: [
+        Icon(icon, size: 24),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(value?.toString() ?? '0', style: Theme.of(context).textTheme.titleLarge),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ])),
+      ]),
+    ),
+  );
+
+  Widget recordList(List<dynamic> records, String kind, IconData icon) {
+    if (records.isEmpty) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('No ' + kind + ' yet. Use Add to create your first record.', textAlign: TextAlign.center)));
+    return ListView.separated(
+      padding: const EdgeInsets.only(bottom: 24),
+      itemCount: records.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (_, index) {
+        final item = records[index];
+        if (item is! Map) return const SizedBox.shrink();
+        final title = item['name']?.toString() ?? item['title']?.toString() ?? item['number']?.toString() ?? kind;
+        final subtitle = item['description']?.toString() ?? item['company']?.toString() ?? item['status']?.toString() ?? '';
+        final amount = item['price'] ?? item['total'];
+        return ListTile(
+          leading: CircleAvatar(child: Icon(icon)),
+          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+          trailing: amount == null ? null : Text((item['currency'] ?? 'KES').toString() + ' ' + amount.toString()),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const Center(child: CircularProgressIndicator());
+    if (error != null && organizations.isEmpty) {
+      return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.business_outlined, size: 48),
+        const SizedBox(height: 12),
+        Text(error!, textAlign: TextAlign.center),
+        const SizedBox(height: 12),
+        FilledButton(onPressed: loadOrganizations, child: const Text('Retry')),
+      ])));
+    }
+    if (organization == null) {
+      return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.storefront_outlined, size: 56),
+        const SizedBox(height: 12),
+        Text('Turn conversations into business', style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
+        const SizedBox(height: 8),
+        const Text('Create a workspace to manage customers, products, quotations and follow-ups alongside your conversations.', textAlign: TextAlign.center),
+        const SizedBox(height: 18),
+        FilledButton.icon(onPressed: createOrganization, icon: const Icon(Icons.add_business), label: const Text('Create business workspace')),
+      ])));
+    }
+    final metrics = dashboard;
+    return DefaultTabController(
+      length: 4,
+      child: Column(children: [
+        Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 4), child: Row(children: [
+          Expanded(child: DropdownButtonHideUnderline(child: DropdownButton<String>(
+            isExpanded: true,
+            value: organization!['_id']?.toString(),
+            items: organizations.whereType<Map>().map((item) => DropdownMenuItem<String>(value: item['_id'].toString(), child: Text(item['name']?.toString() ?? 'Business', overflow: TextOverflow.ellipsis))).toList(),
+            onChanged: (id) async {
+              if (id == null) return;
+              setState(() { organization = organizations.whereType<Map>().firstWhere((item) => item['_id'].toString() == id).cast<String, dynamic>(); loading = true; });
+              await loadWorkspaceData();
+              if (mounted) setState(() => loading = false);
+            },
+          ))),
+          IconButton(tooltip: 'Refresh business data', onPressed: loadOrganizations, icon: const Icon(Icons.refresh)),
+          IconButton(tooltip: 'Add business workspace', onPressed: createOrganization, icon: const Icon(Icons.add_business)),
+        ])),
+        SizedBox(height: 118, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
+          SizedBox(width: 170, child: metric('Customers', metrics['customers'], Icons.people_outline)),
+          SizedBox(width: 170, child: metric('Products / services', metrics['activeCatalogItems'], Icons.inventory_2_outlined)),
+          SizedBox(width: 170, child: metric('Open tasks', metrics['openTasks'], Icons.task_alt)),
+          SizedBox(width: 170, child: metric('Open cases', metrics['openCases'], Icons.support_agent_outlined)),
+        ])),
+        const TabBar(isScrollable: true, tabs: [
+          Tab(text: 'Catalogue'), Tab(text: 'Customers'), Tab(text: 'Sales'), Tab(text: 'Tasks'),
+        ]),
+        Expanded(child: TabBarView(children: [
+          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('catalog'), icon: const Icon(Icons.add), label: const Text('Add product / service'))), Expanded(child: recordList(catalog, 'products or services', Icons.inventory_2_outlined))]),
+          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('customer'), icon: const Icon(Icons.add), label: const Text('Add customer'))), Expanded(child: recordList(customers, 'customers', Icons.person_outline))]),
+          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('document'), icon: const Icon(Icons.add), label: const Text('Create quotation'))), Expanded(child: recordList(documents, 'sales documents', Icons.receipt_long_outlined))]),
+          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('task'), icon: const Icon(Icons.add), label: const Text('Add task / follow-up'))), Expanded(child: recordList(tasks, 'tasks', Icons.task_alt))]),
+        ])),
+        if (saving) const LinearProgressIndicator(),
+        if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+      ]),
+    );
+  }
 }
