@@ -5174,6 +5174,8 @@ class _BusinessHubState extends State<BusinessHub> {
         // Keep the signed-in user's registered number as a useful offline/fallback default.
       }
     }
+    // The storefront lookup above may yield after this screen is disposed; do not open a dialog using a stale context.
+    if (!mounted) return;
     final currentSettings = organization?['settings'] is Map
         ? Map<String, dynamic>.from(organization!['settings'] as Map)
         : <String, dynamic>{};
