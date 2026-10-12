@@ -801,36 +801,76 @@ class Welcome extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(children: [
-                        Container(
-                          height: 42, width: 42,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(colors: [Color(0xFF7167F8), Color(0xFF4938D2)]),
-                            borderRadius: BorderRadius.circular(14),
+                      // Use a separate action row on narrow screens so Explore stores
+                      // never gets pushed off-screen by the sign-in and account buttons.
+                      if (mobile) ...[
+                        Row(children: [
+                          Container(
+                            height: 42, width: 42,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFF7167F8), Color(0xFF4938D2)]),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(Icons.forum_rounded, color: Colors.white, size: 22),
                           ),
-                          child: const Icon(Icons.forum_rounded, color: Colors.white, size: 22),
+                          const SizedBox(width: 11),
+                          const Text('Chatify', style: TextStyle(color: ink, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
+                        ]),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.start,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () => _browseStore(context),
+                              icon: const Icon(Icons.storefront_outlined),
+                              label: const Text('Explore stores'),
+                            ),
+                            TextButton(onPressed: onSignIn, child: const Text('Sign in')),
+                            FilledButton(
+                              onPressed: onGetStarted,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: violet,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                              ),
+                              child: const Text('Create account'),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 11),
-                        const Text('Chatify', style: TextStyle(color: ink, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: () => _browseStore(context),
-                          icon: const Icon(Icons.storefront_outlined),
-                          label: const Text('Explore stores'),
-                        ),
-                        TextButton(onPressed: onSignIn, child: const Text('Sign in')),
-                        const SizedBox(width: 5),
-                        FilledButton(
-                          onPressed: onGetStarted,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: violet,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                      ] else
+                        Row(children: [
+                          Container(
+                            height: 42, width: 42,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFF7167F8), Color(0xFF4938D2)]),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(Icons.forum_rounded, color: Colors.white, size: 22),
                           ),
-                          child: const Text('Create account'),
-                        ),
-                      ]),
+                          const SizedBox(width: 11),
+                          const Text('Chatify', style: TextStyle(color: ink, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: () => _browseStore(context),
+                            icon: const Icon(Icons.storefront_outlined),
+                            label: const Text('Explore stores'),
+                          ),
+                          TextButton(onPressed: onSignIn, child: const Text('Sign in')),
+                          const SizedBox(width: 5),
+                          FilledButton(
+                            onPressed: onGetStarted,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: violet,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                            ),
+                            child: const Text('Create account'),
+                          ),
+                        ]),
                       SizedBox(height: wide ? 34 : 22),
                       if (wide)
                         Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
@@ -5621,27 +5661,58 @@ class _BusinessHubState extends State<BusinessHub> {
     return DefaultTabController(
       length: 5,
       child: Column(children: [
-        Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 4), child: Row(children: [
-          Expanded(child: DropdownButtonHideUnderline(child: DropdownButton<String>(
-            isExpanded: true,
-            value: organization!['_id']?.toString(),
-            items: organizations.whereType<Map>().map((item) => DropdownMenuItem<String>(value: item['_id'].toString(), child: Text(item['name']?.toString() ?? 'Business', overflow: TextOverflow.ellipsis))).toList(),
-            onChanged: (id) async {
-              if (id == null) return;
-              setState(() { organization = organizations.whereType<Map>().firstWhere((item) => item['_id'].toString() == id).cast<String, dynamic>(); loading = true; });
-              await loadWorkspaceData();
-              if (mounted) setState(() => loading = false);
-            },
-          ))),
-          IconButton(tooltip: 'Open customer storefront', onPressed: () {
-            final slug = organization?['slug']?.toString() ?? '';
-            if (slug.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This workspace has no storefront slug yet.'))); return; }
-            Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StorefrontPage(slug: slug)));
-          }, icon: const Icon(Icons.storefront_outlined)),
-          IconButton(tooltip: 'Configure seller M-Pesa number', onPressed: _configureMpesaNumbers, icon: const Icon(Icons.phone_android)),
-          IconButton(tooltip: 'Refresh business data', onPressed: loadOrganizations, icon: const Icon(Icons.refresh)),
-          IconButton(tooltip: 'Add business workspace', onPressed: createOrganization, icon: const Icon(Icons.add_business)),
-        ])),
+        // Keep workspace actions visible and labelled; icon-only actions were easy to miss,
+        // especially on touch screens and when this dashboard was used in a browser.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            DropdownButtonHideUnderline(child: DropdownButton<String>(
+              isExpanded: true,
+              value: organization!['_id']?.toString(),
+              items: organizations.whereType<Map>().map((item) => DropdownMenuItem<String>(value: item['_id'].toString(), child: Text(item['name']?.toString() ?? 'Business', overflow: TextOverflow.ellipsis))).toList(),
+              onChanged: (id) async {
+                if (id == null) return;
+                setState(() { organization = organizations.whereType<Map>().firstWhere((item) => item['_id'].toString() == id).cast<String, dynamic>(); loading = true; });
+                await loadWorkspaceData();
+                if (mounted) setState(() => loading = false);
+              },
+            )),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    final slug = organization?['slug']?.toString() ?? '';
+                    if (slug.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This workspace has no storefront slug yet.')));
+                      return;
+                    }
+                    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StorefrontPage(slug: slug)));
+                  },
+                  icon: const Icon(Icons.storefront_outlined),
+                  label: const Text('View storefront'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _configureMpesaNumbers,
+                  icon: const Icon(Icons.phone_android),
+                  label: const Text('M-Pesa settings'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: loadOrganizations,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: createOrganization,
+                  icon: const Icon(Icons.add_business),
+                  label: const Text('Add workspace'),
+                ),
+              ],
+            ),
+          ]),
+        ),
         SizedBox(height: 118, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
           SizedBox(width: 170, child: metric('Customers', metrics['customers'], Icons.people_outline)),
           SizedBox(width: 170, child: metric('Products / services', metrics['activeCatalogItems'], Icons.inventory_2_outlined)),
