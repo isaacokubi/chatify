@@ -3775,6 +3775,51 @@ class _ChatState extends State<Chat> {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
+                                            // A reply keeps only the original message ID in storage.
+                                            // Resolve it against the current conversation so deleted,
+                                            // expired, or unavailable originals never break rendering.
+                                            if (message['replyTo'] != null)
+                                              Builder(builder: (context) {
+                                                final replyId = message['replyTo'] is Map
+                                                    ? (message['replyTo']['_id'] ?? message['replyTo']['id'])?.toString()
+                                                    : message['replyTo'].toString();
+                                                final original = messages.cast<dynamic>().where((item) =>
+                                                    item is Map && item['_id']?.toString() == replyId).cast<Map>().firstOrNull;
+                                                final unavailable = original == null ||
+                                                    original['deletedAt'] != null ||
+                                                    original['expiredAt'] != null;
+                                                final originalSender = original?['senderId']?.toString() ==
+                                                        app.user?['id']?.toString()
+                                                    ? 'You'
+                                                    : 'Message';
+                                                final preview = unavailable
+                                                    ? 'Original message unavailable'
+                                                    : (original?['text'] ?? '[media]').toString();
+                                                return Container(
+                                                  width: double.infinity,
+                                                  margin: const EdgeInsets.only(bottom: 7),
+                                                  padding: const EdgeInsets.all(8),
+                                                  decoration: BoxDecoration(
+                                                    color: mine ? const Color(0x33404040) : const Color(0xFFF0EFFF),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    border: Border(left: BorderSide(
+                                                      color: mine ? Colors.white70 : const Color(0xFF4F46E5),
+                                                      width: 3,
+                                                    )),
+                                                  ),
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text('Replying to $originalSender',
+                                                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11,
+                                                              color: mine ? Colors.white : const Color(0xFF4F46E5))),
+                                                      Text(preview, maxLines: 2, overflow: TextOverflow.ellipsis,
+                                                          style: TextStyle(fontSize: 12,
+                                                              color: mine ? Colors.white : const Color(0xFF39445A))),
+                                                    ],
+                                                  ),
+                                                );
+                                              }),
                                             if (mine &&
                                                 message['deletedAt'] == null &&
                                                 message['expiredAt'] == null)
@@ -3858,12 +3903,50 @@ class _ChatState extends State<Chat> {
                           },
                         ),
         ),
+        // Keep the selected original visible while composing so users can verify
+        // exactly which message their reply will reference, and allow cancellation.
         if (reply != null)
-          const Padding(
-              padding: EdgeInsets.all(6),
-              child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Replying to a message'))),
+          Builder(builder: (context) {
+            final original = messages.cast<dynamic>().where((item) =>
+                item is Map && item['_id']?.toString() == reply).cast<Map>().firstOrNull;
+            final originalDeleted = original == null ||
+                original['deletedAt'] != null || original['expiredAt'] != null;
+            final originalSender = original?['senderId']?.toString() ==
+                    app.user?['id']?.toString()
+                ? 'You'
+                : 'Message';
+            final originalText = originalDeleted
+                ? 'Original message unavailable'
+                : (original?['text'] ?? '[media]').toString();
+            return Container(
+              margin: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+              padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0EFFF),
+                border: const Border(left: BorderSide(color: Color(0xFF4F46E5), width: 3)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(children: [
+                const Icon(Icons.reply, color: Color(0xFF4F46E5), size: 19),
+                const SizedBox(width: 8),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Replying to $originalSender',
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF4F46E5))),
+                    Text(originalText, maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF39445A))),
+                  ],
+                )),
+                IconButton(
+                  tooltip: 'Cancel reply',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() => reply = null),
+                  icon: const Icon(Icons.close, size: 18),
+                ),
+              ]),
+            );
+          }),
         SafeArea(
             child: Row(children: [
           IconButton(
