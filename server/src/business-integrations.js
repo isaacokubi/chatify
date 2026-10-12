@@ -28,7 +28,7 @@ export function calculateInternationalTotals(lines = [], config = {}) {
     }
     const gross = round(quantity * unitPrice);
     const net = round(gross * (1 - discount / 100));
-    return {name: description, quantity, unitPrice: round(unitPrice), discount, lineTotal: net};
+    return {catalogItemId: line.catalogItemId || undefined, name: description, quantity, unitPrice: round(unitPrice), discount, lineTotal: net};
   });
   const lineSubtotal = round(normalized.reduce((sum,line) => sum + line.lineTotal,0));
   const tax = mode === 'inclusive' ? round(lineSubtotal - lineSubtotal / (1 + rate / 100)) : round(lineSubtotal * rate / 100);
