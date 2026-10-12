@@ -175,8 +175,8 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
   const webhookSecret = env.STRIPE_WEBHOOK_SECRET?.trim();
   const mode = (env.STRIPE_ENV || (env.NODE_ENV === 'production' ? 'production' : 'test')).trim();
   if (!['test','production'].includes(mode)) throw new Error('STRIPE_ENV must be test or production');
-  if (env.NODE_ENV === 'production' && mode !== 'production') throw new Error('Production requires STRIPE_ENV=production; use a separate staging deployment for test payments');
-  if (secret && ((mode === 'production' && !secret.startsWith('sk_live_')) || (mode === 'test' && !secret.startsWith('sk_test_')))) throw new Error('Stripe secret key does not match STRIPE_ENV');
+  const productionModeMismatch = env.NODE_ENV === 'production' && mode !== 'production';
+  const keyMatchesMode = Boolean(secret && ((mode === 'production' && secret.startsWith('sk_live_')) || (mode === 'test' && secret.startsWith('sk_test_'))));
   const request = async (path, body, idempotencyKey) => {
     if (!secret) throw new Error('Stripe is not configured');
     const response = await transport('https://api.stripe.com/v1'+path,{
@@ -190,9 +190,9 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
     return data;
   };
   return {
-    get configured(){return Boolean(secret&&webhookSecret&&((mode==='production'&&secret.startsWith('sk_live_'))||(mode==='test'&&secret.startsWith('sk_test_'))));},
+    get configured(){return Boolean(secret&&webhookSecret&&keyMatchesMode&&!productionModeMismatch);},
     async createCheckoutSession({paymentId,organizationId,documentId,number,amount,currency,successUrl,cancelUrl,customerEmail}) {
-      if(!secret)throw new Error('Stripe is not configured');
+      if(!secret||!webhookSecret||!keyMatchesMode||productionModeMismatch)throw new Error('Stripe is not configured for the selected environment');
       const value=Number(amount), code=String(currency||'').toLowerCase();
       if(!Number.isFinite(value)||value<=0||!/^([a-z]{3})$/.test(code))throw new Error('A positive amount and ISO currency code are required');
       const zeroDecimal=new Set(['bif','clp','djf','gnf','jpy','kmf','krw','mga','pyg','rwf','ugx','vnd','vuv','xaf','xof','xpf']);
@@ -218,7 +218,7 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
       return {checkoutId:String(session.id),checkoutUrl:String(session.url),currency:code,amount:value,unitAmount};
     },
     verifyWebhook(rawBody, signature, now = Date.now()) {
-      if(!webhookSecret)throw new Error('Stripe webhook is not configured');
+      if(!webhookSecret||!keyMatchesMode||productionModeMismatch)throw new Error('Stripe webhook is not configured for the selected environment');
       if(!Buffer.isBuffer(rawBody)||typeof signature!=='string')throw new Error('Stripe webhook signature is missing');
       const parts=signature.split(',').map(part=>part.split('='));
       const timestamp=Number(parts.find(part=>part[0]==='t')?.[1]);
@@ -241,11 +241,11 @@ export function createPayPalProvider(env = process.env, transport = globalThis.f
   const clientId=env.PAYPAL_CLIENT_ID?.trim(), clientSecret=env.PAYPAL_CLIENT_SECRET?.trim(), webhookId=env.PAYPAL_WEBHOOK_ID?.trim();
   const mode=(env.PAYPAL_ENV||'sandbox').trim();
   if(!['sandbox','production'].includes(mode))throw new Error('PAYPAL_ENV must be sandbox or production');
-  if(env.NODE_ENV==='production'&&mode!=='production')throw new Error('Production requires PAYPAL_ENV=production; use a separate staging deployment for sandbox payments');
+  const productionModeMismatch=env.NODE_ENV==='production'&&mode!=='production';
   const host=mode==='production'?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com';
   let tokenValue, tokenExpiresAt=0;
   const token=async()=>{
-    if(!clientId||!clientSecret)throw new Error('PayPal is not configured');
+    if(!clientId||!clientSecret||productionModeMismatch)throw new Error('PayPal is not configured for the selected environment');
     if(tokenValue&&Date.now()<tokenExpiresAt)return tokenValue;
     const response=await transport(host+'/v1/oauth2/token',{method:'POST',headers:{Authorization:'Basic '+Buffer.from(clientId+':'+clientSecret).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials',signal:AbortSignal.timeout(15000)});
     const data=await response.json().catch(()=>({}));
@@ -260,9 +260,9 @@ export function createPayPalProvider(env = process.env, transport = globalThis.f
     return data;
   };
   return {
-    get configured(){return Boolean(clientId&&clientSecret&&webhookId);},
+    get configured(){return Boolean(clientId&&clientSecret&&webhookId&&!productionModeMismatch);},
     async createOrder({paymentId,number,amount,currency,successUrl,cancelUrl}){
-      if(!clientId||!clientSecret)throw new Error('PayPal is not configured');
+      if(!clientId||!clientSecret||!webhookId||productionModeMismatch)throw new Error('PayPal is not configured for the selected environment');
       const value=Number(amount), code=String(currency||'').toUpperCase();
       if(!Number.isFinite(value)||value<=0||!/^[A-Z]{3}$/.test(code))throw new Error('A positive amount and ISO currency code are required');
       const formatted=value.toFixed(['JPY','KRW','CLP','VND'].includes(code)?0:2);
@@ -277,7 +277,7 @@ export function createPayPalProvider(env = process.env, transport = globalThis.f
       return request('/v2/checkout/orders/'+encodeURIComponent(orderId)+'/capture',{},'capture-'+paymentId);
     },
     async verifyWebhook(headers,event){
-      if(!webhookId||!clientId||!clientSecret)throw new Error('PayPal webhook verification is not configured');
+      if(!webhookId||!clientId||!clientSecret||productionModeMismatch)throw new Error('PayPal webhook verification is not configured for the selected environment');
       const result=await request('/v1/notifications/verify-webhook-signature',{
         auth_algo:headers['paypal-auth-algo'],cert_url:headers['paypal-cert-url'],
         transmission_id:headers['paypal-transmission-id'],transmission_sig:headers['paypal-transmission-sig'],
