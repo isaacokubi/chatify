@@ -1,7 +1,7 @@
 // CHATIFY BUSINESS INTEGRATIONS
 // Provider adapters stay disabled until an operator supplies valid credentials and verifies
 // the provider contract. Never treat a mock response or a queued request as a real transaction.
-import {createHash, randomUUID} from 'node:crypto';
+import {createHash, createHmac, timingSafeEqual, randomUUID} from 'node:crypto';
 import {isIP} from 'node:net';
 
 export const SUPPORTED_TAX_MODES = Object.freeze(['exclusive', 'inclusive', 'none']);
@@ -166,3 +166,64 @@ export function createEtimsProvider(env = process.env, transport = globalThis.fe
 }
 
 export const newIntegrationRequestId = () => randomUUID();
+
+
+// Stripe Checkout adapter for international card/wallet payments. It returns a hosted checkout URL;
+// invoice settlement is applied only after a signed checkout.session.completed webhook is verified.
+export function createStripeProvider(env = process.env, transport = globalThis.fetch) {
+  const secret = env.STRIPE_SECRET_KEY?.trim();
+  const webhookSecret = env.STRIPE_WEBHOOK_SECRET?.trim();
+  const request = async (path, body, idempotencyKey) => {
+    if (!secret) throw new Error('Stripe is not configured');
+    const response = await transport('https://api.stripe.com/v1'+path,{
+      method:'POST',
+      headers:{Authorization:'Bearer '+secret,'Content-Type':'application/x-www-form-urlencoded',...(idempotencyKey?{'Idempotency-Key':idempotencyKey}:{})},
+      body,
+      signal:AbortSignal.timeout(20000),
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok) throw Object.assign(new Error('Stripe rejected the checkout request'),{status:response.status,providerCode:String(data.error?.code||'').slice(0,80)});
+    return data;
+  };
+  return {
+    get configured(){return Boolean(secret&&webhookSecret);},
+    async createCheckoutSession({paymentId,organizationId,documentId,number,amount,currency,successUrl,cancelUrl,customerEmail}) {
+      if(!secret)throw new Error('Stripe is not configured');
+      const value=Number(amount), code=String(currency||'').toLowerCase();
+      if(!Number.isFinite(value)||value<=0||!/^([a-z]{3})$/.test(code))throw new Error('A positive amount and ISO currency code are required');
+      const zeroDecimal=new Set(['bif','clp','djf','gnf','jpy','kmf','krw','mga','pyg','rwf','ugx','vnd','vuv','xaf','xof','xpf']);
+      const threeDecimal=new Set(['bhd','jod','kwd','omr','tnd']);
+      const precision=zeroDecimal.has(code)?0:threeDecimal.has(code)?3:2;
+      const unitAmount=Math.round(value*Math.pow(10,precision));
+      if(!Number.isSafeInteger(unitAmount)||unitAmount<1)throw new Error('Amount is outside the supported payment range');
+      const safeUrl=(value,label)=>{let url;try{url=new URL(value);}catch{throw new Error(label+' must be an absolute HTTPS URL');}if(url.protocol!=='https:'||url.username||url.password)throw new Error(label+' must be an HTTPS URL');return url.toString();};
+      const success=safeUrl(successUrl,'Success URL'), cancel=safeUrl(cancelUrl,'Cancel URL');
+      const form=new URLSearchParams({
+        mode:'payment',success_url:success,cancel_url:cancel,client_reference_id:String(paymentId),
+        'line_items[0][price_data][currency]':code,
+        'line_items[0][price_data][unit_amount]':String(unitAmount),
+        'line_items[0][price_data][product_data][name]':('Chatify invoice '+String(number)).slice(0,250),
+        'line_items[0][quantity]':'1',
+        'metadata[paymentId]':String(paymentId),
+        'metadata[organizationId]':String(organizationId),
+        'metadata[documentId]':String(documentId),
+      });
+      if(customerEmail&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(customerEmail)))form.set('customer_email',String(customerEmail).slice(0,200));
+      const session=await request('/checkout/sessions',form,String(paymentId));
+      if(!session.id||!session.url)throw new Error('Stripe did not return a hosted checkout URL');
+      return {checkoutId:String(session.id),checkoutUrl:String(session.url),currency:code,amount:value};
+    },
+    verifyWebhook(rawBody, signature, now = Date.now()) {
+      if(!webhookSecret)throw new Error('Stripe webhook is not configured');
+      if(!Buffer.isBuffer(rawBody)||typeof signature!=='string')throw new Error('Stripe webhook signature is missing');
+      const parts=signature.split(',').map(part=>part.split('='));
+      const timestamp=Number(parts.find(part=>part[0]==='t')?.[1]);
+      const candidates=parts.filter(part=>part[0]==='v1').map(part=>part[1]).filter(Boolean);
+      if(!Number.isSafeInteger(timestamp)||Math.abs(Math.floor(now/1000)-timestamp)>300||!candidates.length)throw new Error('Stripe webhook signature is expired or malformed');
+      const expected=createHmac('sha256',webhookSecret).update(String(timestamp)+'.').update(rawBody).digest();
+      const valid=candidates.some(candidate=>{if(!/^[a-f0-9]{64}$/i.test(candidate))return false;const supplied=Buffer.from(candidate,'hex');return supplied.length===expected.length&&timingSafeEqual(supplied,expected);});
+      if(!valid)throw new Error('Stripe webhook signature verification failed');
+      return JSON.parse(rawBody.toString('utf8'));
+    }
+  };
+}
