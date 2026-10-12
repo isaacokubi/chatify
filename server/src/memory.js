@@ -31,7 +31,6 @@ export function candidate(input) {
       type: 'EVENT',
       title: /\b(deadline|due date)\b/i.test(text) ? 'Deadline' : /\b(doctor|appointment)\b/i.test(text) ? 'Appointment' : 'Upcoming event',
       description: text,
-      ...(date ? { date: date.toLowerCase() } : {}),
       ...(time ? { time } : {}),
       ...(location ? { location } : {}),
     });
