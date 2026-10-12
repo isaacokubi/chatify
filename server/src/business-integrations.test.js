@@ -1,7 +1,7 @@
 import test from 'node:test';
 import {createHmac} from 'node:crypto';
 import assert from 'node:assert/strict';
-import {calculateInternationalTotals,extractBusinessMemoryCandidates,createIdempotencyKey,detectOfflineConflict,createEtimsProvider,createMessagingProviders,createLanguageProvider,createStripeProvider} from './business-integrations.js';
+import {calculateInternationalTotals,extractBusinessMemoryCandidates,createIdempotencyKey,detectOfflineConflict,createEtimsProvider,createMessagingProviders,createLanguageProvider,createStripeProvider,createPayPalProvider} from './business-integrations.js';
 
 test('international tax calculator handles exclusive and inclusive tax and discounts', () => {
   const exclusive=calculateInternationalTotals([{name:'Consulting',quantity:2,unitPrice:100,discount:10}],{currency:'KES',mode:'exclusive',rate:16});
@@ -70,4 +70,11 @@ test('Stripe Checkout requires server credentials and a verified webhook signatu
   const event=provider.verifyWebhook(raw,'t='+timestamp+',v1='+signature);
   assert.equal(event.id,'evt_test');
   assert.throws(()=>provider.verifyWebhook(raw,'t='+timestamp+',v1='+'0'.repeat(64)),/signature verification failed/);
+});
+
+test('PayPal checkout fails closed without credentials', async () => {
+  const provider=createPayPalProvider({});
+  assert.equal(provider.configured,false);
+  await assert.rejects(()=>provider.createOrder({paymentId:'p',number:'INV-1',amount:100,currency:'KES',successUrl:'https://example.com/ok',cancelUrl:'https://example.com/cancel'}),/not configured/);
+  await assert.rejects(()=>provider.verifyWebhook({},{}),/not configured/);
 });
