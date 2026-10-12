@@ -116,3 +116,11 @@ These need credentials, operational policies, external-provider configuration, p
 - Schedule workflows using `trigger: "schedule"` and `scheduleEveryMinutes` (5–10,080 minutes). They remain disabled until a test-only run is recorded, and must be explicitly enabled by a manager.
 - A process-local minute tick executes due workflows using a database compare-and-set; multi-instance deployments should additionally configure a single external cron calling `POST /api/internal/business/workflows/tick` with `Authorization: Bearer BUSINESS_WORKFLOW_CRON_SECRET`. Only allow-listed actions run, customer messages require recorded opt-in, and tests do not send messages or move money.
 - For high-volume or critical business automation, use a durable queue/worker and monitor retries, delivery receipts, and dead letters before relying on scheduled actions for operations.
+
+
+### International hosted payments (Stripe Checkout)
+- Configure `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL` on the server. Never put these values in Flutter or source control.
+- `POST /api/business/organizations/:orgId/documents/:documentId/stripe-checkout` creates a hosted checkout for the outstanding balance of an issued invoice and returns the checkout URL. The mobile app opens that URL outside Chatify.
+- Configure the Stripe webhook to call `POST /api/business/payments/stripe/webhook` and subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, and `checkout.session.expired`.
+- The server verifies the Stripe signature against the raw request body and validates checkout ID, metadata, currency, and minor-unit amount before reconciling the invoice. Redirecting back to Chatify is not proof of payment.
+- Test with Stripe test-mode keys and a test webhook secret first. Production keys, webhook delivery, refunds, disputes, chargebacks, tax handling and provider account eligibility must be reviewed before accepting live international payments.
