@@ -3796,16 +3796,19 @@ class _ChatState extends State<Chat> {
                                             if (message['replyTo'] != null)
                                               Builder(builder: (context) {
                                                 final original = findReplyTarget(messages, message['replyTo']);
+                                                // A non-null empty map keeps preview rendering null-safe
+                                                // while the unavailable flag preserves deleted-message semantics.
+                                                final originalMap = original ?? <String, dynamic>{};
                                                 final unavailable = original == null ||
-                                                    original['deletedAt'] != null ||
-                                                    original['expiredAt'] != null;
-                                                final originalSender = original['senderId']?.toString() ==
+                                                    originalMap['deletedAt'] != null ||
+                                                    originalMap['expiredAt'] != null;
+                                                final originalSender = originalMap['senderId']?.toString() ==
                                                         app.user?['id']?.toString()
                                                     ? 'You'
                                                     : 'Message';
                                                 final preview = unavailable
                                                     ? 'Original message unavailable'
-                                                    : (original?['text'] ?? '[media]').toString();
+                                                    : (originalMap['text'] ?? '[media]').toString();
                                                 return Container(
                                                   width: double.infinity,
                                                   margin: const EdgeInsets.only(bottom: 7),
@@ -3919,15 +3922,17 @@ class _ChatState extends State<Chat> {
         if (reply != null)
           Builder(builder: (context) {
             final original = findReplyTarget(messages, reply);
+            // The fallback map lets the composer preview safely handle a missing or expired target.
+            final originalMap = original ?? <String, dynamic>{};
             final originalDeleted = original == null ||
-                original['deletedAt'] != null || original['expiredAt'] != null;
-            final originalSender = original['senderId']?.toString() ==
+                originalMap['deletedAt'] != null || originalMap['expiredAt'] != null;
+            final originalSender = originalMap['senderId']?.toString() ==
                     app.user?['id']?.toString()
                 ? 'You'
                 : 'Message';
             final originalText = originalDeleted
                 ? 'Original message unavailable'
-                : (original?['text'] ?? '[media]').toString();
+                : (originalMap['text'] ?? '[media]').toString();
             return Container(
               margin: const EdgeInsets.fromLTRB(12, 6, 12, 2),
               padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
