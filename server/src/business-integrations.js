@@ -15,7 +15,7 @@ export function calculateInternationalTotals(lines = [], config = {}) {
   if (!SUPPORTED_TAX_MODES.includes(mode)) throw new Error('Tax mode must be exclusive, inclusive or none');
   const rate = mode === 'none' ? 0 : Number(config.rate ?? 0);
   if (!Number.isFinite(rate) || rate < 0 || rate > 100) throw new Error('Tax rate must be between 0 and 100 percent');
-  const precision = ['JPY','KRW'].includes(currency) ? 0 : 2;
+  const precision = ['JPY','KRW','BIF','CLP','DJF','GNF','KMF','MGA','PYG','RWF','UGX','VND','VUV','XAF','XOF','XPF'].includes(currency) ? 0 : ['BHD','JOD','KWD','OMR','TND'].includes(currency) ? 3 : 2;
   const round = n => Number((n + Number.EPSILON).toFixed(precision));
   const normalized = lines.map(line => {
     const description = typeof line.name === 'string' ? line.name.trim().slice(0,160) : '';
@@ -211,7 +211,7 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
       if(customerEmail&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(customerEmail)))form.set('customer_email',String(customerEmail).slice(0,200));
       const session=await request('/checkout/sessions',form,String(paymentId));
       if(!session.id||!session.url)throw new Error('Stripe did not return a hosted checkout URL');
-      return {checkoutId:String(session.id),checkoutUrl:String(session.url),currency:code,amount:value};
+      return {checkoutId:String(session.id),checkoutUrl:String(session.url),currency:code,amount:value,unitAmount};
     },
     verifyWebhook(rawBody, signature, now = Date.now()) {
       if(!webhookSecret)throw new Error('Stripe webhook is not configured');
