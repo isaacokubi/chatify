@@ -90,10 +90,10 @@ export function createMessagingProviders(env = process.env, transport = globalTh
     async sendSms({to,text}) {
       const sid=env.TWILIO_ACCOUNT_SID?.trim(), token=env.TWILIO_AUTH_TOKEN?.trim(), from=env.TWILIO_SMS_FROM?.trim();
       if(!sid||!token||!from) throw new Error('SMS provider is not configured');
-      let phone=String(to||'').trim(), message=String(text||'').trim().slice(0,1500);
-      if(/^254[17]\\d{8}$/.test(phone))phone='+'+phone;
-      if(/^0[17]\\d{8}$/.test(phone))phone='+254'+phone.slice(1);
-      if(!/^\\+[1-9]\\d{7,14}$/.test(phone)||!message) throw new Error('SMS destination must be a valid E.164 phone number and message cannot be empty');
+      let phone=String(to||'').trim().replace(/[\s()-]/g,''), message=String(text||'').trim().slice(0,1500);
+      if(/^254[17]\d{8}$/.test(phone))phone='+'+phone;
+      if(/^0[17]\d{8}$/.test(phone))phone='+254'+phone.slice(1);
+      if(!/^\+[1-9]\d{7,14}$/.test(phone)||!message) throw new Error('SMS destination must be a valid E.164 phone number and message cannot be empty');
       const body=new URLSearchParams({To:phone,From:from,Body:message});
       const result=await request('https://api.twilio.com/2010-04-01/Accounts/'+encodeURIComponent(sid)+'/Messages.json',{
         method:'POST',headers:{Authorization:'Basic '+Buffer.from(sid+':'+token).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},body

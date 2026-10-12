@@ -52,6 +52,34 @@ test('SMS and WhatsApp adapters fail closed when not configured', async () => {
   await assert.rejects(()=>provider.sendWhatsApp({to:'254700000000',text:'Hello'}),/not configured/);
 });
 
+
+test('SMS adapter normalizes Kenyan phone numbers and validates E.164 destinations', async () => {
+  const requests = [];
+  const provider = createMessagingProviders({
+    TWILIO_ACCOUNT_SID: 'AC_test',
+    TWILIO_AUTH_TOKEN: 'test-token',
+    TWILIO_SMS_FROM: '+15005550006',
+  }, async (url, options) => {
+    requests.push({url, options, body: String(options.body)});
+    return {ok: true, status: 201, json: async () => ({sid: 'SM_test', status: 'queued'})};
+  });
+
+  const local = await provider.sendSms({to: '0712 345 678', text: 'Hello'});
+  assert.equal(local.accepted, true);
+  assert.equal(new URLSearchParams(requests[0].body).get('To'), '+254712345678');
+
+  const international = await provider.sendSms({to: '+254112345678', text: 'Hello again'});
+  assert.equal(international.accepted, true);
+  assert.equal(new URLSearchParams(requests[1].body).get('To'), '+254112345678');
+  assert.match(requests[0].url, /api\.twilio\.com/);
+
+  await assert.rejects(
+    () => provider.sendSms({to: 'not-a-phone', text: 'Hello'}),
+    /valid E\.164 phone number/,
+  );
+  assert.equal(requests.length, 2, 'invalid destinations must not reach the provider');
+});
+
 test('language provider fails clearly when no key is configured', async () => {
   const provider=createLanguageProvider({});
   await assert.rejects(()=>provider.translateText({text:'Hello',targetLanguage:'Kiswahili'}),/not configured/);
