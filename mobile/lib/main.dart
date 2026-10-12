@@ -120,6 +120,21 @@ List<dynamic> mergeMessages(List<dynamic> current, List<dynamic> fetched) {
   return merged;
 }
 
+// Resolve a reply reference only against messages loaded for the active conversation.
+// Supporting both a raw ID and a populated reference keeps old and new API payloads readable.
+Map<String, dynamic>? findReplyTarget(List<dynamic> conversationMessages, dynamic replyTo) {
+  final replyId = replyTo is Map
+      ? (replyTo['_id'] ?? replyTo['id'])?.toString()
+      : replyTo?.toString();
+  if (replyId == null || replyId.isEmpty) return null;
+  for (final item in conversationMessages) {
+    if (item is Map && item['_id']?.toString() == replyId) {
+      return Map<String, dynamic>.from(item);
+    }
+  }
+  return null;
+}
+
 List<dynamic> mergePayment(
     List<dynamic> current, Map<String, dynamic> payment) {
   final updated = List<dynamic>.from(current);
@@ -3780,11 +3795,7 @@ class _ChatState extends State<Chat> {
                                             // expired, or unavailable originals never break rendering.
                                             if (message['replyTo'] != null)
                                               Builder(builder: (context) {
-                                                final replyId = message['replyTo'] is Map
-                                                    ? (message['replyTo']['_id'] ?? message['replyTo']['id'])?.toString()
-                                                    : message['replyTo'].toString();
-                                                final original = messages.cast<dynamic>().where((item) =>
-                                                    item is Map && item['_id']?.toString() == replyId).cast<Map>().firstOrNull;
+                                                final original = findReplyTarget(messages, message['replyTo']);
                                                 final unavailable = original == null ||
                                                     original['deletedAt'] != null ||
                                                     original['expiredAt'] != null;
@@ -3907,8 +3918,7 @@ class _ChatState extends State<Chat> {
         // exactly which message their reply will reference, and allow cancellation.
         if (reply != null)
           Builder(builder: (context) {
-            final original = messages.cast<dynamic>().where((item) =>
-                item is Map && item['_id']?.toString() == reply).cast<Map>().firstOrNull;
+            final original = findReplyTarget(messages, reply);
             final originalDeleted = original == null ||
                 original['deletedAt'] != null || original['expiredAt'] != null;
             final originalSender = original?['senderId']?.toString() ==
