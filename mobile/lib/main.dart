@@ -791,7 +791,7 @@ class Welcome extends StatelessWidget {
       body: LayoutBuilder(
         builder: (context, viewport) {
           final wide = viewport.maxWidth >= 820;
-          final mobile = viewport.maxWidth < 600;
+          final mobile = viewport.maxWidth < 820;
           return SingleChildScrollView(
             child: Center(
               child: ConstrainedBox(
