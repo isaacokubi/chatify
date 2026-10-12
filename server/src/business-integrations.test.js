@@ -1,6 +1,7 @@
 import test from 'node:test';
+import {createHmac} from 'node:crypto';
 import assert from 'node:assert/strict';
-import {calculateInternationalTotals,extractBusinessMemoryCandidates,createIdempotencyKey,detectOfflineConflict,createEtimsProvider,createMessagingProviders,createLanguageProvider} from './business-integrations.js';
+import {calculateInternationalTotals,extractBusinessMemoryCandidates,createIdempotencyKey,detectOfflineConflict,createEtimsProvider,createMessagingProviders,createLanguageProvider,createStripeProvider} from './business-integrations.js';
 
 test('international tax calculator handles exclusive and inclusive tax and discounts', () => {
   const exclusive=calculateInternationalTotals([{name:'Consulting',quantity:2,unitPrice:100,discount:10}],{currency:'KES',mode:'exclusive',rate:16});
@@ -54,4 +55,19 @@ test('SMS and WhatsApp adapters fail closed when not configured', async () => {
 test('language provider fails clearly when no key is configured', async () => {
   const provider=createLanguageProvider({});
   await assert.rejects(()=>provider.translateText({text:'Hello',targetLanguage:'Kiswahili'}),/not configured/);
+});
+
+test('Stripe Checkout requires server credentials and a verified webhook signature', async () => {
+  const disabled=createStripeProvider({});
+  assert.equal(disabled.configured,false);
+  await assert.rejects(()=>disabled.createCheckoutSession({paymentId:'p',organizationId:'o',documentId:'d',number:'INV-1',amount:100,currency:'KES',successUrl:'https://example.com/ok',cancelUrl:'https://example.com/cancel'}),/not configured/);
+  await assert.rejects(()=>disabled.verifyWebhook(Buffer.from('{}'),'t=1,v1=bad'),/not configured/);
+  const secret='whsec_test_only_secret';
+  const provider=createStripeProvider({STRIPE_SECRET_KEY:'sk_test_placeholder',STRIPE_WEBHOOK_SECRET:secret},async()=>({ok:false,status:400,json:async()=>({})}));
+  const raw=Buffer.from(JSON.stringify({id:'evt_test',type:'checkout.session.completed',data:{object:{id:'cs_test'}}}));
+  const timestamp=Math.floor(Date.now()/1000);
+  const signature=createHmac('sha256',secret).update(String(timestamp)+'.').update(raw).digest('hex');
+  const event=provider.verifyWebhook(raw,'t='+timestamp+',v1='+signature);
+  assert.equal(event.id,'evt_test');
+  assert.throws(()=>provider.verifyWebhook(raw,'t='+timestamp+',v1='+'0'.repeat(64)),/signature verification failed/);
 });
