@@ -4769,11 +4769,13 @@ class _StorefrontPageState extends State<StorefrontPage> {
       final result = await app.api.call('GET', '/api/payments/${Uri.encodeComponent(id)}');
       final payment = Map<String, dynamic>.from(result['payment'] ?? {});
       final status = payment['status']?.toString() ?? 'PENDING';
-      if (mounted) setState(() => notice = status == 'SUCCESS'
-          ? 'Payment confirmed. Thank you for your order!'
-          : status == 'PENDING'
-              ? 'Payment is still pending. Complete the M-Pesa prompt on your phone, then refresh.'
-              : 'Payment status: $status. You can contact the store if you need help.');
+      if (mounted) {
+        setState(() => notice = status == 'SUCCESS'
+            ? 'Payment confirmed. Thank you for your order!'
+            : status == 'PENDING'
+                ? 'Payment is still pending. Complete the M-Pesa prompt on your phone, then refresh.'
+                : 'Payment status: $status. You can contact the store if you need help.');
+      }
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     }
