@@ -20,6 +20,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:url_launcher/url_launcher.dart';
 
 // Represents a readable API failure so screens can show a useful message instead of raw transport errors.
 class ApiException implements Exception {
@@ -4893,7 +4894,13 @@ class _BusinessHubState extends State<BusinessHub> {
     try {
       final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(documentId)}';
       Map<String, dynamic> response;
-      if (action == 'mpesa') {
+      if (action == 'stripe') {
+        response = await app.api.call('POST', '$base/stripe-checkout', {});
+        final checkoutUrl = response['payment'] is Map ? (response['payment'] as Map)['checkoutUrl']?.toString() : null;
+        if (checkoutUrl == null || !await launchUrl(Uri.parse(checkoutUrl), mode: LaunchMode.externalApplication)) {
+          if (mounted && checkoutUrl != null) await showDialog<void>(context: context, builder: (context) => AlertDialog(title: const Text('Hosted checkout'), content: SelectableText(checkoutUrl), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))]));
+        }
+      } else if (action == 'mpesa') {
         final phone = TextEditingController();
         final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Request M-Pesa payment'), content: TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Customer M-Pesa phone')), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send STK prompt'))]));
         if (accepted != true) return;
@@ -4912,6 +4919,7 @@ class _BusinessHubState extends State<BusinessHub> {
     final action = await showModalBottomSheet<String>(context: context, builder: (context) => SafeArea(child: Wrap(children: [
       ListTile(title: Text(item['number']?.toString() ?? 'Sales document'), subtitle: Text('Status: $status')),
       if (status == 'draft') ListTile(leading: const Icon(Icons.send), title: const Text('Issue / send document'), onTap: () => Navigator.pop(context, 'issue')),
+      if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.credit_card), title: const Text('Pay online (Stripe)'), onTap: () => Navigator.pop(context, 'stripe')),
       if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.payments), title: const Text('Request M-Pesa STK payment'), onTap: () => Navigator.pop(context, 'mpesa')),
       if (type == 'invoice' && status != 'draft' && !['cancelled','rejected'].contains(status)) ListTile(leading: const Icon(Icons.receipt_long), title: const Text('Submit through configured eTIMS gateway'), onTap: () => Navigator.pop(context, 'etims')),
     ])));
