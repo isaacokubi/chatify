@@ -1619,7 +1619,7 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
-    final titles = ['Chats', 'Business', 'Memories', 'Contacts', 'Profile'];
+    final titles = ['Chats', 'Business', 'Memories', 'Contacts', 'Profile', 'Stores'];
     return Scaffold(
       // Keep Business discoverable from the primary chat screen as well as the
       // dedicated bottom-navigation tab. This is especially helpful on web,
@@ -1661,7 +1661,7 @@ class _HomeState extends State<Home> {
       ),
       body: IndexedStack(
           index: tab,
-          children: [_chats(), const BusinessHub(), _memories(), _contacts(), const Profile()]),
+          children: [_chats(), const BusinessHub(), _memories(), _contacts(), const Profile(), const StoreDirectoryPage()]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (i) {
@@ -1680,6 +1680,9 @@ class _HomeState extends State<Home> {
               icon: Icon(Icons.people_outline), label: 'Contacts'),
           NavigationDestination(
               icon: Icon(Icons.person_outline), label: 'Profile'),
+          // Keep the customer marketplace reachable after sign-in, not only from the welcome page.
+          NavigationDestination(
+              icon: Icon(Icons.storefront_outlined), label: 'Stores'),
         ],
       ),
     );
