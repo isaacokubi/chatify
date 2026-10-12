@@ -288,7 +288,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     await document.save(); res.status(201).json({document,notice:'Payment recorded as unverified. Reconcile with the provider before treating it as confirmed.'});
   });
   app.post('/api/business/organizations/:orgId/documents/:documentId/reconcile-chatify-payment', auth, async (req, res) => {
-    const org = await requireOrg(req,res); if (!org || !requireContributor(org, req, res)) return;
+    const org = await requireOrg(req,res); if (!org || !requireFinance(org, req, res)) return;
     const document = await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id}); if (!document) return res.status(404).json({error:'Document not found'});
     const payment = await Payment.findOne({paymentId:req.body?.paymentId,status:'SUCCESS'});
     if (!payment || !payment.checkoutRequestId || !payment.callbackProcessedAt || payment.businessDocumentId) return res.status(409).json({error:'No eligible unlinked provider-confirmed Chatify payment was found'});
@@ -471,7 +471,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const document=await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id});
     if(!document)return res.status(404).json({error:'Invoice not found'});
     if(document.type!=='invoice'||['draft','rejected','cancelled'].includes(document.status))return res.status(409).json({error:'Only issued invoices can be submitted'});
-    if(document.etimsStatus!=='not_submitted')return res.status(409).json({error:'This invoice already has an eTIMS submission attempt',status:document.etimsStatus});
+    if(!['not_submitted','rejected'].includes(document.etimsStatus))return res.status(409).json({error:'This invoice already has an eTIMS submission attempt',status:document.etimsStatus});
     if(!etims.configured)return res.status(503).json({error:'eTIMS is not configured. Add the approved gateway URL, token and taxpayer PIN to the server environment.'});
     const customer=document.customerId?await Customer.findOne({_id:document.customerId,organizationId:org._id}).lean():null;
     const idempotencyKey='etims:'+String(org._id)+':'+String(document._id);
