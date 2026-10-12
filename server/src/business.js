@@ -228,6 +228,34 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   };
 
 
+  // Public store directory: list only businesses that have at least one active catalogue item.
+  // Customers can discover products without signing in or guessing a store slug.
+  app.get('/api/storefronts', async (req, res) => {
+    try {
+      const term = shortText(req.query?.q, 100).toLowerCase();
+      const counts = await CatalogItem.aggregate([
+        {$match: {active: true}},
+        {$group: {_id: '$organizationId', itemCount: {$sum: 1}}},
+        {$sort: {itemCount: -1}},
+        {$limit: 500},
+      ]);
+      if (!counts.length) {
+        res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+        return res.json({stores: []});
+      }
+      const countById = new Map(counts.map(row => [String(row._id), row.itemCount]));
+      const organizations = await Organization.find({
+        _id: {$in: counts.map(row => row._id)},
+      }).select('name slug description logo industry country currency website').sort({name: 1}).lean();
+      // Apply search to public display fields only; never expose internal settings, owner IDs or customer records.
+      const stores = organizations
+        .filter(org => !term || [org.name, org.description, org.industry].some(value => String(value || '').toLowerCase().includes(term)))
+        .map(org => ({...org, itemCount: countById.get(String(org._id)) || 0}));
+      res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+      res.json({stores});
+    } catch (error) { safeError(res, error); }
+  });
+
   // Public storefront discovery: customers can browse active products without workspace access.
   app.get('/api/storefront/:slug', async (req, res) => {
     try {

@@ -777,31 +777,10 @@ class Welcome extends StatelessWidget {
   static const violet = Color(0xFF5548E8);
   static const mint = Color(0xFF41D6B0);
 
-  Future<void> _browseStore(BuildContext context) async {
-    final slug = TextEditingController();
-    final selected = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Shop a Chatify store'),
-        content: TextField(
-          controller: slug,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Store name / URL slug',
-            hintText: 'e.g. baraka-books',
-            helperText: 'Ask the business for its Chatify store slug.',
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Browse products')),
-        ],
-      ),
-    );
-    final value = slug.text.trim().toLowerCase();
-    if (selected != true || value.isEmpty || !context.mounted) return;
+  // Let customers discover published stores instead of needing to know a store slug.
+  void _browseStore(BuildContext context) {
     Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => StorefrontPage(slug: value),
+      builder: (_) => const StoreDirectoryPage(),
     ));
   }
 
@@ -834,7 +813,11 @@ class Welcome extends StatelessWidget {
                         const SizedBox(width: 11),
                         const Text('Chatify', style: TextStyle(color: ink, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
                         const Spacer(),
-                        IconButton(tooltip: 'Shop a store', onPressed: () => _browseStore(context), icon: const Icon(Icons.storefront_outlined)),
+                        TextButton.icon(
+                          onPressed: () => _browseStore(context),
+                          icon: const Icon(Icons.storefront_outlined),
+                          label: const Text('Explore stores'),
+                        ),
                         TextButton(onPressed: onSignIn, child: const Text('Sign in')),
                         const SizedBox(width: 5),
                         FilledButton(
@@ -4610,6 +4593,142 @@ class _ProfileState extends State<Profile> {
       ]);
 }
 
+
+/// Public directory of businesses with active products or services.
+class StoreDirectoryPage extends StatefulWidget {
+  const StoreDirectoryPage({super.key});
+
+  @override
+  State<StoreDirectoryPage> createState() => _StoreDirectoryPageState();
+}
+
+class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
+  final search = TextEditingController();
+  List<dynamic> stores = [];
+  bool loading = true;
+  String? error;
+  AppState get app => context.read<AppState>();
+
+  @override
+  void initState() {
+    super.initState();
+    loadStores();
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadStores({String? query}) async {
+    setState(() { loading = true; error = null; });
+    try {
+      final term = (query ?? search.text).trim();
+      final path = term.isEmpty
+          ? '/api/storefronts'
+          : '/api/storefronts?q=${Uri.encodeQueryComponent(term)}';
+      final result = await app.api.call('GET', path);
+      if (!mounted) return;
+      setState(() => stores = List<dynamic>.from(result['stores'] ?? []));
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Explore stores'),
+        actions: [
+          IconButton(tooltip: 'Refresh stores', onPressed: () => loadStores(), icon: const Icon(Icons.refresh)),
+        ],
+      ),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: TextField(
+            controller: search,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (value) => loadStores(query: value),
+            decoration: InputDecoration(
+              hintText: 'Search stores, products or services',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: IconButton(tooltip: 'Search', onPressed: () => loadStores(), icon: const Icon(Icons.arrow_forward)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () => loadStores(),
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : error != null
+                    ? ListView(children: [
+                        const SizedBox(height: 90),
+                        const Icon(Icons.cloud_off_outlined, size: 48),
+                        Padding(padding: const EdgeInsets.all(16), child: Text(error!, textAlign: TextAlign.center)),
+                        Center(child: FilledButton(onPressed: () => loadStores(), child: const Text('Try again'))),
+                      ])
+                    : stores.isEmpty
+                        ? ListView(children: [
+                            const SizedBox(height: 80),
+                            const Icon(Icons.storefront_outlined, size: 56, color: Color(0xFF77758B)),
+                            const SizedBox(height: 12),
+                            Center(child: Text(search.text.trim().isEmpty ? 'No stores are listed yet.' : 'No stores match your search.', style: const TextStyle(fontWeight: FontWeight.w700))),
+                            const SizedBox(height: 6),
+                            const Center(child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 28),
+                              child: Text('Businesses appear here when they publish active products or services in their Chatify catalogue.', textAlign: TextAlign.center),
+                            )),
+                          ])
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            itemCount: stores.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              final store = Map<String, dynamic>.from(stores[index] as Map);
+                              final name = store['name']?.toString() ?? 'Chatify store';
+                              final logo = store['logo']?.toString() ?? '';
+                              final count = store['itemCount']?.toString() ?? '0';
+                              final category = store['industry']?.toString().replaceAll('_', ' ') ?? '';
+                              return Card(
+                                clipBehavior: Clip.antiAlias,
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.all(12),
+                                  leading: CircleAvatar(
+                                    radius: 28,
+                                    backgroundColor: const Color(0xFFEDEBFF),
+                                    backgroundImage: logo.startsWith('https://') ? NetworkImage(logo) : null,
+                                    child: logo.startsWith('https://') ? null : const Icon(Icons.storefront_rounded, color: Color(0xFF5548E8)),
+                                  ),
+                                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 5),
+                                    child: Text([
+                                      if (category.isNotEmpty) category[0].toUpperCase() + category.substring(1),
+                                      '$count product/service(s)',
+                                      if ((store['description']?.toString() ?? '').isNotEmpty) store['description'].toString(),
+                                    ].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                  ),
+                                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+                                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                                    builder: (_) => StorefrontPage(slug: store['slug'].toString()),
+                                  )),
+                                ),
+                              );
+                            },
+                          ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
 
 /// Customer-facing storefront. Product prices are display-only until the server creates
 /// an order from its own catalogue records; successful payment is confirmed by Daraja callback.
