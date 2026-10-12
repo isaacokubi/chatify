@@ -227,3 +227,57 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
     }
   };
 }
+
+
+// PayPal Orders v2 adapter. A verified ORDER.APPROVED webhook is captured server-side; an
+// approval redirect alone never settles an invoice.
+export function createPayPalProvider(env = process.env, transport = globalThis.fetch) {
+  const clientId=env.PAYPAL_CLIENT_ID?.trim(), clientSecret=env.PAYPAL_CLIENT_SECRET?.trim(), webhookId=env.PAYPAL_WEBHOOK_ID?.trim();
+  const mode=(env.PAYPAL_ENV||'sandbox').trim();
+  if(!['sandbox','production'].includes(mode))throw new Error('PAYPAL_ENV must be sandbox or production');
+  const host=mode==='production'?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com';
+  let tokenValue, tokenExpiresAt=0;
+  const token=async()=>{
+    if(!clientId||!clientSecret)throw new Error('PayPal is not configured');
+    if(tokenValue&&Date.now()<tokenExpiresAt)return tokenValue;
+    const response=await transport(host+'/v1/oauth2/token',{method:'POST',headers:{Authorization:'Basic '+Buffer.from(clientId+':'+clientSecret).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials',signal:AbortSignal.timeout(15000)});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok||!data.access_token)throw new Error('PayPal authentication failed');
+    tokenValue=data.access_token;tokenExpiresAt=Date.now()+Math.max(0,Number(data.expires_in||0)-60)*1000;return tokenValue;
+  };
+  const request=async(path,body,requestId)=>{
+    const access=await token();
+    const response=await transport(host+path,{method:'POST',headers:{Authorization:'Bearer '+access,'Content-Type':'application/json',...(requestId?{'PayPal-Request-Id':String(requestId)}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw Object.assign(new Error('PayPal rejected the checkout request'),{status:response.status});
+    return data;
+  };
+  return {
+    get configured(){return Boolean(clientId&&clientSecret&&webhookId);},
+    async createOrder({paymentId,number,amount,currency,successUrl,cancelUrl}){
+      if(!clientId||!clientSecret)throw new Error('PayPal is not configured');
+      const value=Number(amount), code=String(currency||'').toUpperCase();
+      if(!Number.isFinite(value)||value<=0||!/^[A-Z]{3}$/.test(code))throw new Error('A positive amount and ISO currency code are required');
+      const formatted=value.toFixed(['JPY','KRW','CLP','VND'].includes(code)?0:2);
+      const safeUrl=(input,label)=>{let url;try{url=new URL(input);}catch{throw new Error(label+' must be an absolute HTTPS URL');}if(url.protocol!=='https:'||url.username||url.password)throw new Error(label+' must be an HTTPS URL');return url.toString();};
+      const order=await request('/v2/checkout/orders',{intent:'CAPTURE',purchase_units:[{reference_id:String(paymentId),custom_id:String(paymentId),invoice_id:String(number).slice(0,127),description:('Chatify invoice '+String(number)).slice(0,127),amount:{currency_code:code,value:formatted}}],application_context:{return_url:safeUrl(successUrl,'Success URL'),cancel_url:safeUrl(cancelUrl,'Cancel URL'),user_action:'PAY_NOW'}},paymentId);
+      const approval=Array.isArray(order.links)?order.links.find(link=>link.rel==='approve')?.href:null;
+      if(!order.id||!approval)throw new Error('PayPal did not return an approval URL');
+      return {checkoutId:String(order.id),checkoutUrl:String(approval),amount:Number(formatted),currency:code,amountMinorUnits:Math.round(Number(formatted)*(['JPY','KRW','CLP','VND'].includes(code)?1:100))};
+    },
+    async captureOrder(orderId,paymentId){
+      if(!orderId||!paymentId)throw new Error('PayPal order and payment identifiers are required');
+      return request('/v2/checkout/orders/'+encodeURIComponent(orderId)+'/capture',{},'capture-'+paymentId);
+    },
+    async verifyWebhook(headers,event){
+      if(!webhookId||!clientId||!clientSecret)throw new Error('PayPal webhook verification is not configured');
+      const result=await request('/v1/notifications/verify-webhook-signature',{
+        auth_algo:headers['paypal-auth-algo'],cert_url:headers['paypal-cert-url'],
+        transmission_id:headers['paypal-transmission-id'],transmission_sig:headers['paypal-transmission-sig'],
+        transmission_time:headers['paypal-transmission-time'],webhook_id:webhookId,webhook_event:event
+      });
+      if(result.verification_status!=='SUCCESS')throw new Error('PayPal webhook signature verification failed');
+      return true;
+    }
+  };
+}
