@@ -50,6 +50,37 @@ export function buildBusinessBriefing({tasks = [], documents = [], cases = [], n
   return {generatedAt: now.toISOString(), overdueTasks: overdue.length, tasksDueWithin24Hours: dueSoon.length, outstandingDocuments: outstanding.length, outstandingAmount: Math.round(outstanding.reduce((sum, item) => sum + Math.max(0, Number(item.total || 0) - Number(item.paidAmount || 0)), 0) * 100) / 100, unresolvedCases: unresolved.length, nextActions: [...overdue, ...dueSoon].slice(0, 10).map(item => ({id: String(item._id || item.id || ''), title: item.title, dueAt: item.dueAt, status: item.status}))};
 }
 
+// Build immutable server-priced storefront lines. A customer can choose quantities, but never submit their own prices.
+export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []) {
+  if (!Array.isArray(requestedItems) || requestedItems.length < 1 || requestedItems.length > 50) {
+    throw new Error('Choose between 1 and 50 products');
+  }
+  const catalogue = new Map(catalogItems.map(item => [String(item._id), item]));
+  const quantities = new Map();
+  for (const line of requestedItems) {
+    const itemId = String(line?.itemId || '');
+    const quantity = Number(line?.quantity);
+    if (!itemId || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) {
+      throw new Error('Each product needs a valid ID and quantity from 1 to 100');
+    }
+    quantities.set(itemId, (quantities.get(itemId) || 0) + quantity);
+  }
+  const items = [];
+  for (const [itemId, quantity] of quantities) {
+    const product = catalogue.get(itemId);
+    if (!product || product.active !== true) throw new Error('One or more selected products are no longer available');
+    if (String(product.currency || 'KES').toUpperCase() !== 'KES') throw new Error('M-Pesa checkout currently supports KES products only');
+    const unitPrice = Number(product.price);
+    if (!Number.isSafeInteger(unitPrice) || unitPrice < 1) throw new Error('M-Pesa products must have a whole-number price of at least KSh 1');
+    // A positive stock value is tracked; zero means stock was not configured in the current catalogue UI.
+    if (Number(product.stock) > 0 && quantity > Number(product.stock)) throw new Error(`Not enough stock for ${product.name}`);
+    items.push({catalogItemId: product._id, name: product.name, quantity, unitPrice, lineTotal: unitPrice * quantity});
+  }
+  const total = items.reduce((sum, item) => sum + item.lineTotal, 0);
+  if (!Number.isSafeInteger(total) || total < 1 || total > 150000) throw new Error('M-Pesa checkout total must be between KSh 1 and KSh 150,000');
+  return {items, subtotal: total, taxRate: 0, taxMode: 'none', tax: 0, total, currency: 'KES'};
+}
+
 export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io, mpesaProvider}) {
   const O = mongoose.Schema.Types.ObjectId;
   const messaging = createMessagingProviders(process.env);
@@ -189,36 +220,6 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     return Model.find(filter).sort({updatedAt: -1}).limit(Math.min(200, Math.max(1, Number(req.query.limit) || 50)));
   };
 
-// Build immutable server-priced storefront lines. A customer can choose quantities, but never submit their own prices.
-export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []) {
-  if (!Array.isArray(requestedItems) || requestedItems.length < 1 || requestedItems.length > 50) {
-    throw new Error('Choose between 1 and 50 products');
-  }
-  const catalogue = new Map(catalogItems.map(item => [String(item._id), item]));
-  const quantities = new Map();
-  for (const line of requestedItems) {
-    const itemId = String(line?.itemId || '');
-    const quantity = Number(line?.quantity);
-    if (!itemId || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) {
-      throw new Error('Each product needs a valid ID and quantity from 1 to 100');
-    }
-    quantities.set(itemId, (quantities.get(itemId) || 0) + quantity);
-  }
-  const items = [];
-  for (const [itemId, quantity] of quantities) {
-    const product = catalogue.get(itemId);
-    if (!product || product.active !== true) throw new Error('One or more selected products are no longer available');
-    if (String(product.currency || 'KES').toUpperCase() !== 'KES') throw new Error('M-Pesa checkout currently supports KES products only');
-    const unitPrice = Number(product.price);
-    if (!Number.isSafeInteger(unitPrice) || unitPrice < 1) throw new Error('M-Pesa products must have a whole-number price of at least KSh 1');
-    // A positive stock value is tracked; zero means stock was not configured in the current catalogue UI.
-    if (Number(product.stock) > 0 && quantity > Number(product.stock)) throw new Error(`Not enough stock for ${product.name}`);
-    items.push({catalogItemId: product._id, name: product.name, quantity, unitPrice, lineTotal: unitPrice * quantity});
-  }
-  const total = items.reduce((sum, item) => sum + item.lineTotal, 0);
-  if (!Number.isSafeInteger(total) || total < 1 || total > 150000) throw new Error('M-Pesa checkout total must be between KSh 1 and KSh 150,000');
-  return {items, subtotal: total, taxRate: 0, taxMode: 'none', tax: 0, total, currency: 'KES'};
-}
 
   // Public storefront discovery: customers can browse active products without workspace access.
   app.get('/api/storefront/:slug', async (req, res) => {
