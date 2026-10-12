@@ -2417,17 +2417,84 @@ class _ChatState extends State<Chat> {
     connect();
   }
 
+  // Resolve the other member from the conversation payload. The API normally
+  // populates participants with user names, but support both id/_id and nested
+  // user objects so the header still works across older conversation responses.
+  String? _directPeerName() {
+    if (widget.conversation['type'] != 'direct') return null;
+    final participants = widget.conversation['participants'];
+    if (participants is! List) return null;
+
+    final currentUserIds = <String>{
+      app.user?['id']?.toString() ?? '',
+      app.user?['_id']?.toString() ?? '',
+    }..remove('');
+    Map<String, dynamic>? fallbackParticipant;
+
+    for (final rawParticipant in participants) {
+      if (rawParticipant is! Map) continue;
+      final participant = Map<String, dynamic>.from(rawParticipant);
+      final nestedUser = participant['user'] is Map
+          ? Map<String, dynamic>.from(participant['user'] as Map)
+          : <String, dynamic>{};
+      final rawId = participant['_id'] ??
+          participant['id'] ??
+          nestedUser['_id'] ??
+          nestedUser['id'];
+      final participantId = rawId?.toString() ?? '';
+
+      // Never accidentally show the signed-in user's own name as the chat peer.
+      if (participantId.isNotEmpty && currentUserIds.contains(participantId)) {
+        continue;
+      }
+      fallbackParticipant ??= participant;
+
+      final name = (participant['name'] ??
+              nestedUser['name'] ??
+              participant['username'] ??
+              nestedUser['username'] ??
+              participant['displayName'] ??
+              nestedUser['displayName'] ??
+              '')
+          .toString()
+          .trim();
+      if (name.isNotEmpty) return name;
+    }
+
+    final fallback = fallbackParticipant;
+    if (fallback == null) return null;
+    final nestedUser = fallback['user'] is Map
+        ? Map<String, dynamic>.from(fallback['user'] as Map)
+        : <String, dynamic>{};
+    final fallbackName = (fallback['name'] ??
+            nestedUser['name'] ??
+            fallback['username'] ??
+            nestedUser['username'] ??
+            '')
+        .toString()
+        .trim();
+    return fallbackName.isEmpty ? null : fallbackName;
+  }
+
   String? _directPeerId() {
     if (widget.conversation['type'] != 'direct') return null;
     final participants = widget.conversation['participants'];
     if (participants is! List) return null;
-    final currentUserId = app.user?['id']?.toString();
+    final currentUserIds = <String>{
+      app.user?['id']?.toString() ?? '',
+      app.user?['_id']?.toString() ?? '',
+    }..remove('');
     for (final participant in participants) {
       if (participant is! Map) continue;
-      final rawId = participant['_id'] ?? participant['id'];
+      final nestedUser =
+          participant['user'] is Map ? participant['user'] as Map : null;
+      final rawId = participant['_id'] ??
+          participant['id'] ??
+          nestedUser?['_id'] ??
+          nestedUser?['id'];
       if (rawId == null) continue;
       final id = rawId.toString();
-      if (id.isNotEmpty && id != currentUserId) return id;
+      if (id.isNotEmpty && !currentUserIds.contains(id)) return id;
     }
     return null;
   }
@@ -3687,9 +3754,11 @@ class _ChatState extends State<Chat> {
 
   @override
   Widget build(BuildContext context) {
+    // Direct chats show the other participant's real name above their presence status.
+    // Group chats keep using the configured group title.
     final title = widget.conversation['type'] == 'group'
         ? (widget.conversation['title'] ?? 'Group').toString()
-        : 'Chat';
+        : (_directPeerName() ?? 'Chat');
     final currentUserId = app.user?['id']?.toString();
     final closedPaymentCount = payments.where((item) {
       if (item is! Map) return false;
