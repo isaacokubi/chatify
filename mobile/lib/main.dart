@@ -2374,6 +2374,13 @@ class _ChatState extends State<Chat> {
   bool _isTyping = false;
   List<dynamic> messages = [];
   List<dynamic> payments = [];
+  // Suggestions are local UI state only until the user explicitly saves a Memory Card.
+  List<Map<String, dynamic>> memorySuggestions = [];
+  String? memorySuggestionSourceId;
+  bool savingMemorySuggestion = false;
+  final Set<String> _checkedMemoryMessageIds = {};
+  final Set<String> _dismissedMemoryMessageIds = {};
+  final Set<String> _savedMemoryMessageIds = {};
   bool showClosedPayments = false;
   String expiry = 'NONE';
   String? reply;
@@ -2474,6 +2481,9 @@ class _ChatState extends State<Chat> {
           messages = mergeMessages(messages, fetched);
         });
         _scrollToLatestMessage();
+        // Inspect recent text messages in the background so suggestions appear
+        // without requiring the user to open the sparkle/manual-save menu.
+        _scanRecentMessagesForMemory(fetched);
       }
       try {
         final paymentResult = await app.api.call('GET', '/api/payments');
@@ -2564,6 +2574,8 @@ class _ChatState extends State<Chat> {
                 .any((item) => item is Map && item['_id']?.toString() == id)) {
           setState(() => messages = mergeMessages(messages, [incoming]));
           _scrollToLatestMessage();
+          // Detect memories on live incoming messages as soon as they arrive.
+          _detectMemoryForMessage(incoming);
         }
         if (id != null &&
             incoming['senderId']?.toString() != app.user?['id']?.toString()) {
@@ -2666,6 +2678,8 @@ class _ChatState extends State<Chat> {
       });
       input.clear();
       _scrollToLatestMessage();
+      // The sender's own message can contain useful commitments or personal facts too.
+      _detectMemoryForMessage(sent);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -3424,6 +3438,99 @@ class _ChatState extends State<Chat> {
     super.dispose();
   }
 
+  // Scan the newest messages first and stop after finding a useful candidate.
+  // This keeps the chat UI quiet for ordinary messages and avoids repeated requests.
+  Future<void> _scanRecentMessagesForMemory(List<dynamic> sourceMessages) async {
+    final recent = sourceMessages
+        .whereType<Map>()
+        .toList()
+        .reversed
+        .take(12);
+    for (final raw in recent) {
+      if (await _detectMemoryForMessage(Map<String, dynamic>.from(raw))) return;
+    }
+  }
+
+  Future<bool> _detectMemoryForMessage(Map<String, dynamic> message) async {
+    if (message['messageType'] != 'text' ||
+        message['deletedAt'] != null ||
+        message['expiredAt'] != null ||
+        message['text'] is! String) {
+      return false;
+    }
+    final text = (message['text'] as String).trim();
+    final id = message['_id']?.toString();
+    if (text.isEmpty || id == null || id.isEmpty ||
+        _checkedMemoryMessageIds.contains(id) ||
+        _dismissedMemoryMessageIds.contains(id) ||
+        _savedMemoryMessageIds.contains(id)) {
+      return false;
+    }
+    _checkedMemoryMessageIds.add(id);
+    try {
+      final result = await app.api.call(
+          'POST', '/api/memories/extract', {'text': text});
+      final candidates = List<dynamic>.from(result['candidates'] ?? [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .where((item) =>
+              item['title'] is String &&
+              (item['title'] as String).trim().isNotEmpty &&
+              item['description'] is String &&
+              (item['description'] as String).trim().isNotEmpty)
+          .toList();
+      if (!mounted || candidates.isEmpty) return false;
+      // Never interrupt the composer with an automatic save; show suggestions
+      // that the user can save or dismiss, with no data persisted yet.
+      setState(() {
+        memorySuggestions = candidates;
+        memorySuggestionSourceId = id;
+      });
+      return true;
+    } catch (_) {
+      // Detection is a convenience; an API/network failure must not disrupt chat.
+      return false;
+    }
+  }
+
+  void _dismissMemorySuggestions() {
+    final id = memorySuggestionSourceId;
+    if (id != null) _dismissedMemoryMessageIds.add(id);
+    if (!mounted) return;
+    setState(() {
+      memorySuggestions = [];
+      memorySuggestionSourceId = null;
+    });
+  }
+
+  Future<void> _saveMemorySuggestion(Map<String, dynamic> candidate) async {
+    final sourceId = memorySuggestionSourceId;
+    if (sourceId == null || savingMemorySuggestion) return;
+    setState(() => savingMemorySuggestion = true);
+    try {
+      await app.api.call('POST', '/api/memories', {
+        ...candidate,
+        'conversationId': widget.conversation['_id'],
+        'sourceMessageId': sourceId,
+      });
+      if (!mounted) return;
+      _savedMemoryMessageIds.add(sourceId);
+      setState(() {
+        memorySuggestions.remove(candidate);
+        if (memorySuggestions.isEmpty) memorySuggestionSourceId = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Memory saved to your Memory Cards.')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not save memory: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => savingMemorySuggestion = false);
+    }
+  }
+
   Future<void> extractMemory() async {
     try {
       final eligibleSources = messages
@@ -3858,6 +3965,79 @@ class _ChatState extends State<Chat> {
                           },
                         ),
         ),
+        if (memorySuggestions.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+            child: Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.auto_awesome, size: 18),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Chatify noticed something worth remembering',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Not now',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: savingMemorySuggestion
+                              ? null
+                              : _dismissMemorySuggestions,
+                          icon: const Icon(Icons.close, size: 18),
+                        ),
+                      ],
+                    ),
+                    for (final suggestion in memorySuggestions)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(suggestion['title']?.toString() ?? 'Memory',
+                                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                                  Text(suggestion['description']?.toString() ?? ''),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: savingMemorySuggestion
+                                  ? null
+                                  : () => _saveMemorySuggestion(suggestion),
+                              child: savingMemorySuggestion
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Text('Save'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: savingMemorySuggestion ? null : _dismissMemorySuggestions,
+                        child: const Text('Not now'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         if (reply != null)
           const Padding(
               padding: EdgeInsets.all(6),
