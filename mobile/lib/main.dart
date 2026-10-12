@@ -1535,9 +1535,27 @@ class _HomeState extends State<Home> {
   Widget build(BuildContext context) {
     final titles = ['Chats', 'Business', 'Memories', 'Contacts', 'Profile'];
     return Scaffold(
+      // Keep Business discoverable from the primary chat screen as well as the
+      // dedicated bottom-navigation tab. This is especially helpful on web,
+      // where users may overlook the fifth navigation destination.
+      floatingActionButton: tab == 0
+          ? FloatingActionButton.extended(
+              heroTag: 'open-business-workspace',
+              onPressed: () => setState(() => tab = 1),
+              icon: const Icon(Icons.business_center_outlined),
+              label: const Text('Business'),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       appBar: AppBar(
         title: Text(titles[tab]),
         actions: [
+          if (tab != 1)
+            IconButton(
+              tooltip: 'Open Business workspace',
+              icon: const Icon(Icons.business_center_outlined),
+              onPressed: () => setState(() => tab = 1),
+            ),
           IconButton(
               tooltip: 'Payment history',
               icon: const Icon(Icons.account_balance_wallet_outlined),
