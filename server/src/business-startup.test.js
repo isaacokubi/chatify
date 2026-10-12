@@ -64,6 +64,6 @@ test('API boots and Business endpoints return JSON auth errors', {timeout: 15000
 
   assert.ok(response, 'API did not start: ' + String(lastError) + '\n' + output);
   assert.equal(response.status, 401, 'Business route should be mounted and require authentication');
-  assert.match(response.headers.get('content-type') || '', /application\\/json/i);
+  assert.match(response.headers.get('content-type') || '', /application\/json/i);
   assert.deepEqual(await response.json(), {error: 'Authentication required'});
 });
