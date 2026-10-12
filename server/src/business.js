@@ -209,8 +209,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const org = await requireOrg(req, res); if (!org || !requireManager(org, req, res)) return;
     for (const key of ['name', 'description', 'email', 'phone', 'website', 'country', 'currency', 'timezone']) if (req.body?.[key] !== undefined) org[key] = shortText(req.body[key], key === 'description' ? 2000 : 500);
     if (req.body?.industry !== undefined && INDUSTRIES.includes(req.body.industry)) org.industry = req.body.industry;
-    if (req.body?.plan && ['free', 'business_pro', 'teams', 'enterprise'].includes(req.body.plan)) org.plan = req.body.plan;
-    if (req.body?.settings && typeof req.body.settings === 'object' && !Array.isArray(req.body.settings)) org.settings = {...org.settings, ...req.body.settings};
+    // Subscription plans are billing-controlled; workspace editors cannot grant themselves a paid plan.
+    if (req.body?.settings && typeof req.body.settings === 'object' && !Array.isArray(req.body.settings)) { const settings = {...req.body.settings}; delete settings.taxProfile; org.settings = {...org.settings, ...settings}; }
     await org.save(); res.json({organization: org});
   });
   app.post('/api/business/organizations/:orgId/members', auth, async (req, res) => {
