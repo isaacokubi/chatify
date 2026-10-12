@@ -11,9 +11,9 @@ The Flutter app has a **Business** tab. It can create/select a business workspac
 - customer records;
 - quotations;
 - tasks and follow-ups;
-- a Tools panel for tax profiles, text/voice translation, Business Memory suggestions, consent-gated WhatsApp/SMS, scheduled workflows, offline sync review, and invoice issue/M-Pesa/eTIMS actions.
+- a Tools panel for tax profiles, text/voice translation, Business Memory suggestions, consent-gated WhatsApp/SMS, scheduled workflows, offline sync review, and invoice issue/M-Pesa/Stripe/PayPal/eTIMS actions.
 
-The mobile screen calls the authenticated API described below. The other operations are exposed as APIs and can be surfaced in later screens without changing the stored record formats.
+The mobile screen calls the authenticated API described below. Advanced operations are available through the Tools panel and authenticated APIs; provider-dependent actions remain disabled until their server credentials are configured.
 
 ## Implemented business API
 
@@ -64,21 +64,18 @@ npm run lint
 
 The focused pure-logic tests in `src/business.test.js` cover business slugs, server-side document totals, lifecycle transitions and the business briefing. A real deployment should additionally test database migrations/index creation, organization isolation, provider callback reconciliation and Flutter web/mobile builds against a non-production database.
 
-## Roadmap items that still require external services or additional implementation
+## Remaining work and production prerequisites
 
-The foundation is in place for these features, but they must not be represented as fully delivered just because the data model can support them:
-- live Daraja payment initiation linked to business invoices, eTIMS/KRA integration and country-specific tax compliance;
-- automated email/SMS/WhatsApp integrations, with provider approval and supported APIs;
-- automatic workflow execution, scheduled reminders and background jobs;
-- real-time shared inbox UI and a customer-facing case room;
-- translations, voice transcription, cross-language quote confirmation and AI-generated actions;
-- verified supplier identity, dispute management and a public multi-business marketplace;
-- offline queueing with conflict resolution, push notifications for every business event and robust background synchronization;
-- international tax/payment/shipping integrations, region-specific storage, subscriptions and enterprise SSO;
-- advanced forecasting and predictive early-warning models.
+The following distinctions are important; implemented adapters are not the same as activated and production-verified services:
+- **Daraja/M-Pesa:** invoice-linked STK flow and callback reconciliation are implemented, but live use requires Safaricom production credentials and end-to-end testing.
+- **KRA eTIMS:** a configurable gateway adapter is implemented. The taxpayer must obtain the appropriate KRA onboarding and use an authorized gateway/API contract; this repository does not claim that an arbitrary URL is KRA's official endpoint.
+- **Messaging and language services:** WhatsApp Cloud API, Twilio SMS, text translation and audio transcription/translation adapters are implemented, but provider credentials, sender approval, consent and provider-specific testing are required.
+- **Workflows:** a scheduled allow-listed runner and protected cron endpoint are implemented. Multi-instance deployments should use one external scheduler; high-criticality automation still needs a durable queue, retries and dead-letter monitoring.
+- **Offline sync:** on-device queued creates and version-checked server sync are implemented for customers, catalogue items, tasks and support cases. Offline edits, attachments, conflict merge UI and guaranteed background delivery remain future work.
+- **International billing:** configurable tax profiles, Stripe Checkout and PayPal Orders v2 are implemented. Confirm supported currencies, tax law, refunds, disputes, payment-provider eligibility and live webhooks before accepting real payments.
+- **Still future work:** real-time shared-inbox and customer case-room UI, verified supplier identity, dispute management, public multi-business marketplace, region-specific storage, subscriptions, enterprise SSO, full push notifications for every business event, cross-language quote confirmation, autonomous AI actions, advanced forecasting and predictive early-warning models.
 
-These need credentials, operational policies, external-provider configuration, product testing and privacy review. Keep mock/test providers as the default until each production integration is deliberately configured.
-
+Use sandbox/test credentials first. Production activation requires operational policies, privacy review, monitoring, provider verification and end-to-end tests; do not claim a provider is live until its production configuration and actual callbacks have been verified.
 
 ## Extended integrations and production configuration
 
