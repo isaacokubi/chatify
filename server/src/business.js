@@ -133,7 +133,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   // Offline mutations are idempotent and retain a compact conflict result for safe retry.
   const BusinessSyncMutation = mongoose.models.BusinessSyncMutation || mongoose.model('BusinessSyncMutation', new mongoose.Schema({
     organizationId: {type: O, required: true, index: true}, mutationId: {type: String, required: true}, actorId: {type: O, required: true},
-    entityType: {type: String, enum: ['customer','catalog','task','case'], required: true}, entityId: {type: String, required: true},
+    entityType: {type: String, enum: ['customer','catalog','task','case'], required: true}, entityId: {type: String, default: ''},
     status: {type: String, enum: ['applied','conflict','rejected'], required: true}, result: mongoose.Schema.Types.Mixed,
   }, {timestamps: true}));
   BusinessSyncMutation.schema.index({organizationId: 1, mutationId: 1}, {unique: true});
@@ -389,9 +389,25 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     for(const mutation of mutations){
       let mutationId;try{mutationId=createIdempotencyKey(mutation?.mutationId);}catch(error){results.push({mutationId:null,status:'rejected',error:error.message});continue;}
       const prior=await BusinessSyncMutation.findOne({organizationId:org._id,mutationId});if(prior){results.push({mutationId,status:prior.status,...(prior.result||{})});continue;}
-      const entityType=mutation?.entityType;const id=String(mutation?.entityId||'');const baseUpdatedAt=mutation?.baseUpdatedAt;
+      const entityType=mutation?.entityType;const id=String(mutation?.entityId||'');const baseUpdatedAt=mutation?.baseUpdatedAt;const operation=mutation?.operation||'update';
       const Model=entityType==='customer'?Customer:entityType==='catalog'?CatalogItem:entityType==='task'?BusinessTask:entityType==='case'?BusinessCase:null;
-      if(!Model||!validId(id)||!mutation?.changes||typeof mutation.changes!=='object'||Array.isArray(mutation.changes)){results.push({mutationId,status:'rejected',error:'Unsupported entity or malformed mutation'});continue;}
+      if(!Model||!mutation?.changes||typeof mutation.changes!=='object'||Array.isArray(mutation.changes)){results.push({mutationId,status:'rejected',error:'Unsupported entity or malformed mutation'});continue;}
+      if(operation==='create'){
+        const fields=mutation.changes;const allowed=entityType==='customer'?['name','email','phone','company','notes','tags']:entityType==='catalog'?['name','sku','description','price','stock','category','type','currency']:entityType==='task'?['title','description','status','priority','dueAt','type']:['title','description','priority','dueAt'];
+        if(Object.keys(fields).some(key=>!allowed.includes(key))){results.push({mutationId,status:'rejected',error:'Create mutation contains unsupported fields'});continue;}
+        const nameOrTitle=String(fields.name||fields.title||'').trim();
+        if(!nameOrTitle){results.push({mutationId,status:'rejected',error:'Create mutation requires a name or title'});continue;}
+        if(entityType==='catalog'&&(!Number.isFinite(Number(fields.price))||Number(fields.price)<0)){results.push({mutationId,status:'rejected',error:'A catalogue item requires a valid non-negative price'});continue;}
+        if(fields.email&& !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(fields.email))){results.push({mutationId,status:'rejected',error:'Invalid customer email'});continue;}
+        const payload={organizationId:org._id,...fields};
+        if(entityType==='customer'){payload.name=nameOrTitle;payload.source='manual';payload.messagingConsent=false;}
+        if(entityType==='catalog'){payload.name=nameOrTitle;payload.price=Number(fields.price);payload.stock=Math.max(0,Number(fields.stock)||0);payload.currency=shortText(fields.currency,3)||org.currency;payload.active=true;}
+        if(entityType==='task'){payload.title=nameOrTitle;payload.createdBy=req.user._id;payload.status=TASK_STATUSES.includes(fields.status)?fields.status:'open';payload.priority=['low','normal','high','urgent'].includes(fields.priority)?fields.priority:'normal';}
+        if(entityType==='case'){payload.title=nameOrTitle;payload.priority=['low','normal','high','urgent'].includes(fields.priority)?fields.priority:'normal';}
+        try{const created=await Model.create(payload);const result={record:created.toObject()};await BusinessSyncMutation.create({organizationId:org._id,mutationId,actorId:req.user._id,entityType,entityId:String(created._id),status:'applied',result});results.push({mutationId,status:'applied',...result});await recordAudit(org,req.user._id,'offline_sync.created',entityType,created._id,'Created record from offline queue');}catch(error){if(error.code===11000){const priorResult=await BusinessSyncMutation.findOne({organizationId:org._id,mutationId});results.push({mutationId,status:priorResult?.status||'rejected',...(priorResult?.result||{}),error:priorResult?undefined:'Record conflicts with an existing unique value'});}else{results.push({mutationId,status:'rejected',error:'Offline create could not be validated'});} }
+        continue;
+      }
+      if(operation!=='update'||!validId(id)){results.push({mutationId,status:'rejected',error:'Update mutation requires a valid entity ID'});continue;}
       const record=await Model.findOne({_id:id,organizationId:org._id});if(!record){results.push({mutationId,status:'rejected',error:'Record not found in this business'});continue;}
       const conflict=detectOfflineConflict(record.updatedAt,baseUpdatedAt);
       if(conflict.conflict){const result={reason:conflict.reason,current:record.toObject()};await BusinessSyncMutation.create({organizationId:org._id,mutationId,actorId:req.user._id,entityType,entityId:id,status:'conflict',result});results.push({mutationId,status:'conflict',...result});continue;}
