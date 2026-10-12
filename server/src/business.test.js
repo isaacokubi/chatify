@@ -74,5 +74,5 @@ test('storefront order lines use server catalogue prices and enforce M-Pesa limi
   assert.throws(() => buildStorefrontOrderLines([{itemId:'a',quantity:9}], products), /Not enough stock/);
   assert.throws(() => buildStorefrontOrderLines([{itemId:'a',quantity:1}], [{...products[0],price:120.5}]), /whole-number price/);
   assert.throws(() => buildStorefrontOrderLines([{itemId:'missing',quantity:1}], products), /no longer available/);
-  assert.throws(() => buildStorefrontOrderLines([{itemId:'a',quantity:100}], [{...products[0],price:2000}]), /KSh 1 and KSh 150,000/);
+  assert.throws(() => buildStorefrontOrderLines([{itemId:'a',quantity:100}], [{...products[0],price:2000,stock:0}]), /KSh 1 and KSh 150,000/);
 });
