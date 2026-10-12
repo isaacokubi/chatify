@@ -120,6 +120,21 @@ List<dynamic> mergeMessages(List<dynamic> current, List<dynamic> fetched) {
   return merged;
 }
 
+// Resolve a reply reference only against messages loaded for the active conversation.
+// Supporting both a raw ID and a populated reference keeps old and new API payloads readable.
+Map<String, dynamic>? findReplyTarget(List<dynamic> conversationMessages, dynamic replyTo) {
+  final replyId = replyTo is Map
+      ? (replyTo['_id'] ?? replyTo['id'])?.toString()
+      : replyTo?.toString();
+  if (replyId == null || replyId.isEmpty) return null;
+  for (final item in conversationMessages) {
+    if (item is Map && item['_id']?.toString() == replyId) {
+      return Map<String, dynamic>.from(item);
+    }
+  }
+  return null;
+}
+
 List<dynamic> mergePayment(
     List<dynamic> current, Map<String, dynamic> payment) {
   final updated = List<dynamic>.from(current);
@@ -3775,6 +3790,50 @@ class _ChatState extends State<Chat> {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
+                                            // A reply keeps only the original message ID in storage.
+                                            // Resolve it against the current conversation so deleted,
+                                            // expired, or unavailable originals never break rendering.
+                                            if (message['replyTo'] != null)
+                                              Builder(builder: (context) {
+                                                final original = findReplyTarget(messages, message['replyTo']);
+                                                // A non-null empty map keeps preview rendering null-safe
+                                                // while the unavailable flag preserves deleted-message semantics.
+                                                final originalMap = original ?? <String, dynamic>{};
+                                                final unavailable = original == null ||
+                                                    originalMap['deletedAt'] != null ||
+                                                    originalMap['expiredAt'] != null;
+                                                final originalSender = originalMap['senderId']?.toString() ==
+                                                        app.user?['id']?.toString()
+                                                    ? 'You'
+                                                    : 'Message';
+                                                final preview = unavailable
+                                                    ? 'Original message unavailable'
+                                                    : (originalMap['text'] ?? '[media]').toString();
+                                                return Container(
+                                                  width: double.infinity,
+                                                  margin: const EdgeInsets.only(bottom: 7),
+                                                  padding: const EdgeInsets.all(8),
+                                                  decoration: BoxDecoration(
+                                                    color: mine ? const Color(0x33404040) : const Color(0xFFF0EFFF),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    border: Border(left: BorderSide(
+                                                      color: mine ? Colors.white70 : const Color(0xFF4F46E5),
+                                                      width: 3,
+                                                    )),
+                                                  ),
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text('Replying to $originalSender',
+                                                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11,
+                                                              color: mine ? Colors.white : const Color(0xFF4F46E5))),
+                                                      Text(preview, maxLines: 2, overflow: TextOverflow.ellipsis,
+                                                          style: TextStyle(fontSize: 12,
+                                                              color: mine ? Colors.white : const Color(0xFF39445A))),
+                                                    ],
+                                                  ),
+                                                );
+                                              }),
                                             if (mine &&
                                                 message['deletedAt'] == null &&
                                                 message['expiredAt'] == null)
@@ -3858,12 +3917,51 @@ class _ChatState extends State<Chat> {
                           },
                         ),
         ),
+        // Keep the selected original visible while composing so users can verify
+        // exactly which message their reply will reference, and allow cancellation.
         if (reply != null)
-          const Padding(
-              padding: EdgeInsets.all(6),
-              child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Replying to a message'))),
+          Builder(builder: (context) {
+            final original = findReplyTarget(messages, reply);
+            // The fallback map lets the composer preview safely handle a missing or expired target.
+            final originalMap = original ?? <String, dynamic>{};
+            final originalDeleted = original == null ||
+                originalMap['deletedAt'] != null || originalMap['expiredAt'] != null;
+            final originalSender = originalMap['senderId']?.toString() ==
+                    app.user?['id']?.toString()
+                ? 'You'
+                : 'Message';
+            final originalText = originalDeleted
+                ? 'Original message unavailable'
+                : (originalMap['text'] ?? '[media]').toString();
+            return Container(
+              margin: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+              padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0EFFF),
+                border: const Border(left: BorderSide(color: Color(0xFF4F46E5), width: 3)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(children: [
+                const Icon(Icons.reply, color: Color(0xFF4F46E5), size: 19),
+                const SizedBox(width: 8),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Replying to $originalSender',
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF4F46E5))),
+                    Text(originalText, maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF39445A))),
+                  ],
+                )),
+                IconButton(
+                  tooltip: 'Cancel reply',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() => reply = null),
+                  icon: const Icon(Icons.close, size: 18),
+                ),
+              ]),
+            );
+          }),
         SafeArea(
             child: Row(children: [
           IconButton(
