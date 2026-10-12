@@ -119,7 +119,7 @@ These need credentials, operational policies, external-provider configuration, p
 
 
 ### International hosted payments (Stripe Checkout)
-- Configure `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL` on the server. Never put these values in Flutter or source control.
+- Configure `STRIPE_ENV=test` for testing or `STRIPE_ENV=production` for live mode, plus `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, and `STRIPE_CANCEL_URL` on the server. Test/live key prefixes and signed event `livemode` must match the configured mode. Never put these values in Flutter or source control.
 - `POST /api/business/organizations/:orgId/documents/:documentId/stripe-checkout` creates a hosted checkout for the outstanding balance of an issued invoice and returns the checkout URL. The mobile app opens that URL outside Chatify.
 - Configure the Stripe webhook to call `POST /api/business/payments/stripe/webhook` and subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, and `checkout.session.expired`.
 - The server verifies the Stripe signature against the raw request body and validates checkout ID, metadata, currency, and minor-unit amount before reconciling the invoice. Redirecting back to Chatify is not proof of payment.
