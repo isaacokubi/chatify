@@ -248,11 +248,10 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       if (!catalogItem) return res.status(404).json({error:'Referenced catalogue item is not active in this business'});
       line.name = catalogItem.name;
       line.unitPrice = catalogItem.price;
-      line.lineTotal = Math.round(line.quantity * line.unitPrice * 100) / 100;
     }
-    totals.subtotal = Math.round(totals.subtotal * 100) / 100;
-    totals.tax = Math.round(totals.tax * 100) / 100;
-    totals.total = Math.round(totals.total * 100) / 100;
+    // Recalculate after catalogue prices are loaded so inclusive taxes and discounts remain correct.
+    try { totals = calculateInternationalTotals(totals.items.map(line=>({name:line.name,quantity:line.quantity,unitPrice:line.unitPrice,discount:line.discount})), {currency:totals.currency,mode:totals.taxMode,rate:totals.taxRate}); }
+    catch (error) { return res.status(400).json({error:error.message}); }
     const number = shortText(req.body.number,60) || `${type.toUpperCase().slice(0,3)}-${Date.now().toString(36).toUpperCase()}`;
     try { const document = await BusinessDocument.create({organizationId:org._id,customerId:req.body.customerId,conversationId:validId(req.body.conversationId)?req.body.conversationId:undefined,type,number,status:'draft',...totals,currency:totals.currency,taxMode:totals.taxMode,dueDate:req.body.dueDate?new Date(req.body.dueDate):undefined,notes:shortText(req.body.notes,4000),createdBy:req.user._id,branchId:validId(req.body.branchId)?req.body.branchId:undefined}); await recordAudit(org, req.user._id, 'document.created', 'document', document._id, 'Created ' + type); res.status(201).json({document}); } catch (error) { safeError(res,error); }
   });
@@ -399,7 +398,24 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const allowed=entityType==='customer'?['name','email','phone','company','notes','tags']:entityType==='catalog'?['name','sku','description','price','stock','active']:entityType==='task'?['title','description','status','priority','dueAt']:['title','description','status','priority','dueAt'];
       const changes=mutation.changes;const keys=Object.keys(changes);
       if(!keys.length||keys.some(key=>!allowed.includes(key))){results.push({mutationId,status:'rejected',error:'Mutation contains unsupported fields'});continue;}
-      for(const key of keys){if(['price','stock'].includes(key)){const value=Number(changes[key]);if(!Number.isFinite(value)||value<0){results.push({mutationId,status:'rejected',error:'Price and stock must be non-negative numbers'});continue;}record[key]=value;}else if(key==='active'){if(typeof changes[key]!=='boolean'){results.push({mutationId,status:'rejected',error:'active must be boolean'});continue;}record[key]=changes[key];}else if(key==='status'&&entityType==='task'){if(!TASK_STATUSES.includes(changes[key])){results.push({mutationId,status:'rejected',error:'Invalid task status'});continue;}record[key]=changes[key];}else if(key==='priority'&&['task','case'].includes(entityType)){if(!['low','normal','high','urgent'].includes(changes[key])){results.push({mutationId,status:'rejected',error:'Invalid priority'});continue;}record[key]=changes[key];}else if(key==='dueAt'){const date=changes[key]==null?null:new Date(changes[key]);if(date&&Number.isNaN(date.getTime())){results.push({mutationId,status:'rejected',error:'Invalid due date'});continue;}record[key]=date;}else if(key==='tags'){if(!Array.isArray(changes[key])||changes[key].length>30||changes[key].some(v=>typeof v!=='string')){results.push({mutationId,status:'rejected',error:'Tags must be a list of up to 30 strings'});continue;}record[key]=changes[key].map(v=>v.slice(0,40));}else if(typeof changes[key]==='string')record[key]=changes[key].trim().slice(0,key==='notes'||key==='description'?4000:500);else{results.push({mutationId,status:'rejected',error:'Invalid field value'});}}
+      let invalid=null;
+      for(const [key,value] of Object.entries(changes)){
+        if(['price','stock'].includes(key)&&(!Number.isFinite(Number(value))||Number(value)<0))invalid='Price and stock must be non-negative numbers';
+        else if(key==='active'&&typeof value!=='boolean')invalid='active must be boolean';
+        else if(key==='status'&&entityType==='task'&&!TASK_STATUSES.includes(value))invalid='Invalid task status';
+        else if(key==='priority'&&['task','case'].includes(entityType)&&!['low','normal','high','urgent'].includes(value))invalid='Invalid priority';
+        else if(key==='dueAt'&&value!=null&&Number.isNaN(new Date(value).getTime()))invalid='Invalid due date';
+        else if(key==='tags'&&(!Array.isArray(value)||value.length>30||value.some(v=>typeof v!=='string')))invalid='Tags must be a list of up to 30 strings';
+        else if(!['price','stock','active','status','priority','dueAt','tags'].includes(key)&&typeof value!=='string')invalid='Invalid field value';
+      }
+      if(invalid){results.push({mutationId,status:'rejected',error:invalid});continue;}
+      for(const [key,value] of Object.entries(changes)){
+        if(['price','stock'].includes(key))record[key]=Number(value);
+        else if(key==='dueAt')record[key]=value==null?null:new Date(value);
+        else if(key==='tags')record[key]=value.map(v=>v.trim().slice(0,40));
+        else if(typeof value==='string')record[key]=value.trim().slice(0,key==='notes'||key==='description'?4000:500);
+        else record[key]=value;
+      }
       await record.save();const result={record:record.toObject()};await BusinessSyncMutation.create({organizationId:org._id,mutationId,actorId:req.user._id,entityType,entityId:id,status:'applied',result});results.push({mutationId,status:'applied',...result});await recordAudit(org,req.user._id,'offline_sync.applied',entityType,id,'Applied offline change');
     }
     res.json({results,applied:results.filter(item=>item.status==='applied').length,conflicts:results.filter(item=>item.status==='conflict').length,rejected:results.filter(item=>item.status==='rejected').length});
