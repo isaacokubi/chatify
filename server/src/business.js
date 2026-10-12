@@ -1,5 +1,5 @@
 import {normalizeMpesaPhone, validPaymentAmount, newPaymentId} from './payments.js';
-import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMessagingProviders, createLanguageProvider, createEtimsProvider, createIdempotencyKey, detectOfflineConflict, newIntegrationRequestId} from './business-integrations.js';
+import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMessagingProviders, createLanguageProvider, createEtimsProvider, createStripeProvider, createIdempotencyKey, detectOfflineConflict, newIntegrationRequestId} from './business-integrations.js';
 // CHATIFY BUSINESS PLATFORM
 // Business records live beside chat records, with organization-level authorization.
 // This module deliberately keeps payment confirmation server-owned: a screenshot or
@@ -55,6 +55,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   const messaging = createMessagingProviders(process.env);
   const language = createLanguageProvider(process.env);
   const etims = createEtimsProvider(process.env);
+  const stripe = createStripeProvider(process.env);
   const memberSchema = new mongoose.Schema({userId: {type: O, ref: 'User', required: true}, role: {type: String, enum: ROLES, default: 'viewer'}, branchIds: {type: [O], default: []}}, {_id: false});
   const Organization = mongoose.models.BusinessOrganization || mongoose.model('BusinessOrganization', new mongoose.Schema({
     name: {type: String, required: true, trim: true, maxlength: 120}, slug: {type: String, required: true, unique: true, lowercase: true},
@@ -131,6 +132,16 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     entityId: String, summary: {type: String, maxlength: 300}, occurredAt: {type: Date, default: Date.now, index: true},
   }, {timestamps: false}));
   // Offline mutations are idempotent and retain a compact conflict result for safe retry.
+  // International hosted checkout attempts are separate from M-Pesa records and are reconciled
+  // only by a verified provider webhook.
+  const BusinessExternalPayment = mongoose.models.BusinessExternalPayment || mongoose.model('BusinessExternalPayment', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, documentId: {type: O, required: true, index: true},
+    paymentId: {type: String, required: true, unique: true}, provider: {type: String, enum: ['stripe'], required: true},
+    providerCheckoutId: {type: String, unique: true, sparse: true}, checkoutUrl: String,
+    amount: {type: Number, required: true, min: 0}, amountMinorUnits: {type: Number, required: true, min: 1},
+    currency: {type: String, required: true, maxlength: 3}, status: {type: String, enum: ['pending','succeeded','failed','cancelled'], default: 'pending', index: true},
+    providerEventId: String, completedAt: Date,
+  }, {timestamps: true}));
   const BusinessSyncMutation = mongoose.models.BusinessSyncMutation || mongoose.model('BusinessSyncMutation', new mongoose.Schema({
     organizationId: {type: O, required: true, index: true}, mutationId: {type: String, required: true}, actorId: {type: O, required: true},
     entityType: {type: String, enum: ['customer','catalog','task','case'], required: true}, entityId: {type: String, default: ''},
@@ -353,6 +364,47 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const payment=await Payment.create({paymentId:newPaymentId(),requesterId:req.user._id,payerId:req.user._id,businessOrganizationId:org._id,businessDocumentId:document._id,amount:outstanding,recipientPhone:normalizeMpesaPhone(org.phone)||phone,payerPhone:phone,phone,description:('Invoice '+document.number).slice(0,80),provider:mpesaProvider.name,requestedAt:new Date(),initiating:true});
     try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.amount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
     catch(error){payment.status='FAILED';payment.initiating=false;payment.completedAt=new Date();payment.callbackProcessedAt=new Date();payment.resultDescription='Provider initiation failed';await payment.save();console.error('Invoice M-Pesa initiation failed',{stage:error?.stage||'unknown'});res.status(503).json({error:'M-Pesa request could not be initiated. Check provider configuration and retry.'});}
+  });
+
+  // International card/wallet checkout. A browser redirect is not proof of payment; only the
+  // signature-verified Stripe webhook below can settle the linked invoice.
+  app.post('/api/business/organizations/:orgId/documents/:documentId/stripe-checkout', auth, async(req,res)=>{
+    const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;
+    if(!stripe.configured)return res.status(503).json({error:'Stripe is not configured. Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET.'});
+    const document=await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id});
+    if(!document)return res.status(404).json({error:'Invoice not found'});
+    if(document.type!=='invoice'||['draft','rejected','cancelled','fulfilled','paid'].includes(document.status))return res.status(409).json({error:'Only issued, unpaid invoices can be paid online'});
+    const outstanding=Math.round((document.total-document.paidAmount)*1000)/1000;
+    if(!Number.isFinite(outstanding)||outstanding<=0)return res.status(409).json({error:'Invoice has no outstanding balance'});
+    if(await BusinessExternalPayment.exists({documentId:document._id,status:'pending'}))return res.status(409).json({error:'A hosted payment session is already pending for this invoice'});
+    if(await Payment.exists({businessDocumentId:document._id,status:'PENDING'}))return res.status(409).json({error:'An M-Pesa payment request is already pending for this invoice'});
+    const customer=document.customerId?await Customer.findOne({_id:document.customerId,organizationId:org._id}).lean():null;
+    const paymentId=newIntegrationRequestId();
+    let checkout;
+    try{checkout=await stripe.createCheckoutSession({paymentId,organizationId:String(org._id),documentId:String(document._id),number:document.number,amount:outstanding,currency:document.currency,successUrl:shortText(req.body?.successUrl,1000)||process.env.STRIPE_SUCCESS_URL,cancelUrl:shortText(req.body?.cancelUrl,1000)||process.env.STRIPE_CANCEL_URL,customerEmail:customer?.email});}
+    catch(error){console.error('Stripe checkout creation failed',{status:error?.status||'unconfigured'});return res.status(error.message?.includes('not configured')?503:400).json({error:error.message||'Stripe checkout could not be created'});}
+    const external=await BusinessExternalPayment.create({organizationId:org._id,documentId:document._id,paymentId,provider:'stripe',providerCheckoutId:checkout.checkoutId,checkoutUrl:checkout.checkoutUrl,amount:outstanding,amountMinorUnits:checkout.unitAmount,currency:document.currency,status:'pending'});
+    await recordAudit(org,req.user._id,'invoice.stripe_checkout_created','document',document._id,'Created hosted checkout for '+document.number);
+    res.status(201).json({payment:{id:external.paymentId,provider:external.provider,checkoutUrl:external.checkoutUrl,amount:external.amount,currency:external.currency,status:external.status},notice:'Open the hosted checkout URL. The invoice updates only after a signed Stripe webhook confirms payment.'});
+  });
+
+  app.post('/api/business/payments/stripe/webhook', async(req,res)=>{
+    let event;
+    try{event=stripe.verifyWebhook(req.rawBody,req.get('stripe-signature'));}
+    catch(error){return res.status(400).json({error:'Stripe webhook signature verification failed'});}
+    const session=event?.data?.object;
+    if(!session?.id||!['checkout.session.completed','checkout.session.async_payment_succeeded','checkout.session.async_payment_failed','checkout.session.expired'].includes(event.type))return res.json({ok:true,ignored:true});
+    const external=await BusinessExternalPayment.findOne({provider:'stripe',providerCheckoutId:session.id,paymentId:session.metadata?.paymentId});
+    if(!external)return res.json({ok:true,ignored:true});
+    if(event.type==='checkout.session.completed'||event.type==='checkout.session.async_payment_succeeded'){
+      if(session.payment_status!=='paid'||String(session.currency||'').toLowerCase()!==external.currency.toLowerCase()||Number(session.amount_total)!==external.amountMinorUnits)return res.status(400).json({error:'Stripe checkout amount or currency does not match the invoice'});
+      if(external.status==='pending')await BusinessExternalPayment.updateOne({_id:external._id,status:'pending'},{$set:{status:'succeeded',providerEventId:String(event.id||''),completedAt:new Date()}});
+      const document=await BusinessDocument.findOneAndUpdate({_id:external.documentId,organizationId:external.organizationId,'paymentRecords.reference':{$ne:external.paymentId}},{$inc:{paidAmount:external.amount},$push:{paymentRecords:{amount:external.amount,method:'stripe',reference:external.paymentId,verified:true,recordedAt:new Date(),recordedBy:undefined}}},{new:true});
+      if(document){document.status=document.paidAmount>=document.total?'paid':'part_paid';await document.save();}
+    }else if(external.status==='pending'){
+      await BusinessExternalPayment.updateOne({_id:external._id,status:'pending'},{$set:{status:event.type==='checkout.session.expired'?'cancelled':'failed',providerEventId:String(event.id||''),completedAt:new Date()}});
+    }
+    res.json({ok:true});
   });
 
   // Only the explicitly configured approved gateway is contacted for eTIMS submission. HTTP 200
