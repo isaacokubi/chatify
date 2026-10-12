@@ -2,6 +2,11 @@ name: Chatify CI
 on:
   push:
   pull_request:
+
+# Keep only the newest CI run per branch; feature work may be committed in several small steps.
+concurrency:
+  group: chatify-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   backend:
     runs-on: ubuntu-latest
