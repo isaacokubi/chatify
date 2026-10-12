@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {slugifyBusinessName, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing} from './business.js';
+import {slugifyBusinessName, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines} from './business.js';
 
 test('business slugs are URL-safe and deterministic', () => {
   assert.equal(slugifyBusinessName('Baraka & Sons Retail'), 'baraka-sons-retail');
@@ -59,4 +59,20 @@ test('business briefing identifies overdue work, due-soon tasks and outstanding 
   assert.equal(result.outstandingAmount,650);
   assert.equal(result.unresolvedCases,2);
   assert.equal(result.nextActions.length,2);
+});
+
+
+test('storefront order lines use server catalogue prices and enforce M-Pesa limits', () => {
+  const products = [
+    {_id:'a', name:'Notebook', price:120, currency:'KES', active:true, stock:8},
+    {_id:'b', name:'Pen', price:30, currency:'KES', active:true, stock:0},
+  ];
+  const order = buildStorefrontOrderLines([{itemId:'a',quantity:2},{itemId:'b',quantity:1}], products);
+  assert.equal(order.total, 270);
+  assert.equal(order.items[0].lineTotal, 240);
+  assert.equal(order.items[0].unitPrice, 120);
+  assert.throws(() => buildStorefrontOrderLines([{itemId:'a',quantity:9}], products), /Not enough stock/);
+  assert.throws(() => buildStorefrontOrderLines([{itemId:'a',quantity:1}], [{...products[0],price:120.5}]), /whole-number price/);
+  assert.throws(() => buildStorefrontOrderLines([{itemId:'missing',quantity:1}], products), /no longer available/);
+  assert.throws(() => buildStorefrontOrderLines([{itemId:'a',quantity:100}], [{...products[0],price:2000}]), /KSh 1 and KSh 150,000/);
 });
