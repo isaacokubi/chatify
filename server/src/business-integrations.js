@@ -173,6 +173,9 @@ export const newIntegrationRequestId = () => randomUUID();
 export function createStripeProvider(env = process.env, transport = globalThis.fetch) {
   const secret = env.STRIPE_SECRET_KEY?.trim();
   const webhookSecret = env.STRIPE_WEBHOOK_SECRET?.trim();
+  const mode = (env.STRIPE_ENV || (env.NODE_ENV === 'production' ? 'production' : 'test')).trim();
+  if (!['test','production'].includes(mode)) throw new Error('STRIPE_ENV must be test or production');
+  if (secret && ((mode === 'production' && !secret.startsWith('sk_live_')) || (mode === 'test' && !secret.startsWith('sk_test_')))) throw new Error('Stripe secret key does not match STRIPE_ENV');
   const request = async (path, body, idempotencyKey) => {
     if (!secret) throw new Error('Stripe is not configured');
     const response = await transport('https://api.stripe.com/v1'+path,{
@@ -186,7 +189,7 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
     return data;
   };
   return {
-    get configured(){return Boolean(secret&&webhookSecret);},
+    get configured(){return Boolean(secret&&webhookSecret&&((mode==='production'&&secret.startsWith('sk_live_'))||(mode==='test'&&secret.startsWith('sk_test_'))));},
     async createCheckoutSession({paymentId,organizationId,documentId,number,amount,currency,successUrl,cancelUrl,customerEmail}) {
       if(!secret)throw new Error('Stripe is not configured');
       const value=Number(amount), code=String(currency||'').toLowerCase();
@@ -223,7 +226,9 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
       const expected=createHmac('sha256',webhookSecret).update(String(timestamp)+'.').update(rawBody).digest();
       const valid=candidates.some(candidate=>{if(!/^[a-f0-9]{64}$/i.test(candidate))return false;const supplied=Buffer.from(candidate,'hex');return supplied.length===expected.length&&timingSafeEqual(supplied,expected);});
       if(!valid)throw new Error('Stripe webhook signature verification failed');
-      return JSON.parse(rawBody.toString('utf8'));
+      const event=JSON.parse(rawBody.toString('utf8'));
+      if (event.livemode !== (mode === 'production')) throw new Error('Stripe event mode does not match configured environment');
+      return event;
     }
   };
 }
