@@ -3799,7 +3799,7 @@ class _ChatState extends State<Chat> {
                                                 final unavailable = original == null ||
                                                     original['deletedAt'] != null ||
                                                     original['expiredAt'] != null;
-                                                final originalSender = original?['senderId']?.toString() ==
+                                                final originalSender = original['senderId']?.toString() ==
                                                         app.user?['id']?.toString()
                                                     ? 'You'
                                                     : 'Message';
@@ -3921,7 +3921,7 @@ class _ChatState extends State<Chat> {
             final original = findReplyTarget(messages, reply);
             final originalDeleted = original == null ||
                 original['deletedAt'] != null || original['expiredAt'] != null;
-            final originalSender = original?['senderId']?.toString() ==
+            final originalSender = original['senderId']?.toString() ==
                     app.user?['id']?.toString()
                 ? 'You'
                 : 'Message';
