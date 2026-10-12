@@ -4819,6 +4819,10 @@ class _StorefrontPageState extends State<StorefrontPage> {
                 Text(storefront['description']?.toString() ?? 'Browse products, add what you need to your cart, and pay securely with M-Pesa.', style: const TextStyle(color: Colors.white70)),
                 const SizedBox(height: 10),
                 const Text('Secure checkout · M-Pesa', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                if ((storefront['sellerMpesaPhone']?.toString() ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text('Seller M-Pesa: ${storefront['sellerMpesaPhone']}', style: const TextStyle(color: Colors.white70)),
+                ],
               ]),
             ),
             const SizedBox(height: 16),
@@ -5155,6 +5159,57 @@ class _BusinessHubState extends State<BusinessHub> {
     }
   }
 
+  // Seller M-Pesa settings start with the registered account phone, but owners can
+  // save a different Kenyan number for customer-facing storefront payments.
+  Future<void> _configureMpesaNumbers() async {
+    final registeredPhone = app.user?['phone']?.toString() ?? '';
+    final currentSettings = organization?['settings'] is Map
+        ? Map<String, dynamic>.from(organization!['settings'] as Map)
+        : <String, dynamic>{};
+    final phone = TextEditingController(
+      text: currentSettings['mpesaRecipientPhone']?.toString().isNotEmpty == true
+          ? currentSettings['mpesaRecipientPhone'].toString()
+          : registeredPhone,
+    );
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Seller M-Pesa number'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Registered account number: ${registeredPhone.isEmpty ? 'Not set' : registeredPhone}'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: phone,
+            autofocus: true,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Customer payment number',
+              hintText: '0712345678',
+              helperText: 'Starts with your registered number. Change it if you want customers to pay using another Kenyan M-Pesa number. Leave blank to use your registered account number.',
+              prefixIcon: Icon(Icons.phone_android),
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save number')),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    try {
+      await app.api.call('PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}', {
+        'settings': {'mpesaRecipientPhone': phone.text.trim()},
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Seller M-Pesa number saved.')));
+      await loadOrganizations();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> _configureTaxProfile() async {
     final country = TextEditingController(text: organization?['country']?.toString() ?? 'KE');
     final currency = TextEditingController(text: organization?['currency']?.toString() ?? 'KES');
@@ -5451,6 +5506,7 @@ class _BusinessHubState extends State<BusinessHub> {
             if (slug.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This workspace has no storefront slug yet.'))); return; }
             Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StorefrontPage(slug: slug)));
           }, icon: const Icon(Icons.storefront_outlined)),
+          IconButton(tooltip: 'Configure seller M-Pesa number', onPressed: _configureMpesaNumbers, icon: const Icon(Icons.phone_android)),
           IconButton(tooltip: 'Refresh business data', onPressed: loadOrganizations, icon: const Icon(Icons.refresh)),
           IconButton(tooltip: 'Add business workspace', onPressed: createOrganization, icon: const Icon(Icons.add_business)),
         ])),
