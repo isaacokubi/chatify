@@ -13,7 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      # Use the committed lockfile so CI validates the exact dependency graph.
+      - run: npm ci
       - run: npm test
       - run: npm run lint
   mobile:

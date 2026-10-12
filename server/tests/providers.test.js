@@ -65,11 +65,21 @@ test('Cloudinary adapter validates image content and returns only a secure deliv
   }).upload({path:'https://source.example.test/image.png'}), /secure URL/);
 });
 
-test('image validation checks encoded size, type and file signature', () => {
+test('image validation accepts images larger than 650 KB and rejects images above 10 MB', () => {
+  // Build signature-valid PNG test data so this exercises the byte-size limit,
+  // rather than accidentally failing only because the file signature is invalid.
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const encodedPngOfSize = byteCount => {
+    const bytes = Buffer.alloc(byteCount);
+    pngSignature.copy(bytes);
+    return bytes.toString('base64');
+  };
+
   assert.equal(isSupportedImageData('iVBORw0KGgo=', 'image/png'), true);
   assert.equal(isSupportedImageData('iVBORw0KGgo=', 'image/jpeg'), false);
   assert.equal(isSupportedImageData('not-base64?', 'image/png'), false);
-  assert.equal(isSupportedImageData(Buffer.alloc(650 * 1024 + 1).toString('base64'), 'image/png'), false);
+  assert.equal(isSupportedImageData(encodedPngOfSize(700 * 1024), 'image/png'), true);
+  assert.equal(isSupportedImageData(encodedPngOfSize(10 * 1024 * 1024 + 1), 'image/png'), false);
 });
 
 test('production message records cannot contain mock data URLs', () => {
