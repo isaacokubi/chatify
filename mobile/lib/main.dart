@@ -4622,6 +4622,7 @@ class _BusinessHubState extends State<BusinessHub> {
     final detail = TextEditingController();
     final amount = TextEditingController();
     final quantity = TextEditingController(text: '1');
+    final docType = ValueNotifier<String>('quote');
     final id = organization?['_id']?.toString();
     if (id == null) return;
     final title = kind == 'catalog' ? 'Add product or service' : kind == 'customer' ? 'Add customer' : kind == 'document' ? 'Create quotation' : 'Create follow-up task';
@@ -4638,6 +4639,7 @@ class _BusinessHubState extends State<BusinessHub> {
           ] else if (kind == 'customer') ...[
             TextField(controller: detail, decoration: const InputDecoration(labelText: 'Email or phone')),
           ] else if (kind == 'document') ...[
+            ValueListenableBuilder<String>(valueListenable: docType, builder: (_, value, __) => DropdownButtonFormField<String>(initialValue: value, decoration: const InputDecoration(labelText: 'Document type'), items: const [DropdownMenuItem(value: 'quote', child: Text('Quotation')), DropdownMenuItem(value: 'invoice', child: Text('Invoice')), DropdownMenuItem(value: 'order', child: Text('Sales order'))], onChanged: (next) { if (next != null) docType.value = next; })),
             TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Unit price')),
             TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantity')),
           ] else ...[
@@ -4665,14 +4667,19 @@ class _BusinessHubState extends State<BusinessHub> {
         final price = double.tryParse(amount.text) ?? -1;
         final count = int.tryParse(quantity.text) ?? 0;
         if (price < 0 || count < 1) throw const FormatException('Enter a valid price and quantity.');
-        await app.api.call('POST', '$base/documents', {'type': 'quote', 'items': [{'name': name.text.trim(), 'quantity': count, 'unitPrice': price}]});
+        await app.api.call('POST', '$base/documents', {'type': docType.value, 'items': [{'name': name.text.trim(), 'quantity': count, 'unitPrice': price}]});
       } else {
         await app.api.call('POST', '$base/tasks', {'title': name.text.trim(), 'description': detail.text.trim(), 'type': 'follow_up'});
       }
       await loadWorkspaceData();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Business record saved.')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if ((e is http.ClientException || e is TimeoutException) && kind != 'document') {
+        final entityType = kind == 'catalog' ? 'catalog' : kind == 'customer' ? 'customer' : 'task';
+        final changes = kind == 'catalog' ? {'name': name.text.trim(), 'description': detail.text.trim(), 'price': double.tryParse(amount.text) ?? 0, 'stock': int.tryParse(quantity.text) ?? 0} : kind == 'customer' ? {'name': name.text.trim(), if (detail.text.trim().contains('@')) 'email': detail.text.trim() else 'phone': detail.text.trim()} : {'title': name.text.trim(), 'description': detail.text.trim(), 'type': 'follow_up'};
+        await _enqueueOfflineCreate(id, entityType, changes);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved to the device queue. It will sync when connectivity returns.')));
+      } else if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -4914,6 +4921,7 @@ class _BusinessHubState extends State<BusinessHub> {
           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
           trailing: amount == null ? null : Text('${item['currency'] ?? 'KES'} $amount'),
+          onTap: kind == 'sales documents' ? () => _showDocumentActions(Map<String, dynamic>.from(item)) : null,
         );
       },
     );
@@ -4968,13 +4976,14 @@ class _BusinessHubState extends State<BusinessHub> {
           SizedBox(width: 170, child: metric('Open cases', metrics['openCases'], Icons.support_agent_outlined)),
         ])),
         const TabBar(isScrollable: true, tabs: [
-          Tab(text: 'Catalogue'), Tab(text: 'Customers'), Tab(text: 'Sales'), Tab(text: 'Tasks'),
+          Tab(text: 'Catalogue'), Tab(text: 'Customers'), Tab(text: 'Sales'), Tab(text: 'Tasks'), Tab(text: 'Tools'),
         ]),
         Expanded(child: TabBarView(children: [
           Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('catalog'), icon: const Icon(Icons.add), label: const Text('Add product / service'))), Expanded(child: recordList(catalog, 'products or services', Icons.inventory_2_outlined))]),
           Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('customer'), icon: const Icon(Icons.add), label: const Text('Add customer'))), Expanded(child: recordList(customers, 'customers', Icons.person_outline))]),
           Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('document'), icon: const Icon(Icons.add), label: const Text('Create quotation'))), Expanded(child: recordList(documents, 'sales documents', Icons.receipt_long_outlined))]),
           Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('task'), icon: const Icon(Icons.add), label: const Text('Add task / follow-up'))), Expanded(child: recordList(tasks, 'tasks', Icons.task_alt))]),
+          toolsPanel(),
         ])),
         if (saving) const LinearProgressIndicator(),
         if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
