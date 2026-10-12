@@ -8,6 +8,7 @@ Chatify is a final-year-project mobile communication system built around real-ti
 - docs/ — architecture, API, database, development, security and demo notes
 - [Project walkthrough](docs/PROJECT_WALKTHROUGH.md) — plain-language guide to how the system works, how the main features connect, security concepts, code navigation, and tutor-defense preparation.
 - [Code walkthrough](docs/CODE_WALKTHROUGH.md) — code-reading guide with focused flow explanations.
+- [Business platform guide](docs/BUSINESS_PLATFORM.md) — organization workspaces, CRM, catalogues, quotations, payment reconciliation, tasks, shared inbox handover, suppliers, workflows, audit logs and storefront APIs.
 
 ## Core innovations
 - **Remember:** deterministic local extraction identifies event, task, payment, place and note candidates that users can save as Memory Cards.
