@@ -4547,11 +4547,11 @@ class _BusinessHubState extends State<BusinessHub> {
     try {
       final encoded = Uri.encodeComponent(id);
       final results = await Future.wait([
-        app.api.call('GET', '/api/business/organizations/' + encoded + '/dashboard'),
-        app.api.call('GET', '/api/business/organizations/' + encoded + '/catalog'),
-        app.api.call('GET', '/api/business/organizations/' + encoded + '/customers'),
-        app.api.call('GET', '/api/business/organizations/' + encoded + '/documents'),
-        app.api.call('GET', '/api/business/organizations/' + encoded + '/tasks'),
+        app.api.call('GET', '/api/business/organizations/$encoded/dashboard'),
+        app.api.call('GET', '/api/business/organizations/$encoded/catalog'),
+        app.api.call('GET', '/api/business/organizations/$encoded/customers'),
+        app.api.call('GET', '/api/business/organizations/$encoded/documents'),
+        app.api.call('GET', '/api/business/organizations/$encoded/tasks'),
       ]);
       dashboard = Map<String, dynamic>.from(results[0]['metrics'] ?? {});
       catalog = List<dynamic>.from(results[1]['items'] ?? []);
@@ -4578,7 +4578,7 @@ class _BusinessHubState extends State<BusinessHub> {
           ValueListenableBuilder<String>(
             valueListenable: industry,
             builder: (_, value, __) => DropdownButtonFormField<String>(
-              value: value,
+              initialValue: value,
               decoration: const InputDecoration(labelText: 'Industry'),
               items: const [
                 DropdownMenuItem(value: 'retail', child: Text('Retail / wholesale')),
@@ -4647,21 +4647,21 @@ class _BusinessHubState extends State<BusinessHub> {
     if (accepted != true || name.text.trim().isEmpty) return;
     setState(() => saving = true);
     try {
-      final base = '/api/business/organizations/' + Uri.encodeComponent(id);
+      final base = '/api/business/organizations/${Uri.encodeComponent(id)}';
       if (kind == 'catalog') {
         final price = double.tryParse(amount.text) ?? -1;
         if (price < 0) throw const FormatException('Enter a valid non-negative price.');
-        await app.api.call('POST', base + '/catalog', {'name': name.text.trim(), 'description': detail.text.trim(), 'price': price, 'stock': int.tryParse(quantity.text) ?? 0});
+        await app.api.call('POST', '$base/catalog', {'name': name.text.trim(), 'description': detail.text.trim(), 'price': price, 'stock': int.tryParse(quantity.text) ?? 0});
       } else if (kind == 'customer') {
         final contact = detail.text.trim();
-        await app.api.call('POST', base + '/customers', {'name': name.text.trim(), if (contact.contains('@')) 'email': contact else 'phone': contact});
+        await app.api.call('POST', '$base/customers', {'name': name.text.trim(), if (contact.contains('@')) 'email': contact else 'phone': contact});
       } else if (kind == 'document') {
         final price = double.tryParse(amount.text) ?? -1;
         final count = int.tryParse(quantity.text) ?? 0;
         if (price < 0 || count < 1) throw const FormatException('Enter a valid price and quantity.');
-        await app.api.call('POST', base + '/documents', {'type': 'quote', 'items': [{'name': name.text.trim(), 'quantity': count, 'unitPrice': price}]});
+        await app.api.call('POST', '$base/documents', {'type': 'quote', 'items': [{'name': name.text.trim(), 'quantity': count, 'unitPrice': price}]});
       } else {
-        await app.api.call('POST', base + '/tasks', {'title': name.text.trim(), 'description': detail.text.trim(), 'type': 'follow_up'});
+        await app.api.call('POST', '$base/tasks', {'title': name.text.trim(), 'description': detail.text.trim(), 'type': 'follow_up'});
       }
       await loadWorkspaceData();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Business record saved.')));
@@ -4687,7 +4687,7 @@ class _BusinessHubState extends State<BusinessHub> {
   );
 
   Widget recordList(List<dynamic> records, String kind, IconData icon) {
-    if (records.isEmpty) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('No ' + kind + ' yet. Use Add to create your first record.', textAlign: TextAlign.center)));
+    if (records.isEmpty) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('No $kind yet. Use Add to create your first record.', textAlign: TextAlign.center)));
     return ListView.separated(
       padding: const EdgeInsets.only(bottom: 24),
       itemCount: records.length,
@@ -4702,7 +4702,7 @@ class _BusinessHubState extends State<BusinessHub> {
           leading: CircleAvatar(child: Icon(icon)),
           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-          trailing: amount == null ? null : Text((item['currency'] ?? 'KES').toString() + ' ' + amount.toString()),
+          trailing: amount == null ? null : Text('${item['currency'] ?? 'KES'} $amount'),
         );
       },
     );
