@@ -51,6 +51,13 @@ export function buildBusinessBriefing({tasks = [], documents = [], cases = [], n
 }
 
 // Build immutable server-priced storefront lines. A customer can choose quantities, but never submit their own prices.
+// Resolve the seller's checkout number in preference order: saved choice, registered account, business contact.
+export function resolveSellerMpesaPhone(settings = {}, ownerPhone = '', businessPhone = '') {
+  return normalizeMpesaPhone(settings?.mpesaRecipientPhone) ||
+    normalizeMpesaPhone(ownerPhone) ||
+    normalizeMpesaPhone(businessPhone);
+}
+
 export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []) {
   if (!Array.isArray(requestedItems) || requestedItems.length < 1 || requestedItems.length > 50) {
     throw new Error('Choose between 1 and 50 products');
@@ -225,11 +232,14 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   app.get('/api/storefront/:slug', async (req, res) => {
     try {
       const slug = slugifyBusinessName(req.params.slug);
-      const org = await Organization.findOne({slug}).select('name slug description logo website phone currency country');
+      const org = await Organization.findOne({slug}).select('name slug description logo website phone currency country ownerId settings');
       if (!org) return res.status(404).json({error: 'Storefront not found'});
+      const owner = await User.findById(org.ownerId).select('phone');
+      // Prefer the seller's explicitly chosen M-Pesa number; otherwise use their registered account phone.
+      const sellerMpesaPhone = resolveSellerMpesaPhone(org.settings, owner?.phone, org.phone);
       const items = await CatalogItem.find({organizationId: org._id, active: true}).sort({category: 1, name: 1}).limit(500).select('name description price currency images category type stock');
       res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
-      res.json({storefront: {name: org.name, slug: org.slug, description: org.description, website: org.website, currency: org.currency}, items});
+      res.json({storefront: {name: org.name, slug: org.slug, description: org.description, website: org.website, currency: org.currency, sellerMpesaPhone}, items});
     } catch (error) { safeError(res, error); }
   });
 
@@ -243,8 +253,13 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       if (!org) return res.status(404).json({error: 'Storefront not found'});
       if (String(org.ownerId) === String(req.user._id)) return res.status(400).json({error: 'Use a separate customer account to test a purchase from your own store'});
       const phone = normalizeMpesaPhone(String(req.body?.phone || req.user.phone || ''));
-      if (!phone) return res.status(400).json({error: 'Enter a valid Kenyan M-Pesa number'});
+      if (!phone) return res.status(400).json({error: 'Enter a valid Kenyan customer M-Pesa number'});
       if (String(org.currency || 'KES').toUpperCase() !== 'KES') return res.status(400).json({error: 'This store is not configured for KES M-Pesa checkout'});
+      const seller = await User.findById(org.ownerId).select('phone');
+      // The buyer may change their payer phone; the seller controls their own recipient preference in Business settings.
+      // Never trust a client-supplied seller phone during checkout.
+      const sellerMpesaPhone = resolveSellerMpesaPhone(org.settings, seller?.phone, org.phone);
+      if (!sellerMpesaPhone) return res.status(400).json({error: 'The seller has not registered a valid M-Pesa number yet. Ask the seller to update Business > M-Pesa settings.'});
       const requested = req.body?.items;
       if (!Array.isArray(requested) || requested.length < 1 || requested.length > 50) return res.status(400).json({error: 'Choose at least one product'});
       for (const line of requested) if (!validId(line?.itemId)) return res.status(400).json({error: 'Invalid product selection'});
@@ -268,7 +283,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       try {
         const payment = await Payment.create({
           paymentId: newPaymentId(), requesterId: org.ownerId, payerId: req.user._id,
-          amount: totals.total, recipientPhone: org.phone || '', payerPhone: phone, phone,
+          amount: totals.total, recipientPhone: sellerMpesaPhone, payerPhone: phone, phone,
           businessOrganizationId: org._id, businessDocumentId: document._id,
           description: ('Order ' + number).slice(0, 80), provider: mpesaProvider.name, requestedAt: new Date(),
         });
@@ -301,7 +316,24 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     for (const key of ['name', 'description', 'email', 'phone', 'website', 'country', 'currency', 'timezone']) if (req.body?.[key] !== undefined) org[key] = shortText(req.body[key], key === 'description' ? 2000 : 500);
     if (req.body?.industry !== undefined && INDUSTRIES.includes(req.body.industry)) org.industry = req.body.industry;
     // Subscription plans are billing-controlled; workspace editors cannot grant themselves a paid plan.
-    if (req.body?.settings && typeof req.body.settings === 'object' && !Array.isArray(req.body.settings)) { const settings = {...req.body.settings}; delete settings.taxProfile; org.settings = {...org.settings, ...settings}; }
+    if (req.body?.settings && typeof req.body.settings === 'object' && !Array.isArray(req.body.settings)) {
+      const settings = {...req.body.settings};
+      delete settings.taxProfile;
+      // Sellers may choose a payout/contact M-Pesa number. Empty resets to the registered account number.
+      if (Object.prototype.hasOwnProperty.call(settings, 'mpesaRecipientPhone')) {
+        const selectedPhone = String(settings.mpesaRecipientPhone || '').trim();
+        if (selectedPhone) {
+          const normalizedPhone = normalizeMpesaPhone(selectedPhone);
+          if (!normalizedPhone) return res.status(400).json({error: 'Enter a valid Kenyan seller M-Pesa phone number'});
+          settings.mpesaRecipientPhone = normalizedPhone;
+        } else {
+          org.settings = {...org.settings};
+          delete org.settings.mpesaRecipientPhone;
+          delete settings.mpesaRecipientPhone;
+        }
+      }
+      org.settings = {...org.settings, ...settings};
+    }
     await org.save(); res.json({organization: org});
   });
   app.post('/api/business/organizations/:orgId/members', auth, async (req, res) => {
