@@ -5,7 +5,7 @@ import {createHash, createHmac, timingSafeEqual, randomUUID} from 'node:crypto';
 import {isIP} from 'node:net';
 
 export const SUPPORTED_TAX_MODES = Object.freeze(['exclusive', 'inclusive', 'none']);
-export const SUPPORTED_CURRENCIES = Object.freeze(['KES','USD','EUR','GBP','TZS','UGX','RWF','NGN','ZAR','GHS','AED','INR','CAD','AUD']);
+export const SUPPORTED_CURRENCIES = Object.freeze(['KES','USD','EUR','GBP','TZS','UGX','RWF','NGN','ZAR','GHS','AED','INR','CAD','AUD','JPY','KRW','CLP','VND','BHD','JOD','KWD','OMR','TND','CHF','SEK','NOK','DKK','PLN','TRY','BRL','MXN','PHP','SGD','HKD','THB','IDR','MYR','PKR','BDT','SAR','QAR','ILS','EGP','ETB','UAH','ARS','UYU','CZK','HUF','ISK','BWP','MUR','MAD','COP','PEN','CRC','DOP','TWD','NZD']);
 
 export function calculateInternationalTotals(lines = [], config = {}) {
   if (!Array.isArray(lines) || !lines.length || lines.length > 100) throw new Error('A document must contain between 1 and 100 line items');
