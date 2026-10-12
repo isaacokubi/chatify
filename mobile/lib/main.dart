@@ -157,6 +157,47 @@ List<dynamic> mergePayment(
   return updated;
 }
 
+// Resolve the display name for a direct conversation consistently in the chat list and chat header.
+String? conversationPeerName(
+    Map<String, dynamic> conversation, Map<String, dynamic>? currentUser) {
+  if (conversation['type'] == 'group') return null;
+
+  final currentIds = <String>{
+    currentUser?['id']?.toString() ?? '',
+    currentUser?['_id']?.toString() ?? '',
+  }..remove('');
+  final currentEmail = currentUser?['email']?.toString().trim().toLowerCase() ?? '';
+  final rawParticipants = conversation['participants'];
+  if (rawParticipants is! List) return null;
+
+  String? firstAvailableName;
+  for (final raw in rawParticipants) {
+    if (raw is! Map) continue;
+    final participant = Map<String, dynamic>.from(raw);
+    final nested = participant['user'] is Map
+        ? Map<String, dynamic>.from(participant['user'] as Map)
+        : <String, dynamic>{};
+    final id = (participant['_id'] ?? participant['id'] ??
+            participant['userId'] ?? nested['_id'] ?? nested['id'])
+        ?.toString() ?? '';
+    final email = (participant['email'] ?? nested['email'])
+        ?.toString().trim().toLowerCase() ?? '';
+    final name = (participant['name'] ?? nested['name'] ??
+            participant['displayName'] ?? nested['displayName'] ??
+            participant['username'] ?? nested['username'])
+        ?.toString().trim() ?? '';
+
+    // Exclude the signed-in user by ID or email before choosing the chat peer.
+    if ((id.isNotEmpty && currentIds.contains(id)) ||
+        (currentEmail.isNotEmpty && email.isNotEmpty && email == currentEmail)) {
+      continue;
+    }
+    if (name.isNotEmpty) return name;
+    firstAvailableName ??= null;
+  }
+  return firstAvailableName;
+}
+
 // Shared app state. Screens listen to this object and rebuild after login, chat, contact, memory, or payment data changes.
 class AppState extends ChangeNotifier {
   final Api api;
@@ -1562,19 +1603,11 @@ class _HomeState extends State<Home> {
         itemCount: chats.length,
         itemBuilder: (_, i) {
           final c = Map<String, dynamic>.from(chats[i]);
-          final ps = List<dynamic>.from(c['participants'] ?? []);
-          final me = app.user?['id']?.toString();
-          Map<String, dynamic>? other;
-          for (final raw in ps) {
-            final person = Map<String, dynamic>.from(raw);
-            if (person['_id']?.toString() != me) {
-              other = person;
-              break;
-            }
-          }
+          // Use the same ID/email-aware peer resolver as the conversation header.
+          // Older API payloads can expose participant IDs as either id or _id.
           final title = c['type'] == 'group'
               ? (c['title'] ?? 'Group').toString()
-              : (other?['name'] ?? 'Chat').toString();
+              : (conversationPeerName(c, app.user) ?? 'Unknown user').toString();
           final last = c['lastMessage'];
           final preview = last is Map
               ? (last['text'] ?? 'Start chatting').toString()
