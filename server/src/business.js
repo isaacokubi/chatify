@@ -106,7 +106,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   const Workflow = mongoose.models.BusinessWorkflow || mongoose.model('BusinessWorkflow', new mongoose.Schema({
     organizationId: {type: O, required: true, index: true}, name: {type: String, required: true, maxlength: 160},
     description: {type: String, maxlength: 1000}, trigger: {type: String, enum: ['order_created', 'payment_confirmed', 'task_overdue', 'new_enquiry', 'manual'], default: 'manual'},
-    enabled: {type: Boolean, default: false}, actions: {type: [{type: {type: String, enum: ['create_task', 'notify_team', 'customer_message', 'create_receipt'], required: true}, config: mongoose.Schema.Types.Mixed}], default: []},
+    enabled: {type: Boolean, default: false}, actions: {type: [{actionType: {type: String, enum: ['create_task', 'notify_team', 'customer_message', 'create_receipt'], required: true}, config: mongoose.Schema.Types.Mixed}], default: []},
     runs: {type: [{status: String, triggerData: mongoose.Schema.Types.Mixed, result: mongoose.Schema.Types.Mixed, ranAt: Date, ranBy: O}], default: []},
   }, {timestamps: true}));
   const SharedInboxAssignment = mongoose.models.BusinessInboxAssignment || mongoose.model('BusinessInboxAssignment', new mongoose.Schema({
