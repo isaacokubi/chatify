@@ -1509,7 +1509,7 @@ class _HomeState extends State<Home> {
       ),
       body: IndexedStack(
           index: tab,
-          children: [_chats(), _memories(), _contacts(), const Profile()]),
+          children: [_chats(), const BusinessHub(), _memories(), _contacts(), const Profile()]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (i) {
