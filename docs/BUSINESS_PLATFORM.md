@@ -10,7 +10,8 @@ The Flutter app has a **Business** tab. It can create/select a business workspac
 - products and services;
 - customer records;
 - quotations;
-- tasks and follow-ups.
+- tasks and follow-ups;
+- a Tools panel for tax profiles, text/voice translation, Business Memory suggestions, consent-gated WhatsApp/SMS, scheduled workflows, offline sync review, and invoice issue/M-Pesa/eTIMS actions.
 
 The mobile screen calls the authenticated API described below. The other operations are exposed as APIs and can be surfaced in later screens without changing the stored record formats.
 
