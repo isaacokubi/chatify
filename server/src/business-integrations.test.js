@@ -61,7 +61,7 @@ test('Stripe Checkout requires server credentials and a verified webhook signatu
   const disabled=createStripeProvider({});
   assert.equal(disabled.configured,false);
   await assert.rejects(()=>disabled.createCheckoutSession({paymentId:'p',organizationId:'o',documentId:'d',number:'INV-1',amount:100,currency:'KES',successUrl:'https://example.com/ok',cancelUrl:'https://example.com/cancel'}),/not configured/);
-  await assert.rejects(()=>disabled.verifyWebhook(Buffer.from('{}'),'t=1,v1=bad'),/not configured/);
+  assert.throws(()=>disabled.verifyWebhook(Buffer.from('{}'),'t=1,v1=bad'),/not configured/);
   const secret='whsec_test_only_secret';
   const provider=createStripeProvider({STRIPE_SECRET_KEY:'sk_test_placeholder',STRIPE_WEBHOOK_SECRET:secret},async()=>({ok:false,status:400,json:async()=>({})}));
   const raw=Buffer.from(JSON.stringify({id:'evt_test',type:'checkout.session.completed',data:{object:{id:'cs_test'}}}));
