@@ -5009,7 +5009,7 @@ class _BusinessHubState extends State<BusinessHub> {
     }
     final metrics = dashboard;
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Column(children: [
         Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 4), child: Row(children: [
           Expanded(child: DropdownButtonHideUnderline(child: DropdownButton<String>(
