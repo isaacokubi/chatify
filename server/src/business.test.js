@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {slugifyBusinessName, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines} from './business.js';
+import {slugifyBusinessName, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines, resolveSellerMpesaPhone} from './business.js';
 
 test('business slugs are URL-safe and deterministic', () => {
   assert.equal(slugifyBusinessName('Baraka & Sons Retail'), 'baraka-sons-retail');
@@ -75,4 +75,12 @@ test('storefront order lines use server catalogue prices and enforce M-Pesa limi
   assert.throws(() => buildStorefrontOrderLines([{itemId:'a',quantity:1}], [{...products[0],price:120.5}]), /whole-number price/);
   assert.throws(() => buildStorefrontOrderLines([{itemId:'missing',quantity:1}], products), /no longer available/);
   assert.throws(() => buildStorefrontOrderLines([{itemId:'a',quantity:100}], [{...products[0],price:2000,stock:0}]), /KSh 1 and KSh 150,000/);
+});
+
+
+test('seller M-Pesa number prefers saved choice, then registered phone, then business contact', () => {
+  assert.equal(resolveSellerMpesaPhone({mpesaRecipientPhone: '0712 345 678'}, '0711111111', '0722222222'), '254712345678');
+  assert.equal(resolveSellerMpesaPhone({}, '0711 111 111', '0722222222'), '254711111111');
+  assert.equal(resolveSellerMpesaPhone({}, 'not-a-phone', '+254722222222'), '254722222222');
+  assert.equal(resolveSellerMpesaPhone({}, 'not-a-phone', 'also-invalid'), null);
 });
