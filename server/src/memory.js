@@ -11,7 +11,7 @@ function locationFrom(text) {
   // doesn't accidentally absorb the rest of the sentence.
   const match = text.match(/\b(?:at|in|near|based in|located in|live in|work at|work in)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9'-]*(?:\s+[A-Za-z][A-Za-z0-9'-]*){0,3})/i);
   if (!match) return undefined;
-  const location = clean(match[1]).replace(/\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|at)\b.*$/i, '').trim();
+  const location = clean(match[1]).replace(/\b(?:and|but|because|today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|at)\b.*$/i, '').trim();
   return location.length >= 3 ? location : undefined;
 }
 
@@ -22,7 +22,6 @@ export function candidate(input) {
 
   const out = [];
   const time = text.match(/\b(?:at\s+)?(1[0-2]|0?[1-9])(?::([0-5]\d))?\s?(AM|PM)\b/i)?.[0]?.replace(/^at\s+/i, '');
-  const date = text.match(/\b(?:today|tonight|tomorrow|this\s+(?:morning|afternoon|evening|week)|next\s+week|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)(?:\s+\d{1,2}(?:st|nd|rd|th)?)?)\b/i)?.[0];
   const location = locationFrom(text);
 
   // Meetings, appointments, deadlines and date/time commitments become events.
