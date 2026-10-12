@@ -2,6 +2,7 @@
 // Provider adapters stay disabled until an operator supplies valid credentials and verifies
 // the provider contract. Never treat a mock response or a queued request as a real transaction.
 import {createHash, randomUUID} from 'node:crypto';
+import {isIP} from 'node:net';
 
 export const SUPPORTED_TAX_MODES = Object.freeze(['exclusive', 'inclusive', 'none']);
 export const SUPPORTED_CURRENCIES = Object.freeze(['KES','USD','EUR','GBP','TZS','UGX','RWF','NGN','ZAR','GHS','AED','INR','CAD','AUD']);
@@ -89,8 +90,10 @@ export function createMessagingProviders(env = process.env, transport = globalTh
     async sendSms({to,text}) {
       const sid=env.TWILIO_ACCOUNT_SID?.trim(), token=env.TWILIO_AUTH_TOKEN?.trim(), from=env.TWILIO_SMS_FROM?.trim();
       if(!sid||!token||!from) throw new Error('SMS provider is not configured');
-      const phone=String(to||'').trim(), message=String(text||'').trim().slice(0,1500);
-      if(!/^\+[1-9]\d{7,14}$/.test(phone)||!message) throw new Error('SMS destination must be E.164 and message cannot be empty');
+      let phone=String(to||'').trim(), message=String(text||'').trim().slice(0,1500);
+      if(/^254[17]\\d{8}$/.test(phone))phone='+'+phone;
+      if(/^0[17]\\d{8}$/.test(phone))phone='+254'+phone.slice(1);
+      if(!/^\\+[1-9]\\d{7,14}$/.test(phone)||!message) throw new Error('SMS destination must be a valid E.164 phone number and message cannot be empty');
       const body=new URLSearchParams({To:phone,From:from,Body:message});
       const result=await request('https://api.twilio.com/2010-04-01/Accounts/'+encodeURIComponent(sid)+'/Messages.json',{
         method:'POST',headers:{Authorization:'Basic '+Buffer.from(sid+':'+token).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},body
@@ -125,7 +128,7 @@ export function createLanguageProvider(env = process.env, transport = globalThis
     },
     async transcribeAndTranslate({audioBase64,mimeType,targetLanguage}) {
       const encoded=String(audioBase64||'');
-      if(!encoded||encoded.length>15_000_000) throw new Error('Audio is missing or exceeds the 11 MB encoded limit');
+      if(!encoded||encoded.length>15_000_000||!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error('Audio is missing, malformed or exceeds the 11 MB encoded limit');
       const bytes=Buffer.from(encoded,'base64');
       if(!bytes.length||bytes.length>11_000_000) throw new Error('Audio must be 11 MB or smaller');
       const mime=/^(audio\/(mpeg|mp4|wav|webm|ogg|x-m4a))$/.test(String(mimeType||''))?mimeType:'audio/webm';
@@ -149,7 +152,9 @@ export function createEtimsProvider(env = process.env, transport = globalThis.fe
     async submitInvoice(invoice) {
       if(!this.configured) throw new Error('KRA eTIMS is not configured; set the approved gateway URL, API token and taxpayer PIN');
       const url=new URL(env.ETIMS_SUBMISSION_URL);
-      if(url.protocol!=='https:'||url.username||url.password) throw new Error('eTIMS gateway must be a public HTTPS URL');
+      const host=url.hostname.toLowerCase().replace(/^\\[|\\]$/g,'');
+      const reserved=['localhost','local','internal','test','example','invalid','lan','home'];
+      if(url.protocol!=='https:'||url.username||url.password||isIP(host)||!host.includes('.')||reserved.some(suffix=>host===suffix||host.endsWith('.'+suffix))) throw new Error('eTIMS gateway must be a public HTTPS hostname');
       const payload={schemaVersion:1,clientReference:String(invoice.number),taxpayerPin:env.ETIMS_TAXPAYER_PIN,invoice:{currency:invoice.currency,issueDate:invoice.issueDate,customer:invoice.customer,lines:invoice.items,subtotal:invoice.subtotal,taxRate:invoice.taxRate,tax:invoice.tax,total:invoice.total}};
       const response=await transport(url.toString(),{method:'POST',headers:{Authorization:'Bearer '+env.ETIMS_API_TOKEN,'Content-Type':'application/json','Idempotency-Key':String(invoice.idempotencyKey || invoice.number)},body:JSON.stringify(payload),signal:AbortSignal.timeout(20000)});
       const data=await response.json().catch(()=>({}));
