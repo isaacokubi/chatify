@@ -77,3 +77,41 @@ The foundation is in place for these features, but they must not be represented 
 - advanced forecasting and predictive early-warning models.
 
 These need credentials, operational policies, external-provider configuration, product testing and privacy review. Keep mock/test providers as the default until each production integration is deliberately configured.
+
+
+## Extended integrations and production configuration
+
+### International tax profiles
+- Configure the organization's tax profile with `PATCH /api/business/organizations/:orgId/tax-profile` using `country`, `currency`, `mode` (`exclusive`, `inclusive`, `none`), `rate`, and optional `taxLabel` / `registrationNumber`.
+- Document totals use the stored workspace profile, apply per-line percentage discounts, and distinguish inclusive from exclusive tax. This is a calculation tool, not tax/legal advice; confirm rates, exemptions, rounding and invoice rules with the tax authority or accountant in each jurisdiction.
+- Currency support is deliberately allow-listed. Configure a supported currency before issuing documents.
+
+### Invoice-linked M-Pesa
+- `POST /api/business/organizations/:orgId/documents/:documentId/mpesa-stk` with `{ "phone": "07..." }` initiates STK for the invoice's outstanding whole-KSh balance.
+- A payment is linked to the invoice and only a verified Daraja callback updates the confirmed paid balance. The mock provider remains a simulation and is clearly identified as such. M-Pesa is currently KES-only.
+
+### KRA eTIMS gateway adapter
+- `POST /api/business/organizations/:orgId/documents/:documentId/etims-submit` sends issued invoices to an explicitly configured HTTPS gateway using `ETIMS_SUBMISSION_URL`, `ETIMS_API_TOKEN`, and `ETIMS_TAXPAYER_PIN`.
+- eTIMS API and onboarding differ by integration route and taxpayer. This adapter is a gateway contract, not a claim that an arbitrary endpoint is KRA's official endpoint or that an HTTP success equals fiscal acceptance. Do not configure it until the gateway is authorized and its request/response mapping has been tested. Results remain pending verification.
+
+### Consent-gated customer communications
+- Record opt-in using `PATCH /api/business/organizations/:orgId/customers/:customerId/messaging-consent` with `{ "consent": true }`.
+- Send with `POST /api/business/organizations/:orgId/communications/send` using `customerId`, `channel` (`whatsapp` or `sms`) and `message`.
+- WhatsApp Cloud API uses `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`. SMS uses Twilio credentials. Credentials are server-only; an accepted API request does not guarantee delivery. Collect and honor consent and opt-outs in accordance with local laws and provider policies.
+
+### AI translation and voice translation
+- `POST /api/business/organizations/:orgId/translate` accepts `text`, `targetLanguage`, optional `sourceLanguage`, and mandatory `consent: true`.
+- `POST /api/business/organizations/:orgId/voice-translate` accepts base64 `audioBase64`, `mimeType`, `targetLanguage`, and mandatory `consent: true`. Audio is limited to 11 MB and must be sent only where the user has consented.
+- Configure `AI_API_KEY`, optional `AI_API_BASE_URL`, `AI_TEXT_MODEL`, and `AI_AUDIO_MODEL`. This requires an OpenAI-compatible endpoint with transcription and chat-completions APIs. No audio/text is sent when the service is unconfigured.
+
+### Business Memory suggestions
+- `POST /api/business/organizations/:orgId/memory-candidates` accepts text up to 5,000 characters and returns deterministic task/payment/date/business-context suggestions. Suggestions are not saved automatically; review them before creating Memory Cards or tasks.
+
+### Offline-first sync
+- `POST /api/business/organizations/:orgId/sync` accepts up to 50 idempotent edits for existing customer, catalogue, task and support-case records.
+- Every mutation needs a safe unique `mutationId` and the record's `baseUpdatedAt`. A stale edit returns the current server record as a conflict instead of silently overwriting it. Creates and binary attachments are not part of this endpoint.
+
+### Scheduled workflows
+- Schedule workflows using `trigger: "schedule"` and `scheduleEveryMinutes` (5–10,080 minutes). They remain disabled until a test-only run is recorded, and must be explicitly enabled by a manager.
+- A process-local minute tick executes due workflows using a database compare-and-set; multi-instance deployments should additionally configure a single external cron calling `POST /api/internal/business/workflows/tick` with `Authorization: Bearer BUSINESS_WORKFLOW_CRON_SECRET`. Only allow-listed actions run, customer messages require recorded opt-in, and tests do not send messages or move money.
+- For high-volume or critical business automation, use a durable queue/worker and monitor retries, delivery receipts, and dead letters before relying on scheduled actions for operations.
