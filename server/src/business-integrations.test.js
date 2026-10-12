@@ -67,6 +67,7 @@ test('Stripe Checkout requires server credentials and a verified webhook signatu
   const raw=Buffer.from(JSON.stringify({id:'evt_test',livemode:false,type:'checkout.session.completed',data:{object:{id:'cs_test'}}}));
   const timestamp=Math.floor(Date.now()/1000);
   const signature=createHmac('sha256',secret).update(String(timestamp)+'.').update(raw).digest('hex');
+  await assert.rejects(()=>provider.createCheckoutSession({paymentId:'p',organizationId:'o',documentId:'d',number:'INV-1',amount:100.001,currency:'USD',successUrl:'https://example.com/ok',cancelUrl:'https://example.com/cancel'}),/decimal places/);
   const event=provider.verifyWebhook(raw,'t='+timestamp+',v1='+signature);
   assert.equal(event.id,'evt_test');
   assert.throws(()=>provider.verifyWebhook(raw,'t='+timestamp+',v1='+'0'.repeat(64)),/signature verification failed/);
