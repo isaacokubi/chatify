@@ -200,6 +200,8 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
       const precision=zeroDecimal.has(code)?0:threeDecimal.has(code)?3:2;
       const unitAmount=Math.round(value*Math.pow(10,precision));
       if(!Number.isSafeInteger(unitAmount)||unitAmount<1)throw new Error('Amount is outside the supported payment range');
+      const normalizedAmount=unitAmount/Math.pow(10,precision);
+      if(Math.abs(normalizedAmount-value)>0.000001)throw new Error('Invoice amount has more decimal places than this currency supports');
       const safeUrl=(value,label)=>{let url;try{url=new URL(value);}catch{throw new Error(label+' must be an absolute HTTPS URL');}if(url.protocol!=='https:'||url.username||url.password)throw new Error(label+' must be an HTTPS URL');return url.toString();};
       const success=safeUrl(successUrl,'Success URL'), cancel=safeUrl(cancelUrl,'Cancel URL');
       const form=new URLSearchParams({
@@ -215,7 +217,7 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
       if(customerEmail&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(customerEmail)))form.set('customer_email',String(customerEmail).slice(0,200));
       const session=await request('/checkout/sessions',form,String(paymentId));
       if(!session.id||!session.url)throw new Error('Stripe did not return a hosted checkout URL');
-      return {checkoutId:String(session.id),checkoutUrl:String(session.url),currency:code,amount:value,unitAmount};
+      return {checkoutId:String(session.id),checkoutUrl:String(session.url),currency:code,amount:normalizedAmount,unitAmount};
     },
     verifyWebhook(rawBody, signature, now = Date.now()) {
       if(!webhookSecret||!keyMatchesMode||productionModeMismatch)throw new Error('Stripe webhook is not configured for the selected environment');
