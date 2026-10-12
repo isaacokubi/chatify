@@ -1,5 +1,5 @@
 import {normalizeMpesaPhone, validPaymentAmount, newPaymentId} from './payments.js';
-import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMessagingProviders, createLanguageProvider, createEtimsProvider, createStripeProvider, createIdempotencyKey, detectOfflineConflict, newIntegrationRequestId} from './business-integrations.js';
+import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMessagingProviders, createLanguageProvider, createEtimsProvider, createStripeProvider, createPayPalProvider, createIdempotencyKey, detectOfflineConflict, newIntegrationRequestId} from './business-integrations.js';
 // CHATIFY BUSINESS PLATFORM
 // Business records live beside chat records, with organization-level authorization.
 // This module deliberately keeps payment confirmation server-owned: a screenshot or
@@ -56,6 +56,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   const language = createLanguageProvider(process.env);
   const etims = createEtimsProvider(process.env);
   const stripe = createStripeProvider(process.env);
+  const paypal = createPayPalProvider(process.env);
   const memberSchema = new mongoose.Schema({userId: {type: O, ref: 'User', required: true}, role: {type: String, enum: ROLES, default: 'viewer'}, branchIds: {type: [O], default: []}}, {_id: false});
   const Organization = mongoose.models.BusinessOrganization || mongoose.model('BusinessOrganization', new mongoose.Schema({
     name: {type: String, required: true, trim: true, maxlength: 120}, slug: {type: String, required: true, unique: true, lowercase: true},
@@ -136,7 +137,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   // only by a verified provider webhook.
   const BusinessExternalPayment = mongoose.models.BusinessExternalPayment || mongoose.model('BusinessExternalPayment', new mongoose.Schema({
     organizationId: {type: O, required: true, index: true}, documentId: {type: O, required: true, index: true},
-    paymentId: {type: String, required: true, unique: true}, provider: {type: String, enum: ['stripe'], required: true},
+    paymentId: {type: String, required: true, unique: true}, provider: {type: String, enum: ['stripe','paypal'], required: true},
     providerCheckoutId: {type: String, unique: true, sparse: true}, checkoutUrl: String,
     amount: {type: Number, required: true, min: 0}, amountMinorUnits: {type: Number, required: true, min: 1},
     currency: {type: String, required: true, maxlength: 3}, status: {type: String, enum: ['pending','succeeded','failed','cancelled'], default: 'pending', index: true},
@@ -386,6 +387,62 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const external=await BusinessExternalPayment.create({organizationId:org._id,documentId:document._id,paymentId,provider:'stripe',providerCheckoutId:checkout.checkoutId,checkoutUrl:checkout.checkoutUrl,amount:outstanding,amountMinorUnits:checkout.unitAmount,currency:document.currency,status:'pending'});
     await recordAudit(org,req.user._id,'invoice.stripe_checkout_created','document',document._id,'Created hosted checkout for '+document.number);
     res.status(201).json({payment:{id:external.paymentId,provider:external.provider,checkoutUrl:external.checkoutUrl,amount:external.amount,currency:external.currency,status:external.status},notice:'Open the hosted checkout URL. The invoice updates only after a signed Stripe webhook confirms payment.'});
+  });
+
+  app.post('/api/business/organizations/:orgId/documents/:documentId/paypal-checkout', auth, async(req,res)=>{
+    const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;
+    if(!paypal.configured)return res.status(503).json({error:'PayPal is not configured. Add PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET and PAYPAL_WEBHOOK_ID.'});
+    const document=await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id});
+    if(!document)return res.status(404).json({error:'Invoice not found'});
+    if(document.type!=='invoice'||['draft','rejected','cancelled','fulfilled','paid'].includes(document.status))return res.status(409).json({error:'Only issued, unpaid invoices can be paid online'});
+    const outstanding=Math.round((document.total-document.paidAmount)*1000)/1000;
+    if(!Number.isFinite(outstanding)||outstanding<=0)return res.status(409).json({error:'Invoice has no outstanding balance'});
+    if(await BusinessExternalPayment.exists({documentId:document._id,status:'pending'}))return res.status(409).json({error:'A hosted payment session is already pending for this invoice'});
+    if(await Payment.exists({businessDocumentId:document._id,status:'PENDING'}))return res.status(409).json({error:'An M-Pesa payment request is already pending for this invoice'});
+    const paymentId=newIntegrationRequestId();
+    try{
+      const checkout=await paypal.createOrder({paymentId,number:document.number,amount:outstanding,currency:document.currency,successUrl:shortText(req.body?.successUrl,1000)||process.env.PAYPAL_SUCCESS_URL||process.env.STRIPE_SUCCESS_URL,cancelUrl:shortText(req.body?.cancelUrl,1000)||process.env.PAYPAL_CANCEL_URL||process.env.STRIPE_CANCEL_URL});
+      if(Math.abs(checkout.amount-outstanding)>0.000001)return res.status(400).json({error:'Invoice amount precision is not supported by PayPal for this currency'});
+      const external=await BusinessExternalPayment.create({organizationId:org._id,documentId:document._id,paymentId,provider:'paypal',providerCheckoutId:checkout.checkoutId,checkoutUrl:checkout.checkoutUrl,amount:outstanding,amountMinorUnits:checkout.amountMinorUnits,currency:document.currency,status:'pending'});
+      await recordAudit(org,req.user._id,'invoice.paypal_checkout_created','document',document._id,'Created hosted checkout for '+document.number);
+      res.status(201).json({payment:{id:external.paymentId,provider:external.provider,checkoutUrl:external.checkoutUrl,amount:external.amount,currency:external.currency,status:external.status},notice:'Approve PayPal checkout. The invoice updates only after verified PayPal capture confirmation.'});
+    }catch(error){console.error('PayPal checkout creation failed',{status:error?.status||'unconfigured'});res.status(error.message?.includes('not configured')?503:400).json({error:error.message||'PayPal checkout could not be created'});}
+  });
+
+  const settlePayPalInvoice = async (external, eventId) => {
+    if(external.status==='pending')await BusinessExternalPayment.updateOne({_id:external._id,status:'pending'},{$set:{status:'succeeded',providerEventId:String(eventId||''),completedAt:new Date()}});
+    const document=await BusinessDocument.findOneAndUpdate({_id:external.documentId,organizationId:external.organizationId,'paymentRecords.reference':{$ne:external.paymentId}},{$inc:{paidAmount:external.amount},$push:{paymentRecords:{amount:external.amount,method:'paypal',reference:external.paymentId,verified:true,recordedAt:new Date()}}},{new:true});
+    if(document){document.status=document.paidAmount>=document.total?'paid':'part_paid';await document.save();}
+  };
+
+  app.post('/api/business/payments/paypal/webhook', async(req,res)=>{
+    try{await paypal.verifyWebhook(req.headers,req.body);}catch(error){return res.status(400).json({error:'PayPal webhook verification failed'});}
+    const event=req.body||{};const resource=event.resource||{};
+    if(event.event_type==='CHECKOUT.ORDER.APPROVED'){
+      const orderId=String(resource.id||'');const purchase=Array.isArray(resource.purchase_units)?resource.purchase_units[0]:null;
+      const external=await BusinessExternalPayment.findOne({provider:'paypal',providerCheckoutId:orderId,paymentId:String(purchase?.custom_id||'')});
+      if(!external)return res.json({ok:true,ignored:true});
+      try{
+        const captured=await paypal.captureOrder(orderId,external.paymentId);
+        if(captured.status!=='COMPLETED')return res.status(202).json({ok:true,pending:true});
+        const unit=Array.isArray(captured.purchase_units)?captured.purchase_units[0]:null;
+        const capture=unit?.payments?.captures?.find(item=>item.status==='COMPLETED');
+        if(!capture||String(capture.amount?.currency_code||'').toUpperCase()!==external.currency.toUpperCase()||Math.abs(Number(capture.amount?.value)-external.amount)>0.000001)return res.status(400).json({error:'PayPal capture amount or currency does not match the invoice'});
+        await settlePayPalInvoice(external,event.id);return res.json({ok:true,captured:true});
+      }catch(error){console.error('PayPal capture failed',{status:error?.status||'unknown'});return res.status(502).json({error:'PayPal order could not be captured; inspect provider status before retrying'});}
+    }
+    if(event.event_type==='PAYMENT.CAPTURE.COMPLETED'){
+      const orderId=resource.supplementary_data?.related_ids?.order_id;
+      const external=orderId?await BusinessExternalPayment.findOne({provider:'paypal',providerCheckoutId:String(orderId)}):null;
+      if(!external)return res.json({ok:true,ignored:true});
+      if(String(resource.amount?.currency_code||'').toUpperCase()!==external.currency.toUpperCase()||Math.abs(Number(resource.amount?.value)-external.amount)>0.000001)return res.status(400).json({error:'PayPal capture amount or currency does not match the invoice'});
+      await settlePayPalInvoice(external,event.id);return res.json({ok:true});
+    }
+    if(['PAYMENT.CAPTURE.DENIED','CHECKOUT.ORDER.VOIDED'].includes(event.event_type)){
+      const orderId=resource.supplementary_data?.related_ids?.order_id||resource.id;
+      await BusinessExternalPayment.updateOne({provider:'paypal',providerCheckoutId:String(orderId),status:'pending'},{$set:{status:'failed',providerEventId:String(event.id||''),completedAt:new Date()}});
+    }
+    res.json({ok:true,ignored:true});
   });
 
   app.post('/api/business/payments/stripe/webhook', async(req,res)=>{
