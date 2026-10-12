@@ -175,6 +175,7 @@ export function createStripeProvider(env = process.env, transport = globalThis.f
   const webhookSecret = env.STRIPE_WEBHOOK_SECRET?.trim();
   const mode = (env.STRIPE_ENV || (env.NODE_ENV === 'production' ? 'production' : 'test')).trim();
   if (!['test','production'].includes(mode)) throw new Error('STRIPE_ENV must be test or production');
+  if (env.NODE_ENV === 'production' && mode !== 'production') throw new Error('Production requires STRIPE_ENV=production; use a separate staging deployment for test payments');
   if (secret && ((mode === 'production' && !secret.startsWith('sk_live_')) || (mode === 'test' && !secret.startsWith('sk_test_')))) throw new Error('Stripe secret key does not match STRIPE_ENV');
   const request = async (path, body, idempotencyKey) => {
     if (!secret) throw new Error('Stripe is not configured');
@@ -240,6 +241,7 @@ export function createPayPalProvider(env = process.env, transport = globalThis.f
   const clientId=env.PAYPAL_CLIENT_ID?.trim(), clientSecret=env.PAYPAL_CLIENT_SECRET?.trim(), webhookId=env.PAYPAL_WEBHOOK_ID?.trim();
   const mode=(env.PAYPAL_ENV||'sandbox').trim();
   if(!['sandbox','production'].includes(mode))throw new Error('PAYPAL_ENV must be sandbox or production');
+  if(env.NODE_ENV==='production'&&mode!=='production')throw new Error('Production requires PAYPAL_ENV=production; use a separate staging deployment for sandbox payments');
   const host=mode==='production'?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com';
   let tokenValue, tokenExpiresAt=0;
   const token=async()=>{
