@@ -44,4 +44,13 @@ jobs:
           sed -i -E 's/compileSdk = .*/compileSdk = 36/' android/app/build.gradle.kts
           grep -n 'compileSdk' android/app/build.gradle.kts
           grep -q 'compileSdk = 36' android/app/build.gradle.kts
+      # file_picker 8.x declares compileSdk 34; its Android lifecycle dependency now requires 36.
+      # Align that plugin module too (the app's compileSdk alone does not change plugin metadata).
+      - name: Align file_picker plugin with Android SDK 36
+        run: |
+          FILE_PICKER_GRADLE=$(find "$HOME/.pub-cache/hosted/pub.dev" -path '*/file_picker-*/android/build.gradle*' -type f -print -quit)
+          test -n "$FILE_PICKER_GRADLE"
+          sed -i -E 's/compileSdkVersion.*/compileSdkVersion 36/; s/compileSdk = .*/compileSdk = 36/' "$FILE_PICKER_GRADLE"
+          grep -n 'compileSdk' "$FILE_PICKER_GRADLE"
+          grep -Eq 'compileSdkVersion 36|compileSdk = 36' "$FILE_PICKER_GRADLE"
       - run: flutter build apk --debug
