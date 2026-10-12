@@ -79,7 +79,11 @@ test('PayPal checkout fails closed without credentials', async () => {
   await assert.rejects(()=>provider.verifyWebhook({},{}),/not configured/);
 });
 
-test('production refuses Stripe test mode and PayPal sandbox mode', () => {
-  assert.throws(()=>createStripeProvider({NODE_ENV:'production',STRIPE_ENV:'test',STRIPE_SECRET_KEY:'sk_test_x',STRIPE_WEBHOOK_SECRET:'whsec_x'}),/Production requires STRIPE_ENV=production/);
-  assert.throws(()=>createPayPalProvider({NODE_ENV:'production',PAYPAL_ENV:'sandbox',PAYPAL_CLIENT_ID:'id',PAYPAL_CLIENT_SECRET:'secret',PAYPAL_WEBHOOK_ID:'webhook'}),/Production requires PAYPAL_ENV=production/);
+test('production fails closed for Stripe test mode and PayPal sandbox mode without crashing app startup', async () => {
+  const stripe=createStripeProvider({NODE_ENV:'production',STRIPE_ENV:'test',STRIPE_SECRET_KEY:'sk_test_x',STRIPE_WEBHOOK_SECRET:'whsec_x'});
+  assert.equal(stripe.configured,false);
+  await assert.rejects(()=>stripe.createCheckoutSession({paymentId:'p',organizationId:'o',documentId:'d',number:'INV-1',amount:100,currency:'KES',successUrl:'https://example.com/ok',cancelUrl:'https://example.com/cancel'}),/not configured/);
+  const paypal=createPayPalProvider({NODE_ENV:'production',PAYPAL_ENV:'sandbox',PAYPAL_CLIENT_ID:'id',PAYPAL_CLIENT_SECRET:'secret',PAYPAL_WEBHOOK_ID:'webhook'});
+  assert.equal(paypal.configured,false);
+  await assert.rejects(()=>paypal.createOrder({paymentId:'p',number:'INV-1',amount:100,currency:'KES',successUrl:'https://example.com/ok',cancelUrl:'https://example.com/cancel'}),/not configured/);
 });
