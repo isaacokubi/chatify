@@ -398,7 +398,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
         const nameOrTitle=String(fields.name||fields.title||'').trim();
         if(!nameOrTitle){results.push({mutationId,status:'rejected',error:'Create mutation requires a name or title'});continue;}
         if(entityType==='catalog'&&(!Number.isFinite(Number(fields.price))||Number(fields.price)<0)){results.push({mutationId,status:'rejected',error:'A catalogue item requires a valid non-negative price'});continue;}
-        if(fields.email&& !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(fields.email))){results.push({mutationId,status:'rejected',error:'Invalid customer email'});continue;}
+        if(fields.email){const email=String(fields.email).trim();const at=email.indexOf('@');if(at<1||at===email.length-1||!email.slice(at+1).includes('.')||email.includes(' ')){results.push({mutationId,status:'rejected',error:'Invalid customer email'});continue;}}
         const payload={organizationId:org._id,...fields};
         if(entityType==='customer'){payload.name=nameOrTitle;payload.source='manual';payload.messagingConsent=false;}
         if(entityType==='catalog'){payload.name=nameOrTitle;payload.price=Number(fields.price);payload.stock=Math.max(0,Number(fields.stock)||0);payload.currency=shortText(fields.currency,3)||org.currency;payload.active=true;}
