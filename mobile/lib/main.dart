@@ -63,6 +63,11 @@ class Api {
       r = await client
           .patch(u, headers: h, body: jsonEncode(body ?? {}))
           .timeout(requestTimeout);
+    } else if (method == 'PUT') {
+      // PUT supports idempotent business updates such as shared-inbox assignment and handover.
+      r = await client
+          .put(u, headers: h, body: jsonEncode(body ?? {}))
+          .timeout(requestTimeout);
     } else if (method == 'DELETE') {
       r = await client
           .delete(u, headers: h, body: body == null ? null : jsonEncode(body))
