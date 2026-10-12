@@ -777,6 +777,34 @@ class Welcome extends StatelessWidget {
   static const violet = Color(0xFF5548E8);
   static const mint = Color(0xFF41D6B0);
 
+  Future<void> _browseStore(BuildContext context) async {
+    final slug = TextEditingController();
+    final selected = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Shop a Chatify store'),
+        content: TextField(
+          controller: slug,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Store name / URL slug',
+            hintText: 'e.g. baraka-books',
+            helperText: 'Ask the business for its Chatify store slug.',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Browse products')),
+        ],
+      ),
+    );
+    final value = slug.text.trim().toLowerCase();
+    if (selected != true || value.isEmpty || !context.mounted) return;
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => StorefrontPage(slug: value),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -806,6 +834,7 @@ class Welcome extends StatelessWidget {
                         const SizedBox(width: 11),
                         const Text('Chatify', style: TextStyle(color: ink, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
                         const Spacer(),
+                        TextButton(onPressed: () => _browseStore(context), child: const Text('Shop a store')),
                         TextButton(onPressed: onSignIn, child: const Text('Sign in')),
                         const SizedBox(width: 5),
                         FilledButton(
@@ -4582,6 +4611,313 @@ class _ProfileState extends State<Profile> {
 }
 
 
+/// Customer-facing storefront. Product prices are display-only until the server creates
+/// an order from its own catalogue records; successful payment is confirmed by Daraja callback.
+class StorefrontPage extends StatefulWidget {
+  final String slug;
+  const StorefrontPage({super.key, required this.slug});
+  @override
+  State<StorefrontPage> createState() => _StorefrontPageState();
+}
+
+class _StorefrontPageState extends State<StorefrontPage> {
+  Map<String, dynamic> storefront = {};
+  List<dynamic> products = [];
+  final Map<String, int> cart = {};
+  final phone = TextEditingController();
+  bool loading = true, checkingOut = false;
+  String? error, paymentId, notice;
+  AppState get app => context.read<AppState>();
+
+  @override
+  void initState() {
+    super.initState();
+    phone.text = app.user?['phone']?.toString() ?? '';
+    loadStore();
+  }
+
+  @override
+  void dispose() {
+    phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadStore() async {
+    setState(() { loading = true; error = null; });
+    try {
+      final result = await app.api.call('GET', '/api/storefront/${Uri.encodeComponent(widget.slug)}');
+      if (!mounted) return;
+      setState(() {
+        storefront = Map<String, dynamic>.from(result['storefront'] ?? {});
+        products = List<dynamic>.from(result['items'] ?? []);
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  double get total => products.whereType<Map>().fold<double>(0, (sum, raw) {
+    final item = Map<String, dynamic>.from(raw);
+    return sum + (double.tryParse(item['price']?.toString() ?? '') ?? 0) *
+        (cart[item['_id']?.toString()] ?? 0);
+  });
+
+  void addProduct(Map<String, dynamic> item) {
+    final id = item['_id']?.toString();
+    if (id == null) return;
+    final current = cart[id] ?? 0;
+    final stock = int.tryParse(item['stock']?.toString() ?? '') ?? 0;
+    if (stock > 0 && current >= stock) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You have selected all available stock for this product.')));
+      return;
+    }
+    setState(() => cart[id] = current + 1);
+  }
+
+  Future<void> showProduct(Map<String, dynamic> item) async {
+    final id = item['_id']?.toString() ?? '';
+    final image = (item['images'] is List && (item['images'] as List).isNotEmpty)
+        ? (item['images'] as List).first.toString() : '';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(item['name']?.toString() ?? 'Product'),
+        content: SingleChildScrollView(child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (image.startsWith('https://')) ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(image, height: 170, width: double.infinity, fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+            ),
+            const SizedBox(height: 8),
+            Text('KSh ${item['price'] ?? '—'}', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(item['description']?.toString() ?? 'No product description yet.'),
+            if ((item['category']?.toString() ?? '').isNotEmpty) Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Chip(label: Text(item['category'].toString())),
+            ),
+          ],
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+          FilledButton.icon(
+            onPressed: () { Navigator.pop(dialogContext); addProduct(item); },
+            icon: const Icon(Icons.add_shopping_cart),
+            label: Text(cart[id] == null ? 'Add to cart' : 'Add another'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> checkout() async {
+    if (cart.isEmpty || checkingOut) return;
+    if (app.user == null) {
+      final signIn = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Sign in to pay'),
+          content: const Text('You can browse products without an account. Sign in or create an account to place an order and receive the secure M-Pesa payment prompt.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not now')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Continue')),
+          ],
+        ),
+      );
+      if (signIn == true && mounted) app.openAuth(register: true);
+      return;
+    }
+    if (normalizeKenyanPhone(phone.text) == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid Kenyan M-Pesa phone number.')));
+      return;
+    }
+    setState(() { checkingOut = true; notice = null; error = null; });
+    try {
+      final result = await app.api.call('POST', '/api/storefront/${Uri.encodeComponent(widget.slug)}/checkout', {
+        'phone': phone.text.trim(),
+        'items': cart.entries.map((entry) => {'itemId': entry.key, 'quantity': entry.value}).toList(),
+      });
+      final payment = Map<String, dynamic>.from(result['payment'] ?? {});
+      final id = payment['paymentId']?.toString();
+      if (id == null || id.isEmpty) throw const FormatException('Order was created but no payment reference was returned.');
+      if (mounted) setState(() { paymentId = id; notice = 'Order created. Requesting M-Pesa payment prompt…'; });
+      final initiated = await app.api.call('POST', '/api/payments/${Uri.encodeComponent(id)}/initiate', {'phone': phone.text.trim()});
+      if (!mounted) return;
+      final isMock = initiated['mock'] == true;
+      setState(() {
+        notice = isMock
+            ? 'Order created, but the server is in demo M-Pesa mode. No real Safaricom prompt was sent.'
+            : 'Check your phone and enter your M-Pesa PIN to approve the payment. Then refresh payment status below.';
+        cart.clear();
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => checkingOut = false);
+    }
+  }
+
+  Future<void> refreshPayment() async {
+    final id = paymentId;
+    if (id == null) return;
+    try {
+      final result = await app.api.call('GET', '/api/payments/${Uri.encodeComponent(id)}');
+      final payment = Map<String, dynamic>.from(result['payment'] ?? {});
+      final status = payment['status']?.toString() ?? 'PENDING';
+      if (mounted) setState(() => notice = status == 'SUCCESS'
+          ? 'Payment confirmed. Thank you for your order!'
+          : status == 'PENDING'
+              ? 'Payment is still pending. Complete the M-Pesa prompt on your phone, then refresh.'
+              : 'Payment status: $status. You can contact the store if you need help.');
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (error != null && storefront.isEmpty) {
+      return Scaffold(appBar: AppBar(title: const Text('Storefront')), body: Center(child: Padding(
+        padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.storefront_outlined, size: 48),
+          const SizedBox(height: 12),
+          Text(error!, textAlign: TextAlign.center),
+          const SizedBox(height: 12),
+          FilledButton(onPressed: loadStore, child: const Text('Retry')),
+        ]),
+      )));
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(storefront['name']?.toString() ?? 'Storefront'),
+        actions: [IconButton(tooltip: 'Refresh products', onPressed: loadStore, icon: const Icon(Icons.refresh))],
+      ),
+      body: RefreshIndicator(
+        onRefresh: loadStore,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: const LinearGradient(colors: [Color(0xFF292C57), Color(0xFF5548E8)]),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.storefront_rounded, color: Colors.white, size: 30),
+                const SizedBox(height: 10),
+                Text(storefront['name']?.toString() ?? 'Shop', style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 5),
+                Text(storefront['description']?.toString() ?? 'Browse products, add what you need to your cart, and pay securely with M-Pesa.', style: const TextStyle(color: Colors.white70)),
+                const SizedBox(height: 10),
+                const Text('Secure checkout · M-Pesa', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+            const SizedBox(height: 16),
+            Text('Products', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            if (products.isEmpty) const Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('This store has no active products yet.', textAlign: TextAlign.center),
+            ),
+            ...products.whereType<Map>().map((raw) {
+              final item = Map<String, dynamic>.from(raw);
+              final id = item['_id']?.toString() ?? '';
+              final image = (item['images'] is List && (item['images'] as List).isNotEmpty) ? (item['images'] as List).first.toString() : '';
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => showProduct(item),
+                  child: Row(children: [
+                    if (image.startsWith('https://')) SizedBox(width: 100, height: 110, child: Image.network(image, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.inventory_2_outlined)))
+                    else Container(width: 100, height: 110, color: const Color(0xFFF0F2F8), child: const Icon(Icons.inventory_2_outlined, size: 34)),
+                    Expanded(child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(item['name']?.toString() ?? 'Product', style: const TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text(item['description']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 6),
+                        Text('KSh ${item['price'] ?? '—'}', style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF4F46E5))),
+                        const SizedBox(height: 5),
+                        Row(children: [
+                          Expanded(child: Text((cart[id] ?? 0) > 0 ? 'In cart: ${cart[id]}' : 'Tap to view details', style: const TextStyle(fontSize: 11))),
+                          IconButton(onPressed: () => addProduct(item), icon: const Icon(Icons.add_circle_outline), tooltip: 'Add to cart'),
+                        ]),
+                      ]),
+                    )),
+                  ]),
+                ),
+              );
+            }),
+            if (cart.isNotEmpty) Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Your cart · ${cart.values.fold<int>(0, (sum, value) => sum + value)} item(s)', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 8),
+                  ...cart.entries.map((entry) {
+                    final item = products.whereType<Map>().firstWhere((p) => p['_id']?.toString() == entry.key, orElse: () => <String, dynamic>{});
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(item['name']?.toString() ?? 'Product'),
+                      subtitle: Text('${entry.value} × KSh ${item['price'] ?? ''}'),
+                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                        IconButton(onPressed: () => setState(() { if (entry.value <= 1) { cart.remove(entry.key); } else { cart[entry.key] = entry.value - 1; } }), icon: const Icon(Icons.remove_circle_outline)),
+                        IconButton(onPressed: () { final product = products.whereType<Map>().firstWhere((p) => p['_id']?.toString() == entry.key, orElse: () => <String, dynamic>{}); if (product.isNotEmpty) addProduct(Map<String, dynamic>.from(product)); }, icon: const Icon(Icons.add_circle_outline)),
+                      ]),
+                    );
+                  }),
+                  const Divider(),
+                  Row(children: [
+                    const Expanded(child: Text('Total', style: TextStyle(fontWeight: FontWeight.w800))),
+                    Text('KSh ${total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                  ]),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: phone,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'M-Pesa phone number',
+                      hintText: '0712345678',
+                      prefixIcon: Icon(Icons.phone_android),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(width: double.infinity, child: FilledButton.icon(
+                    onPressed: checkingOut ? null : checkout,
+                    icon: checkingOut ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.lock_outline),
+                    label: Text(checkingOut ? 'Starting secure checkout…' : 'Checkout with M-Pesa'),
+                  )),
+                ]),
+              ),
+            ),
+            if (notice != null) Card(color: const Color(0xFFE9F8F2), child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(notice!, style: const TextStyle(color: Color(0xFF155E48))),
+                if (paymentId != null) ...[
+                  const SizedBox(height: 8),
+                  SelectableText('Payment reference: $paymentId'),
+                  Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: refreshPayment, icon: const Icon(Icons.refresh), label: const Text('Refresh payment status'))),
+                ],
+              ]),
+            )),
+            if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Business operations workspace: lightweight mobile entry points to the authenticated
 /// organization, catalogue, customer CRM, sales documents and follow-up task APIs.
 class BusinessHub extends StatefulWidget {
@@ -5108,6 +5444,11 @@ class _BusinessHubState extends State<BusinessHub> {
               if (mounted) setState(() => loading = false);
             },
           ))),
+          IconButton(tooltip: 'Open customer storefront', onPressed: () {
+            final slug = organization?['slug']?.toString() ?? '';
+            if (slug.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This workspace has no storefront slug yet.'))); return; }
+            Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StorefrontPage(slug: slug)));
+          }, icon: const Icon(Icons.storefront_outlined)),
           IconButton(tooltip: 'Refresh business data', onPressed: loadOrganizations, icon: const Icon(Icons.refresh)),
           IconButton(tooltip: 'Add business workspace', onPressed: createOrganization, icon: const Icon(Icons.add_business)),
         ])),
