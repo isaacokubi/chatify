@@ -44,8 +44,6 @@ const PasswordReset=mongoose.model('PasswordReset',new mongoose.Schema({userId:{
 // Payment records track requester/payer, amount, provider references and lifecycle status.
 const Payment=mongoose.model('Payment',new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},requesterId:{type:O,required:true,index:true},payerId:{type:O,required:true,index:true},conversationId:{type:O,index:true},amount:{type:Number,required:true,min:1,max:150000},recipientPhone:{type:String},payerPhone:{type:String},phone:{type:String},businessOrganizationId:{type:O,index:true},businessDocumentId:{type:O,index:true},description:{type:String,required:true,maxlength:80},status:{type:String,enum:PAYMENT_STATUSES,default:'PENDING',index:true},provider:{type:String,required:true},checkoutRequestId:{type:String,sparse:true,index:true},merchantRequestId:String,resultCode:Number,resultDescription:String,requestedAt:{type:Date,required:true},initiating:{type:Boolean,default:false},initiatedAt:Date,completedAt:Date,callbackProcessedAt:Date,dismissedBy:{type:[O],default:[]}},{timestamps:true}));
 Payment.schema.index({checkoutRequestId:1,merchantRequestId:1},{unique:true,sparse:true});
-// Mount business modules only after their shared chat and payment models exist.
-registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io,mpesaProvider});
 const safe=u=>({id:String(u._id),name:u.name,email:u.email,phone:u.phone,profileImage:u.profileImage,status:u.status,lastSeen:u.lastSeen,privacy:u.privacy,notificationPreferences:u.notificationPreferences});
 const visibleUser=u=>{const value=u.toObject?u.toObject():{...u};if(value.privacy?.lastSeen===false)delete value.lastSeen;return value;};
 const sign=u=>jwt.sign({sub:String(u._id)},env.jwt,{expiresIn:env.jwtExpiresIn});
@@ -54,6 +52,9 @@ const auth=createAuthMiddleware({verifyToken:token=>jwt.verify(token,env.jwt),fi
 import {candidate} from './memory.js';
 // HTTP serves REST; Socket.IO shares this server for authenticated real-time chat events.
 const server=http.createServer(app); const io=new Server(server,{cors:{origin:corsOrigin,credentials:true}});
+// Register Business routes only after auth and Socket.IO exist. Registering earlier hits
+// JavaScript's temporal-dead-zone for these const bindings and prevents the API from booting.
+registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io,mpesaProvider});
 io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);if(!await User.exists({_id:s.user.sub,status:'active'}))throw new Error('Inactive');n();}catch{n(new Error('Unauthorized'));}});
 const onlineUsers=new Set();
 const leaveUserConversation=(userId,conversationId)=>io.in('user:'+String(userId)).socketsLeave(String(conversationId));
