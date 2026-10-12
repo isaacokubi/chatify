@@ -34,7 +34,26 @@ export function resolveClientOrigins(value, production = false) {
 
 export function corsOriginCallback(configuration) {
   return (origin, callback) => {
-    if (!origin || configuration.wildcard || configuration.origins.has(origin)) {
+    // Allow browser-based local development against the deployed API without
+    // requiring every temporary localhost port to be added to Render settings.
+    // This exception only permits loopback HTTP origins; authentication and all
+    // API authorization checks still run normally, and no remote HTTP origin is allowed.
+    let isLocalDevelopmentOrigin = false;
+    if (typeof origin === 'string') {
+      try {
+        const parsed = new URL(origin);
+        isLocalDevelopmentOrigin =
+          parsed.protocol === 'http:' &&
+          (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' ||
+            parsed.hostname === '[::1]') &&
+          parsed.origin === origin;
+      } catch {
+        // Malformed Origin headers are not trusted.
+      }
+    }
+
+    if (!origin || configuration.wildcard ||
+        configuration.origins.has(origin) || isLocalDevelopmentOrigin) {
       callback(null, true);
     } else {
       callback(null, false);
