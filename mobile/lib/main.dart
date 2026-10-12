@@ -193,7 +193,7 @@ String? conversationPeerName(
       continue;
     }
     if (name.isNotEmpty) return name;
-    firstAvailableName ??= null;
+    // Keep the first usable fallback name; null needs no explicit assignment.
   }
   return firstAvailableName;
 }

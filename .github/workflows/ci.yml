@@ -41,5 +41,7 @@ jobs:
       - name: Install Android SDK 36 and configure compileSdk
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
-          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/' android/app/build.gradle.kts
+          sed -i -E 's/compileSdk = .*/compileSdk = 36/' android/app/build.gradle.kts
+          grep -n 'compileSdk' android/app/build.gradle.kts
+          grep -q 'compileSdk = 36' android/app/build.gradle.kts
       - run: flutter build apk --debug
