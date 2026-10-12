@@ -124,3 +124,10 @@ These need credentials, operational policies, external-provider configuration, p
 - Configure the Stripe webhook to call `POST /api/business/payments/stripe/webhook` and subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, and `checkout.session.expired`.
 - The server verifies the Stripe signature against the raw request body and validates checkout ID, metadata, currency, and minor-unit amount before reconciling the invoice. Redirecting back to Chatify is not proof of payment.
 - Test with Stripe test-mode keys and a test webhook secret first. Production keys, webhook delivery, refunds, disputes, chargebacks, tax handling and provider account eligibility must be reviewed before accepting live international payments.
+
+
+### PayPal hosted checkout
+- Configure `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_SUCCESS_URL`, and `PAYPAL_CANCEL_URL`.
+- `POST /api/business/organizations/:orgId/documents/:documentId/paypal-checkout` creates an Orders v2 checkout for the outstanding balance. The server captures an approved order only after verifying the signed `CHECKOUT.ORDER.APPROVED` webhook.
+- Configure the PayPal webhook URL as `POST /api/business/payments/paypal/webhook`; subscribe to checkout order approval and payment capture completed/denied events. Amount and currency are checked against the stored invoice before it is reconciled.
+- Begin with sandbox credentials. Confirm webhook delivery, account eligibility, supported currencies, refunds, disputes, and production credentials before accepting live payments.
