@@ -258,7 +258,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   app.patch('/api/business/organizations/:orgId/documents/:documentId/status', auth, async (req, res) => {
     const org = await requireOrg(req,res); if (!org || !requireContributor(org, req, res)) return;
     const document = await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id}); if (!document) return res.status(404).json({error:'Document not found'});
-    const next = req.body?.status; if (!DOCUMENT_STATUSES.includes(next)||!canTransitionBusinessDocument(document.status,next)) return res.status(409).json({error:`Cannot change document from ${document.status} to ${String(next)}`});
+    const next = req.body?.status; if(next==='paid')return res.status(409).json({error:'Paid status can only be set by a provider-confirmed payment callback'}); if(document.type==='invoice'&&next==='fulfilled'&&document.paidAmount<document.total)return res.status(409).json({error:'An invoice must be fully paid before it can be fulfilled'}); if (!DOCUMENT_STATUSES.includes(next)||!canTransitionBusinessDocument(document.status,next)) return res.status(409).json({error:`Cannot change document from ${document.status} to ${String(next)}`});
     const previousStatus = document.status; document.status=next; if(next==='accepted')document.acceptedAt=new Date(); if(next==='fulfilled')document.fulfilledAt=new Date(); await document.save(); await recordAudit(org, req.user._id, 'document.status_changed', 'document', document._id, previousStatus + ' -> ' + next);
     // When a valid conversation was attached, share only the record status—not payment credentials.
     if (document.conversationId && io) io.to(String(document.conversationId)).emit('business:document-updated',{documentId:String(document._id),number:document.number,status:document.status,total:document.total});
@@ -279,7 +279,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const org = await requireOrg(req,res); if (!org || !requireContributor(org, req, res)) return;
     const document = await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id}); if (!document) return res.status(404).json({error:'Document not found'});
     const payment = await Payment.findOne({paymentId:req.body?.paymentId,status:'SUCCESS'});
-    if (!payment || !payment.checkoutRequestId || !payment.callbackProcessedAt) return res.status(409).json({error:'No provider-confirmed Chatify payment was found'});
+    if (!payment || !payment.checkoutRequestId || !payment.callbackProcessedAt || payment.businessDocumentId) return res.status(409).json({error:'No eligible unlinked provider-confirmed Chatify payment was found'});
     if (document.customerId && String(payment.payerId)!==String(document.customerId)) { /* Business customers are not Chatify accounts; the payment must be explicitly linked by the operator. */ }
     if (document.paymentRecords.some(p=>p.reference===payment.paymentId)) return res.status(409).json({error:'This payment has already been reconciled'});
     const amount=Number(payment.amount);
