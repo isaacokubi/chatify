@@ -15,10 +15,12 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:url_launcher/url_launcher.dart';
 
 // Represents a readable API failure so screens can show a useful message instead of raw transport errors.
 class ApiException implements Exception {
@@ -62,6 +64,11 @@ class Api {
     } else if (method == 'PATCH') {
       r = await client
           .patch(u, headers: h, body: jsonEncode(body ?? {}))
+          .timeout(requestTimeout);
+    } else if (method == 'PUT') {
+      // PUT supports idempotent business updates such as shared-inbox assignment and handover.
+      r = await client
+          .put(u, headers: h, body: jsonEncode(body ?? {}))
           .timeout(requestTimeout);
     } else if (method == 'DELETE') {
       r = await client
@@ -1485,7 +1492,7 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
-    final titles = ['Chats', 'Memories', 'Contacts', 'Profile'];
+    final titles = ['Chats', 'Business', 'Memories', 'Contacts', 'Profile'];
     return Scaffold(
       appBar: AppBar(
         title: Text(titles[tab]),
@@ -1503,23 +1510,25 @@ class _HomeState extends State<Home> {
             IconButton(tooltip: 'Select conversations', onPressed: () => setState(() => selectingChats = true), icon: const Icon(Icons.checklist)),
             IconButton(onPressed: loadChats, icon: const Icon(Icons.refresh)),
           ],
-          if (tab == 2)
+          if (tab == 3)
             IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
         ],
       ),
       body: IndexedStack(
           index: tab,
-          children: [_chats(), _memories(), _contacts(), const Profile()]),
+          children: [_chats(), const BusinessHub(), _memories(), _contacts(), const Profile()]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (i) {
           setState(() => tab = i);
           if (i == 0) loadChats();
-          if (i == 1) loadMemories();
+          if (i == 2) loadMemories();
         },
         destinations: const [
           NavigationDestination(
               icon: Icon(Icons.chat_bubble_outline), label: 'Chats'),
+          NavigationDestination(
+              icon: Icon(Icons.business_center_outlined), label: 'Business'),
           NavigationDestination(
               icon: Icon(Icons.auto_awesome_outlined), label: 'Memories'),
           NavigationDestination(
@@ -4485,4 +4494,557 @@ class _ProfileState extends State<Profile> {
             onPressed: () => context.read<AppState>().logout(),
             child: const Text('Sign out'))
       ]);
+}
+
+
+/// Business operations workspace: lightweight mobile entry points to the authenticated
+/// organization, catalogue, customer CRM, sales documents and follow-up task APIs.
+class BusinessHub extends StatefulWidget {
+  const BusinessHub({super.key});
+  @override
+  State<BusinessHub> createState() => _BusinessHubState();
+}
+
+class _BusinessHubState extends State<BusinessHub> {
+  Map<String, dynamic>? organization;
+  Map<String, dynamic> dashboard = {};
+  List<dynamic> organizations = [], catalog = [], customers = [], documents = [], tasks = [];
+  bool loading = true, saving = false;
+  int pendingOfflineCount = 0;
+  List<String> syncConflicts = [];
+  String? error;
+  AppState get app => context.read<AppState>();
+
+  @override
+  void initState() {
+    super.initState();
+    loadOrganizations();
+  }
+
+  Future<void> loadOrganizations() async {
+    if (mounted) setState(() { loading = true; error = null; });
+    try {
+      final result = await app.api.call('GET', '/api/business/organizations');
+      organizations = List<dynamic>.from(result['organizations'] ?? []);
+      if (organizations.isNotEmpty) {
+        final currentId = organization?['_id']?.toString();
+        organization = organizations.firstWhere(
+          (item) => item is Map && item['_id']?.toString() == currentId,
+          orElse: () => organizations.first,
+        ) as Map<String, dynamic>;
+        await loadWorkspaceData();
+      } else {
+        organization = null;
+        dashboard = {};
+        catalog = []; customers = []; documents = []; tasks = [];
+      }
+    } catch (e) {
+      error = e.toString();
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> loadWorkspaceData({bool syncPending = true}) async {
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    try {
+      final encoded = Uri.encodeComponent(id);
+      final results = await Future.wait([
+        app.api.call('GET', '/api/business/organizations/$encoded/dashboard'),
+        app.api.call('GET', '/api/business/organizations/$encoded/catalog'),
+        app.api.call('GET', '/api/business/organizations/$encoded/customers'),
+        app.api.call('GET', '/api/business/organizations/$encoded/documents'),
+        app.api.call('GET', '/api/business/organizations/$encoded/tasks'),
+      ]);
+      dashboard = Map<String, dynamic>.from(results[0]['metrics'] ?? {});
+      catalog = List<dynamic>.from(results[1]['items'] ?? []);
+      customers = List<dynamic>.from(results[2]['customers'] ?? []);
+      documents = List<dynamic>.from(results[3]['documents'] ?? []);
+      tasks = List<dynamic>.from(results[4]['tasks'] ?? []);
+      error = null;
+    } catch (e) {
+      error = e.toString();
+    }
+    if (syncPending && error == null) {
+      final applied = await _flushOfflineQueue(id);
+      if (applied > 0) { await loadWorkspaceData(syncPending: false); return; }
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> createOrganization() async {
+    final name = TextEditingController();
+    final industry = ValueNotifier<String>('retail');
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create a business workspace'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'Business name')),
+          const SizedBox(height: 12),
+          ValueListenableBuilder<String>(
+            valueListenable: industry,
+            builder: (_, value, __) => DropdownButtonFormField<String>(
+              initialValue: value,
+              decoration: const InputDecoration(labelText: 'Industry'),
+              items: const [
+                DropdownMenuItem(value: 'retail', child: Text('Retail / wholesale')),
+                DropdownMenuItem(value: 'consulting', child: Text('Consultants / agencies')),
+                DropdownMenuItem(value: 'tourism', child: Text('Tourism / hospitality')),
+                DropdownMenuItem(value: 'logistics', child: Text('Transport / logistics')),
+                DropdownMenuItem(value: 'construction', child: Text('Construction / trades')),
+                DropdownMenuItem(value: 'salon', child: Text('Salon / personal services')),
+                DropdownMenuItem(value: 'education', child: Text('Schools / training')),
+                DropdownMenuItem(value: 'agriculture', child: Text('Agriculture / produce')),
+                DropdownMenuItem(value: 'real_estate', child: Text('Real estate / property')),
+                DropdownMenuItem(value: 'other', child: Text('Other')),
+              ],
+              onChanged: (next) { if (next != null) industry.value = next; },
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (accepted != true || name.text.trim().isEmpty) return;
+    try {
+      await app.api.call('POST', '/api/business/organizations', {'name': name.text.trim(), 'industry': industry.value});
+      await loadOrganizations();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> createRecord(String kind) async {
+    final name = TextEditingController();
+    final detail = TextEditingController();
+    final amount = TextEditingController();
+    final quantity = TextEditingController(text: '1');
+    final docType = ValueNotifier<String>('quote');
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    final title = kind == 'catalog' ? 'Add product or service' : kind == 'customer' ? 'Add customer' : kind == 'document' ? 'Create quotation' : 'Create follow-up task';
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: name, autofocus: true, decoration: InputDecoration(labelText: kind == 'catalog' ? 'Product / service name' : kind == 'customer' ? 'Customer name' : kind == 'document' ? 'Quotation title / item' : 'Task title')),
+          if (kind == 'catalog') ...[
+            TextField(controller: detail, decoration: const InputDecoration(labelText: 'Description')),
+            TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Price')),
+            TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Stock quantity')),
+          ] else if (kind == 'customer') ...[
+            TextField(controller: detail, decoration: const InputDecoration(labelText: 'Email or phone')),
+          ] else if (kind == 'document') ...[
+            ValueListenableBuilder<String>(valueListenable: docType, builder: (_, value, __) => DropdownButtonFormField<String>(initialValue: value, decoration: const InputDecoration(labelText: 'Document type'), items: const [DropdownMenuItem(value: 'quote', child: Text('Quotation')), DropdownMenuItem(value: 'invoice', child: Text('Invoice')), DropdownMenuItem(value: 'order', child: Text('Sales order'))], onChanged: (next) { if (next != null) docType.value = next; })),
+            TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Unit price')),
+            TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantity')),
+          ] else ...[
+            TextField(controller: detail, decoration: const InputDecoration(labelText: 'Notes / description')),
+          ],
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (accepted != true || name.text.trim().isEmpty) return;
+    setState(() => saving = true);
+    try {
+      final base = '/api/business/organizations/${Uri.encodeComponent(id)}';
+      if (kind == 'catalog') {
+        final price = double.tryParse(amount.text) ?? -1;
+        if (price < 0) throw const FormatException('Enter a valid non-negative price.');
+        await app.api.call('POST', '$base/catalog', {'name': name.text.trim(), 'description': detail.text.trim(), 'price': price, 'stock': int.tryParse(quantity.text) ?? 0});
+      } else if (kind == 'customer') {
+        final contact = detail.text.trim();
+        await app.api.call('POST', '$base/customers', {'name': name.text.trim(), if (contact.contains('@')) 'email': contact else 'phone': contact});
+      } else if (kind == 'document') {
+        final price = double.tryParse(amount.text) ?? -1;
+        final count = int.tryParse(quantity.text) ?? 0;
+        if (price < 0 || count < 1) throw const FormatException('Enter a valid price and quantity.');
+        await app.api.call('POST', '$base/documents', {'type': docType.value, 'items': [{'name': name.text.trim(), 'quantity': count, 'unitPrice': price}]});
+      } else {
+        await app.api.call('POST', '$base/tasks', {'title': name.text.trim(), 'description': detail.text.trim(), 'type': 'follow_up'});
+      }
+      await loadWorkspaceData();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Business record saved.')));
+    } catch (e) {
+      if ((e is http.ClientException || e is TimeoutException) && kind != 'document') {
+        final entityType = kind == 'catalog' ? 'catalog' : kind == 'customer' ? 'customer' : 'task';
+        final changes = kind == 'catalog' ? {'name': name.text.trim(), 'description': detail.text.trim(), 'price': double.tryParse(amount.text) ?? 0, 'stock': int.tryParse(quantity.text) ?? 0} : kind == 'customer' ? {'name': name.text.trim(), if (detail.text.trim().contains('@')) 'email': detail.text.trim() else 'phone': detail.text.trim()} : {'title': name.text.trim(), 'description': detail.text.trim(), 'type': 'follow_up'};
+        await _enqueueOfflineCreate(id, entityType, changes);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved to the device queue. It will sync when connectivity returns.')));
+      } else if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+
+  String _offlineQueueKey(String id) => 'chatify_business_offline_$id';
+  String _offlineIssuesKey(String id) => 'chatify_business_sync_issues_$id';
+
+  // Persist only offline record creates; each mutation ID makes retry safe if the response is lost.
+  Future<void> _enqueueOfflineCreate(String id, String entityType, Map<String, dynamic> changes) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _offlineQueueKey(id);
+    final queue = prefs.getStringList(key) ?? <String>[];
+    queue.add(jsonEncode({'mutationId': 'mobile:$entityType:${DateTime.now().microsecondsSinceEpoch}', 'operation': 'create', 'entityType': entityType, 'changes': changes}));
+    await prefs.setStringList(key, queue);
+    if (mounted) setState(() => pendingOfflineCount = queue.length);
+  }
+
+  Future<int> _flushOfflineQueue(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _offlineQueueKey(id);
+    final queue = prefs.getStringList(key) ?? <String>[];
+    if (queue.isEmpty) { if (mounted) setState(() => pendingOfflineCount = 0); return 0; }
+    try {
+      final mutations = queue.map((entry) => Map<String, dynamic>.from(jsonDecode(entry) as Map)).toList();
+      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/sync', {'mutations': mutations});
+      final results = List<dynamic>.from(response['results'] ?? []);
+      final byId = <String, Map<String, dynamic>>{for (final result in results.whereType<Map>()) result['mutationId'].toString(): Map<String, dynamic>.from(result)};
+      final remaining = <String>[];
+      final issues = prefs.getStringList(_offlineIssuesKey(id)) ?? <String>[];
+      var applied = 0;
+      for (final entry in queue) {
+        final mutation = Map<String, dynamic>.from(jsonDecode(entry) as Map);
+        final result = byId[mutation['mutationId'].toString()];
+        if (result == null) { remaining.add(entry); }
+        else if (result['status'] == 'applied') { applied++; }
+        else { issues.add(jsonEncode({'mutation': mutation, 'result': result})); }
+      }
+      await prefs.setStringList(key, remaining);
+      await prefs.setStringList(_offlineIssuesKey(id), issues.take(100).toList());
+      if (mounted) setState(() { pendingOfflineCount = remaining.length; syncConflicts = issues.take(100).toList(); });
+      if (issues.isNotEmpty && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Some offline changes need review in Business Tools.')));
+      return applied;
+    } catch (_) {
+      if (mounted) setState(() => pendingOfflineCount = queue.length);
+      return 0;
+    }
+  }
+
+  Future<void> _configureTaxProfile() async {
+    final country = TextEditingController(text: organization?['country']?.toString() ?? 'KE');
+    final currency = TextEditingController(text: organization?['currency']?.toString() ?? 'KES');
+    final rate = TextEditingController(text: '0');
+    String mode = 'exclusive';
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Tax and currency profile'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: country, maxLength: 2, decoration: const InputDecoration(labelText: 'Country code (e.g. KE)')),
+        TextField(controller: currency, maxLength: 3, decoration: const InputDecoration(labelText: 'Currency (e.g. KES)')),
+        TextField(controller: rate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Tax rate (%)')),
+        DropdownButtonFormField<String>(initialValue: mode, decoration: const InputDecoration(labelText: 'Tax treatment'), items: const [DropdownMenuItem(value: 'exclusive', child: Text('Tax added on top')), DropdownMenuItem(value: 'inclusive', child: Text('Tax included')), DropdownMenuItem(value: 'none', child: Text('No tax'))], onChanged: (value) { if (value != null) setDialogState(() => mode = value); }),
+        const Text('Confirm local rates with your accountant or tax authority.', style: TextStyle(fontSize: 12)),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save'))],
+    )));
+    if (accepted != true) return;
+    try {
+      final id = organization!['_id'].toString();
+      final response = await app.api.call('PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}/tax-profile', {'country': country.text.trim().toUpperCase(), 'currency': currency.text.trim().toUpperCase(), 'rate': double.tryParse(rate.text) ?? -1, 'mode': mode});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Tax profile saved.')));
+      await loadOrganizations();
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _translateBusinessText() async {
+    final source = TextEditingController();
+    final target = TextEditingController(text: 'Kiswahili');
+    bool consent = false;
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Translate business text'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: source, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: 'Text to translate')),
+        TextField(controller: target, decoration: const InputDecoration(labelText: 'Target language')),
+        CheckboxListTile(value: consent, contentPadding: EdgeInsets.zero, title: const Text('I consent to sending this text to the configured AI provider'), onChanged: (value) => setDialogState(() => consent = value ?? false)),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: consent ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Translate'))],
+    )));
+    if (accepted != true) return;
+    try {
+      final id = organization!['_id'].toString();
+      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/translate', {'text': source.text, 'targetLanguage': target.text.trim(), 'consent': true});
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Translation'), content: SelectableText(response['translated']?.toString() ?? 'No translation returned.'), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))]));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+
+  Future<void> _translateVoice() async {
+    final target = TextEditingController(text: 'Kiswahili');
+    bool consent = false;
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Voice message translation'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: target, decoration: const InputDecoration(labelText: 'Translate speech into')),
+        CheckboxListTile(value: consent, contentPadding: EdgeInsets.zero, title: const Text('I consent to sending this audio to the configured AI provider'), onChanged: (value) => setDialogState(() => consent = value ?? false)),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: consent ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Choose audio'))],
+    )));
+    if (accepted != true) return;
+    try {
+      final selected = await FilePicker.platform.pickFiles(type: FileType.audio, withData: true, allowMultiple: false);
+      if (selected == null || selected.files.isEmpty) return;
+      final file = selected.files.first;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty || bytes.length > 11 * 1024 * 1024) throw const FormatException('Choose an audio file smaller than 11 MB.');
+      final extension = (file.extension ?? '').toLowerCase();
+      final mime = switch (extension) {
+        'mp3' || 'mpeg' => 'audio/mpeg',
+        'm4a' || 'mp4' => 'audio/mp4',
+        'wav' => 'audio/wav',
+        'ogg' => 'audio/ogg',
+        'webm' => 'audio/webm',
+        _ => throw const FormatException('Supported audio formats: MP3, M4A, WAV, OGG and WebM.'),
+      };
+      final id = organization!['_id'].toString();
+      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/voice-translate', {'audioBase64': base64Encode(bytes), 'mimeType': mime, 'targetLanguage': target.text.trim(), 'consent': true});
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Voice translation'),
+        content: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Transcription', style: TextStyle(fontWeight: FontWeight.bold)),
+          SelectableText(response['transcription']?.toString() ?? ''),
+          const SizedBox(height: 12),
+          const Text('Translation', style: TextStyle(fontWeight: FontWeight.bold)),
+          SelectableText(response['translated']?.toString() ?? ''),
+        ])),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+      ));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _memorySuggestions() async {
+    final source = TextEditingController();
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Business Memory suggestions'), content: TextField(controller: source, autofocus: true, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: 'Paste a conversation or business note')), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Find suggestions'))]));
+    if (accepted != true || source.text.trim().isEmpty) return;
+    try {
+      final id = organization!['_id'].toString();
+      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/memory-candidates', {'text': source.text});
+      final candidates = List<dynamic>.from(response['candidates'] ?? []);
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Review suggestions'), content: SizedBox(width: 420, child: candidates.isEmpty ? const Text('No clear candidates found.') : ListView(shrinkWrap: true, children: candidates.whereType<Map>().map((item) => ListTile(title: Text(item['title']?.toString() ?? 'Suggestion'), subtitle: Text('${item['type']}: ${item['description']}'))).toList())), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))]));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _sendCustomerMessage() async {
+    final eligible = customers.whereType<Map>().toList();
+    if (eligible.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add a customer before sending a message.'))); return; }
+    String? customerId = eligible.first['_id']?.toString();
+    String channel = 'whatsapp';
+    bool confirmedOptIn = false;
+    final message = TextEditingController();
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Message a customer'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        DropdownButtonFormField<String>(initialValue: customerId, decoration: const InputDecoration(labelText: 'Customer'), items: eligible.map((item) => DropdownMenuItem<String>(value: item['_id']?.toString(), child: Text(item['name']?.toString() ?? 'Customer', overflow: TextOverflow.ellipsis))).toList(), onChanged: (value) => setDialogState(() => customerId = value)),
+        DropdownButtonFormField<String>(initialValue: channel, decoration: const InputDecoration(labelText: 'Channel'), items: const [DropdownMenuItem(value: 'whatsapp', child: Text('WhatsApp')), DropdownMenuItem(value: 'sms', child: Text('SMS'))], onChanged: (value) { if (value != null) setDialogState(() => channel = value); }),
+        TextField(controller: message, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Message')),
+        CheckboxListTile(value: confirmedOptIn, contentPadding: EdgeInsets.zero, title: const Text('Customer has explicitly opted in'), onChanged: (value) => setDialogState(() => confirmedOptIn = value ?? false)),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: confirmedOptIn && message.text.trim().isNotEmpty ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Send'))],
+    )));
+    if (accepted != true || customerId == null) return;
+    try {
+      final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
+      await app.api.call('PATCH', '$base/customers/${Uri.encodeComponent(customerId!)}/messaging-consent', {'consent': true});
+      final response = await app.api.call('POST', '$base/communications/send', {'customerId': customerId, 'channel': channel, 'message': message.text.trim()});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Message submitted.')));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _createScheduledWorkflow() async {
+    final name = TextEditingController(text: 'Daily follow-up reminder');
+    final interval = TextEditingController(text: '60');
+    final actionText = TextEditingController(text: 'Review open customer follow-ups');
+    String action = 'create_task';
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Scheduled workflow'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: name, decoration: const InputDecoration(labelText: 'Workflow name')),
+        TextField(controller: interval, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Repeat every minutes (5–10080)')),
+        DropdownButtonFormField<String>(initialValue: action, decoration: const InputDecoration(labelText: 'Action'), items: const [DropdownMenuItem(value: 'create_task', child: Text('Create follow-up task')), DropdownMenuItem(value: 'notify_team', child: Text('Notify team in Chatify'))], onChanged: (value) { if (value != null) setDialogState(() => action = value); }),
+        TextField(controller: actionText, decoration: InputDecoration(labelText: action == 'create_task' ? 'Task title' : 'Notification')),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create and enable'))],
+    )));
+    if (accepted != true) return;
+    try {
+      final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
+      final created = await app.api.call('POST', '$base/workflows', {'name': name.text.trim(), 'trigger': 'schedule', 'scheduleEveryMinutes': int.tryParse(interval.text) ?? 60, 'actions': [{'actionType': action, 'config': action == 'create_task' ? {'title': actionText.text.trim()} : {'message': actionText.text.trim()}}]});
+      final workflowId = (created['workflow'] as Map?)?['_id']?.toString();
+      if (workflowId == null) throw const FormatException('Workflow was created but its ID was missing.');
+      await app.api.call('POST', '$base/workflows/${Uri.encodeComponent(workflowId)}/test', {'sample': {'source': 'mobile setup'}});
+      await app.api.call('PATCH', '$base/workflows/${Uri.encodeComponent(workflowId)}', {'enabled': true});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Workflow enabled. Keep the backend worker running.')));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _invoiceIntegration(String documentId, String action) async {
+    try {
+      final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(documentId)}';
+      Map<String, dynamic> response;
+      if (action == 'stripe' || action == 'paypal') {
+        final providerRoute = action == 'stripe' ? 'stripe-checkout' : 'paypal-checkout';
+        response = await app.api.call('POST', '$base/$providerRoute', {});
+        final checkoutUrl = response['payment'] is Map ? (response['payment'] as Map)['checkoutUrl']?.toString() : null;
+        if (checkoutUrl == null || !await launchUrl(Uri.parse(checkoutUrl), mode: LaunchMode.externalApplication)) {
+          if (mounted && checkoutUrl != null) await showDialog<void>(context: context, builder: (context) => AlertDialog(title: const Text('Hosted checkout'), content: SelectableText(checkoutUrl), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))]));
+        }
+      } else if (action == 'mpesa') {
+        final phone = TextEditingController();
+        final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Request M-Pesa payment'), content: TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Customer M-Pesa phone')), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send STK prompt'))]));
+        if (accepted != true) return;
+        response = await app.api.call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
+      } else {
+        response = await app.api.call('POST', '$base/etims-submit', {});
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Request submitted.')));
+      await loadWorkspaceData();
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> _showDocumentActions(Map item) async {
+    final type = item['type']?.toString() ?? '';
+    final status = item['status']?.toString() ?? '';
+    final action = await showModalBottomSheet<String>(context: context, builder: (context) => SafeArea(child: Wrap(children: [
+      ListTile(title: Text(item['number']?.toString() ?? 'Sales document'), subtitle: Text('Status: $status')),
+      if (status == 'draft') ListTile(leading: const Icon(Icons.send), title: const Text('Issue / send document'), onTap: () => Navigator.pop(context, 'issue')),
+      if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.credit_card), title: const Text('Pay online (Stripe)'), onTap: () => Navigator.pop(context, 'stripe')),
+      if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.account_balance_wallet_outlined), title: const Text('Pay with PayPal'), onTap: () => Navigator.pop(context, 'paypal')),
+      if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.payments), title: const Text('Request M-Pesa STK payment'), onTap: () => Navigator.pop(context, 'mpesa')),
+      if (type == 'invoice' && status != 'draft' && !['cancelled','rejected'].contains(status)) ListTile(leading: const Icon(Icons.receipt_long), title: const Text('Submit through configured eTIMS gateway'), onTap: () => Navigator.pop(context, 'etims')),
+    ])));
+    if (action == null) return;
+    final id = item['_id']?.toString();
+    if (id == null) return;
+    try {
+      if (action == 'issue') {
+        final path = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(id)}/status';
+        await app.api.call('PATCH', path, {'status': 'sent'});
+        await loadWorkspaceData();
+      } else { await _invoiceIntegration(id, action); }
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Widget toolsPanel() => ListView(padding: const EdgeInsets.all(12), children: [
+    Card(child: ListTile(leading: const Icon(Icons.public), title: const Text('Tax and currency profile'), subtitle: const Text('Configure jurisdiction and tax treatment'), trailing: const Icon(Icons.chevron_right), onTap: _configureTaxProfile)),
+    Card(child: ListTile(leading: const Icon(Icons.translate), title: const Text('Translate business text'), subtitle: const Text('Consent-gated AI translation'), trailing: const Icon(Icons.chevron_right), onTap: _translateBusinessText)),
+    Card(child: ListTile(leading: const Icon(Icons.mic_none), title: const Text('Translate voice message'), subtitle: const Text('Transcribe and translate an audio file with consent'), trailing: const Icon(Icons.chevron_right), onTap: _translateVoice)),
+    Card(child: ListTile(leading: const Icon(Icons.psychology_alt), title: const Text('Business Memory suggestions'), subtitle: const Text('Find possible tasks, dates and payment details'), trailing: const Icon(Icons.chevron_right), onTap: _memorySuggestions)),
+    Card(child: ListTile(leading: const Icon(Icons.mark_chat_unread_outlined), title: const Text('Message a customer'), subtitle: const Text('WhatsApp / SMS; opt-in required'), trailing: const Icon(Icons.chevron_right), onTap: _sendCustomerMessage)),
+    Card(child: ListTile(leading: const Icon(Icons.schedule), title: const Text('Scheduled workflow'), subtitle: const Text('Create, test and enable an allowed action'), trailing: const Icon(Icons.chevron_right), onTap: _createScheduledWorkflow)),
+    Card(child: ListTile(leading: const Icon(Icons.sync), title: Text('Sync offline records ($pendingOfflineCount)'), subtitle: Text(syncConflicts.isEmpty ? 'Queued creates sync when connected' : '${syncConflicts.length} changes need review'), trailing: const Icon(Icons.chevron_right), onTap: () async { final id = organization!['_id'].toString(); final applied = await _flushOfflineQueue(id); if (applied > 0) await loadWorkspaceData(syncPending: false); if (syncConflicts.isNotEmpty && mounted) await showDialog<void>(context: context, builder: (context) => AlertDialog(title: const Text('Sync conflicts'), content: SizedBox(width: 420, child: ListView(shrinkWrap: true, children: syncConflicts.map((entry) { final item = jsonDecode(entry) as Map; final result = item['result'] as Map? ?? {}; return ListTile(title: Text(result['status']?.toString() ?? 'Needs review'), subtitle: Text(result['error']?.toString() ?? result['reason']?.toString() ?? 'Server record changed; compare versions before retrying.')); }).toList())), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))])); })),
+  ]);
+
+  Widget metric(String label, dynamic value, IconData icon) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(children: [
+        Icon(icon, size: 24),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(value?.toString() ?? '0', style: Theme.of(context).textTheme.titleLarge),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ])),
+      ]),
+    ),
+  );
+
+  Widget recordList(List<dynamic> records, String kind, IconData icon) {
+    if (records.isEmpty) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('No $kind yet. Use Add to create your first record.', textAlign: TextAlign.center)));
+    return ListView.separated(
+      padding: const EdgeInsets.only(bottom: 24),
+      itemCount: records.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (_, index) {
+        final item = records[index];
+        if (item is! Map) return const SizedBox.shrink();
+        final title = item['name']?.toString() ?? item['title']?.toString() ?? item['number']?.toString() ?? kind;
+        final subtitle = item['description']?.toString() ?? item['company']?.toString() ?? item['status']?.toString() ?? '';
+        final amount = item['price'] ?? item['total'];
+        return ListTile(
+          leading: CircleAvatar(child: Icon(icon)),
+          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+          trailing: amount == null ? null : Text('${item['currency'] ?? 'KES'} $amount'),
+          onTap: kind == 'sales documents' ? () => _showDocumentActions(Map<String, dynamic>.from(item)) : null,
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const Center(child: CircularProgressIndicator());
+    if (error != null && organizations.isEmpty) {
+      return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.business_outlined, size: 48),
+        const SizedBox(height: 12),
+        Text(error!, textAlign: TextAlign.center),
+        const SizedBox(height: 12),
+        FilledButton(onPressed: loadOrganizations, child: const Text('Retry')),
+      ])));
+    }
+    if (organization == null) {
+      return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.storefront_outlined, size: 56),
+        const SizedBox(height: 12),
+        Text('Turn conversations into business', style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
+        const SizedBox(height: 8),
+        const Text('Create a workspace to manage customers, products, quotations and follow-ups alongside your conversations.', textAlign: TextAlign.center),
+        const SizedBox(height: 18),
+        FilledButton.icon(onPressed: createOrganization, icon: const Icon(Icons.add_business), label: const Text('Create business workspace')),
+      ])));
+    }
+    final metrics = dashboard;
+    return DefaultTabController(
+      length: 5,
+      child: Column(children: [
+        Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 4), child: Row(children: [
+          Expanded(child: DropdownButtonHideUnderline(child: DropdownButton<String>(
+            isExpanded: true,
+            value: organization!['_id']?.toString(),
+            items: organizations.whereType<Map>().map((item) => DropdownMenuItem<String>(value: item['_id'].toString(), child: Text(item['name']?.toString() ?? 'Business', overflow: TextOverflow.ellipsis))).toList(),
+            onChanged: (id) async {
+              if (id == null) return;
+              setState(() { organization = organizations.whereType<Map>().firstWhere((item) => item['_id'].toString() == id).cast<String, dynamic>(); loading = true; });
+              await loadWorkspaceData();
+              if (mounted) setState(() => loading = false);
+            },
+          ))),
+          IconButton(tooltip: 'Refresh business data', onPressed: loadOrganizations, icon: const Icon(Icons.refresh)),
+          IconButton(tooltip: 'Add business workspace', onPressed: createOrganization, icon: const Icon(Icons.add_business)),
+        ])),
+        SizedBox(height: 118, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
+          SizedBox(width: 170, child: metric('Customers', metrics['customers'], Icons.people_outline)),
+          SizedBox(width: 170, child: metric('Products / services', metrics['activeCatalogItems'], Icons.inventory_2_outlined)),
+          SizedBox(width: 170, child: metric('Open tasks', metrics['openTasks'], Icons.task_alt)),
+          SizedBox(width: 170, child: metric('Open cases', metrics['openCases'], Icons.support_agent_outlined)),
+        ])),
+        const TabBar(isScrollable: true, tabs: [
+          Tab(text: 'Catalogue'), Tab(text: 'Customers'), Tab(text: 'Sales'), Tab(text: 'Tasks'), Tab(text: 'Tools'),
+        ]),
+        Expanded(child: TabBarView(children: [
+          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('catalog'), icon: const Icon(Icons.add), label: const Text('Add product / service'))), Expanded(child: recordList(catalog, 'products or services', Icons.inventory_2_outlined))]),
+          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('customer'), icon: const Icon(Icons.add), label: const Text('Add customer'))), Expanded(child: recordList(customers, 'customers', Icons.person_outline))]),
+          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('document'), icon: const Icon(Icons.add), label: const Text('Create quotation'))), Expanded(child: recordList(documents, 'sales documents', Icons.receipt_long_outlined))]),
+          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('task'), icon: const Icon(Icons.add), label: const Text('Add task / follow-up'))), Expanded(child: recordList(tasks, 'tasks', Icons.task_alt))]),
+          toolsPanel(),
+        ])),
+        if (saving) const LinearProgressIndicator(),
+        if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+      ]),
+    );
+  }
 }

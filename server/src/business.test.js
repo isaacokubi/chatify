@@ -1,0 +1,62 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {slugifyBusinessName, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing} from './business.js';
+
+test('business slugs are URL-safe and deterministic', () => {
+  assert.equal(slugifyBusinessName('Baraka & Sons Retail'), 'baraka-sons-retail');
+  assert.equal(slugifyBusinessName('  Café Nairobi  '), 'cafe-nairobi');
+  assert.equal(slugifyBusinessName('!!!'), '');
+});
+
+test('document totals are calculated on the server with rounding', () => {
+  assert.deepEqual(calculateDocumentTotals([
+    {name:'Book', quantity:2, unitPrice:125.5},
+    {name:'Delivery', quantity:1, unitPrice:50},
+  ], 16), {
+    items:[
+      {catalogItemId:undefined,name:'Book',quantity:2,unitPrice:125.5,lineTotal:251},
+      {catalogItemId:undefined,name:'Delivery',quantity:1,unitPrice:50,lineTotal:50},
+    ],
+    subtotal:301,tax:48.16,taxRate:16,total:349.16,
+  });
+});
+
+test('document totals reject malformed items and excessive tax', () => {
+  assert.throws(() => calculateDocumentTotals([], 0), /between 1 and 100/);
+  assert.throws(() => calculateDocumentTotals([{name:'x',quantity:0,unitPrice:1}], 0), /positive quantity/);
+  assert.throws(() => calculateDocumentTotals([{name:'x',quantity:1,unitPrice:1}], 101), /between 0 and 100/);
+});
+
+test('document lifecycle allows valid sale flow and rejects backwards transitions', () => {
+  assert.equal(canTransitionBusinessDocument('draft','sent'), true);
+  assert.equal(canTransitionBusinessDocument('sent','accepted'), true);
+  assert.equal(canTransitionBusinessDocument('accepted','part_paid'), true);
+  assert.equal(canTransitionBusinessDocument('part_paid','paid'), true);
+  assert.equal(canTransitionBusinessDocument('paid','fulfilled'), true);
+  assert.equal(canTransitionBusinessDocument('paid','draft'), false);
+  assert.equal(canTransitionBusinessDocument('fulfilled','cancelled'), false);
+});
+
+test('business briefing identifies overdue work, due-soon tasks and outstanding value', () => {
+  const now = new Date('2026-10-12T10:00:00.000Z');
+  const result = buildBusinessBriefing({
+    now,
+    tasks:[
+      {_id:'a',title:'Late callback',status:'open',dueAt:'2026-10-11T10:00:00.000Z'},
+      {_id:'b',title:'Send quote',status:'in_progress',dueAt:'2026-10-12T20:00:00.000Z'},
+      {_id:'c',title:'Done task',status:'done',dueAt:'2026-10-10T10:00:00.000Z'},
+    ],
+    documents:[
+      {status:'sent',total:500,paidAmount:100},
+      {status:'paid',total:200,paidAmount:200},
+      {status:'part_paid',total:300,paidAmount:50},
+    ],
+    cases:[{status:'open'},{status:'resolved'},{status:'waiting_team'}],
+  });
+  assert.equal(result.overdueTasks,1);
+  assert.equal(result.tasksDueWithin24Hours,1);
+  assert.equal(result.outstandingDocuments,2);
+  assert.equal(result.outstandingAmount,650);
+  assert.equal(result.unresolvedCases,2);
+  assert.equal(result.nextActions.length,2);
+});
