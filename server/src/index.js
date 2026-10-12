@@ -10,6 +10,7 @@ import {resolveMpesaProvider,normalizeMpesaPhone,validPaymentAmount,newPaymentId
 import {createAuthMiddleware} from './auth.js';
 import {randomBytes} from 'node:crypto';
 import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback,resolveNodeEnv} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials,createShutdownHandler} from './lifecycle.js';
+import {registerBusinessRoutes} from './business.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
 const configuredJwt=process.env.JWT_SECRET?.trim();
@@ -43,6 +44,8 @@ const PasswordReset=mongoose.model('PasswordReset',new mongoose.Schema({userId:{
 // Payment records track requester/payer, amount, provider references and lifecycle status.
 const Payment=mongoose.model('Payment',new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},requesterId:{type:O,required:true,index:true},payerId:{type:O,required:true,index:true},conversationId:{type:O,index:true},amount:{type:Number,required:true,min:1,max:150000},recipientPhone:{type:String},payerPhone:{type:String},phone:{type:String},description:{type:String,required:true,maxlength:80},status:{type:String,enum:PAYMENT_STATUSES,default:'PENDING',index:true},provider:{type:String,required:true},checkoutRequestId:{type:String,sparse:true,index:true},merchantRequestId:String,resultCode:Number,resultDescription:String,requestedAt:{type:Date,required:true},initiating:{type:Boolean,default:false},initiatedAt:Date,completedAt:Date,callbackProcessedAt:Date,dismissedBy:{type:[O],default:[]}},{timestamps:true}));
 Payment.schema.index({checkoutRequestId:1,merchantRequestId:1},{unique:true,sparse:true});
+// Mount business modules only after their shared chat and payment models exist.
+registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io});
 const safe=u=>({id:String(u._id),name:u.name,email:u.email,phone:u.phone,profileImage:u.profileImage,status:u.status,lastSeen:u.lastSeen,privacy:u.privacy,notificationPreferences:u.notificationPreferences});
 const visibleUser=u=>{const value=u.toObject?u.toObject():{...u};if(value.privacy?.lastSeen===false)delete value.lastSeen;return value;};
 const sign=u=>jwt.sign({sub:String(u._id)},env.jwt,{expiresIn:env.jwtExpiresIn});
