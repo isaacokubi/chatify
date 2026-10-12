@@ -4894,8 +4894,9 @@ class _BusinessHubState extends State<BusinessHub> {
     try {
       final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(documentId)}';
       Map<String, dynamic> response;
-      if (action == 'stripe') {
-        response = await app.api.call('POST', '$base/stripe-checkout', {});
+      if (action == 'stripe' || action == 'paypal') {
+        final providerRoute = action == 'stripe' ? 'stripe-checkout' : 'paypal-checkout';
+        response = await app.api.call('POST', '$base/$providerRoute', {});
         final checkoutUrl = response['payment'] is Map ? (response['payment'] as Map)['checkoutUrl']?.toString() : null;
         if (checkoutUrl == null || !await launchUrl(Uri.parse(checkoutUrl), mode: LaunchMode.externalApplication)) {
           if (mounted && checkoutUrl != null) await showDialog<void>(context: context, builder: (context) => AlertDialog(title: const Text('Hosted checkout'), content: SelectableText(checkoutUrl), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))]));
@@ -4920,6 +4921,7 @@ class _BusinessHubState extends State<BusinessHub> {
       ListTile(title: Text(item['number']?.toString() ?? 'Sales document'), subtitle: Text('Status: $status')),
       if (status == 'draft') ListTile(leading: const Icon(Icons.send), title: const Text('Issue / send document'), onTap: () => Navigator.pop(context, 'issue')),
       if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.credit_card), title: const Text('Pay online (Stripe)'), onTap: () => Navigator.pop(context, 'stripe')),
+      if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.account_balance_wallet_outlined), title: const Text('Pay with PayPal'), onTap: () => Navigator.pop(context, 'paypal')),
       if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.payments), title: const Text('Request M-Pesa STK payment'), onTap: () => Navigator.pop(context, 'mpesa')),
       if (type == 'invoice' && status != 'draft' && !['cancelled','rejected'].contains(status)) ListTile(leading: const Icon(Icons.receipt_long), title: const Text('Submit through configured eTIMS gateway'), onTap: () => Navigator.pop(context, 'etims')),
     ])));
