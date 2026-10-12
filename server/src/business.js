@@ -1,0 +1,282 @@
+// CHATIFY BUSINESS PLATFORM
+// Business records live beside chat records, with organization-level authorization.
+// This module deliberately keeps payment confirmation server-owned: a screenshot or
+// client-submitted "paid" flag is never accepted as proof of payment.
+
+const ROLES = Object.freeze(['owner', 'admin', 'manager', 'sales', 'finance', 'support', 'fulfilment', 'viewer']);
+const INDUSTRIES = Object.freeze(['retail', 'wholesale', 'consulting', 'tourism', 'hospitality', 'logistics', 'construction', 'salon', 'education', 'agriculture', 'real_estate', 'health_admin', 'legal', 'automotive', 'events', 'other']);
+const DOCUMENT_TYPES = Object.freeze(['quote', 'order', 'invoice', 'receipt', 'purchase_order']);
+const DOCUMENT_STATUSES = Object.freeze(['draft', 'sent', 'accepted', 'rejected', 'part_paid', 'paid', 'fulfilled', 'cancelled']);
+const TASK_STATUSES = Object.freeze(['open', 'in_progress', 'blocked', 'done', 'cancelled']);
+const CASE_STATUSES = Object.freeze(['open', 'waiting_customer', 'waiting_team', 'resolved', 'closed']);
+
+export function slugifyBusinessName(value = '') {
+  return String(value).normalize('NFKD').toLowerCase().replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+}
+
+export function calculateDocumentTotals(lines = [], taxRate = 0) {
+  if (!Array.isArray(lines) || lines.length < 1 || lines.length > 100) throw new Error('A document must contain between 1 and 100 line items');
+  if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) throw new Error('Tax rate must be between 0 and 100 percent');
+  const items = lines.map((line) => {
+    const name = typeof line.name === 'string' ? line.name.trim().slice(0, 160) : '';
+    const quantity = Number(line.quantity);
+    const unitPrice = Number(line.unitPrice);
+    if (!name || !Number.isFinite(quantity) || quantity <= 0 || quantity > 1000000 || !Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 1000000000) throw new Error('Each line needs a name, positive quantity and non-negative unit price');
+    const lineTotal = Math.round(quantity * unitPrice * 100) / 100;
+    return {catalogItemId: line.catalogItemId || undefined, name, quantity, unitPrice: Math.round(unitPrice * 100) / 100, lineTotal};
+  });
+  const subtotal = Math.round(items.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+  const tax = Math.round(subtotal * taxRate) / 100;
+  return {items, subtotal, tax, taxRate, total: Math.round((subtotal + tax) * 100) / 100};
+}
+
+export function canTransitionBusinessDocument(from, to) {
+  const transitions = {
+    draft: ['sent', 'cancelled'], sent: ['accepted', 'rejected', 'cancelled'],
+    accepted: ['part_paid', 'paid', 'fulfilled', 'cancelled'], part_paid: ['paid', 'cancelled'],
+    paid: ['fulfilled'], rejected: [], fulfilled: [], cancelled: [],
+  };
+  return Boolean(transitions[from]?.includes(to));
+}
+
+export function buildBusinessBriefing({tasks = [], documents = [], cases = [], now = new Date()} = {}) {
+  const overdue = tasks.filter(item => item.status !== 'done' && item.status !== 'cancelled' && item.dueAt && new Date(item.dueAt) < now);
+  const dueSoon = tasks.filter(item => item.status !== 'done' && item.status !== 'cancelled' && item.dueAt && new Date(item.dueAt) >= now && new Date(item.dueAt) <= new Date(now.getTime() + 24 * 60 * 60 * 1000));
+  const outstanding = documents.filter(item => ['sent', 'accepted', 'part_paid'].includes(item.status));
+  const unresolved = cases.filter(item => !['resolved', 'closed'].includes(item.status));
+  return {generatedAt: now.toISOString(), overdueTasks: overdue.length, tasksDueWithin24Hours: dueSoon.length, outstandingDocuments: outstanding.length, outstandingAmount: Math.round(outstanding.reduce((sum, item) => sum + Math.max(0, Number(item.total || 0) - Number(item.paidAmount || 0)), 0) * 100) / 100, unresolvedCases: unresolved.length, nextActions: [...overdue, ...dueSoon].slice(0, 10).map(item => ({id: String(item._id || item.id || ''), title: item.title, dueAt: item.dueAt, status: item.status}))};
+}
+
+export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io}) {
+  const O = mongoose.Schema.Types.ObjectId;
+  const memberSchema = new mongoose.Schema({userId: {type: O, ref: 'User', required: true}, role: {type: String, enum: ROLES, default: 'viewer'}, branchIds: {type: [O], default: []}}, {_id: false});
+  const Organization = mongoose.models.BusinessOrganization || mongoose.model('BusinessOrganization', new mongoose.Schema({
+    name: {type: String, required: true, trim: true, maxlength: 120}, slug: {type: String, required: true, unique: true, lowercase: true},
+    ownerId: {type: O, ref: 'User', required: true, index: true}, industry: {type: String, enum: INDUSTRIES, default: 'other'},
+    description: {type: String, maxlength: 2000, default: ''}, email: String, phone: String, website: String,
+    country: {type: String, default: 'KE'}, currency: {type: String, default: 'KES'}, timezone: {type: String, default: 'Africa/Nairobi'},
+    plan: {type: String, enum: ['free', 'business_pro', 'teams', 'enterprise'], default: 'free'},
+    members: {type: [memberSchema], default: []}, settings: {type: mongoose.Schema.Types.Mixed, default: {}},
+    branches: {type: [{name: String, address: String, phone: String, active: {type: Boolean, default: true}}], default: []},
+  }, {timestamps: true}));
+  Organization.schema.index({'members.userId': 1});
+  const Customer = mongoose.models.BusinessCustomer || mongoose.model('BusinessCustomer', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, name: {type: String, required: true, trim: true, maxlength: 160},
+    email: String, phone: String, company: String, notes: {type: String, maxlength: 4000}, tags: {type: [String], default: []},
+    source: {type: String, enum: ['manual', 'chat', 'storefront', 'referral', 'import', 'other'], default: 'manual'},
+    conversationId: O, assignedTo: O, lastContactAt: Date, customFields: {type: mongoose.Schema.Types.Mixed, default: {}},
+  }, {timestamps: true}));
+  Customer.schema.index({organizationId: 1, name: 1});
+  const CatalogItem = mongoose.models.BusinessCatalogItem || mongoose.model('BusinessCatalogItem', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, type: {type: String, enum: ['product', 'service'], default: 'product'},
+    name: {type: String, required: true, trim: true, maxlength: 180}, sku: {type: String, trim: true, maxlength: 80},
+    description: {type: String, maxlength: 4000, default: ''}, price: {type: Number, required: true, min: 0},
+    currency: {type: String, default: 'KES'}, stock: {type: Number, min: 0, default: 0}, lowStockAt: {type: Number, min: 0, default: 5},
+    images: {type: [String], default: []}, active: {type: Boolean, default: true}, supplierId: O, category: String,
+  }, {timestamps: true}));
+  CatalogItem.schema.index({organizationId: 1, sku: 1}, {unique: true, sparse: true});
+  const BusinessDocument = mongoose.models.BusinessDocument || mongoose.model('BusinessDocument', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, customerId: {type: O, index: true}, conversationId: O,
+    type: {type: String, enum: DOCUMENT_TYPES, required: true}, number: {type: String, required: true},
+    status: {type: String, enum: DOCUMENT_STATUSES, default: 'draft', index: true},
+    items: {type: [{catalogItemId: O, name: String, quantity: Number, unitPrice: Number, lineTotal: Number}], default: []},
+    subtotal: {type: Number, default: 0}, taxRate: {type: Number, default: 0}, tax: {type: Number, default: 0},
+    total: {type: Number, default: 0}, paidAmount: {type: Number, default: 0}, currency: {type: String, default: 'KES'},
+    dueDate: Date, notes: {type: String, maxlength: 4000}, paymentRecords: {type: [{amount: Number, method: String, reference: String, verified: {type: Boolean, default: false}, recordedAt: Date, recordedBy: O}], default: []},
+    acceptedAt: Date, fulfilledAt: Date, createdBy: O, branchId: O,
+  }, {timestamps: true}));
+  BusinessDocument.schema.index({organizationId: 1, number: 1}, {unique: true});
+  const BusinessTask = mongoose.models.BusinessTask || mongoose.model('BusinessTask', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, title: {type: String, required: true, maxlength: 200},
+    description: {type: String, maxlength: 4000, default: ''}, type: {type: String, enum: ['task', 'commitment', 'appointment', 'delivery', 'follow_up', 'maintenance'], default: 'task'},
+    status: {type: String, enum: TASK_STATUSES, default: 'open', index: true}, priority: {type: String, enum: ['low', 'normal', 'high', 'urgent'], default: 'normal'},
+    dueAt: Date, assignedTo: O, customerId: O, documentId: O, conversationId: O, branchId: O, location: String,
+    confirmations: {type: [{userId: O, confirmedAt: Date, note: String}], default: []}, completedAt: Date, createdBy: O,
+  }, {timestamps: true}));
+  const BusinessCase = mongoose.models.BusinessCase || mongoose.model('BusinessCase', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, customerId: O, conversationId: O,
+    title: {type: String, required: true, maxlength: 200}, description: {type: String, maxlength: 6000, default: ''},
+    status: {type: String, enum: CASE_STATUSES, default: 'open', index: true}, priority: {type: String, enum: ['low', 'normal', 'high', 'urgent'], default: 'normal'},
+    assignees: {type: [O], default: []}, updates: {type: [{authorId: O, body: String, createdAt: Date}], default: []}, dueAt: Date,
+  }, {timestamps: true}));
+  const Supplier = mongoose.models.BusinessSupplier || mongoose.model('BusinessSupplier', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, name: {type: String, required: true, maxlength: 160},
+    email: String, phone: String, address: String, notes: String, reliabilityNotes: String, active: {type: Boolean, default: true},
+  }, {timestamps: true}));
+  const Workflow = mongoose.models.BusinessWorkflow || mongoose.model('BusinessWorkflow', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, name: {type: String, required: true, maxlength: 160},
+    description: {type: String, maxlength: 1000}, trigger: {type: String, enum: ['order_created', 'payment_confirmed', 'task_overdue', 'new_enquiry', 'manual'], default: 'manual'},
+    enabled: {type: Boolean, default: false}, actions: {type: [{type: {type: String, enum: ['create_task', 'notify_team', 'customer_message', 'create_receipt'], required: true}, config: mongoose.Schema.Types.Mixed}], default: []},
+    runs: {type: [{status: String, triggerData: mongoose.Schema.Types.Mixed, result: mongoose.Schema.Types.Mixed, ranAt: Date, ranBy: O}], default: []},
+  }, {timestamps: true}));
+  const SharedInboxAssignment = mongoose.models.BusinessInboxAssignment || mongoose.model('BusinessInboxAssignment', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, conversationId: {type: O, required: true}, assignedTo: O,
+    status: {type: String, enum: ['open', 'waiting', 'resolved'], default: 'open'}, priority: {type: String, enum: ['normal', 'high', 'urgent'], default: 'normal'},
+    handoverNote: {type: String, maxlength: 2000}, lastHandoverBy: O, lastHandoverAt: Date, customerId: O,
+  }, {timestamps: true}));
+  SharedInboxAssignment.schema.index({organizationId: 1, conversationId: 1}, {unique: true});
+  const TradeRequest = mongoose.models.BusinessTradeRequest || mongoose.model('BusinessTradeRequest', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true}, buyerId: O, supplierId: O, title: {type: String, required: true, maxlength: 200},
+    quantity: {type: Number, min: 1}, budget: Number, currency: {type: String, default: 'KES'}, details: String,
+    offers: {type: [{supplierId: O, amount: Number, leadTime: String, notes: String, createdAt: Date}], default: []},
+    status: {type: String, enum: ['open', 'quoted', 'awarded', 'cancelled'], default: 'open'},
+  }, {timestamps: true}));
+  const getOrg = async (orgId, userId) => {
+    if (!mongoose.isValidObjectId(orgId)) return null;
+    return Organization.findOne({_id: orgId, $or: [{ownerId: userId}, {'members.userId': userId}]});
+  };
+  const requireOrg = async (req, res) => {
+    const org = await getOrg(req.params.orgId, req.user._id);
+    if (!org) { res.status(404).json({error: 'Business workspace not found'}); return null; }
+    return org;
+  };
+  const canManage = (org, userId) => String(org.ownerId) === String(userId) || org.members.some(m => String(m.userId) === String(userId) && ['admin', 'manager'].includes(m.role));
+  const requireManager = (org, req, res) => { if (!canManage(org, req.user._id)) { res.status(403).json({error: 'Business manager permission required'}); return false; } return true; };
+  const safeError = (res, error) => {
+    if (error?.code === 11000) return res.status(409).json({error: 'A record with that identifier already exists'});
+    if (error?.name === 'ValidationError' || error instanceof TypeError || error instanceof RangeError) return res.status(400).json({error: error.message || 'Invalid business data'});
+    console.error('Chatify business operation failed:', error?.message || 'unknown error');
+    return res.status(500).json({error: 'Business operation failed'});
+  };
+  const validId = id => mongoose.isValidObjectId(id);
+  const shortText = (value, max = 200) => typeof value === 'string' ? value.trim().slice(0, max) : '';
+  const listQuery = (Model, orgId, req) => {
+    const filter = {organizationId: orgId};
+    if (req.query.status) filter.status = String(req.query.status);
+    if (req.query.customerId && validId(req.query.customerId)) filter.customerId = req.query.customerId;
+    return Model.find(filter).sort({updatedAt: -1}).limit(Math.min(200, Math.max(1, Number(req.query.limit) || 50)));
+  };
+
+  // Create a business workspace. The creator becomes the owner and has full authority.
+  app.post('/api/business/organizations', auth, async (req, res) => {
+    try {
+      const name = shortText(req.body?.name, 120); const slug = slugifyBusinessName(req.body?.slug || name);
+      if (!name || !slug) return res.status(400).json({error: 'Business name is required'});
+      const org = await Organization.create({name, slug, ownerId: req.user._id, industry: INDUSTRIES.includes(req.body?.industry) ? req.body.industry : 'other', description: shortText(req.body?.description, 2000), email: shortText(req.body?.email, 200), phone: shortText(req.body?.phone, 40), website: shortText(req.body?.website, 500), country: shortText(req.body?.country, 2) || 'KE', currency: shortText(req.body?.currency, 3) || 'KES', timezone: shortText(req.body?.timezone, 80) || 'Africa/Nairobi', members: [{userId: req.user._id, role: 'owner'}]});
+      res.status(201).json({organization: org});
+    } catch (error) { safeError(res, error); }
+  });
+  app.get('/api/business/organizations', auth, async (req, res) => {
+    const organizations = await Organization.find({$or: [{ownerId: req.user._id}, {'members.userId': req.user._id}]}).sort({updatedAt: -1}).limit(100);
+    res.json({organizations});
+  });
+  app.get('/api/business/organizations/:orgId', auth, async (req, res) => {
+    const org = await requireOrg(req, res); if (org) res.json({organization: org});
+  });
+  app.patch('/api/business/organizations/:orgId', auth, async (req, res) => {
+    const org = await requireOrg(req, res); if (!org || !requireManager(org, req, res)) return;
+    for (const key of ['name', 'description', 'email', 'phone', 'website', 'country', 'currency', 'timezone']) if (req.body?.[key] !== undefined) org[key] = shortText(req.body[key], key === 'description' ? 2000 : 500);
+    if (req.body?.industry !== undefined && INDUSTRIES.includes(req.body.industry)) org.industry = req.body.industry;
+    if (req.body?.plan && ['free', 'business_pro', 'teams', 'enterprise'].includes(req.body.plan)) org.plan = req.body.plan;
+    if (req.body?.settings && typeof req.body.settings === 'object' && !Array.isArray(req.body.settings)) org.settings = {...org.settings, ...req.body.settings};
+    await org.save(); res.json({organization: org});
+  });
+  app.post('/api/business/organizations/:orgId/members', auth, async (req, res) => {
+    const org = await requireOrg(req, res); if (!org || !requireManager(org, req, res)) return;
+    if (!validId(req.body?.userId) || !ROLES.includes(req.body?.role) || req.body.role === 'owner') return res.status(400).json({error: 'Choose a valid user and non-owner role'});
+    const member = await User.findOne({_id: req.body.userId, status: 'active'}).select('_id name email');
+    if (!member) return res.status(404).json({error: 'Active user not found'});
+    const existing = org.members.find(item => String(item.userId) === String(member._id));
+    if (existing) existing.role = req.body.role; else org.members.push({userId: member._id, role: req.body.role});
+    await org.save(); res.status(201).json({members: org.members});
+  });
+  app.delete('/api/business/organizations/:orgId/members/:userId', auth, async (req, res) => {
+    const org = await requireOrg(req, res); if (!org || !requireManager(org, req, res)) return;
+    if (String(org.ownerId) === String(req.params.userId)) return res.status(400).json({error: 'The owner cannot be removed'});
+    org.members = org.members.filter(item => String(item.userId) !== String(req.params.userId)); await org.save(); res.json({members: org.members});
+  });
+
+  // Customer relationship records are scoped to the organization, never to a caller-supplied owner ID.
+  app.get('/api/business/organizations/:orgId/customers', auth, async (req, res) => { const org = await requireOrg(req, res); if (!org) return; const q = shortText(req.query.q, 100); const filter = {organizationId: org._id}; if (q) filter.$or = [{name: {$regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i'}}, {email: {$regex: q, $options: 'i'}}, {phone: {$regex: q, $options: 'i'}}, {company: {$regex: q, $options: 'i'}}]; const customers = await Customer.find(filter).sort({updatedAt: -1}).limit(200); res.json({customers}); });
+  app.post('/api/business/organizations/:orgId/customers', auth, async (req, res) => { const org = await requireOrg(req, res); if (!org) return; const name = shortText(req.body?.name, 160); if (!name) return res.status(400).json({error: 'Customer name is required'}); try { const customer = await Customer.create({organizationId: org._id, name, email: shortText(req.body.email, 200), phone: shortText(req.body.phone, 40), company: shortText(req.body.company, 160), notes: shortText(req.body.notes, 4000), tags: Array.isArray(req.body.tags) ? req.body.tags.filter(x => typeof x === 'string').slice(0, 30).map(x => x.slice(0, 50)) : [], source: ['manual','chat','storefront','referral','import','other'].includes(req.body.source) ? req.body.source : 'manual', conversationId: validId(req.body.conversationId) ? req.body.conversationId : undefined, assignedTo: validId(req.body.assignedTo) ? req.body.assignedTo : req.user._id, lastContactAt: new Date()}); res.status(201).json({customer}); } catch (error) { safeError(res, error); } });
+  app.patch('/api/business/organizations/:orgId/customers/:customerId', auth, async (req, res) => { const org = await requireOrg(req, res); if (!org) return; if (!validId(req.params.customerId)) return res.status(400).json({error: 'Invalid customer ID'}); const customer = await Customer.findOne({_id: req.params.customerId, organizationId: org._id}); if (!customer) return res.status(404).json({error: 'Customer not found'}); for (const key of ['name','email','phone','company','notes','source','assignedTo','conversationId']) if (req.body?.[key] !== undefined && ['name','email','phone','company','notes'].includes(key)) customer[key] = shortText(req.body[key], key === 'notes' ? 4000 : 200); if (Array.isArray(req.body?.tags)) customer.tags = req.body.tags.filter(x => typeof x === 'string').slice(0,30).map(x=>x.slice(0,50)); await customer.save(); res.json({customer}); });
+  app.delete('/api/business/organizations/:orgId/customers/:customerId', auth, async (req, res) => { const org = await requireOrg(req, res); if (!org || !requireManager(org, req, res)) return; const result = await Customer.deleteOne({_id: req.params.customerId, organizationId: org._id}); if (!result.deletedCount) return res.status(404).json({error:'Customer not found'}); res.status(204).end(); });
+
+  // Storefront catalogue doubles as the public product/service catalogue and an internal inventory view.
+  app.get('/api/business/organizations/:orgId/catalog', auth, async (req, res) => { const org = await requireOrg(req, res); if (!org) return; const items = await CatalogItem.find({organizationId: org._id, ...(req.query.all === 'true' ? {} : {active: true})}).sort({name: 1}).limit(500); res.json({items}); });
+  app.post('/api/business/organizations/:orgId/catalog', auth, async (req, res) => { const org = await requireOrg(req, res); if (!org) return; const name = shortText(req.body?.name, 180); const price = Number(req.body?.price); if (!name || !Number.isFinite(price) || price < 0) return res.status(400).json({error: 'A name and non-negative price are required'}); try { const item = await CatalogItem.create({organizationId: org._id, type: ['product','service'].includes(req.body.type) ? req.body.type : 'product', name, sku: shortText(req.body.sku,80), description: shortText(req.body.description,4000), price, currency: shortText(req.body.currency,3) || org.currency, stock: Math.max(0, Number(req.body.stock)||0), lowStockAt: Math.max(0, Number(req.body.lowStockAt)||5), images: Array.isArray(req.body.images) ? req.body.images.filter(x=>typeof x==='string'&&x.startsWith('https://')).slice(0,8) : [], category: shortText(req.body.category,80), active: req.body.active !== false}); res.status(201).json({item}); } catch (error) { safeError(res, error); } });
+  app.patch('/api/business/organizations/:orgId/catalog/:itemId', auth, async (req, res) => { const org = await requireOrg(req, res); if (!org) return; if (!validId(req.params.itemId)) return res.status(400).json({error:'Invalid catalogue item ID'}); const item = await CatalogItem.findOne({_id:req.params.itemId,organizationId:org._id}); if (!item) return res.status(404).json({error:'Catalogue item not found'}); for (const key of ['name','sku','description','category','currency']) if (req.body?.[key] !== undefined) item[key] = shortText(req.body[key], key==='description'?4000:180); if (req.body?.price !== undefined && Number.isFinite(Number(req.body.price)) && Number(req.body.price)>=0) item.price=Number(req.body.price); if (req.body?.stock !== undefined && Number.isFinite(Number(req.body.stock)) && Number(req.body.stock)>=0) item.stock=Number(req.body.stock); if (typeof req.body?.active === 'boolean') item.active=req.body.active; await item.save(); res.json({item}); });
+  app.delete('/api/business/organizations/:orgId/catalog/:itemId', auth, async (req, res) => { const org = await requireOrg(req, res); if (!org) return; const item = await CatalogItem.findOneAndUpdate({_id:req.params.itemId,organizationId:org._id},{active:false},{new:true}); if (!item) return res.status(404).json({error:'Catalogue item not found'}); res.json({item}); });
+
+  // Quotes, orders, invoices and receipts share a consistent document model and immutable price snapshots.
+  app.get('/api/business/organizations/:orgId/documents', auth, async (req, res) => { const org = await requireOrg(req, res); if (!org) return; res.json({documents: await listQuery(BusinessDocument, org._id, req)}); });
+  app.post('/api/business/organizations/:orgId/documents', auth, async (req, res) => {
+    const org = await requireOrg(req, res); if (!org) return;
+    const type = req.body?.type; if (!DOCUMENT_TYPES.includes(type)) return res.status(400).json({error:'Document type must be quote, order, invoice, receipt or purchase_order'});
+    if (req.body.customerId && !validId(req.body.customerId)) return res.status(400).json({error:'Invalid customer ID'});
+    if (req.body.customerId && !await Customer.exists({_id:req.body.customerId,organizationId:org._id})) return res.status(404).json({error:'Customer not found in this business'});
+    let totals; try { totals = calculateDocumentTotals(req.body.items, Number(req.body.taxRate)||0); } catch (error) { return res.status(400).json({error:error.message}); }
+    const number = shortText(req.body.number,60) || `${type.toUpperCase().slice(0,3)}-${Date.now().toString(36).toUpperCase()}`;
+    try { const document = await BusinessDocument.create({organizationId:org._id,customerId:req.body.customerId,conversationId:validId(req.body.conversationId)?req.body.conversationId:undefined,type,number,status:'draft',...totals,currency:shortText(req.body.currency,3)||org.currency,dueDate:req.body.dueDate?new Date(req.body.dueDate):undefined,notes:shortText(req.body.notes,4000),createdBy:req.user._id,branchId:validId(req.body.branchId)?req.body.branchId:undefined}); res.status(201).json({document}); } catch (error) { safeError(res,error); }
+  });
+  app.patch('/api/business/organizations/:orgId/documents/:documentId/status', auth, async (req, res) => {
+    const org = await requireOrg(req,res); if (!org) return;
+    const document = await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id}); if (!document) return res.status(404).json({error:'Document not found'});
+    const next = req.body?.status; if (!DOCUMENT_STATUSES.includes(next)||!canTransitionBusinessDocument(document.status,next)) return res.status(409).json({error:`Cannot change document from ${document.status} to ${String(next)}`});
+    document.status=next; if(next==='accepted')document.acceptedAt=new Date(); if(next==='fulfilled')document.fulfilledAt=new Date(); await document.save();
+    // When a valid conversation was attached, share only the record status—not payment credentials.
+    if (document.conversationId && io) io.to(String(document.conversationId)).emit('business:document-updated',{documentId:String(document._id),number:document.number,status:document.status,total:document.total});
+    res.json({document});
+  });
+  app.post('/api/business/organizations/:orgId/documents/:documentId/payment-records', auth, async (req, res) => {
+    const org = await requireOrg(req,res); if (!org) return;
+    const document = await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id}); if (!document) return res.status(404).json({error:'Document not found'});
+    const amount=Number(req.body?.amount); const method=['mpesa','cash','bank','card','other'].includes(req.body?.method)?req.body.method:'other';
+    if (!Number.isFinite(amount)||amount<=0||amount>document.total-document.paidAmount) return res.status(400).json({error:'Payment amount exceeds the outstanding balance'});
+    // Manual entries remain unverified. They never mark a document paid unless a trusted provider confirms it.
+    const verified = false;
+    document.paymentRecords.push({amount,method,reference:shortText(req.body?.reference,160),verified,recordedAt:new Date(),recordedBy:req.user._id});
+    document.paidAmount=Math.round((document.paidAmount+amount)*100)/100;
+    await document.save(); res.status(201).json({document,notice:'Payment recorded as unverified. Reconcile with the provider before treating it as confirmed.'});
+  });
+  app.post('/api/business/organizations/:orgId/documents/:documentId/reconcile-chatify-payment', auth, async (req, res) => {
+    const org = await requireOrg(req,res); if (!org) return;
+    const document = await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id}); if (!document) return res.status(404).json({error:'Document not found'});
+    const payment = await Payment.findOne({paymentId:req.body?.paymentId,status:'SUCCESS'});
+    if (!payment || !payment.checkoutRequestId || !payment.callbackProcessedAt) return res.status(409).json({error:'No provider-confirmed Chatify payment was found'});
+    if (document.customerId && String(payment.payerId)!==String(document.customerId)) { /* Business customers are not Chatify accounts; the payment must be explicitly linked by the operator. */ }
+    if (document.paymentRecords.some(p=>p.reference===payment.paymentId)) return res.status(409).json({error:'This payment has already been reconciled'});
+    const amount=Math.min(Number(payment.amount),Math.max(0,document.total-document.paidAmount));
+    if (!amount) return res.status(409).json({error:'Document has no outstanding balance'});
+    document.paymentRecords.push({amount,method:'mpesa',reference:payment.paymentId,verified:true,recordedAt:new Date(),recordedBy:req.user._id});
+    document.paidAmount=Math.round((document.paidAmount+amount)*100)/100;
+    if(document.paidAmount>=document.total)document.status='paid';else document.status='part_paid';
+    await document.save(); res.json({document,verified:true});
+  });
+
+  // Task, appointment, commitment and delivery tracking share assignments, deadlines and confirmations.
+  app.get('/api/business/organizations/:orgId/tasks', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;res.json({tasks:await listQuery(BusinessTask,org._id,req)});});
+  app.post('/api/business/organizations/:orgId/tasks', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const title=shortText(req.body?.title,200);if(!title)return res.status(400).json({error:'Task title is required'});if(req.body.customerId&&!await Customer.exists({_id:req.body.customerId,organizationId:org._id}))return res.status(404).json({error:'Customer not found'});const task=await BusinessTask.create({organizationId:org._id,title,description:shortText(req.body.description,4000),type:['task','commitment','appointment','delivery','follow_up','maintenance'].includes(req.body.type)?req.body.type:'task',priority:['low','normal','high','urgent'].includes(req.body.priority)?req.body.priority:'normal',dueAt:req.body.dueAt?new Date(req.body.dueAt):undefined,assignedTo:validId(req.body.assignedTo)?req.body.assignedTo:req.user._id,customerId:validId(req.body.customerId)?req.body.customerId:undefined,documentId:validId(req.body.documentId)?req.body.documentId:undefined,conversationId:validId(req.body.conversationId)?req.body.conversationId:undefined,location:shortText(req.body.location,300),createdBy:req.user._id});res.status(201).json({task});});
+  app.patch('/api/business/organizations/:orgId/tasks/:taskId', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const task=await BusinessTask.findOne({_id:req.params.taskId,organizationId:org._id});if(!task)return res.status(404).json({error:'Task not found'});for(const key of ['title','description','location'])if(req.body?.[key]!==undefined)task[key]=shortText(req.body[key],key==='description'?4000:300);if(req.body?.status&&TASK_STATUSES.includes(req.body.status)){task.status=req.body.status;task.completedAt=req.body.status==='done'?new Date():undefined;}if(req.body?.priority&&['low','normal','high','urgent'].includes(req.body.priority))task.priority=req.body.priority;if(req.body?.dueAt!==undefined)task.dueAt=req.body.dueAt?new Date(req.body.dueAt):undefined;if(req.body?.assignedTo&&validId(req.body.assignedTo))task.assignedTo=req.body.assignedTo;await task.save();res.json({task});});
+  app.post('/api/business/organizations/:orgId/tasks/:taskId/confirm', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const task=await BusinessTask.findOne({_id:req.params.taskId,organizationId:org._id});if(!task)return res.status(404).json({error:'Task not found'});task.confirmations.push({userId:req.user._id,confirmedAt:new Date(),note:shortText(req.body?.note,500)});await task.save();res.json({task});});
+
+  // Shared inbox handover records preserve context when staff shifts change.
+  app.get('/api/business/organizations/:orgId/inbox', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const rows=await SharedInboxAssignment.find({organizationId:org._id}).sort({updatedAt:-1}).limit(200);res.json({assignments:rows});});
+  app.put('/api/business/organizations/:orgId/inbox/:conversationId', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;if(!validId(req.params.conversationId)||!await Conversation.exists({_id:req.params.conversationId,participants:req.user._id}))return res.status(404).json({error:'Conversation not found or not accessible'});if(req.body?.assignedTo&&!org.members.some(m=>String(m.userId)===String(req.body.assignedTo))&&String(org.ownerId)!==String(req.body.assignedTo))return res.status(400).json({error:'Assignee must be a member of this business'});const assignment=await SharedInboxAssignment.findOneAndUpdate({organizationId:org._id,conversationId:req.params.conversationId},{$set:{assignedTo:validId(req.body?.assignedTo)?req.body.assignedTo:undefined,status:['open','waiting','resolved'].includes(req.body?.status)?req.body.status:'open',priority:['normal','high','urgent'].includes(req.body?.priority)?req.body.priority:'normal',...(req.body?.handoverNote!==undefined?{handoverNote:shortText(req.body.handoverNote,2000),lastHandoverBy:req.user._id,lastHandoverAt:new Date()}:{})}},{upsert:true,new:true,setDefaultsOnInsert:true});res.json({assignment});});
+
+  // Support cases keep the conversation, responsible staff, status and escalation deadline together.
+  app.get('/api/business/organizations/:orgId/cases', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;res.json({cases:await listQuery(BusinessCase,org._id,req)});});
+  app.post('/api/business/organizations/:orgId/cases', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const title=shortText(req.body?.title,200);if(!title)return res.status(400).json({error:'Case title is required'});const item=await BusinessCase.create({organizationId:org._id,title,description:shortText(req.body.description,6000),customerId:validId(req.body.customerId)?req.body.customerId:undefined,conversationId:validId(req.body.conversationId)?req.body.conversationId:undefined,priority:['low','normal','high','urgent'].includes(req.body.priority)?req.body.priority:'normal',assignees:Array.isArray(req.body.assignees)?req.body.assignees.filter(validId).slice(0,30):[],dueAt:req.body.dueAt?new Date(req.body.dueAt):undefined});res.status(201).json({case:item});});
+  app.post('/api/business/organizations/:orgId/cases/:caseId/updates', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const item=await BusinessCase.findOne({_id:req.params.caseId,organizationId:org._id});if(!item)return res.status(404).json({error:'Case not found'});const body=shortText(req.body?.body,3000);if(!body)return res.status(400).json({error:'Update message is required'});item.updates.push({authorId:req.user._id,body,createdAt:new Date()});if(req.body?.status&&CASE_STATUSES.includes(req.body.status))item.status=req.body.status;await item.save();res.json({case:item});});
+
+  // Supplier and B2B trade records support quotation requests without pretending suppliers are verified.
+  app.get('/api/business/organizations/:orgId/suppliers', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;res.json({suppliers:await Supplier.find({organizationId:org._id}).sort({name:1}).limit(300)});});
+  app.post('/api/business/organizations/:orgId/suppliers', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const name=shortText(req.body?.name,160);if(!name)return res.status(400).json({error:'Supplier name is required'});const supplier=await Supplier.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),address:shortText(req.body.address,500),notes:shortText(req.body.notes,2000)});res.status(201).json({supplier});});
+  app.get('/api/business/organizations/:orgId/trade-requests', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;res.json({tradeRequests:await TradeRequest.find({organizationId:org._id}).sort({updatedAt:-1}).limit(200)});});
+  app.post('/api/business/organizations/:orgId/trade-requests', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const title=shortText(req.body?.title,200);if(!title)return res.status(400).json({error:'Trade request title is required'});const item=await TradeRequest.create({organizationId:org._id,buyerId:req.user._id,title,quantity:Number(req.body.quantity)||undefined,budget:Number(req.body.budget)||undefined,currency:shortText(req.body.currency,3)||org.currency,details:shortText(req.body.details,4000)});res.status(201).json({tradeRequest:item});});
+  app.post('/api/business/organizations/:orgId/trade-requests/:requestId/offers', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const item=await TradeRequest.findOne({_id:req.params.requestId,organizationId:org._id,status:{$in:['open','quoted']}});if(!item)return res.status(404).json({error:'Open trade request not found'});const amount=Number(req.body?.amount);if(!Number.isFinite(amount)||amount<0)return res.status(400).json({error:'Offer amount must be non-negative'});item.offers.push({supplierId:validId(req.body.supplierId)?req.body.supplierId:undefined,amount,leadTime:shortText(req.body.leadTime,120),notes:shortText(req.body.notes,1000),createdAt:new Date()});item.status='quoted';await item.save();res.status(201).json({tradeRequest:item});});
+
+  // Workflow definitions are reviewable and logged. Automatic execution is opt-in and actions
+  // are intentionally not executed as arbitrary code; financial actions require separate confirmation.
+  app.get('/api/business/organizations/:orgId/workflows', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;res.json({workflows:await Workflow.find({organizationId:org._id}).sort({updatedAt:-1}).limit(100)});});
+  app.post('/api/business/organizations/:orgId/workflows', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const name=shortText(req.body?.name,160);const actions=Array.isArray(req.body?.actions)?req.body.actions.slice(0,10):[];if(!name||!actions.length||actions.some(a=>!['create_task','notify_team','customer_message','create_receipt'].includes(a.type)))return res.status(400).json({error:'Provide a workflow name and supported actions'});const workflow=await Workflow.create({organizationId:org._id,name,description:shortText(req.body.description,1000),trigger:['order_created','payment_confirmed','task_overdue','new_enquiry','manual'].includes(req.body.trigger)?req.body.trigger:'manual',enabled:false,actions:actions.map(a=>({type:a.type,config:typeof a.config==='object'&&a.config? a.config : {}}))});res.status(201).json({workflow,notice:'Created disabled for review. Enable only after testing permissions and outcomes.'});});
+  app.patch('/api/business/organizations/:orgId/workflows/:workflowId', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const workflow=await Workflow.findOne({_id:req.params.workflowId,organizationId:org._id});if(!workflow)return res.status(404).json({error:'Workflow not found'});if(typeof req.body?.enabled==='boolean')workflow.enabled=req.body.enabled;if(req.body?.name)workflow.name=shortText(req.body.name,160);await workflow.save();res.json({workflow});});
+  app.post('/api/business/organizations/:orgId/workflows/:workflowId/test', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const workflow=await Workflow.findOne({_id:req.params.workflowId,organizationId:org._id});if(!workflow)return res.status(404).json({error:'Workflow not found'});const run={status:'test_only',triggerData:req.body?.sample||{},result:{wouldRun:workflow.actions.map(a=>a.type),executed:false},ranAt:new Date(),ranBy:req.user._id};workflow.runs.push(run);if(workflow.runs.length>100)workflow.runs=workflow.runs.slice(-100);await workflow.save();res.json({workflowId:String(workflow._id),test:run,notice:'Test mode records the proposed actions but does not send messages or move money.'});});
+
+  // Dashboard, search, portability and a public read-only storefront for a verified slug.
+  app.get('/api/business/organizations/:orgId/dashboard', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const [customers,products,documents,tasks,cases,lowStock]=await Promise.all([Customer.countDocuments({organizationId:org._id}),CatalogItem.countDocuments({organizationId:org._id,active:true}),BusinessDocument.find({organizationId:org._id}).limit(500),BusinessTask.find({organizationId:org._id}).limit(500),BusinessCase.find({organizationId:org._id}).limit(500),CatalogItem.find({organizationId:org._id,active:true,$expr:{$lte:['$stock','$lowStockAt']}}).limit(100)]);res.json({organization:{id:String(org._id),name:org.name,industry:org.industry,plan:org.plan},metrics:{customers,activeCatalogItems:products,documents:documents.length,openTasks:tasks.filter(t=>!['done','cancelled'].includes(t.status)).length,openCases:cases.filter(c=>!['resolved','closed'].includes(c.status)).length,lowStockItems:lowStock.map(item=>({id:String(item._id),name:item.name,stock:item.stock,lowStockAt:item.lowStockAt})),briefing:buildBusinessBriefing({tasks,documents,cases})}});});
+  app.get('/api/business/organizations/:orgId/search', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;const term=shortText(req.query.q,100);if(term.length<2)return res.status(400).json({error:'Search for at least two characters'});const safe=term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const regex=new RegExp(safe,'i');const [customers,documents,tasks,cases]=await Promise.all([Customer.find({organizationId:org._id,$or:[{name:regex},{email:regex},{phone:regex},{company:regex}]}).limit(20),BusinessDocument.find({organizationId:org._id,$or:[{number:regex},{notes:regex}]}).limit(20),BusinessTask.find({organizationId:org._id,$or:[{title:regex},{description:regex}]}).limit(20),BusinessCase.find({organizationId:org._id,$or:[{title:regex},{description:regex}]}).limit(20)]);res.json({query:term,results:{customers,documents,tasks,cases}});});
+  app.get('/api/business/organizations/:orgId/export', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const [customers,catalog,documents,tasks,cases,suppliers,workflows]=await Promise.all([Customer.find({organizationId:org._id}).lean(),CatalogItem.find({organizationId:org._id}).lean(),BusinessDocument.find({organizationId:org._id}).lean(),BusinessTask.find({organizationId:org._id}).lean(),BusinessCase.find({organizationId:org._id}).lean(),Supplier.find({organizationId:org._id}).lean(),Workflow.find({organizationId:org._id}).lean()]);res.setHeader('Content-Disposition',`attachment; filename="chatify-business-${org.slug}-${new Date().toISOString().slice(0,10)}.json"`);res.json({schemaVersion:1,exportedAt:new Date().toISOString(),organization:org.toObject(),customers,catalog,documents,tasks,cases,suppliers,workflows});});
+  app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase()}).select('name slug description industry country currency phone website settings');if(!org)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);res.json({business:org,items});});
+  app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase()}).select('_id');if(!org)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
+}
