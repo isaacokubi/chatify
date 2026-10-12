@@ -15,6 +15,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -4777,6 +4778,51 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
   }
 
+
+  Future<void> _translateVoice() async {
+    final target = TextEditingController(text: 'Kiswahili');
+    bool consent = false;
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      title: const Text('Voice message translation'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: target, decoration: const InputDecoration(labelText: 'Translate speech into')),
+        CheckboxListTile(value: consent, contentPadding: EdgeInsets.zero, title: const Text('I consent to sending this audio to the configured AI provider'), onChanged: (value) => setDialogState(() => consent = value ?? false)),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: consent ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Choose audio'))],
+    )));
+    if (accepted != true) return;
+    try {
+      final selected = await FilePicker.platform.pickFiles(type: FileType.audio, withData: true, allowMultiple: false);
+      if (selected == null || selected.files.isEmpty) return;
+      final file = selected.files.first;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty || bytes.length > 11 * 1024 * 1024) throw const FormatException('Choose an audio file smaller than 11 MB.');
+      final extension = (file.extension ?? '').toLowerCase();
+      final mime = switch (extension) {
+        'mp3' || 'mpeg' => 'audio/mpeg',
+        'm4a' || 'mp4' => 'audio/mp4',
+        'wav' => 'audio/wav',
+        'ogg' => 'audio/ogg',
+        'webm' => 'audio/webm',
+        _ => throw const FormatException('Supported audio formats: MP3, M4A, WAV, OGG and WebM.'),
+      };
+      final id = organization!['_id'].toString();
+      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/voice-translate', {'audioBase64': base64Encode(bytes), 'mimeType': mime, 'targetLanguage': target.text.trim(), 'consent': true});
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Voice translation'),
+        content: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Transcription', style: TextStyle(fontWeight: FontWeight.bold)),
+          SelectableText(response['transcription']?.toString() ?? ''),
+          const SizedBox(height: 12),
+          const Text('Translation', style: TextStyle(fontWeight: FontWeight.bold)),
+          SelectableText(response['translated']?.toString() ?? ''),
+        ])),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+      ));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
   Future<void> _memorySuggestions() async {
     final source = TextEditingController();
     final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Business Memory suggestions'), content: TextField(controller: source, autofocus: true, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: 'Paste a conversation or business note')), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Find suggestions'))]));
@@ -4884,6 +4930,7 @@ class _BusinessHubState extends State<BusinessHub> {
   Widget toolsPanel() => ListView(padding: const EdgeInsets.all(12), children: [
     Card(child: ListTile(leading: const Icon(Icons.public), title: const Text('Tax and currency profile'), subtitle: const Text('Configure jurisdiction and tax treatment'), trailing: const Icon(Icons.chevron_right), onTap: _configureTaxProfile)),
     Card(child: ListTile(leading: const Icon(Icons.translate), title: const Text('Translate business text'), subtitle: const Text('Consent-gated AI translation'), trailing: const Icon(Icons.chevron_right), onTap: _translateBusinessText)),
+    Card(child: ListTile(leading: const Icon(Icons.mic_none), title: const Text('Translate voice message'), subtitle: const Text('Transcribe and translate an audio file with consent'), trailing: const Icon(Icons.chevron_right), onTap: _translateVoice)),
     Card(child: ListTile(leading: const Icon(Icons.psychology_alt), title: const Text('Business Memory suggestions'), subtitle: const Text('Find possible tasks, dates and payment details'), trailing: const Icon(Icons.chevron_right), onTap: _memorySuggestions)),
     Card(child: ListTile(leading: const Icon(Icons.mark_chat_unread_outlined), title: const Text('Message a customer'), subtitle: const Text('WhatsApp / SMS; opt-in required'), trailing: const Icon(Icons.chevron_right), onTap: _sendCustomerMessage)),
     Card(child: ListTile(leading: const Icon(Icons.schedule), title: const Text('Scheduled workflow'), subtitle: const Text('Create, test and enable an allowed action'), trailing: const Icon(Icons.chevron_right), onTap: _createScheduledWorkflow)),
