@@ -548,7 +548,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       schemaVersion:2, exportedAt:new Date().toISOString(), organization:org.toObject(),
       customers,catalog,documents,tasks,cases,suppliers,workflows,auditLogs,enterpriseRecords,
     });
-    res.setHeader('Content-Disposition',\`attachment; filename="chatify-business-\${org.slug}-\${new Date().toISOString().slice(0,10)}.json"\`);
+    res.setHeader('Content-Disposition', 'attachment; filename="chatify-business-' + org.slug + '-' + new Date().toISOString().slice(0,10) + '.json"');
     res.json(archive);
   });
   app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase()}).select('name slug description industry country currency phone website');if(!org)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);res.json({business:org,items});});
