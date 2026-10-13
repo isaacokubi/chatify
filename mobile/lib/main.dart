@@ -6062,8 +6062,8 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     setState(() => saving = true);
     try {
       final result = await app.api.call('POST', '$base/financial-periods/close', {
-        'periodStart': start.toUtc().toIso8601String(),
-        'periodEnd': end.toUtc().toIso8601String(),
+        'periodStart': '${startDate.text.trim()}T00:00:00.000Z',
+        'periodEnd': '${endDate.text.trim()}T00:00:00.000Z',
       });
       await load();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['notice']?.toString() ?? 'Financial period snapshot created.')));
