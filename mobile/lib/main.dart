@@ -5812,6 +5812,11 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     'promise': 'Customer / supplier promise',
     'response_target': 'Response-time target',
     'subscription_note': 'Subscription / billing note',
+    'financial_close': 'Financial period close',
+    'supplier_comparison': 'Supplier comparison',
+    'customer_portal': 'Customer self-service portal',
+    'reputation_review': 'Transaction-linked review',
+    'service_recovery': 'Service recovery plan',
   };
 
   @override
