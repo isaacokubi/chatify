@@ -12,6 +12,7 @@ import {randomBytes} from 'node:crypto';
 import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback,resolveNodeEnv} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials,createShutdownHandler} from './lifecycle.js';
 import {registerBusinessRoutes} from './business.js';
 import {registerBusinessEnterpriseRoutes} from './business-enterprise.js';
+import {registerBusinessSearchRoutes} from './business-search.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
 const configuredJwt=process.env.JWT_SECRET?.trim();
@@ -58,6 +59,7 @@ const server=http.createServer(app); const io=new Server(server,{cors:{origin:co
 registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io,mpesaProvider});
 // Register additional enterprise tools only after the core Business models and auth are available.
 registerBusinessEnterpriseRoutes({app,auth,mongoose});
+registerBusinessSearchRoutes({app,auth,mongoose});
 io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);if(!await User.exists({_id:s.user.sub,status:'active'}))throw new Error('Inactive');n();}catch{n(new Error('Unauthorized'));}});
 const onlineUsers=new Set();
 const leaveUserConversation=(userId,conversationId)=>io.in('user:'+String(userId)).socketsLeave(String(conversationId));
