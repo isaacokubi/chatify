@@ -26,7 +26,7 @@ All private routes require the same Chatify bearer token used by the messaging A
 | Customer CRM | `GET/POST /api/business/organizations/:orgId/customers`, `PATCH/DELETE /api/business/organizations/:orgId/customers/:customerId` |
 | Storefront catalogue and inventory | `GET/POST /api/business/organizations/:orgId/catalog`, `PATCH/DELETE /api/business/organizations/:orgId/catalog/:itemId` |
 | Quotations, orders, invoices and receipts | `GET/POST /api/business/organizations/:orgId/documents`, `PATCH /api/business/organizations/:orgId/documents/:documentId/status` |
-| Payment recording and reconciliation | `POST /api/business/organizations/:orgId/documents/:documentId/payment-records`, `POST /api/business/organizations/:orgId/documents/:documentId/reconcile-chatify-payment` |
+| Payment recording, matching review and reconciliation | `POST /api/business/organizations/:orgId/documents/:documentId/payment-records`, `GET /api/business/organizations/:orgId/documents/:documentId/payment-matching`, `POST /api/business/organizations/:orgId/documents/:documentId/reconcile-chatify-payment` |
 | Tasks, commitments, appointments and deliveries | `GET/POST /api/business/organizations/:orgId/tasks`, `PATCH /api/business/organizations/:orgId/tasks/:taskId`, `POST /api/business/organizations/:orgId/tasks/:taskId/confirm` |
 | Shared inbox assignment / shift handover | `GET /api/business/organizations/:orgId/inbox`, `PUT /api/business/organizations/:orgId/inbox/:conversationId` |
 | Support and resolution cases | `GET/POST /api/business/organizations/:orgId/cases`, `POST /api/business/organizations/:orgId/cases/:caseId/updates` |
@@ -50,12 +50,20 @@ The Business Tools panel now exposes an **Enterprise workspace** screen for the 
 | Commitment suggestions | `POST /api/business/organizations/:orgId/enterprise/commitment-suggestions`; suggestions are never automatically converted into tasks |
 | Workspace feature preferences and service targets | `GET/PATCH /api/business/organizations/:orgId/enterprise/settings` |
 | Usage visibility | `GET /api/business/organizations/:orgId/enterprise/usage` |
-| Enterprise record CSV | `GET /api/business/organizations/:orgId/enterprise/export` |
+| Enterprise record CSV | `GET /api/business/organizations/:orgId/enterprise/export` (finance/manager roles only) |
+| Expiring customer links | `POST/GET /api/business/organizations/:orgId/enterprise/shares`, `DELETE /api/business/organizations/:orgId/enterprise/shares/:shareId`, public `GET /api/business/public-shares/:token` |
 | Restricted platform overview | `GET /api/platform/admin/overview`; requires the user ID to be explicitly configured in `CHATIFY_SUPER_ADMIN_USER_IDS` |
 
-Enterprise record types cover handbook/procedure, notifications, approvals, refunds, credit profiles, project rooms, supplier quotes, service policies, delivery proof, disputes, consent records, support cases, incidents, integrations, migrations, recovery plans, commitments, response targets and subscription notes. Records are organization-scoped, validated, auditable and available from the Business Tools UI. High-impact requests start pending, and approval is restricted to owner/admin/manager/finance roles; a request creator cannot approve their own request.
+Enterprise record types cover handbook/procedure, notifications, approvals, refunds, credit profiles, project rooms, supplier quotes, service policies, delivery proof, disputes, consent records, support cases, incidents, integrations, migrations, recovery plans, commitments, response targets, subscription notes, financial period closes, supplier comparisons, customer portal records, transaction-linked review records and service-recovery plans. Records are organization-scoped, validated, auditable and available from the Business Tools UI. High-impact requests start pending, and approval is restricted to owner/admin/manager/finance roles; a request creator cannot approve their own request.
 
 The readiness endpoint checks profile, team, catalogue, customers, support contact and M-Pesa recipient setup. Usage is currently informational; the API explicitly does **not** claim that plan limits are enforced or that subscription renewals are billed. The platform overview is a starting point for a restricted Super Admin console, not a full service-monitoring/incident telemetry system.
+
+
+### External sharing and payment-matching rules
+
+Customer links use a high-entropy random token while the database stores only its SHA-256 hash. Links expire (1 hour to 30 days) and can be revoked by authorized workspace roles. Shared invoice views expose only document totals, line items, status and due date; they do not expose internal notes, customer phone numbers or payment credentials. Shared enterprise views are limited to customer-facing project, portal, policy and delivery record types, and expose only an explicitly supplied public description and customer updates. Set the API's public URL in the mobile build's `CHATIFY_API` value so the UI can create a usable absolute link.
+
+Payment matching confidence is advisory triage only. A manually entered reference with a high-looking confidence value remains unverified. Only the existing provider-confirmed reconciliation flow updates confirmed paid totals or marks an invoice paid. Enterprise usage counts are informational; plan limits, recurring subscription billing, full backup orchestration, a public status page and transaction-linked review moderation still require dedicated production implementation before being sold as fully operational services.
 
 ## Industry editions
 
