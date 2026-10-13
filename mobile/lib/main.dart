@@ -6033,6 +6033,28 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     }
   }
 
+  Future<void> downloadEnterpriseExport() async {
+    setState(() => saving = true);
+    try {
+      final token = app.api.token;
+      if (token == null || token.isEmpty) throw Exception('Sign in again before exporting business records.');
+      final uri = Uri.parse('${app.api.base}$base/export');
+      final response = await app.api.client.get(uri, headers: {'Authorization': 'Bearer $token', 'Accept': 'text/csv'});
+      if (response.statusCode != 200) throw Exception('Export failed with status ${response.statusCode}. Check your finance or manager permissions.');
+      await FileSaver.instance.saveFile(
+        name: 'chatify-business-records',
+        bytes: response.bodyBytes,
+        fileExtension: 'csv',
+        mimeType: 'text/csv',
+      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Business records CSV exported.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   Future<void> closeFinancialPeriod() async {
     final now = DateTime.now();
     final startDate = TextEditingController(text: DateTime(now.year, now.month, 1).toIso8601String().substring(0, 10));
@@ -6305,27 +6327,11 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                     const SizedBox(height: 8),
                     Row(children: [
                       Expanded(child: Text('Records (${visibleRecords.length})', style: Theme.of(context).textTheme.titleMedium)),
-                      TextButton.icon(onPressed: () async {
-                        try {
-                          final result = await app.api.call('GET', '$base/records?limit=100');
-                          final all = List<dynamic>.from(result['records'] ?? []);
-                          if (!mounted) return;
-                          // The page state is checked immediately after the awaited API call.
-                          // ignore: use_build_context_synchronously
-                          await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
-                            title: const Text('Export-ready records'),
-                            content: SizedBox(width: 480, child: SingleChildScrollView(child: SelectableText(
-                              all.map((item) => '${item['type']} | ${item['title']} | ${item['status']} | ${item['createdAt'] ?? ''}').join('\n'),
-                            ))),
-                            actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
-                          ));
-                        } catch (e) {
-                          if (!mounted) return;
-                          // The state is still mounted before displaying the error message.
-                          // ignore: use_build_context_synchronously
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
-                        }
-                      }, icon: const Icon(Icons.file_download_outlined), label: const Text('Preview export')),
+                      TextButton.icon(
+                        onPressed: saving ? null : downloadEnterpriseExport,
+                        icon: const Icon(Icons.file_download_outlined),
+                        label: const Text('Export CSV'),
+                      ),
                     ]),
                     Align(
                       alignment: Alignment.centerLeft,
