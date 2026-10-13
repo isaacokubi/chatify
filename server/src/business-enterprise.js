@@ -7,6 +7,7 @@ const RECORD_TYPES = Object.freeze([
   'project_room', 'supplier_quote', 'service_policy', 'delivery_proof',
   'dispute', 'consent_record', 'support_case', 'incident', 'integration',
   'migration_job', 'recovery_plan', 'promise', 'response_target', 'subscription_note',
+  'financial_close', 'supplier_comparison', 'customer_portal', 'reputation_review', 'service_recovery',
 ]);
 const STATUSES = Object.freeze([
   'draft', 'open', 'pending', 'approved', 'rejected', 'in_progress',
@@ -43,6 +44,7 @@ export function normalizeEnterpriseRecord(input = {}) {
   const priority = PRIORITIES.includes(input.priority) ? input.priority : 'normal';
   const dueAt = validDate(input.dueAt);
   if (dueAt === null) throw new Error('Invalid due date');
+  if (input.assignedTo && !/^[a-f\\d]{24}$/i.test(String(input.assignedTo))) throw new Error('Invalid assignee');
   const payload = input.payload && typeof input.payload === 'object' && !Array.isArray(input.payload) ? input.payload : {};
   return {
     type, title, description: textValue(input.description, 6000), status, priority,
@@ -255,6 +257,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
   app.patch(base + '/records/:recordId', auth, async (req, res) => {
     const org = await getOrg(req, res); if (!org || !canWrite(req, res)) return;
     if (!mongoose.isValidObjectId(req.params.recordId)) return res.status(404).json({error: 'Business record not found'});
+    if (!mongoose.isValidObjectId(req.params.recordId)) return res.status(404).json({error: 'Business record not found'});
     const record = await EnterpriseRecord.findOne({_id: req.params.recordId, organizationId: org._id});
     if (!record) return res.status(404).json({error: 'Business record not found'});
     const changes = req.body || {};
@@ -285,6 +288,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
 
   app.post(base + '/records/:recordId/acknowledge', auth, async (req, res) => {
     const org = await getOrg(req, res); if (!org) return;
+    if (!mongoose.isValidObjectId(req.params.recordId)) return res.status(404).json({error: 'Business record not found'});
     const record = await EnterpriseRecord.findOne({_id: req.params.recordId, organizationId: org._id});
     if (!record) return res.status(404).json({error: 'Business record not found'});
     if (record.type !== 'handbook' && record.type !== 'service_policy') return res.status(409).json({error: 'Only handbook and service policy records require acknowledgement'});
@@ -299,6 +303,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     if (!['approved', 'rejected'].includes(decision)) return res.status(400).json({error: 'Decision must be approved or rejected'});
     const reason = textValue(req.body?.reason, 1000);
     if (decision === 'rejected' && !reason) return res.status(400).json({error: 'A reason is required when rejecting a request'});
+    if (!mongoose.isValidObjectId(req.params.recordId)) return res.status(404).json({error: 'Business record not found'});
     const record = await EnterpriseRecord.findOne({_id: req.params.recordId, organizationId: org._id});
     if (!record) return res.status(404).json({error: 'Business record not found'});
     if (!['approval', 'refund_case', 'credit_profile', 'dispute'].includes(record.type) || record.status !== 'pending') return res.status(409).json({error: 'This record is not awaiting approval'});
@@ -311,6 +316,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
 
   app.post(base + '/records/:recordId/resolve', auth, async (req, res) => {
     const org = await getOrg(req, res); if (!org || !canWrite(req, res)) return;
+    if (!mongoose.isValidObjectId(req.params.recordId)) return res.status(404).json({error: 'Business record not found'});
     const record = await EnterpriseRecord.findOne({_id: req.params.recordId, organizationId: org._id});
     if (!record) return res.status(404).json({error: 'Business record not found'});
     if (['closed', 'cancelled', 'resolved'].includes(record.status)) return res.status(409).json({error: 'This record is already closed'});
