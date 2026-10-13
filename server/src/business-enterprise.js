@@ -44,7 +44,7 @@ export function normalizeEnterpriseRecord(input = {}) {
   const priority = PRIORITIES.includes(input.priority) ? input.priority : 'normal';
   const dueAt = validDate(input.dueAt);
   if (dueAt === null) throw new Error('Invalid due date');
-  if (input.assignedTo && !/^[a-f\\d]{24}$/i.test(String(input.assignedTo))) throw new Error('Invalid assignee');
+  if (input.assignedTo && !/^[a-f\d]{24}$/i.test(String(input.assignedTo))) throw new Error('Invalid assignee');
   const payload = input.payload && typeof input.payload === 'object' && !Array.isArray(input.payload) ? input.payload : {};
   return {
     type, title, description: textValue(input.description, 6000), status, priority,
@@ -256,7 +256,6 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
 
   app.patch(base + '/records/:recordId', auth, async (req, res) => {
     const org = await getOrg(req, res); if (!org || !canWrite(req, res)) return;
-    if (!mongoose.isValidObjectId(req.params.recordId)) return res.status(404).json({error: 'Business record not found'});
     if (!mongoose.isValidObjectId(req.params.recordId)) return res.status(404).json({error: 'Business record not found'});
     const record = await EnterpriseRecord.findOne({_id: req.params.recordId, organizationId: org._id});
     if (!record) return res.status(404).json({error: 'Business record not found'});
