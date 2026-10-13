@@ -195,7 +195,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     }
     if (input.recoveryContact !== undefined) {
       const contact = textValue(input.recoveryContact, 200);
-      if (contact && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(contact) && !/^\\+?[0-9 ()-]{7,25}$/.test(contact)) return res.status(400).json({error: 'Recovery contact must be an email address or phone number'});
+      if (contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact) && !/^\+?[0-9 ()-]{7,25}$/.test(contact)) return res.status(400).json({error: 'Recovery contact must be an email address or phone number'});
       settings.recoveryContact = contact;
     }
     org.settings = settings;
