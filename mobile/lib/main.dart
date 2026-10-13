@@ -5877,11 +5877,14 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
             width: 480,
             child: searchResults.isEmpty
                 ? const Text('No matching customers, products, invoices, tasks or enterprise records found in this workspace.')
-                : ListView(shrinkWrap: true, children: searchResults.map((item) => ListTile(
-                    leading: const Icon(Icons.search),
-                    title: Text(item['title']?.toString() ?? 'Business record'),
-                    subtitle: Text('${item['type'] ?? 'record'} · ${item['subtitle'] ?? ''}'),
-                  )).toList(),
+                : ListView(
+                    shrinkWrap: true,
+                    children: searchResults.map((item) => ListTile(
+                      leading: const Icon(Icons.search),
+                      title: Text(item['title']?.toString() ?? 'Business record'),
+                      subtitle: Text('${item['type'] ?? 'record'} · ${item['subtitle'] ?? ''}'),
+                    )).toList(),
+                  ),
           ),
           actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
         ),
