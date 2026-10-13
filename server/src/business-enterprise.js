@@ -1,3 +1,5 @@
+import {createHash, randomBytes} from 'node:crypto';
+
 // CHATIFY BUSINESS ENTERPRISE EXTENSIONS
 // This module adds organization-scoped workflows on top of the existing Business models.
 // It intentionally keeps financial outcomes provider-verified and uses one tenant boundary
@@ -84,6 +86,20 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
   EnterpriseRecord.schema.index({organizationId: 1, type: 1, status: 1, updatedAt: -1});
   EnterpriseRecord.schema.index({organizationId: 1, title: 'text', description: 'text'});
 
+  // Public links store only a hash of a high-entropy token. Revocation and expiry are server-enforced.
+  const ExternalShare = mongoose.models.BusinessExternalShare || mongoose.model('BusinessExternalShare', new mongoose.Schema({
+    organizationId: {type: O, required: true, index: true},
+    entityType: {type: String, enum: ['document', 'enterprise_record'], required: true},
+    entityId: {type: String, required: true},
+    tokenHash: {type: String, required: true, unique: true, select: false},
+    createdBy: {type: O, required: true},
+    expiresAt: {type: Date, required: true, index: true},
+    revokedAt: Date,
+    accessCount: {type: Number, default: 0},
+    lastAccessAt: Date,
+  }, {timestamps: true}));
+
+
   const getOrg = async (req, res) => {
     if (!Organization || !mongoose.isValidObjectId(req.params.orgId)) {
       res.status(404).json({error: 'Business workspace not found'}); return null;
@@ -115,6 +131,83 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     });
   };
   const base = '/api/business/organizations/:orgId/enterprise';
+
+
+  app.get('/api/business/public-shares/:token', async (req, res) => {
+    const token = String(req.params.token || '');
+    if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) return res.status(404).json({error: 'Shared record not found or expired'});
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const share = await ExternalShare.findOne({tokenHash, revokedAt: {$exists: false}, expiresAt: {$gt: new Date()}}).select('+tokenHash');
+    if (!share) return res.status(404).json({error: 'Shared record not found or expired'});
+    await ExternalShare.updateOne({_id: share._id}, {$inc: {accessCount: 1}, $set: {lastAccessAt: new Date()}});
+    if (share.entityType === 'document') {
+      const document = BusinessDocument ? await BusinessDocument.findOne({_id: share.entityId, organizationId: share.organizationId}).lean() : null;
+      if (!document) return res.status(404).json({error: 'Shared record not found or expired'});
+      return res.json({share: {
+        type: 'document', number: document.number, documentType: document.type, status: document.status,
+        currency: document.currency, items: (document.items || []).map(item => ({name: item.name, quantity: item.quantity, unitPrice: item.unitPrice, lineTotal: item.lineTotal})),
+        subtotal: document.subtotal, tax: document.tax, total: document.total, paidAmount: document.paidAmount,
+        outstandingAmount: Math.max(0, Number(document.total || 0) - Number(document.paidAmount || 0)),
+        dueDate: document.dueDate || null, issuedAt: document.createdAt || null, expiresAt: share.expiresAt,
+      }});
+    }
+    const record = await EnterpriseRecord.findOne({_id: share.entityId, organizationId: share.organizationId}).lean();
+    if (!record || !['project_room', 'customer_portal', 'service_policy', 'delivery_proof'].includes(record.type)) return res.status(404).json({error: 'Shared record not found or expired'});
+    const updates = Array.isArray(record.payload?.customerUpdates) ? record.payload.customerUpdates.slice(-20).map(item => ({
+      message: textValue(item?.message, 1000), status: textValue(item?.status, 80), occurredAt: item?.occurredAt || null,
+    })) : [];
+    return res.json({share: {
+      type: record.type, title: record.title, status: record.status,
+      description: textValue(record.payload?.publicDescription, 2000),
+      dueAt: record.dueAt || null, updates, expiresAt: share.expiresAt,
+    }});
+  });
+
+  app.post(base + '/shares', auth, async (req, res) => {
+    const org = await getOrg(req, res); if (!org) return;
+    if (!['owner', 'admin', 'manager', 'sales', 'support', 'finance'].includes(req.businessEnterpriseRole)) return res.status(403).json({error: 'Business manager permission required'});
+    const entityType = req.body?.entityType;
+    const entityId = String(req.body?.entityId || '');
+    if (!['document', 'enterprise_record'].includes(entityType) || !mongoose.isValidObjectId(entityId)) return res.status(400).json({error: 'Choose a valid document or customer-facing enterprise record'});
+    if (entityType === 'document') {
+      const document = BusinessDocument ? await BusinessDocument.findOne({_id: entityId, organizationId: org._id}) : null;
+      if (!document || !['quote', 'order', 'invoice', 'receipt'].includes(document.type)) return res.status(404).json({error: 'Shareable document not found'});
+    } else {
+      const record = await EnterpriseRecord.findOne({_id: entityId, organizationId: org._id});
+      if (!record || !['project_room', 'customer_portal', 'service_policy', 'delivery_proof'].includes(record.type)) return res.status(400).json({error: 'Only customer-facing project, policy, portal and delivery records can be shared'});
+    }
+    const requestedHours = Number(req.body?.expiresInHours ?? 72);
+    if (!Number.isInteger(requestedHours) || requestedHours < 1 || requestedHours > 720) return res.status(400).json({error: 'Share expiry must be between 1 hour and 30 days'});
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + requestedHours * 60 * 60 * 1000);
+    const share = await ExternalShare.create({
+      organizationId: org._id, entityType, entityId, tokenHash: createHash('sha256').update(token).digest('hex'),
+      createdBy: req.user._id, expiresAt,
+    });
+    await audit(org, req, 'external_share.created', share, 'Created expiring customer-facing share link');
+    res.status(201).json({
+      shareId: String(share._id), token, path: '/api/business/public-shares/' + token,
+      expiresAt, notice: 'This token is shown once. Share only with the intended customer; the link expires automatically and can be revoked.',
+    });
+  });
+
+  app.get(base + '/shares', auth, async (req, res) => {
+    const org = await getOrg(req, res); if (!org) return;
+    const shares = await ExternalShare.find({organizationId: org._id}).sort({createdAt: -1}).limit(100).select('-tokenHash').lean();
+    res.json({shares: shares.map(item => ({...item, tokenHash: undefined, expired: item.expiresAt <= new Date(), revoked: Boolean(item.revokedAt)}))});
+  });
+
+  app.delete(base + '/shares/:shareId', auth, async (req, res) => {
+    const org = await getOrg(req, res); if (!org) return;
+    if (!['owner', 'admin', 'manager', 'finance', 'support'].includes(req.businessEnterpriseRole)) return res.status(403).json({error: 'Business manager permission required'});
+    if (!mongoose.isValidObjectId(req.params.shareId)) return res.status(404).json({error: 'Share link not found'});
+    const share = await ExternalShare.findOne({organizationId: org._id, _id: req.params.shareId});
+    if (!share) return res.status(404).json({error: 'Share link not found'});
+    if (share.revokedAt) return res.status(409).json({error: 'Share link is already revoked'});
+    share.revokedAt = new Date(); await share.save();
+    await audit(org, req, 'external_share.revoked', share, 'Revoked customer-facing share link');
+    res.json({revoked: true, shareId: String(share._id)});
+  });
 
   app.get(base + '/overview', auth, async (req, res) => {
     const org = await getOrg(req, res); if (!org) return;
