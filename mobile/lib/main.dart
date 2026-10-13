@@ -5585,6 +5585,44 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
   }
 
+  Future<void> _showPaymentMatching(String documentId) async {
+    try {
+      final orgId = Uri.encodeComponent(organization!['_id'].toString());
+      final path = '/api/business/organizations/$orgId/documents/${Uri.encodeComponent(documentId)}/payment-matching';
+      final result = await app.api.call('GET', path);
+      final matches = List<dynamic>.from(result['matches'] ?? []);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Payment matching · ${result['number'] ?? 'Invoice'}'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Confirmed paid: ${result['currency'] ?? 'KES'} ${result['confirmedPaidAmount'] ?? 0}'),
+              Text('Outstanding: ${result['currency'] ?? 'KES'} ${result['outstandingAmount'] ?? 0}'),
+              const SizedBox(height: 8),
+              const Text('Confidence is a triage hint only. Unverified manual references are not proof of payment.'),
+              const Divider(),
+              if (matches.isEmpty) const Text('No payment records attached to this document.'),
+              for (final match in matches.whereType<Map>())
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(match['verified'] == true ? Icons.verified_outlined : Icons.warning_amber_outlined),
+                  title: Text('${match['status'] ?? 'unmatched'} · ${result['currency'] ?? 'KES'} ${match['amount'] ?? 0}'),
+                  subtitle: Text('Confidence: ${match['confidence'] ?? 0}% · Reference: ${match['reference'] ?? 'none'}\n${match['notice'] ?? ''}'),
+                ),
+            ])),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> _shareBusinessDocument(String documentId) async {
     try {
       final orgId = Uri.encodeComponent(organization!['_id'].toString());
@@ -5630,6 +5668,7 @@ class _BusinessHubState extends State<BusinessHub> {
     final action = await showModalBottomSheet<String>(context: context, builder: (context) => SafeArea(child: Wrap(children: [
       ListTile(title: Text(item['number']?.toString() ?? 'Sales document'), subtitle: Text('Status: $status')),
       if (!['draft', 'rejected', 'cancelled'].contains(status)) ListTile(leading: const Icon(Icons.link), title: const Text('Share customer link (expires in 72 hours)'), onTap: () => Navigator.pop(context, 'share')),
+      if (type == 'invoice' && status != 'draft') ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Review payment matching'), onTap: () => Navigator.pop(context, 'matching')),
       if (status == 'draft') ListTile(leading: const Icon(Icons.send), title: const Text('Issue / send document'), onTap: () => Navigator.pop(context, 'issue')),
       if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.credit_card), title: const Text('Pay online (Stripe)'), onTap: () => Navigator.pop(context, 'stripe')),
       if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.account_balance_wallet_outlined), title: const Text('Pay with PayPal'), onTap: () => Navigator.pop(context, 'paypal')),
@@ -5640,6 +5679,7 @@ class _BusinessHubState extends State<BusinessHub> {
     final id = item['_id']?.toString();
     if (id == null) return;
     if (action == 'share') { await _shareBusinessDocument(id); return; }
+    if (action == 'matching') { await _showPaymentMatching(id); return; }
     try {
       if (action == 'issue') {
         final path = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(id)}/status';
