@@ -526,7 +526,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     // This archive includes audit and enterprise records but never returns API credentials.
     const redactSecrets = value => {
       if (Array.isArray(value)) return value.map(redactSecrets);
-      if (!value || typeof value !== 'object' || value instanceof Date) return value;
+      if (!value || typeof value !== 'object' || value instanceof Date || value._bsontype || Buffer.isBuffer(value)) return value;
       return Object.fromEntries(Object.entries(value)
         .filter(([key]) => !/(secret|token|password|credential|private.?key|authorization)/i.test(key))
         .map(([key, nested]) => [key, redactSecrets(nested)]));
