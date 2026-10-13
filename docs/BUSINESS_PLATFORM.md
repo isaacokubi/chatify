@@ -50,13 +50,14 @@ The Business Tools panel now exposes an **Enterprise workspace** screen for the 
 | Commitment suggestions | `POST /api/business/organizations/:orgId/enterprise/commitment-suggestions`; suggestions are never automatically converted into tasks |
 | Workspace feature preferences and service targets | `GET/PATCH /api/business/organizations/:orgId/enterprise/settings` |
 | Usage visibility | `GET /api/business/organizations/:orgId/enterprise/usage` |
+| Immutable financial close snapshots | `GET /api/business/organizations/:orgId/enterprise/financial-periods`, `POST /api/business/organizations/:orgId/enterprise/financial-periods/close` |
 | Enterprise record CSV | `GET /api/business/organizations/:orgId/enterprise/export` (finance/manager roles only) |
 | Expiring customer links | `POST/GET /api/business/organizations/:orgId/enterprise/shares`, `DELETE /api/business/organizations/:orgId/enterprise/shares/:shareId`, public `GET /api/business/public-shares/:token` |
 | Restricted platform overview | `GET /api/platform/admin/overview`; requires the user ID to be explicitly configured in `CHATIFY_SUPER_ADMIN_USER_IDS` |
 
 Enterprise record types cover handbook/procedure, notifications, approvals, refunds, credit profiles, project rooms, supplier quotes, service policies, delivery proof, disputes, consent records, support cases, incidents, integrations, migrations, recovery plans, commitments, response targets, subscription notes, financial period closes, supplier comparisons, customer portal records, transaction-linked review records and service-recovery plans. Records are organization-scoped, validated, auditable and available from the Business Tools UI. High-impact requests start pending, and approval is restricted to owner/admin/manager/finance roles; a request creator cannot approve their own request.
 
-The readiness endpoint checks profile, team, catalogue, customers, support contact and M-Pesa recipient setup. Usage is currently informational; the API explicitly does **not** claim that plan limits are enforced or that subscription renewals are billed. The platform overview is a starting point for a restricted Super Admin console, not a full service-monitoring/incident telemetry system.
+The readiness endpoint checks profile, team, catalogue, customers, support contact and M-Pesa recipient setup. Finance roles can close a date range into an immutable invoice snapshot; later corrections must be recorded separately rather than editing the closed snapshot. Usage is currently informational; the API explicitly does **not** claim that plan limits are enforced or that subscription renewals are billed. The platform overview is a starting point for a restricted Super Admin console, not a full service-monitoring/incident telemetry system.
 
 
 ### External sharing and payment-matching rules
