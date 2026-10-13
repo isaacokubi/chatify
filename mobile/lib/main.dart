@@ -6033,6 +6033,29 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     }
   }
 
+  Future<void> downloadBusinessArchive() async {
+    setState(() => saving = true);
+    try {
+      final token = app.api.token;
+      if (token == null || token.isEmpty) throw Exception('Sign in again before exporting business records.');
+      final orgId = Uri.encodeComponent(widget.organizationId);
+      final uri = Uri.parse('${app.api.base}/api/business/organizations/$orgId/export');
+      final response = await app.api.client.get(uri, headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'});
+      if (response.statusCode != 200) throw Exception('Business archive export failed with status ${response.statusCode}. Manager permissions may be required.');
+      await FileSaver.instance.saveFile(
+        name: 'chatify-business-archive',
+        bytes: response.bodyBytes,
+        fileExtension: 'json',
+        mimeType: 'application/json',
+      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Full business archive exported. Keep it in a secure location.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   Future<void> downloadEnterpriseExport() async {
     setState(() => saving = true);
     try {
@@ -6339,6 +6362,14 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                         onPressed: saving ? null : closeFinancialPeriod,
                         icon: const Icon(Icons.lock_clock_outlined),
                         label: const Text('Close financial period'),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: saving ? null : downloadBusinessArchive,
+                        icon: const Icon(Icons.backup_outlined),
+                        label: const Text('Export full business archive (JSON)'),
                       ),
                     ),
                     if (visibleRecords.isEmpty)
