@@ -5585,11 +5585,51 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
   }
 
+  Future<void> _shareBusinessDocument(String documentId) async {
+    try {
+      final orgId = Uri.encodeComponent(organization!['_id'].toString());
+      final result = await app.api.call('POST', '/api/business/organizations/$orgId/enterprise/shares', {
+        'entityType': 'document',
+        'entityId': documentId,
+        'expiresInHours': 72,
+      });
+      final path = result['path']?.toString() ?? '';
+      if (path.isEmpty || !mounted) return;
+      final link = Uri.parse(app.api.base).resolve(path).toString();
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Customer document link'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('The customer can view this document without seeing internal notes. The link expires in 72 hours.'),
+            const SizedBox(height: 8),
+            SelectableText(link),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+            FilledButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: link));
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Customer document link copied.')));
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy link'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> _showDocumentActions(Map item) async {
     final type = item['type']?.toString() ?? '';
     final status = item['status']?.toString() ?? '';
     final action = await showModalBottomSheet<String>(context: context, builder: (context) => SafeArea(child: Wrap(children: [
       ListTile(title: Text(item['number']?.toString() ?? 'Sales document'), subtitle: Text('Status: $status')),
+      if (!['draft', 'rejected', 'cancelled'].contains(status)) ListTile(leading: const Icon(Icons.link), title: const Text('Share customer link (expires in 72 hours)'), onTap: () => Navigator.pop(context, 'share')),
       if (status == 'draft') ListTile(leading: const Icon(Icons.send), title: const Text('Issue / send document'), onTap: () => Navigator.pop(context, 'issue')),
       if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.credit_card), title: const Text('Pay online (Stripe)'), onTap: () => Navigator.pop(context, 'stripe')),
       if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.account_balance_wallet_outlined), title: const Text('Pay with PayPal'), onTap: () => Navigator.pop(context, 'paypal')),
@@ -5599,6 +5639,7 @@ class _BusinessHubState extends State<BusinessHub> {
     if (action == null) return;
     final id = item['_id']?.toString();
     if (id == null) return;
+    if (action == 'share') { await _shareBusinessDocument(id); return; }
     try {
       if (action == 'issue') {
         final path = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(id)}/status';
