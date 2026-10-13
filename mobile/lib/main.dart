@@ -5947,6 +5947,44 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     }
   }
 
+  Future<void> createCustomerShare(Map<String, dynamic> item) async {
+    try {
+      final result = await app.api.call('POST', '$base/shares', {
+        'entityType': 'enterprise_record',
+        'entityId': item['_id']?.toString() ?? '',
+        'expiresInHours': 72,
+      });
+      final path = result['path']?.toString() ?? '';
+      if (path.isEmpty || !mounted) return;
+      final link = Uri.parse(app.api.base).resolve(path).toString();
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Secure customer link'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('This link expires in 72 hours. Share it only with the intended customer.'),
+            const SizedBox(height: 8),
+            SelectableText(link),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+            FilledButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: link));
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Customer link copied.')));
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy link'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> runAction(Map<String, dynamic> item, String action) async {
     final id = Uri.encodeComponent(item['_id']?.toString() ?? '');
     if (id.isEmpty) return;
@@ -6114,6 +6152,12 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                             Wrap(spacing: 8, children: [
                               if (item['type'] == 'handbook' || item['type'] == 'service_policy')
                                 OutlinedButton.icon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'acknowledge'), icon: const Icon(Icons.fact_check_outlined), label: const Text('Acknowledge')),
+                              if (['project_room', 'customer_portal', 'service_policy', 'delivery_proof'].contains(item['type']))
+                                OutlinedButton.icon(
+                                  onPressed: () => createCustomerShare(Map<String, dynamic>.from(item)),
+                                  icon: const Icon(Icons.link),
+                                  label: const Text('Share with customer'),
+                                ),
                               if (item['status'] == 'pending' && ['approval', 'refund_case', 'credit_profile', 'dispute'].contains(item['type'])) ...[
                                 OutlinedButton.icon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'reject'), icon: const Icon(Icons.close), label: const Text('Reject')),
                                 FilledButton.tonalIcon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'approve'), icon: const Icon(Icons.check), label: const Text('Approve')),
