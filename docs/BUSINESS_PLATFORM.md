@@ -66,6 +66,10 @@ Customer links use a high-entropy random token while the database stores only it
 
 Payment matching confidence is advisory triage only. A manually entered reference with a high-looking confidence value remains unverified. Only the existing provider-confirmed reconciliation flow updates confirmed paid totals or marks an invoice paid. Enterprise usage counts are informational; plan limits, recurring subscription billing, full backup orchestration, a public status page and transaction-linked review moderation still require dedicated production implementation before being sold as fully operational services.
 
+## Public service status
+
+`GET /api/status` returns a cache-disabled, secret-free operational summary for the HTTP API and MongoDB dependency. It returns HTTP 503 while MongoDB is disconnected. Real-time messaging and payment providers are explicitly marked unverified rather than being presented as healthy without independent probes. This is a basic status endpoint, not yet a historical incident timeline or external monitoring integration.
+
 ## Industry editions
 
 Workspace setup supports retail/wholesale, consulting, tourism/hospitality, logistics, construction, salon/personal services, education, agriculture, real estate/property, and other industries. These currently use a shared configurable business data model. They are not yet separate polished industry-specific applications.
