@@ -438,6 +438,35 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     document.paymentRecords.push({amount,method,reference:shortText(req.body?.reference,160),verified:false,recordedAt:new Date(),recordedBy:req.user._id});
     await document.save(); res.status(201).json({document,notice:'Payment recorded as unverified. Reconcile with the provider before treating it as confirmed.'});
   });
+  // Payment matching gives finance staff a triage view without promoting manual references to proof.
+  // Only verified provider-backed records count as confirmed; confidence is advisory, never authoritative.
+  app.get('/api/business/organizations/:orgId/documents/:documentId/payment-matching', auth, async (req, res) => {
+    const org = await requireOrg(req, res); if (!org || !requireFinance(org, req, res)) return;
+    const document = await BusinessDocument.findOne({_id: req.params.documentId, organizationId: org._id});
+    if (!document) return res.status(404).json({error: 'Document not found'});
+    const matches = (document.paymentRecords || []).map((record, index) => {
+      const verified = record.verified === true;
+      const hasReference = Boolean(String(record.reference || '').trim());
+      return {
+        index, amount: record.amount, method: record.method,
+        reference: record.reference || null, recordedAt: record.recordedAt || null,
+        status: verified ? 'matched_confirmed' : hasReference ? 'under_investigation' : 'unmatched',
+        confidence: verified ? 100 : hasReference ? 55 : 20,
+        verified,
+        notice: verified ? 'Confirmed by the authorized reconciliation flow.' : 'Manual references are not proof of payment; verify with the provider before confirming.',
+      };
+    });
+    const confirmed = matches.filter(item => item.verified).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const unverified = matches.filter(item => !item.verified).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    res.json({
+      documentId: String(document._id), number: document.number, currency: document.currency,
+      total: document.total, confirmedPaidAmount: document.paidAmount, outstandingAmount: Math.max(0, Number(document.total) - Number(document.paidAmount)),
+      confirmedRecordAmount: Math.round(confirmed * 100) / 100,
+      unverifiedRecordAmount: Math.round(unverified * 100) / 100,
+      matches, notice: 'Confidence is a triage aid only. Never treat screenshots, user-entered references or confidence scores as proof of funds received.',
+    });
+  });
+
   app.post('/api/business/organizations/:orgId/documents/:documentId/reconcile-chatify-payment', auth, async (req, res) => {
     const org = await requireOrg(req,res); if (!org || !requireFinance(org, req, res)) return;
     const document = await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id}); if (!document) return res.status(404).json({error:'Document not found'});
