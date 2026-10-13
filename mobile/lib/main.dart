@@ -6046,7 +6046,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
         name: 'chatify-business-archive',
         bytes: response.bodyBytes,
         fileExtension: 'json',
-        mimeType: 'application/json',
+        mimeType: MimeType.json,
       );
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Full business archive exported. Keep it in a secure location.')));
     } catch (e) {
@@ -6068,7 +6068,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
         name: 'chatify-business-records',
         bytes: response.bodyBytes,
         fileExtension: 'csv',
-        mimeType: 'text/csv',
+        mimeType: MimeType.csv,
       );
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Business records CSV exported.')));
     } catch (e) {
