@@ -5783,9 +5783,9 @@ class BusinessEnterprisePage extends StatefulWidget {
 }
 
 class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
-  Map<String, dynamic> overview = {};
-  List<dynamic> records = [];
-  bool loading = true, saving = false;
+  Map<String, dynamic> overview = {}, readiness = {}, usage = {}, settings = {};
+  List<dynamic> records = [], searchResults = [];
+  bool loading = true, saving = false, searching = false;
   String typeFilter = 'all';
   String query = '';
   String? error;
@@ -5826,9 +5826,15 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
       final results = await Future.wait([
         app.api.call('GET', '$base/overview'),
         app.api.call('GET', '$base/records?limit=100'),
+        app.api.call('GET', '$base/readiness'),
+        app.api.call('GET', '$base/usage'),
+        app.api.call('GET', '$base/settings'),
       ]);
       overview = Map<String, dynamic>.from(results[0]);
       records = List<dynamic>.from(results[1]['records'] ?? []);
+      readiness = Map<String, dynamic>.from(results[2]);
+      usage = Map<String, dynamic>.from(results[3]);
+      settings = Map<String, dynamic>.from(results[4]);
       if (mounted) setState(() {});
     } catch (e) {
       error = e.toString();
@@ -5845,6 +5851,41 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
       if (q.isEmpty) return true;
       return '${item['title'] ?? ''} ${item['description'] ?? ''} ${item['status'] ?? ''}'.toLowerCase().contains(q);
     }).toList();
+  }
+
+  Future<void> searchAll() async {
+    final q = query.trim();
+    if (q.length < 2) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter at least two characters to search all business records.')));
+      return;
+    }
+    setState(() => searching = true);
+    try {
+      final response = await app.api.call('GET', '$base/search?q=\${Uri.encodeQueryComponent(q)}&limit=20');
+      searchResults = List<dynamic>.from(response['results'] ?? []);
+      if (mounted) setState(() {});
+      if (mounted) await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Search results for "$q"'),
+          content: SizedBox(
+            width: 480,
+            child: searchResults.isEmpty
+                ? const Text('No matching customers, products, invoices, tasks or enterprise records found in this workspace.')
+                : ListView(shrinkWrap: true, children: searchResults.map((item) => ListTile(
+                    leading: const Icon(Icons.search),
+                    title: Text(item['title']?.toString() ?? 'Business record'),
+                    subtitle: Text('\${item['type'] ?? 'record'} · \${item['subtitle'] ?? ''}'),
+                  )).toList(),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => searching = false);
+    }
   }
 
   Future<void> createRecord() async {
@@ -5966,6 +6007,36 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                       _enterpriseMetric('Overdue records', overview['overdueEnterpriseRecords'] ?? 0, Icons.warning_amber_outlined),
                     ]),
                     const SizedBox(height: 16),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('Setup readiness: \${readiness['complete'] ?? 0}/\${readiness['total'] ?? 0}', style: Theme.of(context).textTheme.titleMedium),
+                          const SizedBox(height: 8),
+                          for (final check in (readiness['checks'] as List? ?? const []).whereType<Map>())
+                            ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(check['complete'] == true ? Icons.check_circle_outline : Icons.radio_button_unchecked),
+                              title: Text(check['label']?.toString() ?? 'Setup step'),
+                              trailing: Text(check['complete'] == true ? 'Ready' : 'Incomplete'),
+                            ),
+                        ]),
+                      ),
+                    ),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('Plan and usage', style: Theme.of(context).textTheme.titleMedium),
+                          Text('Plan: \${usage['plan'] ?? settings['plan'] ?? 'free'}'),
+                          Text('Staff: \${(usage['usage'] as Map?)?['members'] ?? 1} · Customers: \${(usage['usage'] as Map?)?['customers'] ?? 0} · Catalogue items: \${(usage['usage'] as Map?)?['catalogItems'] ?? 0}'),
+                          Text('Response target: \${(settings['serviceTargets'] as Map?)?['firstResponseMinutes'] ?? 15} minutes · Escalation: \${(settings['serviceTargets'] as Map?)?['escalationMinutes'] ?? 60} minutes'),
+                          Text('Credit policy: \${(settings['creditPolicy'] as Map?)?['enabled'] == true ? 'Enabled' : 'Disabled'}'),
+                        ]),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Text('Enterprise modules', style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
                     Wrap(spacing: 8, runSpacing: 8, children: [
@@ -5974,13 +6045,19 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                     ]),
                     const SizedBox(height: 16),
                     TextField(
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
                         labelText: 'Search business records',
-                        helperText: 'Search is limited to the selected workspace.',
-                        border: OutlineInputBorder(),
+                        helperText: 'Type to filter this list, or use the search icon for customers, products, invoices, tasks and cases.',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          tooltip: 'Search all business data',
+                          onPressed: searching ? null : searchAll,
+                          icon: searching ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.manage_search),
+                        ),
                       ),
                       onChanged: (value) => setState(() => query = value),
+                      onSubmitted: (_) => searchAll(),
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
