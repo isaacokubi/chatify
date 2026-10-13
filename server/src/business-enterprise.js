@@ -20,8 +20,8 @@ export function extractPromiseSuggestions(source = '') {
   // This is a deterministic suggestion, not an AI assertion: a human must confirm it.
   const text = textValue(source, 5000);
   const patterns = [
-    /(?:i(?:'| wi)?ll|we(?:'| wi)?ll|will)s+(?:deliver|send|finish|complete|call|pay|refund|ship|prepare|provide)[^.!?]{0,180}/ig,
-    /(?:by|before|on)s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b/ig,
+    /(?:i(?:'| wi)?ll|we(?:'| wi)?ll|will)\s+(?:deliver|send|finish|complete|call|pay|refund|ship|prepare|provide)\b[^.!?]{0,180}/ig,
+    /(?:by|before|on)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b/ig,
   ];
   const matches = new Set();
   for (const pattern of patterns) for (const match of text.matchAll(pattern)) {
