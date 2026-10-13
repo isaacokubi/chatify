@@ -332,17 +332,26 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     const periodEnd = end.toISOString();
     const existing = await EnterpriseRecord.findOne({organizationId: org._id, type: 'financial_close', 'payload.periodStart': periodStart, 'payload.periodEnd': periodEnd});
     if (existing) return res.status(409).json({error: 'This financial period is already closed', record: existing});
+    // Include every invoice issued before the period end so the close snapshot can calculate
+    // receipts received during the period and outstanding balances as of that cut-off.
     const invoices = BusinessDocument ? await BusinessDocument.find({
-      organizationId: org._id, type: 'invoice', createdAt: {$gte: start, $lt: end},
-    }).select('number status total paidAmount createdAt').lean() : [];
-    const invoiceTotal = invoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
-    const paidTotal = invoices.reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
+      organizationId: org._id, type: 'invoice', createdAt: {$lt: end},
+    }).select('number status total paidAmount paymentRecords createdAt').lean() : [];
+    const periodInvoices = invoices.filter(invoice => new Date(invoice.createdAt) >= start);
     const roundMoney = value => Math.round(value * 100) / 100;
+    const paymentsBeforeEnd = invoice => (invoice.paymentRecords || []).filter(payment =>
+      payment.verified === true && payment.recordedAt && new Date(payment.recordedAt) < end,
+    ).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const receiptsDuringPeriod = invoices.reduce((sum, invoice) => sum + (invoice.paymentRecords || []).filter(payment =>
+      payment.verified === true && payment.recordedAt && new Date(payment.recordedAt) >= start && new Date(payment.recordedAt) < end,
+    ).reduce((subtotal, payment) => subtotal + Number(payment.amount || 0), 0), 0);
+    const invoiceTotal = periodInvoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
+    const outstandingTotal = invoices.reduce((sum, invoice) => sum + Math.max(0, Number(invoice.total || 0) - paymentsBeforeEnd(invoice)), 0);
     const snapshot = {
-      periodStart, periodEnd, invoiceCount: invoices.length,
-      invoicedTotal: roundMoney(invoiceTotal), confirmedPaidTotal: roundMoney(paidTotal),
-      outstandingTotal: roundMoney(Math.max(0, invoiceTotal - paidTotal)),
-      invoiceStatuses: Object.fromEntries([...new Set(invoices.map(item => item.status))].map(status => [status, invoices.filter(item => item.status === status).length])),
+      periodStart, periodEnd, invoiceCount: periodInvoices.length,
+      invoicedTotal: roundMoney(invoiceTotal), confirmedPaidTotal: roundMoney(receiptsDuringPeriod),
+      outstandingTotal: roundMoney(outstandingTotal),
+      invoiceStatuses: Object.fromEntries([...new Set(periodInvoices.map(item => item.status))].map(status => [status, periodInvoices.filter(item => item.status === status).length])),
       closedAt: new Date().toISOString(), closedBy: String(req.user._id),
     };
     const record = await EnterpriseRecord.create({
