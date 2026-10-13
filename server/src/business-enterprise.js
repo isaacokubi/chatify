@@ -171,7 +171,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     if (!['document', 'enterprise_record'].includes(entityType) || !mongoose.isValidObjectId(entityId)) return res.status(400).json({error: 'Choose a valid document or customer-facing enterprise record'});
     if (entityType === 'document') {
       const document = BusinessDocument ? await BusinessDocument.findOne({_id: entityId, organizationId: org._id}) : null;
-      if (!document || !['quote', 'order', 'invoice', 'receipt'].includes(document.type)) return res.status(404).json({error: 'Shareable document not found'});
+      if (!document || !['quote', 'order', 'invoice', 'receipt'].includes(document.type) || ['draft', 'rejected', 'cancelled'].includes(document.status)) return res.status(404).json({error: 'Shareable issued document not found'});
     } else {
       const record = await EnterpriseRecord.findOne({_id: entityId, organizationId: org._id});
       if (!record || !['project_room', 'customer_portal', 'service_policy', 'delivery_proof'].includes(record.type)) return res.status(400).json({error: 'Only customer-facing project, policy, portal and delivery records can be shared'});
