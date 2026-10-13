@@ -135,6 +135,90 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     });
   });
 
+  app.get(base + '/readiness', auth, async (req, res) => {
+    const org = await getOrg(req, res); if (!org) return;
+    const [memberCount, catalogCount, customerCount] = await Promise.all([
+      Promise.resolve((org.members || []).length),
+      CatalogItem ? CatalogItem.countDocuments({organizationId: org._id, active: true}) : 0,
+      Customer ? Customer.countDocuments({organizationId: org._id}) : 0,
+    ]);
+    const checks = [
+      {key: 'profile', label: 'Business profile', complete: Boolean(org.name && org.industry && org.country && org.currency)},
+      {key: 'team', label: 'Team access', complete: memberCount > 0},
+      {key: 'catalog', label: 'Products or services', complete: catalogCount > 0},
+      {key: 'customers', label: 'Customer records', complete: customerCount > 0},
+      {key: 'mpesa', label: 'M-Pesa recipient configured', complete: Boolean(org.settings?.mpesaRecipientPhone)},
+      {key: 'support', label: 'Support contact', complete: Boolean(org.email || org.phone)},
+    ];
+    res.json({checks, complete: checks.filter(item => item.complete).length, total: checks.length, ready: checks.every(item => item.complete)});
+  });
+
+  app.get(base + '/settings', auth, async (req, res) => {
+    const org = await getOrg(req, res); if (!org) return;
+    // Never return integration secrets; only non-sensitive feature preferences and readiness metadata.
+    const settings = org.settings || {};
+    res.json({
+      industry: org.industry, plan: org.plan, currency: org.currency, timezone: org.timezone,
+      featureEntitlements: settings.featureEntitlements || {},
+      serviceTargets: settings.serviceTargets || {firstResponseMinutes: 15, escalationMinutes: 60},
+      creditPolicy: settings.creditPolicy || {enabled: false, defaultTermsDays: 0, approvalRequiredAbove: 0},
+      recoveryContact: settings.recoveryContact || '',
+      configuredIntegrations: {
+        mpesaRecipientPhone: Boolean(settings.mpesaRecipientPhone),
+        stripe: Boolean(process.env.STRIPE_SECRET_KEY),
+        paypal: Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET),
+        etims: Boolean(process.env.ETIMS_GATEWAY_URL && process.env.ETIMS_GATEWAY_TOKEN),
+      },
+    });
+  });
+
+  app.patch(base + '/settings', auth, async (req, res) => {
+    const org = await getOrg(req, res); if (!org) return;
+    if (!['owner', 'admin', 'manager'].includes(req.businessEnterpriseRole)) return res.status(403).json({error: 'Business manager permission required'});
+    const input = req.body || {};
+    const allowed = ['featureEntitlements', 'serviceTargets', 'creditPolicy', 'recoveryContact'];
+    if (!Object.keys(input).length || Object.keys(input).some(key => !allowed.includes(key))) return res.status(400).json({error: 'Unsupported settings field'});
+    const settings = {...(org.settings?.toObject?.() || org.settings || {})};
+    if (input.featureEntitlements !== undefined) {
+      if (!input.featureEntitlements || typeof input.featureEntitlements !== 'object' || Array.isArray(input.featureEntitlements) || Object.keys(input.featureEntitlements).length > 50 || Object.values(input.featureEntitlements).some(value => typeof value !== 'boolean')) return res.status(400).json({error: 'Feature entitlements must be a map of boolean values'});
+      settings.featureEntitlements = input.featureEntitlements;
+    }
+    if (input.serviceTargets !== undefined) {
+      const targets = input.serviceTargets;
+      if (!targets || typeof targets !== 'object' || !Number.isInteger(Number(targets.firstResponseMinutes)) || Number(targets.firstResponseMinutes) < 1 || Number(targets.firstResponseMinutes) > 10080 || !Number.isInteger(Number(targets.escalationMinutes)) || Number(targets.escalationMinutes) < Number(targets.firstResponseMinutes) || Number(targets.escalationMinutes) > 43200) return res.status(400).json({error: 'Response targets must be valid positive minutes; escalation must be no earlier than first response'});
+      settings.serviceTargets = {firstResponseMinutes: Number(targets.firstResponseMinutes), escalationMinutes: Number(targets.escalationMinutes)};
+    }
+    if (input.creditPolicy !== undefined) {
+      const policy = input.creditPolicy;
+      if (!policy || typeof policy !== 'object' || typeof policy.enabled !== 'boolean' || !Number.isInteger(Number(policy.defaultTermsDays)) || Number(policy.defaultTermsDays) < 0 || Number(policy.defaultTermsDays) > 365 || !Number.isFinite(Number(policy.approvalRequiredAbove)) || Number(policy.approvalRequiredAbove) < 0) return res.status(400).json({error: 'Invalid credit policy'});
+      settings.creditPolicy = {enabled: policy.enabled, defaultTermsDays: Number(policy.defaultTermsDays), approvalRequiredAbove: Number(policy.approvalRequiredAbove)};
+    }
+    if (input.recoveryContact !== undefined) {
+      const contact = textValue(input.recoveryContact, 200);
+      if (contact && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(contact) && !/^\\+?[0-9 ()-]{7,25}$/.test(contact)) return res.status(400).json({error: 'Recovery contact must be an email address or phone number'});
+      settings.recoveryContact = contact;
+    }
+    org.settings = settings;
+    await org.save();
+    res.json({saved: true, settings: {featureEntitlements: settings.featureEntitlements || {}, serviceTargets: settings.serviceTargets || {}, creditPolicy: settings.creditPolicy || {}, recoveryContact: settings.recoveryContact || ''}});
+  });
+
+  app.get(base + '/usage', auth, async (req, res) => {
+    const org = await getOrg(req, res); if (!org) return;
+    const [members, customers, catalogItems, documents, tasks, enterpriseRecords] = await Promise.all([
+      Promise.resolve((org.members || []).length + 1),
+      Customer ? Customer.countDocuments({organizationId: org._id}) : 0,
+      CatalogItem ? CatalogItem.countDocuments({organizationId: org._id}) : 0,
+      BusinessDocument ? BusinessDocument.countDocuments({organizationId: org._id}) : 0,
+      BusinessTask ? BusinessTask.countDocuments({organizationId: org._id}) : 0,
+      EnterpriseRecord.countDocuments({organizationId: org._id}),
+    ]);
+    const limits = {free: {members: 3, customers: 100, catalogItems: 100, documents: 250, enterpriseRecords: 100}, business_pro: {members: 10, customers: 2000, catalogItems: 1000, documents: 5000, enterpriseRecords: 2500}, teams: {members: 50, customers: 20000, catalogItems: 10000, documents: 50000, enterpriseRecords: 20000}, enterprise: {members: 1000, customers: 1000000, catalogItems: 1000000, documents: 1000000, enterpriseRecords: 1000000}};
+    const plan = limits[org.plan] ? org.plan : 'free';
+    const usage = {members, customers, catalogItems, documents, enterpriseRecords};
+    res.json({plan, usage, limits: limits[plan], remaining: Object.fromEntries(Object.keys(usage).map(key => [key, Math.max(0, limits[plan][key] - usage[key])])), notice: 'Usage visibility is informational; write-path quota enforcement must be enabled before selling hard limits.'});
+  });
+
   app.get(base + '/records', auth, async (req, res) => {
     const org = await getOrg(req, res); if (!org) return;
     const filter = {organizationId: org._id};
@@ -290,13 +374,12 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     const allowed = new Set((process.env.CHATIFY_SUPER_ADMIN_USER_IDS || '').split(',').map(item => item.trim()).filter(Boolean));
     if (!allowed.has(String(req.user._id))) return res.status(404).json({error: 'Not found'});
     if (!Organization) return res.status(503).json({error: 'Business platform is not initialized'});
-    const [businesses, activeBusinesses, enterpriseRecords] = await Promise.all([
-      Organization.countDocuments({}),
+    const [businesses, enterpriseRecords] = await Promise.all([
       Organization.countDocuments({}),
       EnterpriseRecord.countDocuments({}),
     ]);
     res.json({
-      businesses, activeBusinesses, enterpriseRecords,
+      businesses, enterpriseRecords,
       plans: await Organization.aggregate([{$group: {_id: '$plan', count: {$sum: 1}}}]),
       generatedAt: new Date().toISOString(),
       notice: 'Operational health and payment-provider status must be verified by configured infrastructure checks.',
