@@ -6033,6 +6033,47 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     }
   }
 
+  Future<void> closeFinancialPeriod() async {
+    final now = DateTime.now();
+    final startDate = TextEditingController(text: DateTime(now.year, now.month, 1).toIso8601String().substring(0, 10));
+    final endDate = TextEditingController(text: now.add(const Duration(days: 1)).toIso8601String().substring(0, 10));
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Close financial period'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Creates an immutable snapshot of invoices created between the start date and the exclusive end date.'),
+          TextField(controller: startDate, decoration: const InputDecoration(labelText: 'Start date (YYYY-MM-DD)')),
+          TextField(controller: endDate, decoration: const InputDecoration(labelText: 'End date, exclusive (YYYY-MM-DD)')),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Close period')),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final start = DateTime.tryParse(startDate.text.trim());
+    final end = DateTime.tryParse(endDate.text.trim());
+    if (start == null || end == null || !start.isBefore(end)) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter valid dates; the end date must be after the start date.')));
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      final result = await app.api.call('POST', '$base/financial-periods/close', {
+        'periodStart': start.toUtc().toIso8601String(),
+        'periodEnd': end.toUtc().toIso8601String(),
+      });
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['notice']?.toString() ?? 'Financial period snapshot created.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   Future<void> createRecord() async {
     final title = TextEditingController();
     final description = TextEditingController();
@@ -6046,7 +6087,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
           ValueListenableBuilder<String>(valueListenable: type, builder: (_, value, __) => DropdownButtonFormField<String>(
             isExpanded: true, initialValue: value,
             decoration: const InputDecoration(labelText: 'Record type'),
-            items: recordTypes.entries.map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value))).toList(),
+            items: recordTypes.entries.where((entry) => entry.key != 'financial_close').map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value))).toList(),
             onChanged: (next) { if (next != null) type.value = next; },
           )),
           const SizedBox(height: 8),
@@ -6286,6 +6327,14 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                         }
                       }, icon: const Icon(Icons.file_download_outlined), label: const Text('Preview export')),
                     ]),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: saving ? null : closeFinancialPeriod,
+                        icon: const Icon(Icons.lock_clock_outlined),
+                        label: const Text('Close financial period'),
+                      ),
+                    ),
                     if (visibleRecords.isEmpty)
                       const Padding(padding: EdgeInsets.all(24), child: Text('No matching records yet. Add a handbook, approval request, project room, promise, support case or other enterprise record.', textAlign: TextAlign.center)),
                     for (final item in visibleRecords.whereType<Map>())
