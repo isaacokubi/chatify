@@ -5947,7 +5947,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     }
     setState(() => searching = true);
     try {
-      final response = await app.api.call('GET', '$base/search?q=${Uri.encodeQueryComponent(q)}&limit=20');
+      final response = await app.api.call('GET', '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/search?q=${Uri.encodeQueryComponent(q)}');
       searchResults = List<dynamic>.from(response['results'] ?? []);
       if (mounted) setState(() {});
       if (!mounted) return;
@@ -5964,7 +5964,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                     children: searchResults.map((item) => ListTile(
                       leading: const Icon(Icons.search),
                       title: Text(item['title']?.toString() ?? 'Business record'),
-                      subtitle: Text('${item['type'] ?? 'record'} · ${item['subtitle'] ?? ''}'),
+                      subtitle: Text('${item['type'] ?? 'record'} · ${item['status'] ?? item['subtitle'] ?? ''}'),
                     )).toList(),
                   ),
           ),
