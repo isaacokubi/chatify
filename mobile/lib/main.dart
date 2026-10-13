@@ -6352,7 +6352,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                               contentPadding: EdgeInsets.zero,
                               leading: CircleAvatar(child: Icon(item['priority'] == 'urgent' ? Icons.priority_high : Icons.business_center_outlined)),
                               title: Text(item['title']?.toString() ?? 'Business record'),
-                              subtitle: Text('${recordTypes[item['type']] ?? item['type']} · ${item['status']} · ${item['priority']}\n${item['description'] ?? ''}', maxLines: 4, overflow: TextOverflow.ellipsis),
+                              subtitle: Text(_enterpriseRecordSubtitle(Map<String, dynamic>.from(item)), maxLines: 4, overflow: TextOverflow.ellipsis),
                             ),
                             Wrap(spacing: 8, children: [
                               if (item['type'] == 'handbook' || item['type'] == 'service_policy')
@@ -6379,6 +6379,22 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                   ]),
                 ),
     );
+  }
+
+  String _enterpriseRecordSubtitle(Map<String, dynamic> item) {
+    final type = item['type']?.toString() ?? '';
+    final status = item['status']?.toString() ?? 'open';
+    final priority = item['priority']?.toString() ?? 'normal';
+    final description = item['description']?.toString() ?? '';
+    if (type == 'financial_close' && item['payload'] is Map) {
+      final payload = Map<String, dynamic>.from(item['payload'] as Map);
+      final org = overview['organization'] is Map ? Map<String, dynamic>.from(overview['organization']) : <String, dynamic>{};
+      final currency = org['currency']?.toString() ?? 'KES';
+      return 'Closed snapshot · ${payload['invoiceCount'] ?? 0} invoices\n'
+          'Invoiced: $currency ${payload['invoicedTotal'] ?? 0} · Verified receipts in period: $currency ${payload['confirmedPaidTotal'] ?? 0}\n'
+          'Outstanding at period end: $currency ${payload['outstandingTotal'] ?? 0}';
+    }
+    return '${recordTypes[type] ?? type} · $status · $priority\n$description';
   }
 
   Widget _enterpriseMetric(String label, dynamic value, IconData icon) => SizedBox(
