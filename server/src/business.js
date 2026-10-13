@@ -520,7 +520,37 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   app.post('/api/business/organizations/:orgId/branches', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const name=shortText(req.body?.name,120);if(!name)return res.status(400).json({error:'Branch name is required'});org.branches.push({name,address:shortText(req.body.address,400),phone:shortText(req.body.phone,40),active:true});await org.save();const branch=org.branches[org.branches.length-1];await recordAudit(org,req.user._id,'branch.created','branch',branch._id,'Added branch');res.status(201).json({branch,branches:org.branches});});
   app.patch('/api/business/organizations/:orgId/branches/:branchId', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const branch=org.branches.id(req.params.branchId);if(!branch)return res.status(404).json({error:'Branch not found'});for(const key of ['name','address','phone'])if(req.body?.[key]!==undefined)branch[key]=shortText(req.body[key],key==='address'?400:120);if(typeof req.body?.active==='boolean')branch.active=req.body.active;await org.save();await recordAudit(org,req.user._id,'branch.updated','branch',branch._id,'Updated branch');res.json({branch});});
   app.get('/api/business/organizations/:orgId/audit-logs', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const limit=Math.min(200,Math.max(1,Number(req.query.limit)||50));const logs=await BusinessAudit.find({organizationId:org._id}).sort({occurredAt:-1}).limit(limit).lean();res.json({logs});});
-  app.get('/api/business/organizations/:orgId/export', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const [customers,catalog,documents,tasks,cases,suppliers,workflows]=await Promise.all([Customer.find({organizationId:org._id}).lean(),CatalogItem.find({organizationId:org._id}).lean(),BusinessDocument.find({organizationId:org._id}).lean(),BusinessTask.find({organizationId:org._id}).lean(),BusinessCase.find({organizationId:org._id}).lean(),Supplier.find({organizationId:org._id}).lean(),Workflow.find({organizationId:org._id}).lean()]);res.setHeader('Content-Disposition',`attachment; filename="chatify-business-${org.slug}-${new Date().toISOString().slice(0,10)}.json"`);res.json({schemaVersion:1,exportedAt:new Date().toISOString(),organization:org.toObject(),customers,catalog,documents,tasks,cases,suppliers,workflows});});
+  app.get('/api/business/organizations/:orgId/export', auth, async (req,res)=>{
+    const org=await requireOrg(req,res); if(!org||!requireManager(org,req,res)) return;
+    // Export only the caller's own tenant and redact secret-like keys recursively.
+    // This archive includes audit and enterprise records but never returns API credentials.
+    const redactSecrets = value => {
+      if (Array.isArray(value)) return value.map(redactSecrets);
+      if (!value || typeof value !== 'object' || value instanceof Date) return value;
+      return Object.fromEntries(Object.entries(value)
+        .filter(([key]) => !/(secret|token|password|credential|private.?key|authorization)/i.test(key))
+        .map(([key, nested]) => [key, redactSecrets(nested)]));
+    };
+    const Audit = mongoose.models.BusinessAudit;
+    const EnterpriseRecord = mongoose.models.BusinessEnterpriseRecord;
+    const [customers,catalog,documents,tasks,cases,suppliers,workflows,auditLogs,enterpriseRecords]=await Promise.all([
+      Customer.find({organizationId:org._id}).lean(),
+      CatalogItem.find({organizationId:org._id}).lean(),
+      BusinessDocument.find({organizationId:org._id}).lean(),
+      BusinessTask.find({organizationId:org._id}).lean(),
+      BusinessCase.find({organizationId:org._id}).lean(),
+      Supplier.find({organizationId:org._id}).lean(),
+      Workflow.find({organizationId:org._id}).lean(),
+      Audit ? Audit.find({organizationId:org._id}).sort({occurredAt:1}).lean() : [],
+      EnterpriseRecord ? EnterpriseRecord.find({organizationId:org._id}).sort({createdAt:1}).lean() : [],
+    ]);
+    const archive = redactSecrets({
+      schemaVersion:2, exportedAt:new Date().toISOString(), organization:org.toObject(),
+      customers,catalog,documents,tasks,cases,suppliers,workflows,auditLogs,enterpriseRecords,
+    });
+    res.setHeader('Content-Disposition',\`attachment; filename="chatify-business-\${org.slug}-\${new Date().toISOString().slice(0,10)}.json"\`);
+    res.json(archive);
+  });
   app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase()}).select('name slug description industry country currency phone website');if(!org)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);res.json({business:org,items});});
   app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase()}).select('_id');if(!org)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
   // Organization tax profiles make jurisdiction settings explicit; rates are operator-configured
