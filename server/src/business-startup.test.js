@@ -66,4 +66,12 @@ test('API boots and Business endpoints return JSON auth errors', {timeout: 15000
   assert.equal(response.status, 401, 'Business route should be mounted and require authentication');
   assert.match(response.headers.get('content-type') || '', /application\/json/i);
   assert.deepEqual(await response.json(), {error: 'Authentication required'});
+
+  // Enterprise routes must also mount after the shared auth middleware and fail closed.
+  const enterpriseResponse = await fetch(`http://127.0.0.1:${port}/api/business/organizations/000000000000000000000000/enterprise/overview`, {
+    signal: AbortSignal.timeout(1000),
+  });
+  assert.equal(enterpriseResponse.status, 401);
+  assert.match(enterpriseResponse.headers.get('content-type') || '', /application\/json/i);
+  assert.deepEqual(await enterpriseResponse.json(), {error: 'Authentication required'});
 });
