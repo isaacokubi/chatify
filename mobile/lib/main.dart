@@ -5866,7 +5866,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     }
     setState(() => searching = true);
     try {
-      final response = await app.api.call('GET', '$base/search?q=\${Uri.encodeQueryComponent(q)}&limit=20');
+      final response = await app.api.call('GET', '$base/search?q=${Uri.encodeQueryComponent(q)}&limit=20');
       searchResults = List<dynamic>.from(response['results'] ?? []);
       if (mounted) setState(() {});
       if (mounted) await showDialog<void>(
@@ -5880,7 +5880,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                 : ListView(shrinkWrap: true, children: searchResults.map((item) => ListTile(
                     leading: const Icon(Icons.search),
                     title: Text(item['title']?.toString() ?? 'Business record'),
-                    subtitle: Text('\${item['type'] ?? 'record'} · \${item['subtitle'] ?? ''}'),
+                    subtitle: Text('${item['type'] ?? 'record'} · ${item['subtitle'] ?? ''}'),
                   )).toList(),
           ),
           actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
@@ -6016,7 +6016,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('Setup readiness: \${readiness['complete'] ?? 0}/\${readiness['total'] ?? 0}', style: Theme.of(context).textTheme.titleMedium),
+                          Text('Setup readiness: ${readiness['complete'] ?? 0}/${readiness['total'] ?? 0}', style: Theme.of(context).textTheme.titleMedium),
                           const SizedBox(height: 8),
                           for (final check in (readiness['checks'] as List? ?? const []).whereType<Map>())
                             ListTile(
@@ -6034,10 +6034,10 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                         padding: const EdgeInsets.all(12),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text('Plan and usage', style: Theme.of(context).textTheme.titleMedium),
-                          Text('Plan: \${usage['plan'] ?? settings['plan'] ?? 'free'}'),
-                          Text('Staff: \${(usage['usage'] as Map?)?['members'] ?? 1} · Customers: \${(usage['usage'] as Map?)?['customers'] ?? 0} · Catalogue items: \${(usage['usage'] as Map?)?['catalogItems'] ?? 0}'),
-                          Text('Response target: \${(settings['serviceTargets'] as Map?)?['firstResponseMinutes'] ?? 15} minutes · Escalation: \${(settings['serviceTargets'] as Map?)?['escalationMinutes'] ?? 60} minutes'),
-                          Text('Credit policy: \${(settings['creditPolicy'] as Map?)?['enabled'] == true ? 'Enabled' : 'Disabled'}'),
+                          Text('Plan: ${usage['plan'] ?? settings['plan'] ?? 'free'}'),
+                          Text('Staff: ${(usage['usage'] as Map?)?['members'] ?? 1} · Customers: ${(usage['usage'] as Map?)?['customers'] ?? 0} · Catalogue items: ${(usage['usage'] as Map?)?['catalogItems'] ?? 0}'),
+                          Text('Response target: ${(settings['serviceTargets'] as Map?)?['firstResponseMinutes'] ?? 15} minutes · Escalation: ${(settings['serviceTargets'] as Map?)?['escalationMinutes'] ?? 60} minutes'),
+                          Text('Credit policy: ${(settings['creditPolicy'] as Map?)?['enabled'] == true ? 'Enabled' : 'Disabled'}'),
                         ]),
                       ),
                     ),
