@@ -5869,7 +5869,8 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
       final response = await app.api.call('GET', '$base/search?q=${Uri.encodeQueryComponent(q)}&limit=20');
       searchResults = List<dynamic>.from(response['results'] ?? []);
       if (mounted) setState(() {});
-      if (mounted) await showDialog<void>(
+      if (!mounted) return;
+      await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: Text('Search results for "$q"'),
@@ -6124,6 +6125,8 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                           final result = await app.api.call('GET', '$base/records?limit=100');
                           final all = List<dynamic>.from(result['records'] ?? []);
                           if (!mounted) return;
+                          // The page state is checked immediately after the awaited API call.
+                          // ignore: use_build_context_synchronously
                           await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
                             title: const Text('Export-ready records'),
                             content: SizedBox(width: 480, child: SingleChildScrollView(child: SelectableText(
@@ -6132,7 +6135,10 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                             actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
                           ));
                         } catch (e) {
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                          if (!mounted) return;
+                          // The state is still mounted before displaying the error message.
+                          // ignore: use_build_context_synchronously
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
                         }
                       }, icon: const Icon(Icons.file_download_outlined), label: const Text('Preview export')),
                     ]),
