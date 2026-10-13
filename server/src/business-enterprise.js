@@ -314,6 +314,47 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     res.json({plan, usage, limits: limits[plan], remaining: Object.fromEntries(Object.keys(usage).map(key => [key, Math.max(0, limits[plan][key] - usage[key])])), notice: 'Usage visibility is informational; write-path quota enforcement must be enabled before selling hard limits.'});
   });
 
+
+  app.get(base + '/financial-periods', auth, async (req, res) => {
+    const org = await getOrg(req, res); if (!org) return;
+    if (!['owner', 'admin', 'manager', 'finance'].includes(req.businessEnterpriseRole)) return res.status(403).json({error: 'Finance or manager permission required'});
+    const periods = await EnterpriseRecord.find({organizationId: org._id, type: 'financial_close'}).sort({'payload.periodStart': -1}).limit(100).lean();
+    res.json({periods});
+  });
+
+  app.post(base + '/financial-periods/close', auth, async (req, res) => {
+    const org = await getOrg(req, res); if (!org) return;
+    if (!['owner', 'admin', 'manager', 'finance'].includes(req.businessEnterpriseRole)) return res.status(403).json({error: 'Finance or manager permission required'});
+    const start = validDate(req.body?.periodStart);
+    const end = validDate(req.body?.periodEnd);
+    if (!start || !end || start >= end) return res.status(400).json({error: 'Choose a valid period start and end; end must be after start'});
+    const periodStart = start.toISOString();
+    const periodEnd = end.toISOString();
+    const existing = await EnterpriseRecord.findOne({organizationId: org._id, type: 'financial_close', 'payload.periodStart': periodStart, 'payload.periodEnd': periodEnd});
+    if (existing) return res.status(409).json({error: 'This financial period is already closed', record: existing});
+    const invoices = BusinessDocument ? await BusinessDocument.find({
+      organizationId: org._id, type: 'invoice', createdAt: {$gte: start, $lt: end},
+    }).select('number status total paidAmount createdAt').lean() : [];
+    const invoiceTotal = invoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
+    const paidTotal = invoices.reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
+    const roundMoney = value => Math.round(value * 100) / 100;
+    const snapshot = {
+      periodStart, periodEnd, invoiceCount: invoices.length,
+      invoicedTotal: roundMoney(invoiceTotal), confirmedPaidTotal: roundMoney(paidTotal),
+      outstandingTotal: roundMoney(Math.max(0, invoiceTotal - paidTotal)),
+      invoiceStatuses: Object.fromEntries([...new Set(invoices.map(item => item.status))].map(status => [status, invoices.filter(item => item.status === status).length])),
+      closedAt: new Date().toISOString(), closedBy: String(req.user._id),
+    };
+    const record = await EnterpriseRecord.create({
+      organizationId: org._id, type: 'financial_close',
+      title: 'Financial close ' + periodStart.slice(0, 10) + ' to ' + periodEnd.slice(0, 10),
+      description: 'Immutable point-in-time snapshot of invoices created in this period. Later corrections should be recorded as adjustments.',
+      status: 'closed', priority: 'normal', payload: snapshot, createdBy: req.user._id, updatedBy: req.user._id,
+    });
+    await audit(org, req, 'financial_period.closed', record, 'Closed financial period ' + periodStart.slice(0, 10) + ' to ' + periodEnd.slice(0, 10));
+    res.status(201).json({record, notice: 'Snapshot is immutable. This does not prevent later invoices or verified payments; record corrections as separate adjustments.'});
+  });
+
   app.get(base + '/records', auth, async (req, res) => {
     const org = await getOrg(req, res); if (!org) return;
     const filter = {organizationId: org._id};
@@ -338,6 +379,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
   app.post(base + '/records', auth, async (req, res) => {
     const org = await getOrg(req, res); if (!org || !canWrite(req, res)) return;
     let normalized;
+    if (req.body?.type === 'financial_close') return res.status(409).json({error: 'Financial periods must be closed through the snapshot endpoint'});
     try { normalized = normalizeEnterpriseRecord(req.body || {}); }
     catch (error) { return res.status(400).json({error: error.message}); }
     // High-risk actions start pending and cannot self-approve through the create endpoint.
@@ -352,6 +394,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     if (!mongoose.isValidObjectId(req.params.recordId)) return res.status(404).json({error: 'Business record not found'});
     const record = await EnterpriseRecord.findOne({_id: req.params.recordId, organizationId: org._id});
     if (!record) return res.status(404).json({error: 'Business record not found'});
+    if (record.type === 'financial_close') return res.status(409).json({error: 'Closed financial snapshots are immutable; create an adjustment record instead'});
     const changes = req.body || {};
     const allowed = ['title', 'description', 'priority', 'dueAt', 'assignedTo', 'payload'];
     if (!Object.keys(changes).length || Object.keys(changes).some(key => !allowed.includes(key))) return res.status(400).json({error: 'Only title, description, priority, dueAt, assignedTo and payload may be edited'});
