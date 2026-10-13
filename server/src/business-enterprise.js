@@ -359,6 +359,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
 
   app.get(base + '/export', auth, async (req, res) => {
     const org = await getOrg(req, res); if (!org) return;
+    if (!['owner', 'admin', 'manager', 'finance'].includes(req.businessEnterpriseRole)) return res.status(403).json({error: 'Finance or manager permission required'});
     const records = await EnterpriseRecord.find({organizationId: org._id}).sort({createdAt: 1}).lean();
     // CSV fields are escaped to prevent spreadsheet formula injection.
     const cell = value => {
