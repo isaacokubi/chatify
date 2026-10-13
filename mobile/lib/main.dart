@@ -5609,6 +5609,19 @@ class _BusinessHubState extends State<BusinessHub> {
   }
 
   Widget toolsPanel() => ListView(padding: const EdgeInsets.all(12), children: [
+    // Keep the enterprise feature suite visible from the existing Business Tools panel.
+    Card(child: ListTile(
+      leading: const Icon(Icons.dashboard_customize_outlined),
+      title: const Text('Enterprise workspace'),
+      subtitle: const Text('Handbook, approvals, customer promises, disputes, projects, incidents and global search'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => BusinessEnterprisePage(
+          organizationId: organization!['_id'].toString(),
+          organizationName: organization!['name']?.toString() ?? 'Business',
+        ),
+      )),
+    )),
     Card(child: ListTile(leading: const Icon(Icons.public), title: const Text('Tax and currency profile'), subtitle: const Text('Configure jurisdiction and tax treatment'), trailing: const Icon(Icons.chevron_right), onTap: _configureTaxProfile)),
     Card(child: ListTile(leading: const Icon(Icons.translate), title: const Text('Translate business text'), subtitle: const Text('Consent-gated AI translation'), trailing: const Icon(Icons.chevron_right), onTap: _translateBusinessText)),
     Card(child: ListTile(leading: const Icon(Icons.mic_none), title: const Text('Translate voice message'), subtitle: const Text('Transcribe and translate an audio file with consent'), trailing: const Icon(Icons.chevron_right), onTap: _translateVoice)),
@@ -5755,4 +5768,294 @@ class _BusinessHubState extends State<BusinessHub> {
       ]),
     );
   }
+}
+
+
+// A single, permission-aware screen exposes the enterprise APIs without duplicating business data.
+// Every operation is scoped by the selected organization ID and re-authorized by the server.
+class BusinessEnterprisePage extends StatefulWidget {
+  const BusinessEnterprisePage({super.key, required this.organizationId, required this.organizationName});
+  final String organizationId;
+  final String organizationName;
+
+  @override
+  State<BusinessEnterprisePage> createState() => _BusinessEnterprisePageState();
+}
+
+class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
+  Map<String, dynamic> overview = {};
+  List<dynamic> records = [];
+  bool loading = true, saving = false;
+  String typeFilter = 'all';
+  String query = '';
+  String? error;
+  AppState get app => context.read<AppState>();
+  String get base => '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/enterprise';
+
+  static const recordTypes = <String, String>{
+    'handbook': 'Company handbook / procedure',
+    'notification': 'Team notification',
+    'approval': 'Approval request',
+    'refund_case': 'Refund case',
+    'credit_profile': 'Customer credit profile',
+    'project_room': 'Customer project room',
+    'supplier_quote': 'Supplier quotation',
+    'service_policy': 'Service guarantee / policy',
+    'delivery_proof': 'Delivery / collection proof',
+    'dispute': 'Dispute resolution',
+    'consent_record': 'Consent record',
+    'support_case': 'Support / complaint case',
+    'incident': 'Incident report',
+    'integration': 'Integration record',
+    'migration_job': 'Data import / migration',
+    'recovery_plan': 'Recovery plan',
+    'promise': 'Customer / supplier promise',
+    'response_target': 'Response-time target',
+    'subscription_note': 'Subscription / billing note',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = null; });
+    try {
+      final results = await Future.wait([
+        app.api.call('GET', '$base/overview'),
+        app.api.call('GET', '$base/records?limit=100'),
+      ]);
+      overview = Map<String, dynamic>.from(results[0]);
+      records = List<dynamic>.from(results[1]['records'] ?? []);
+      if (mounted) setState(() {});
+    } catch (e) {
+      error = e.toString();
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  List<dynamic> get visibleRecords {
+    final q = query.trim().toLowerCase();
+    return records.where((item) {
+      if (item is! Map) return false;
+      if (typeFilter != 'all' && item['type'] != typeFilter) return false;
+      if (q.isEmpty) return true;
+      return '${item['title'] ?? ''} ${item['description'] ?? ''} ${item['status'] ?? ''}'.toLowerCase().contains(q);
+    }).toList();
+  }
+
+  Future<void> createRecord() async {
+    final title = TextEditingController();
+    final description = TextEditingController();
+    final type = ValueNotifier<String>('handbook');
+    final priority = ValueNotifier<String>('normal');
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create enterprise record'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ValueListenableBuilder<String>(valueListenable: type, builder: (_, value, __) => DropdownButtonFormField<String>(
+            isExpanded: true, initialValue: value,
+            decoration: const InputDecoration(labelText: 'Record type'),
+            items: recordTypes.entries.map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value))).toList(),
+            onChanged: (next) { if (next != null) type.value = next; },
+          )),
+          const SizedBox(height: 8),
+          TextField(controller: title, autofocus: true, maxLength: 200, decoration: const InputDecoration(labelText: 'Title')),
+          TextField(controller: description, maxLines: 3, maxLength: 6000, decoration: const InputDecoration(labelText: 'Details / reason')),
+          ValueListenableBuilder<String>(valueListenable: priority, builder: (_, value, __) => DropdownButtonFormField<String>(
+            initialValue: value, decoration: const InputDecoration(labelText: 'Priority'),
+            items: const [
+              DropdownMenuItem(value: 'low', child: Text('Low')),
+              DropdownMenuItem(value: 'normal', child: Text('Normal')),
+              DropdownMenuItem(value: 'high', child: Text('High')),
+              DropdownMenuItem(value: 'urgent', child: Text('Urgent')),
+            ],
+            onChanged: (next) { if (next != null) priority.value = next; },
+          )),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create')),
+        ],
+      ),
+    );
+    if (accepted != true || title.text.trim().isEmpty) return;
+    setState(() => saving = true);
+    try {
+      await app.api.call('POST', '$base/records', {
+        'type': type.value, 'title': title.text.trim(), 'description': description.text.trim(), 'priority': priority.value,
+      });
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enterprise record created.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> runAction(Map<String, dynamic> item, String action) async {
+    final id = Uri.encodeComponent(item['_id']?.toString() ?? '');
+    if (id.isEmpty) return;
+    try {
+      if (action == 'acknowledge') {
+        await app.api.call('POST', '$base/records/$id/acknowledge', {});
+      } else if (action == 'approve' || action == 'reject') {
+        final reason = TextEditingController();
+        if (action == 'reject') {
+          final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+            title: const Text('Reason for rejection'),
+            content: TextField(controller: reason, maxLines: 3, decoration: const InputDecoration(labelText: 'Required reason')),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Reject request')),
+            ],
+          ));
+          if (accepted != true || reason.text.trim().isEmpty) return;
+        }
+        await app.api.call('POST', '$base/records/$id/decision', {'decision': action == 'approve' ? 'approved' : 'rejected', 'reason': reason.text.trim()});
+      } else {
+        await app.api.call('POST', '$base/records/$id/resolve', {'resolution': 'Resolved from Chatify Business'});
+      }
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final counts = overview['counts'] is Map ? Map<String, dynamic>.from(overview['counts']) : <String, dynamic>{};
+    final business = overview['business'] is Map ? Map<String, dynamic>.from(overview['business']) : <String, dynamic>{};
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.organizationName, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(tooltip: 'Refresh enterprise workspace', onPressed: load, icon: const Icon(Icons.refresh)),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: saving ? null : createRecord,
+        icon: const Icon(Icons.add),
+        label: const Text('Add record'),
+      ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null
+              ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text(error!, textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                  FilledButton(onPressed: load, child: const Text('Retry')),
+                ])))
+              : RefreshIndicator(
+                  onRefresh: load,
+                  child: ListView(padding: const EdgeInsets.fromLTRB(12, 8, 12, 96), children: [
+                    Text('Business command centre', style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 4),
+                    Text('Overview, accountability and follow-up records for this workspace. Sensitive actions are checked by the server.'),
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      _enterpriseMetric('Customers', business['customers'] ?? 0, Icons.people_outline),
+                      _enterpriseMetric('Active products', business['activeCatalogItems'] ?? 0, Icons.inventory_2_outlined),
+                      _enterpriseMetric('Open tasks', business['openTasks'] ?? 0, Icons.task_alt),
+                      _enterpriseMetric('Open cases', business['openCases'] ?? 0, Icons.support_agent_outlined),
+                      _enterpriseMetric('Overdue records', overview['overdueEnterpriseRecords'] ?? 0, Icons.warning_amber_outlined),
+                    ]),
+                    const SizedBox(height: 16),
+                    Text('Enterprise modules', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      for (final entry in recordTypes.entries)
+                        Chip(avatar: const Icon(Icons.checklist, size: 16), label: Text('${entry.value}: ${counts[entry.key] ?? 0}')),
+                    ]),
+                    const SizedBox(height: 16),
+                    TextField(
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        labelText: 'Search business records',
+                        helperText: 'Search is limited to the selected workspace.',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => setState(() => query = value),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      initialValue: typeFilter,
+                      decoration: const InputDecoration(labelText: 'Filter by module', border: OutlineInputBorder()),
+                      items: [
+                        const DropdownMenuItem(value: 'all', child: Text('All enterprise records')),
+                        ...recordTypes.entries.map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value))),
+                      ],
+                      onChanged: (value) => setState(() => typeFilter = value ?? 'all'),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(children: [
+                      Expanded(child: Text('Records (${visibleRecords.length})', style: Theme.of(context).textTheme.titleMedium)),
+                      TextButton.icon(onPressed: () async {
+                        try {
+                          final result = await app.api.call('GET', '$base/records?limit=100');
+                          final all = List<dynamic>.from(result['records'] ?? []);
+                          if (!mounted) return;
+                          await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+                            title: const Text('Export-ready records'),
+                            content: SizedBox(width: 480, child: SingleChildScrollView(child: SelectableText(
+                              all.map((item) => '${item['type']} | ${item['title']} | ${item['status']} | ${item['createdAt'] ?? ''}').join('\n'),
+                            ))),
+                            actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+                          ));
+                        } catch (e) {
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                        }
+                      }, icon: const Icon(Icons.file_download_outlined), label: const Text('Preview export')),
+                    ]),
+                    if (visibleRecords.isEmpty)
+                      const Padding(padding: EdgeInsets.all(24), child: Text('No matching records yet. Add a handbook, approval request, project room, promise, support case or other enterprise record.', textAlign: TextAlign.center)),
+                    for (final item in visibleRecords.whereType<Map>())
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: CircleAvatar(child: Icon(item['priority'] == 'urgent' ? Icons.priority_high : Icons.business_center_outlined)),
+                              title: Text(item['title']?.toString() ?? 'Business record'),
+                              subtitle: Text('${recordTypes[item['type']] ?? item['type']} · ${item['status']} · ${item['priority']}\n${item['description'] ?? ''}', maxLines: 4, overflow: TextOverflow.ellipsis),
+                            ),
+                            Wrap(spacing: 8, children: [
+                              if (item['type'] == 'handbook' || item['type'] == 'service_policy')
+                                OutlinedButton.icon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'acknowledge'), icon: const Icon(Icons.fact_check_outlined), label: const Text('Acknowledge')),
+                              if (item['status'] == 'pending' && ['approval', 'refund_case', 'credit_profile', 'dispute'].contains(item['type'])) ...[
+                                OutlinedButton.icon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'reject'), icon: const Icon(Icons.close), label: const Text('Reject')),
+                                FilledButton.tonalIcon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'approve'), icon: const Icon(Icons.check), label: const Text('Approve')),
+                              ],
+                              if (!['closed', 'cancelled', 'resolved', 'approved', 'rejected'].contains(item['status']))
+                                TextButton.icon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'resolve'), icon: const Icon(Icons.done_all), label: const Text('Resolve')),
+                            ]),
+                          ]),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    Text('Payment and security reminder', style: Theme.of(context).textTheme.titleMedium),
+                    const Text('A payment screenshot, manually typed reference or accepted checkout request is not proof of receipt. Only verified provider callbacks or authorized reconciliation can confirm money received.'),
+                  ]),
+                ),
+    );
+  }
+
+  Widget _enterpriseMetric(String label, dynamic value, IconData icon) => SizedBox(
+    width: 150,
+    child: Card(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
+      Icon(icon, size: 22),
+      const SizedBox(width: 8),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(value.toString(), style: Theme.of(context).textTheme.titleLarge),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ])),
+    ]))),
+  );
 }
