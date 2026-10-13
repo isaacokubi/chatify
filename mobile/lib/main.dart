@@ -5897,6 +5897,61 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     }
   }
 
+  Future<void> configureEnterpriseSettings() async {
+    final targets = settings['serviceTargets'] is Map ? Map<String, dynamic>.from(settings['serviceTargets']) : <String, dynamic>{};
+    final credit = settings['creditPolicy'] is Map ? Map<String, dynamic>.from(settings['creditPolicy']) : <String, dynamic>{};
+    final firstResponse = TextEditingController(text: (targets['firstResponseMinutes'] ?? 15).toString());
+    final escalation = TextEditingController(text: (targets['escalationMinutes'] ?? 60).toString());
+    final terms = TextEditingController(text: (credit['defaultTermsDays'] ?? 0).toString());
+    final threshold = TextEditingController(text: (credit['approvalRequiredAbove'] ?? 0).toString());
+    final creditEnabled = ValueNotifier<bool>(credit['enabled'] == true);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Service and credit controls'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: firstResponse, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'First response target (minutes)')),
+          TextField(controller: escalation, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Escalation target (minutes)')),
+          const Divider(height: 24),
+          ValueListenableBuilder<bool>(valueListenable: creditEnabled, builder: (_, value, __) => SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Enable customer credit policy'),
+            value: value,
+            onChanged: (next) => creditEnabled.value = next,
+          )),
+          TextField(controller: terms, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Default payment terms (days, 0–365)')),
+          TextField(controller: threshold, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Require approval above (amount, 0 disables threshold)')),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save controls')),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final first = int.tryParse(firstResponse.text) ?? 0;
+    final escalate = int.tryParse(escalation.text) ?? 0;
+    final termsDays = int.tryParse(terms.text) ?? -1;
+    final approvalAmount = double.tryParse(threshold.text) ?? -1;
+    if (first < 1 || escalate < first || termsDays < 0 || termsDays > 365 || approvalAmount < 0) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Check the response targets, credit terms and approval threshold.')));
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      await app.api.call('PATCH', '$base/settings', {
+        'serviceTargets': {'firstResponseMinutes': first, 'escalationMinutes': escalate},
+        'creditPolicy': {'enabled': creditEnabled.value, 'defaultTermsDays': termsDays, 'approvalRequiredAbove': approvalAmount},
+      });
+      await load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Service and credit settings saved.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   Future<void> createRecord() async {
     final title = TextEditingController();
     final description = TextEditingController();
@@ -6080,6 +6135,14 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                           Text('Staff: ${(usage['usage'] as Map?)?['members'] ?? 1} · Customers: ${(usage['usage'] as Map?)?['customers'] ?? 0} · Catalogue items: ${(usage['usage'] as Map?)?['catalogItems'] ?? 0}'),
                           Text('Response target: ${(settings['serviceTargets'] as Map?)?['firstResponseMinutes'] ?? 15} minutes · Escalation: ${(settings['serviceTargets'] as Map?)?['escalationMinutes'] ?? 60} minutes'),
                           Text('Credit policy: ${(settings['creditPolicy'] as Map?)?['enabled'] == true ? 'Enabled' : 'Disabled'}'),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: saving ? null : configureEnterpriseSettings,
+                              icon: const Icon(Icons.tune),
+                              label: const Text('Configure response and credit controls'),
+                            ),
+                          ),
                         ]),
                       ),
                     ),
