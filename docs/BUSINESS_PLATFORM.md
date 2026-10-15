@@ -210,3 +210,12 @@ Set `CHATIFY_BILLING_WEBHOOK_SECRET` to a long random secret and configure a tru
 - `POST /api/business/support/sla/escalate` is intended for an external scheduler and requires `CHATIFY_SLA_CRON_SECRET` in the `x-chatify-sla-secret` header. It raises overdue cases from low/normal to high, and to urgent after twice the response target.
 
 This job changes case priority and records an update; it does not send email/SMS/push alerts or provide guaranteed background scheduling. Configure and monitor a single external scheduler before treating escalation as operational.
+
+
+## Customer portal and verified-purchase reviews
+
+- `GET /api/customer/portal/orders` and `GET /api/customer/portal/requests` expose only orders created by the signed-in buyer and their own service requests.
+- `POST /api/customer/portal/requests` creates cancellation, return, support or delivery-question requests; seller-side review is available under `/api/business/organizations/:orgId/portal/requests`. Approving a request does not itself issue a refund or change payment-provider state.
+- `GET /api/storefront/:slug/reviews` exposes approved reviews only. A review submission requires a matching paid/fulfilled order created by that signed-in buyer; one review per order is enforced by a unique index. Owners/admins/managers moderate reviews through `/api/business/organizations/:orgId/reviews`.
+
+These are authenticated API journeys; a polished customer-facing portal UI, provider-backed refund automation, and production database/index migration checks remain separate acceptance items.
