@@ -176,3 +176,8 @@ The public marketplace discovery API now provides filterable, paginated business
 - Both endpoints return `pagination` metadata and use short public cache headers. Only active catalogue items make a business discoverable.
 
 These APIs provide the backend discovery surface. A polished public marketplace web interface, customer checkout without account creation, subscription billing and enforceable plan quotas remain separate acceptance items; the API endpoints alone do not mean those items are complete.
+
+
+## SaaS plan quota enforcement
+
+A shared plan-limit definition now covers member seats, customers, catalogue items, documents, enterprise records, branches and workflow definitions. The usage endpoint reports these resources and remaining allowance, and create endpoints reject writes beyond the current plan with HTTP 402 and `code: PLAN_LIMIT_REACHED`. This is quota enforcement only: it does **not** activate paid plans, charge cards, renew subscriptions or prove a subscription is current. Paid-plan changes and recurring billing still require a verified provider checkout/webhook lifecycle and a restricted billing-admin process.

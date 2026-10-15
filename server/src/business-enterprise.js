@@ -1,4 +1,5 @@
 import {createHash, randomBytes} from 'node:crypto';
+import {BUSINESS_PLAN_LIMITS, planQuotaStatus} from './business-entitlements.js';
 
 // CHATIFY BUSINESS ENTERPRISE EXTENSIONS
 // This module adds organization-scoped workflows on top of the existing Business models.
@@ -308,10 +309,10 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
       BusinessTask ? BusinessTask.countDocuments({organizationId: org._id}) : 0,
       EnterpriseRecord.countDocuments({organizationId: org._id}),
     ]);
-    const limits = {free: {members: 3, customers: 100, catalogItems: 100, documents: 250, enterpriseRecords: 100}, business_pro: {members: 10, customers: 2000, catalogItems: 1000, documents: 5000, enterpriseRecords: 2500}, teams: {members: 50, customers: 20000, catalogItems: 10000, documents: 50000, enterpriseRecords: 20000}, enterprise: {members: 1000, customers: 1000000, catalogItems: 1000000, documents: 1000000, enterpriseRecords: 1000000}};
-    const plan = limits[org.plan] ? org.plan : 'free';
-    const usage = {members, customers, catalogItems, documents, enterpriseRecords};
-    res.json({plan, usage, limits: limits[plan], remaining: Object.fromEntries(Object.keys(usage).map(key => [key, Math.max(0, limits[plan][key] - usage[key])])), notice: 'Usage visibility is informational; write-path quota enforcement must be enabled before selling hard limits.'});
+    const plan = BUSINESS_PLAN_LIMITS[org.plan] ? org.plan : 'free';
+    const [branches, workflows] = await Promise.all([Promise.resolve((org.branches || []).length), mongoose.models.BusinessWorkflow?.countDocuments({organizationId: org._id}) ?? 0]);
+    const usage = {members, customers, catalogItems, documents, enterpriseRecords, branches, workflows};
+    res.json({plan, usage, limits: BUSINESS_PLAN_LIMITS[plan], remaining: Object.fromEntries(Object.keys(usage).map(key => [key, Math.max(0, BUSINESS_PLAN_LIMITS[plan][key] - usage[key])])), notice: 'Write APIs enforce these workspace quotas. Paid plan activation and recurring subscription billing still require a verified billing workflow.'});
   });
 
 
@@ -393,6 +394,9 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
     catch (error) { return res.status(400).json({error: error.message}); }
     // High-risk actions start pending and cannot self-approve through the create endpoint.
     if (['approval', 'refund_case', 'credit_profile', 'dispute', 'support_case', 'incident'].includes(normalized.type)) normalized.status = 'pending';
+    const enterpriseUsage = await EnterpriseRecord.countDocuments({organizationId: org._id});
+    const quota = planQuotaStatus(org.plan, 'enterpriseRecords', enterpriseUsage);
+    if (!quota.allowed) return res.status(402).json({error: 'This workspace has reached its current plan limit.', code: 'PLAN_LIMIT_REACHED', resource: 'enterpriseRecords', plan: quota.plan, limit: quota.limit, usage: enterpriseUsage, upgradeRequired: true});
     const record = await EnterpriseRecord.create({...normalized, organizationId: org._id, createdBy: req.user._id, updatedBy: req.user._id});
     await audit(org, req, 'enterprise_record.created', record, 'Created ' + record.type + ': ' + record.title);
     res.status(201).json({record});
