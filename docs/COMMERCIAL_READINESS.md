@@ -1,6 +1,6 @@
 # Chatify Commercial Readiness — Acceptance Matrix
 
-Last audited against `main` at commit `147fc3b981162654af0090be9eb66e3d28bfc31b` (2026-10-15).
+Updated against `main` on 2026-10-15. CI and external-provider acceptance are tracked separately; see current GitHub Actions runs.
 
 This document is a verification ledger, not a claim that Chatify is commercially ready. Statuses reflect repository documentation and metadata reviewed during this audit. A feature is not considered production-verified merely because an adapter or endpoint exists.
 
@@ -25,7 +25,7 @@ This document is a verification ledger, not a claim that Chatify is commercially
 | Stripe / PayPal hosted checkout | PARTIAL / BLOCKED for live use | Hosted checkout and webhook paths are documented; provider account eligibility, live credentials and end-to-end production callbacks remain external prerequisites. |
 | International tax profiles | PARTIAL | Configurable profiles exist; jurisdictional tax rules and invoice compliance require independent review. |
 | Workflow runner | PARTIAL | Allow-listed actions and test mode are documented; durable queues, retries and dead-letter monitoring remain necessary for critical workloads. |
-| Public business marketplace | NOT IMPLEMENTED / PARTIAL | Existing business documentation explicitly lists a public multi-business marketplace as future work. Search/storefront primitives must be audited and connected into a customer-facing journey. |
+| Public business marketplace | PARTIAL | Public business/product search APIs, bounded pagination, a Flutter Stores search interface, storefront opening, and checkout entry exist. Publication can be disabled with `settings.storefrontPublished=false`; public checkout and web storefront polish, route-level security tests, and customer guest checkout remain open. |
 | Shared inbox real-time UI | NOT IMPLEMENTED / PARTIAL | Existing documentation identifies real-time shared-inbox/customer case-room UI as future work. |
 | Subscription lifecycle and enforceable entitlements | NOT IMPLEMENTED | Existing documentation says usage is informational and does not claim plan limits or recurring subscription billing are enforced. |
 | Inventory ledger and procurement | NOT TESTED | Must verify stock reservations, concurrency, movements, purchasing and tenant boundaries before commercial claims. |
@@ -43,7 +43,7 @@ This document is a verification ledger, not a claim that Chatify is commercially
 
 These gates must pass before describing the platform as commercially ready:
 
-- [ ] Public customers can browse published businesses and catalogues without business-admin access.
+- [ ] Public customers can browse published businesses and catalogues without business-admin access. (API/UI implemented; automated route acceptance and guest checkout remain to verify.)
 - [ ] Public endpoints expose only explicitly public fields and never expose unpublished tenant records.
 - [ ] Customer order, quotation, cancellation, fulfilment and notification journeys work end to end.
 - [ ] Inventory changes are transactionally consistent and cannot oversell under concurrency.
@@ -83,3 +83,10 @@ This checkpoint used the connected GitHub repository/file interface. It can insp
 ## Additional operational tooling committed
 
 The repository now includes a private compressed MongoDB archive script and a guarded non-production restore script with checksum verification. This improves the backup/restore runbook but does not count as an executed production backup, off-site replication, or a successful recovery drill. Those remain deployment-operator acceptance gates.
+
+
+## Latest implementation notes
+
+- Public storefront APIs and marketplace search now honor the optional `settings.storefrontPublished` flag. Omitting the flag preserves existing storefront visibility; setting it to `false` hides the business from public discovery and rejects storefront viewing, enquiry submission and checkout.
+- The Flutter Stores screen is connected to the public business and product search APIs with keyword, category, country and town/branch filters.
+- The customer statement endpoint and plan quota checks have unit coverage in the Node test suite. These tests do not replace live payment, database migration, deployment or restore drills.

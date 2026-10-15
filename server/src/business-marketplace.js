@@ -43,7 +43,7 @@ export function registerBusinessMarketplaceRoutes({app, mongoose}) {
       }
       const matchingItems = await CatalogItem.find(itemFilter).select('organizationId').limit(2000).lean();
       const itemOrganizationIds = [...new Set(matchingItems.map(item => String(item.organizationId)))];
-      const organizationFilter = {};
+      const organizationFilter = {'settings.storefrontPublished': {$ne: false}};
       if (filters.country) organizationFilter.country = new RegExp('^' + escapeMarketplaceRegex(filters.country) + '$', 'i');
       if (filters.q) {
         const term = new RegExp(escapeMarketplaceRegex(filters.q), 'i');
@@ -101,6 +101,7 @@ export function registerBusinessMarketplaceRoutes({app, mongoose}) {
       const orgIds = [...new Set(items.map(item => String(item.organizationId)))];
       const organizations = await Organization.find({
         _id: {$in: orgIds},
+        'settings.storefrontPublished': {$ne: false},
         ...(filters.country ? {country: new RegExp('^' + escapeMarketplaceRegex(filters.country) + '$', 'i')} : {}),
       }).select('name slug country currency branches').lean();
       const byId = new Map(organizations.map(org => [String(org._id), org]));

@@ -255,6 +255,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const countById = new Map(counts.map(row => [String(row._id), row.itemCount]));
       const organizations = await Organization.find({
         _id: {$in: counts.map(row => row._id)},
+        'settings.storefrontPublished': {$ne: false},
       }).select('name slug description logo industry country currency website').sort({name: 1}).lean();
       // Apply search to public display fields only; never expose internal settings, owner IDs or customer records.
       const stores = organizations
@@ -269,7 +270,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   app.get('/api/storefront/:slug', async (req, res) => {
     try {
       const slug = slugifyBusinessName(req.params.slug);
-      const org = await Organization.findOne({slug}).select('name slug description logo website phone currency country ownerId settings');
+      const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}}).select('name slug description logo website phone currency country ownerId settings');
       if (!org) return res.status(404).json({error: 'Storefront not found'});
       const owner = await User.findById(org.ownerId).select('phone');
       // Prefer the seller's explicitly chosen M-Pesa number; otherwise use their registered account phone.
@@ -286,7 +287,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     let document;
     try {
       const slug = slugifyBusinessName(req.params.slug);
-      const org = await Organization.findOne({slug});
+      const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}});
       if (!org) return res.status(404).json({error: 'Storefront not found'});
       if (!await canCreateWithinPlan(org, 'documents', BusinessDocument, res)) return;
       if (String(org.ownerId) === String(req.user._id)) return res.status(400).json({error: 'Use a separate customer account to test a purchase from your own store'});
@@ -565,8 +566,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     res.setHeader('Content-Disposition', 'attachment; filename="chatify-business-' + org.slug + '-' + new Date().toISOString().slice(0,10) + '.json"');
     res.json(archive);
   });
-  app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase()}).select('name slug description industry country currency phone website');if(!org)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);res.json({business:org,items});});
-  app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase()}).select('_id');if(!org)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
+  app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('name slug description industry country currency phone website');if(!org)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);res.json({business:org,items});});
+  app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('_id');if(!org)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
   // Organization tax profiles make jurisdiction settings explicit; rates are operator-configured
   // and should be reviewed against current local tax rules before production invoicing.
   app.patch('/api/business/organizations/:orgId/tax-profile', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;const country=shortText(req.body?.country,2).toUpperCase();const currency=shortText(req.body?.currency,3).toUpperCase();const mode=req.body?.mode;const rate=Number(req.body?.rate);if(!/^[A-Z]{2}$/.test(country)||!SUPPORTED_TAX_MODES.includes(mode)||!Number.isFinite(rate)||rate<0||rate>100)return res.status(400).json({error:'Provide ISO country code, valid tax mode and a tax rate from 0 to 100'});try{calculateInternationalTotals([{name:'validation',quantity:1,unitPrice:1}],{currency,mode,rate});}catch(error){return res.status(400).json({error:error.message});}org.settings={...(org.settings||{}),taxProfile:{country,currency,mode,rate,taxLabel:shortText(req.body.taxLabel,80),registrationNumber:shortText(req.body.registrationNumber,80),updatedAt:new Date()}};org.currency=currency;org.country=country;await org.save();await recordAudit(org,req.user._id,'tax_profile.updated','organization',org._id,'Updated tax profile');res.json({taxProfile:org.settings.taxProfile,notice:'Tax profile saved. Verify rates and filing requirements with the relevant tax authority.'});});
