@@ -2401,6 +2401,7 @@ class _HomeState extends State<Home> {
             } catch (error) {
               if (!mounted) return;
               await loadMemories();
+              if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                   content: Text('Could not delete memory: $error')));
             }
@@ -4969,6 +4970,7 @@ class _ProfileState extends State<Profile> {
   }
 
   Future<void> chooseProfilePicture() async {
+    final api = context.read<AppState>().api;
     try {
       final picked = await ImagePicker().pickImage(
         source: ImageSource.gallery,
@@ -4987,7 +4989,7 @@ class _ProfileState extends State<Profile> {
           : path.endsWith('.webp')
               ? 'image/webp'
               : 'image/jpeg';
-      final api = context.read<AppState>().api;
+      if (!mounted) return;
       final upload = await api.call('POST', '/api/media', {
         'data': base64Encode(bytes),
         'mimeType': mimeType,
