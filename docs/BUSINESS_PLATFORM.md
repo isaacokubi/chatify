@@ -189,3 +189,6 @@ Operational backup/restore instructions are in [Operations, Backup and Disaster 
 ## Customer financial statements
 
 Authorized owners, admins, managers and finance team members can request a tenant-scoped customer statement with `GET /api/business/organizations/:orgId/customers/:customerId/statement`. Optional `from` and `to` ISO date filters narrow the statement period. The response lists invoices, receipts and orders, paid and outstanding balances, and totals grouped by currency; it never combines different currencies into one amount. Access is checked against both the organization and customer record, and the result is bounded to 500 documents.
+
+
+The Flutter customer-facing **Stores** tab now consumes the paginated marketplace APIs. It supports switching between business discovery and product/service search, keyword/category filters, country and town/branch filters, opening the business storefront, and starting checkout through the existing authenticated checkout flow. The UI does not expose the Business administration workspace to customers during browsing.

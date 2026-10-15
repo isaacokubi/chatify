@@ -4637,43 +4637,58 @@ class _ProfileState extends State<Profile> {
 }
 
 
-/// Public directory of businesses with active products or services.
+/// Customer-facing public marketplace for discovering businesses and their published catalogue.
 class StoreDirectoryPage extends StatefulWidget {
   const StoreDirectoryPage({super.key});
-
   @override
   State<StoreDirectoryPage> createState() => _StoreDirectoryPageState();
 }
 
 class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
   final search = TextEditingController();
-  List<dynamic> stores = [];
-  bool loading = true;
+  final location = TextEditingController();
+  final category = TextEditingController();
+  List<dynamic> stores = [], products = [];
+  bool loading = true, showingProducts = false;
+  String country = 'KE';
   String? error;
   AppState get app => context.read<AppState>();
 
   @override
   void initState() {
     super.initState();
-    loadStores();
+    loadResults();
   }
 
   @override
   void dispose() {
     search.dispose();
+    location.dispose();
+    category.dispose();
     super.dispose();
   }
 
-  Future<void> loadStores({String? query}) async {
-    setState(() { loading = true; error = null; });
+  Future<void> loadResults() async {
+    if (mounted) setState(() { loading = true; error = null; });
     try {
-      final term = (query ?? search.text).trim();
-      final path = term.isEmpty
-          ? '/api/storefronts'
-          : '/api/storefronts?q=${Uri.encodeQueryComponent(term)}';
-      final result = await app.api.call('GET', path);
+      final parameters = <String, String>{
+        if (search.text.trim().isNotEmpty) 'q': search.text.trim(),
+        if (category.text.trim().isNotEmpty) 'category': category.text.trim(),
+        if (country.isNotEmpty) 'country': country,
+        if (location.text.trim().isNotEmpty) 'location': location.text.trim(),
+        'page': '1',
+        'pageSize': '50',
+      };
+      final endpoint = showingProducts ? '/api/marketplace/products' : '/api/marketplace';
+      final result = await app.api.call('GET', endpoint + '?' + Uri(queryParameters: parameters).query);
       if (!mounted) return;
-      setState(() => stores = List<dynamic>.from(result['stores'] ?? []));
+      setState(() {
+        if (showingProducts) {
+          products = List<dynamic>.from(result['products'] ?? []);
+        } else {
+          stores = List<dynamic>.from(result['businesses'] ?? []);
+        }
+      });
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     } finally {
@@ -4683,39 +4698,115 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final entries = showingProducts ? products : stores;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Explore stores'),
+        title: const Text('Explore marketplace'),
         actions: [
-          // Give customers a clearly labeled route to their payment records while browsing.
           TextButton.icon(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const PaymentHistory()),
             ),
             icon: const Icon(Icons.account_balance_wallet_outlined),
-            label: const Text('Payment history'),
+            label: const Text('Payments'),
           ),
-          IconButton(tooltip: 'Refresh stores', onPressed: () => loadStores(), icon: const Icon(Icons.refresh)),
+          IconButton(tooltip: 'Refresh marketplace', onPressed: loadResults, icon: const Icon(Icons.refresh)),
         ],
       ),
       body: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment<bool>(value: false, icon: Icon(Icons.storefront_outlined), label: Text('Businesses')),
+              ButtonSegment<bool>(value: true, icon: Icon(Icons.shopping_bag_outlined), label: Text('Products')),
+            ],
+            selected: {showingProducts},
+            onSelectionChanged: (selection) {
+              setState(() => showingProducts = selection.first);
+              loadResults();
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
           child: TextField(
             controller: search,
             textInputAction: TextInputAction.search,
-            onSubmitted: (value) => loadStores(query: value),
+            onSubmitted: (_) => loadResults(),
             decoration: InputDecoration(
-              hintText: 'Search stores, products or services',
+              hintText: showingProducts ? 'Search products and services' : 'Search businesses and products',
               prefixIcon: const Icon(Icons.search),
-              suffixIcon: IconButton(tooltip: 'Search', onPressed: () => loadStores(), icon: const Icon(Icons.arrow_forward)),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
             ),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                controller: category,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => loadResults(),
+                decoration: InputDecoration(
+                  labelText: 'Category',
+                  hintText: 'e.g. retail',
+                  prefixIcon: const Icon(Icons.category_outlined),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 105,
+              child: DropdownButtonFormField<String>(
+                value: country,
+                decoration: InputDecoration(
+                  labelText: 'Country',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'KE', child: Text('Kenya')),
+                  DropdownMenuItem(value: 'UG', child: Text('Uganda')),
+                  DropdownMenuItem(value: 'TZ', child: Text('Tanzania')),
+                  DropdownMenuItem(value: 'RW', child: Text('Rwanda')),
+                  DropdownMenuItem(value: 'US', child: Text('USA')),
+                  DropdownMenuItem(value: 'GB', child: Text('UK')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => country = value);
+                  loadResults();
+                },
+              ),
+            ),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                controller: location,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => loadResults(),
+                decoration: InputDecoration(
+                  labelText: 'Town or branch',
+                  hintText: 'e.g. Nairobi',
+                  prefixIcon: const Icon(Icons.location_on_outlined),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(onPressed: loadResults, icon: const Icon(Icons.tune), label: const Text('Filter')),
+          ]),
+        ),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: () => loadStores(),
+            onRefresh: loadResults,
             child: loading
                 ? const Center(child: CircularProgressIndicator())
                 : error != null
@@ -4723,30 +4814,60 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                         const SizedBox(height: 90),
                         const Icon(Icons.cloud_off_outlined, size: 48),
                         Padding(padding: const EdgeInsets.all(16), child: Text(error!, textAlign: TextAlign.center)),
-                        Center(child: FilledButton(onPressed: () => loadStores(), child: const Text('Try again'))),
+                        Center(child: FilledButton(onPressed: loadResults, child: const Text('Try again'))),
                       ])
-                    : stores.isEmpty
+                    : entries.isEmpty
                         ? ListView(children: [
                             const SizedBox(height: 80),
                             const Icon(Icons.storefront_outlined, size: 56, color: Color(0xFF77758B)),
                             const SizedBox(height: 12),
-                            Center(child: Text(search.text.trim().isEmpty ? 'No stores are listed yet.' : 'No stores match your search.', style: const TextStyle(fontWeight: FontWeight.w700))),
+                            Center(child: Text(
+                              showingProducts ? 'No products match these filters.' : 'No businesses match these filters.',
+                              style: const TextStyle(fontWeight: FontWeight.w700),
+                            )),
                             const SizedBox(height: 6),
                             const Center(child: Padding(
                               padding: EdgeInsets.symmetric(horizontal: 28),
-                              child: Text('Businesses appear here when they publish active products or services in their Chatify catalogue.', textAlign: TextAlign.center),
+                              child: Text('Published businesses and active catalogue items appear here. Clear a filter or try another search.', textAlign: TextAlign.center),
                             )),
                           ])
                         : ListView.separated(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                            itemCount: stores.length,
+                            itemCount: entries.length,
                             separatorBuilder: (_, __) => const SizedBox(height: 10),
                             itemBuilder: (context, index) {
-                              final store = Map<String, dynamic>.from(stores[index] as Map);
-                              final name = store['name']?.toString() ?? 'Chatify store';
-                              final logo = store['logo']?.toString() ?? '';
-                              final count = store['itemCount']?.toString() ?? '0';
-                              final category = store['industry']?.toString().replaceAll('_', ' ') ?? '';
+                              final entry = Map<String, dynamic>.from(entries[index] as Map);
+                              if (showingProducts) {
+                                final business = entry['business'] is Map
+                                    ? Map<String, dynamic>.from(entry['business'] as Map)
+                                    : <String, dynamic>{};
+                                final images = entry['images'] is List ? List<dynamic>.from(entry['images']) : <dynamic>[];
+                                final image = images.isNotEmpty ? images.first.toString() : '';
+                                final currency = entry['currency']?.toString() ?? 'KES';
+                                final price = entry['price']?.toString() ?? '—';
+                                return Card(
+                                  clipBehavior: Clip.antiAlias,
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.all(12),
+                                    leading: CircleAvatar(
+                                      radius: 28,
+                                      backgroundColor: const Color(0xFFEDEBFF),
+                                      backgroundImage: image.startsWith('https://') ? NetworkImage(image) : null,
+                                      child: image.startsWith('https://') ? null : const Icon(Icons.inventory_2_outlined, color: Color(0xFF5548E8)),
+                                    ),
+                                    title: Text(entry['name']?.toString() ?? 'Product or service', style: const TextStyle(fontWeight: FontWeight.w800)),
+                                    subtitle: Text((business['name']?.toString() ?? 'Chatify business') + ' · ' + (entry['category']?.toString() ?? 'General'), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                    trailing: Text('$currency $price', style: const TextStyle(fontWeight: FontWeight.w800)),
+                                    onTap: business['slug'] == null ? null : () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(builder: (_) => StorefrontPage(slug: business['slug'].toString())),
+                                    ),
+                                  ),
+                                );
+                              }
+                              final name = entry['name']?.toString() ?? 'Chatify business';
+                              final logo = entry['logo']?.toString() ?? '';
+                              final count = entry['itemCount']?.toString() ?? '0';
+                              final industry = entry['industry']?.toString().replaceAll('_', ' ') ?? '';
                               return Card(
                                 clipBehavior: Clip.antiAlias,
                                 child: ListTile(
@@ -4761,14 +4882,15 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                   subtitle: Padding(
                                     padding: const EdgeInsets.only(top: 5),
                                     child: Text([
-                                      if (category.isNotEmpty) category[0].toUpperCase() + category.substring(1),
+                                      if (industry.isNotEmpty) industry[0].toUpperCase() + industry.substring(1),
                                       '$count product/service(s)',
-                                      if ((store['description']?.toString() ?? '').isNotEmpty) store['description'].toString(),
+                                      if ((entry['country']?.toString() ?? '').isNotEmpty) entry['country'].toString(),
+                                      if ((entry['description']?.toString() ?? '').isNotEmpty) entry['description'].toString(),
                                     ].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
                                   ),
                                   trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
                                   onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                                    builder: (_) => StorefrontPage(slug: store['slug'].toString()),
+                                    builder: (_) => StorefrontPage(slug: entry['slug'].toString()),
                                   )),
                                 ),
                               );
