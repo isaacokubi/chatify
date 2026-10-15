@@ -2703,6 +2703,11 @@ class _PaymentHistoryState extends State<PaymentHistory> {
               : 'STK request accepted. Check ${normalizeKenyanPhone(phone.text)} for the Safaricom prompt. Enter your PIN only in that prompt.'),
           duration: const Duration(seconds: 6),
         ));
+        // After the STK prompt is requested, move to payment history so the
+        // user can follow the server-confirmed payment status without guessing.
+        Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => const PaymentHistory(),
+        ));
       }
     } catch (e) {
       if (mounted) {
