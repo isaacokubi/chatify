@@ -202,3 +202,11 @@ The Flutter customer-facing **Stores** tab now consumes the paginated marketplac
 - `POST /api/business/billing/webhook` processes signed, idempotent lifecycle events: `subscription.activated`, `subscription.past_due`, `subscription.canceled`, and `subscription.expired`.
 
 Set `CHATIFY_BILLING_WEBHOOK_SECRET` to a long random secret and configure a trusted billing adapter to sign the exact JSON request bytes using HMAC-SHA256 in `x-chatify-billing-signature`. This is an integration boundary, not hosted checkout. A real Stripe/PayPal subscription checkout, native provider-signature verification, renewals, proration, retries, and end-to-end provider callbacks remain unverified until a provider adapter and live test credentials are configured.
+
+
+## Support response targets and escalation
+
+- `GET /api/business/organizations/:orgId/support/sla` reports tenant-scoped support cases, response targets and deadline/breach status. Workspace owners can configure response minutes under `settings.serviceTargets.responseMinutes` for `urgent`, `high`, `normal` and `low` priorities (5–43,200 minutes).
+- `POST /api/business/support/sla/escalate` is intended for an external scheduler and requires `CHATIFY_SLA_CRON_SECRET` in the `x-chatify-sla-secret` header. It raises overdue cases from low/normal to high, and to urgent after twice the response target.
+
+This job changes case priority and records an update; it does not send email/SMS/push alerts or provide guaranteed background scheduling. Configure and monitor a single external scheduler before treating escalation as operational.
