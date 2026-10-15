@@ -4049,7 +4049,10 @@ class _ChatState extends State<Chat> {
     _checkedMemoryMessageIds.add(id);
     try {
       final result =
-          await app.api.call('POST', '/api/memories/extract', {'text': text});
+          await app.api.call('POST', '/api/memories/extract', {
+            'text': text,
+            'sourceMessageId': id,
+          });
       final candidates = List<dynamic>.from(result['candidates'] ?? [])
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
@@ -4087,7 +4090,7 @@ class _ChatState extends State<Chat> {
     if (sourceId == null || savingMemorySuggestion) return;
     setState(() => savingMemorySuggestion = true);
     try {
-      await app.api.call('POST', '/api/memories', {
+      final savedResult = await app.api.call('POST', '/api/memories', {
         ...candidate,
         'conversationId': widget.conversation['_id'],
         'sourceMessageId': sourceId,
@@ -4098,8 +4101,10 @@ class _ChatState extends State<Chat> {
         memorySuggestions.remove(candidate);
         if (memorySuggestions.isEmpty) memorySuggestionSourceId = null;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Memory saved to your Memory Cards.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(savedResult['alreadySaved'] == true
+              ? 'This Memory Card was already saved.'
+              : 'Memory saved to your Memory Cards.')));
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
