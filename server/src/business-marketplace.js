@@ -2,7 +2,7 @@
 // This module deliberately exposes only published catalogue data and public business profile fields.
 // All search text is escaped before it is used in a MongoDB regular expression.
 export function normalizeMarketplaceFilters(query = {}) {
-  const text = (value, max = 100) => typeof value === 'string' ? value.trim().replace(/\\s+/g, ' ').slice(0, max) : '';
+  const text = (value, max = 100) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, max) : '';
   const page = Number.parseInt(query.page, 10);
   const pageSize = Number.parseInt(query.pageSize, 10);
   return {
@@ -16,7 +16,7 @@ export function normalizeMarketplaceFilters(query = {}) {
 }
 
 export function escapeMarketplaceRegex(value = '') {
-  return String(value).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+  return String(value).replace(/[.*+?^$()|[\]\\]/g, '\\$&');
 }
 
 export function matchesMarketplaceLocation(organization, location = '') {
@@ -54,19 +54,24 @@ export function registerBusinessMarketplaceRoutes({app, mongoose}) {
       const organizations = await Organization.find(organizationFilter)
         .select('name slug description logo industry country currency website phone branches')
         .sort({name: 1}).limit(1000).lean();
-      const eligible = [];
-      for (const organization of organizations) {
-        if (!matchesMarketplaceLocation(organization, filters.location)) continue;
-        const itemCount = await CatalogItem.countDocuments({organizationId: organization._id, active: true});
-        if (!itemCount) continue;
-        eligible.push({
+      // Count active catalogue entries in one aggregation instead of issuing one query per store.
+      const counts = await CatalogItem.aggregate([
+        {$match: {active: true, organizationId: {$in: organizations.map(org => org._id)}}},
+        {$group: {_id: '$organizationId', itemCount: {$sum: 1}}},
+      ]);
+      const countById = new Map(counts.map(row => [String(row._id), row.itemCount]));
+      const eligible = organizations.flatMap(organization => {
+        if (!matchesMarketplaceLocation(organization, filters.location)) return [];
+        const itemCount = countById.get(String(organization._id)) || 0;
+        if (!itemCount) return [];
+        return [{
           id: String(organization._id), name: organization.name, slug: organization.slug,
           description: organization.description || '', logo: organization.logo || null,
           industry: organization.industry || 'other', country: organization.country || 'KE',
           currency: organization.currency || 'KES', website: organization.website || '',
           phone: organization.phone || '', itemCount,
-        });
-      }
+        }];
+      });
       const total = eligible.length;
       const start = (filters.page - 1) * filters.pageSize;
       res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
