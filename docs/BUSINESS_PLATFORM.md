@@ -184,3 +184,8 @@ A shared plan-limit definition now covers member seats, customers, catalogue ite
 
 
 Operational backup/restore instructions are in [Operations, Backup and Disaster Recovery](OPERATIONS_DISASTER_RECOVERY.md). The scripts are intentionally manual and non-production-safe by default; configure scheduling and off-site storage in the hosting environment.
+
+
+## Customer financial statements
+
+Authorized owners, admins, managers and finance team members can request a tenant-scoped customer statement with `GET /api/business/organizations/:orgId/customers/:customerId/statement`. Optional `from` and `to` ISO date filters narrow the statement period. The response lists invoices, receipts and orders, paid and outstanding balances, and totals grouped by currency; it never combines different currencies into one amount. Access is checked against both the organization and customer record, and the result is bounded to 500 documents.
