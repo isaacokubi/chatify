@@ -1514,7 +1514,7 @@ class _AuthState extends State<Auth> {
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(28),
                     border: Border.all(color: const Color(0xFFE8EBF3)),
                     boxShadow: const [
@@ -3078,7 +3078,6 @@ class _ChatState extends State<Chat> {
       if (_socketConnectedOnce) unawaited(load());
       _socketConnectedOnce = true;
     });
-    socket!.io.options?['reconnection'] = true;
     socket!.on('typing:start', (data) {
       if (!mounted ||
           data is! Map ||
