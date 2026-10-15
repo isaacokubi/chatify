@@ -78,3 +78,8 @@ These gates must pass before describing the platform as commercially ready:
 ## Audit limitation
 
 This checkpoint used the connected GitHub repository/file interface. It can inspect and commit text files but does not provide a local shell, database, Flutter SDK, Node runtime, deployment dashboard or payment-provider credentials. Consequently, no local test suite, production build, database migration, live payment, backup restoration or deployment check is claimed as executed by this checkpoint.
+
+
+## Additional operational tooling committed
+
+The repository now includes a private compressed MongoDB archive script and a guarded non-production restore script with checksum verification. This improves the backup/restore runbook but does not count as an executed production backup, off-site replication, or a successful recovery drill. Those remain deployment-operator acceptance gates.

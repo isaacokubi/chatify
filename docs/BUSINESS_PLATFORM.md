@@ -181,3 +181,6 @@ These APIs provide the backend discovery surface. A polished public marketplace 
 ## SaaS plan quota enforcement
 
 A shared plan-limit definition now covers member seats, customers, catalogue items, documents, enterprise records, branches and workflow definitions. The usage endpoint reports these resources and remaining allowance, and create endpoints reject writes beyond the current plan with HTTP 402 and `code: PLAN_LIMIT_REACHED`. This is quota enforcement only: it does **not** activate paid plans, charge cards, renew subscriptions or prove a subscription is current. Paid-plan changes and recurring billing still require a verified provider checkout/webhook lifecycle and a restricted billing-admin process.
+
+
+Operational backup/restore instructions are in [Operations, Backup and Disaster Recovery](OPERATIONS_DISASTER_RECOVERY.md). The scripts are intentionally manual and non-production-safe by default; configure scheduling and off-site storage in the hosting environment.
