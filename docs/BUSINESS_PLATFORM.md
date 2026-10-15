@@ -163,3 +163,16 @@ Use sandbox/test credentials first. Production activation requires operational p
 - `POST /api/business/organizations/:orgId/documents/:documentId/paypal-checkout` creates an Orders v2 checkout for the outstanding balance. The server captures an approved order only after verifying the signed `CHECKOUT.ORDER.APPROVED` webhook.
 - Configure the PayPal webhook URL as `POST /api/business/payments/paypal/webhook`; subscribe to checkout order approval and payment capture completed/denied events. Amount and currency are checked against the stored invoice before it is reconciled.
 - Begin with sandbox credentials. Confirm webhook delivery, account eligibility, supported currencies, refunds, disputes, and production credentials before accepting live payments.
+
+
+## Public multi-business marketplace search
+
+The public marketplace discovery API now provides filterable, paginated business and product/service search without authentication:
+
+- `GET /api/marketplace?q=chair&category=furniture&country=KE&location=Nairobi&page=1&pageSize=20` searches published businesses.
+- `GET /api/marketplace/products?q=chair&category=furniture&country=KE&location=Nairobi&page=1&pageSize=20` searches active catalogue items across public storefronts.
+- Search terms are treated as literal text, pagination is bounded, and responses omit owner IDs, private workspace settings, customer records and payment details.
+- `location` matches the business country and configured branch names/addresses; it is not a geocoding or distance-radius search.
+- Both endpoints return `pagination` metadata and use short public cache headers. Only active catalogue items make a business discoverable.
+
+These APIs provide the backend discovery surface. A polished public marketplace web interface, customer checkout without account creation, subscription billing and enforceable plan quotas remain separate acceptance items; the API endpoints alone do not mean those items are complete.

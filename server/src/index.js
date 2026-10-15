@@ -13,6 +13,7 @@ import http from 'node:http'; import express from 'express'; import cors from 'c
 import {registerBusinessRoutes} from './business.js';
 import {registerBusinessEnterpriseRoutes} from './business-enterprise.js';
 import {registerBusinessSearchRoutes} from './business-search.js';
+import {registerBusinessMarketplaceRoutes} from './business-marketplace.js';
 import {registerPublicStatusRoute} from './service-status.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
@@ -61,6 +62,8 @@ registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io,mpesaProv
 // Register additional enterprise tools only after the core Business models and auth are available.
 registerBusinessEnterpriseRoutes({app,auth,mongoose});
 registerBusinessSearchRoutes({app,auth,mongoose});
+// Public discovery routes expose only published business and catalogue fields.
+registerBusinessMarketplaceRoutes({app,mongoose});
 registerPublicStatusRoute({app,mongoose});
 io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);if(!await User.exists({_id:s.user.sub,status:'active'}))throw new Error('Inactive');n();}catch{n(new Error('Unauthorized'));}});
 const onlineUsers=new Set();
