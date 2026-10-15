@@ -12,9 +12,12 @@ if [[ "${RESTORE_TARGET_IS_NON_PRODUCTION:-}" != "YES" || "${CONFIRM_RESTORE:-}"
 fi
 command -v mongorestore >/dev/null 2>&1 || { echo "mongorestore is required (MongoDB Database Tools)." >&2; exit 127; }
 [[ -f "$ARCHIVE" && -s "$ARCHIVE" ]] || { echo "Archive file does not exist or is empty." >&2; exit 2; }
-if [[ -f "$ARCHIVE.sha256" ]]; then
-  (cd "$(dirname "$ARCHIVE")" && sha256sum --check "$(basename "$ARCHIVE").sha256")
-fi
+# Refuse to restore an archive without a checksum: corruption must not be silently accepted.
+[[ -f "$ARCHIVE.sha256" && -s "$ARCHIVE.sha256" ]] || {
+  echo "Checksum file is required: $ARCHIVE.sha256" >&2
+  exit 2
+}
+(cd "$(dirname "$ARCHIVE")" && sha256sum --check "$(basename "$ARCHIVE").sha256")
 
 # Restore into a fresh, isolated target first. Existing records are not dropped automatically.
 mongorestore --uri="$RESTORE_TARGET_URI" --archive="$ARCHIVE" --gzip
