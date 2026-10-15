@@ -288,6 +288,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const slug = slugifyBusinessName(req.params.slug);
       const org = await Organization.findOne({slug});
       if (!org) return res.status(404).json({error: 'Storefront not found'});
+      if (!await canCreateWithinPlan(org, 'documents', BusinessDocument, res)) return;
       if (String(org.ownerId) === String(req.user._id)) return res.status(400).json({error: 'Use a separate customer account to test a purchase from your own store'});
       const phone = normalizeMpesaPhone(String(req.body?.phone || req.user.phone || ''));
       if (!phone) return res.status(400).json({error: 'Enter a valid Kenyan customer M-Pesa number'});
@@ -305,6 +306,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       let totals;
       try { totals = buildStorefrontOrderLines(requested, products); }
       catch (error) { return res.status(400).json({error: error.message}); }
+      const existingCustomer = await Customer.exists({organizationId: org._id, phone});
+      if (!existingCustomer && !await canCreateWithinPlan(org, 'customers', Customer, res)) return;
       const customer = await Customer.findOneAndUpdate(
         {organizationId: org._id, phone},
         {$set: {name: shortText(req.user.name, 160) || 'Chatify customer', email: shortText(req.user.email, 200), source: 'storefront', lastContactAt: new Date()}, $setOnInsert: {organizationId: org._id, phone}},

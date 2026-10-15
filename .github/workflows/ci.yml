@@ -22,6 +22,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run lint
+      - name: Validate backup and recovery shell scripts
+        run: bash -n scripts/backup-mongodb.sh scripts/restore-mongodb.sh
   mobile:
     runs-on: ubuntu-latest
     defaults:
