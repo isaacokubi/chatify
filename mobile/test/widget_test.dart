@@ -10,10 +10,10 @@ void main() {
   test('Business API reports HTML responses as a readable API error', () async {
     final api = Api(
       client: MockClient((_) async => http.Response(
-        '<!doctype html><html><body>Service unavailable</body></html>',
-        200,
-        headers: {'content-type': 'text/html; charset=utf-8'},
-      )),
+            '<!doctype html><html><body>Service unavailable</body></html>',
+            200,
+            headers: {'content-type': 'text/html; charset=utf-8'},
+          )),
     );
 
     await expectLater(
@@ -21,7 +21,8 @@ void main() {
       throwsA(isA<ApiException>().having(
         (error) => error.message,
         'message',
-        allOf(contains('HTML page instead of JSON'), contains('/api/business/organizations')),
+        allOf(contains('HTML page instead of JSON'),
+            contains('/api/business/organizations')),
       )),
     );
     api.client.close();
@@ -82,7 +83,8 @@ void main() {
         hasLength(2));
   });
 
-  testWidgets('Chatify opens on a branded public welcome homepage', (tester) async {
+  testWidgets('Chatify opens on a branded public welcome homepage',
+      (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       ChangeNotifierProvider(
@@ -170,7 +172,8 @@ void main() {
       onPay: () => tapped = true,
     ))));
     expect(find.text('Shared lunch'), findsOneWidget);
-    expect(find.text('KSh 250 · PENDING · To 254712345678 · Local demo'), findsOneWidget);
+    expect(find.text('KSh 250 · PENDING · To 254712345678 · Local demo'),
+        findsOneWidget);
     await tester.tap(find.text('Pay with M-Pesa'));
     expect(tapped, isTrue);
   });

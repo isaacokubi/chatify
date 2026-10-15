@@ -101,7 +101,8 @@ class Api {
             'and confirm it is running the latest main branch.',
           );
         }
-        throw ApiException(r.statusCode,
+        throw ApiException(
+            r.statusCode,
             'Chatify API returned an invalid JSON response for $path '
             '(HTTP ${r.statusCode}).');
       }
@@ -109,7 +110,8 @@ class Api {
       decoded = <String, dynamic>{};
     }
     if (r.statusCode >= 400) {
-      throw ApiException(r.statusCode,
+      throw ApiException(
+          r.statusCode,
           decoded is Map && decoded['error'] != null
               ? decoded['error'].toString()
               : 'Request failed (HTTP ${r.statusCode})');
@@ -163,7 +165,8 @@ List<dynamic> mergeMessages(List<dynamic> current, List<dynamic> fetched) {
 
 // Resolve a reply reference only against messages loaded for the active conversation.
 // Supporting both a raw ID and a populated reference keeps old and new API payloads readable.
-Map<String, dynamic>? findReplyTarget(List<dynamic> conversationMessages, dynamic replyTo) {
+Map<String, dynamic>? findReplyTarget(
+    List<dynamic> conversationMessages, dynamic replyTo) {
   final replyId = replyTo is Map
       ? (replyTo['_id'] ?? replyTo['id'])?.toString()
       : replyTo?.toString();
@@ -200,7 +203,8 @@ String? conversationPeerName(
     currentUser?['id']?.toString() ?? '',
     currentUser?['_id']?.toString() ?? '',
   }..remove('');
-  final currentEmail = currentUser?['email']?.toString().trim().toLowerCase() ?? '';
+  final currentEmail =
+      currentUser?['email']?.toString().trim().toLowerCase() ?? '';
   final rawParticipants = conversation['participants'];
   if (rawParticipants is! List) return null;
 
@@ -211,19 +215,33 @@ String? conversationPeerName(
     final nested = participant['user'] is Map
         ? Map<String, dynamic>.from(participant['user'] as Map)
         : <String, dynamic>{};
-    final id = (participant['_id'] ?? participant['id'] ??
-            participant['userId'] ?? nested['_id'] ?? nested['id'])
-        ?.toString() ?? '';
+    final id = (participant['_id'] ??
+                participant['id'] ??
+                participant['userId'] ??
+                nested['_id'] ??
+                nested['id'])
+            ?.toString() ??
+        '';
     final email = (participant['email'] ?? nested['email'])
-        ?.toString().trim().toLowerCase() ?? '';
-    final name = (participant['name'] ?? nested['name'] ??
-            participant['displayName'] ?? nested['displayName'] ??
-            participant['username'] ?? nested['username'])
-        ?.toString().trim() ?? '';
+            ?.toString()
+            .trim()
+            .toLowerCase() ??
+        '';
+    final name = (participant['name'] ??
+                nested['name'] ??
+                participant['displayName'] ??
+                nested['displayName'] ??
+                participant['username'] ??
+                nested['username'])
+            ?.toString()
+            .trim() ??
+        '';
 
     // Exclude the signed-in user by ID or email before choosing the chat peer.
     if ((id.isNotEmpty && currentIds.contains(id)) ||
-        (currentEmail.isNotEmpty && email.isNotEmpty && email == currentEmail)) {
+        (currentEmail.isNotEmpty &&
+            email.isNotEmpty &&
+            email == currentEmail)) {
       continue;
     }
     if (name.isNotEmpty) return name;
@@ -295,13 +313,15 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     });
     _presenceSocket!.on('user:online', (data) {
-      if (data is Map && data['userId'] != null &&
+      if (data is Map &&
+          data['userId'] != null &&
           onlineUserIds.add(data['userId'].toString())) {
         notifyListeners();
       }
     });
     _presenceSocket!.on('user:offline', (data) {
-      if (data is Map && data['userId'] != null &&
+      if (data is Map &&
+          data['userId'] != null &&
           onlineUserIds.remove(data['userId'].toString())) {
         notifyListeners();
       }
@@ -396,13 +416,19 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> auth(bool reg, String name, String email, String pass, String phone) async {
+  Future<String?> auth(
+      bool reg, String name, String email, String pass, String phone) async {
     try {
       final d = await api.call(
           'POST',
           reg ? '/api/auth/register' : '/api/auth/login',
           reg
-              ? {'name': name, 'email': email, 'password': pass, 'phone': normalizeKenyanPhone(phone)}
+              ? {
+                  'name': name,
+                  'email': email,
+                  'password': pass,
+                  'phone': normalizeKenyanPhone(phone)
+                }
               : {'email': email, 'password': pass});
       api.token = d['token'];
       user = Map<String, dynamic>.from(d['user']);
@@ -471,294 +497,295 @@ class ChatifyApp extends StatelessWidget {
   const ChatifyApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Chatify',
-      navigatorKey: chatifyNavigatorKey,
-      scaffoldMessengerKey: chatifyScaffoldMessengerKey,
-      theme: ThemeData(
-        useMaterial3: true,
-        visualDensity: VisualDensity.standard,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF4F46E5),
-          brightness: Brightness.light,
-        ).copyWith(
-          primary: const Color(0xFF4F46E5),
-          onPrimary: Colors.white,
-          secondary: const Color(0xFF0F9D8A),
-          onSecondary: Colors.white,
-          surface: Colors.white,
-          onSurface: const Color(0xFF172033),
-          error: const Color(0xFFDC2626),
-          outline: const Color(0xFFD9DFEA),
-        ),
-        scaffoldBackgroundColor: const Color(0xFFF5F7FB),
-        canvasColor: const Color(0xFFF5F7FB),
-        cardColor: Colors.white,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFFF5F7FB),
-          foregroundColor: Color(0xFF172033),
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          surfaceTintColor: Colors.transparent,
-          centerTitle: false,
-          titleTextStyle: TextStyle(
-            color: Color(0xFF172033),
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.35,
+        debugShowCheckedModeBanner: false,
+        title: 'Chatify',
+        navigatorKey: chatifyNavigatorKey,
+        scaffoldMessengerKey: chatifyScaffoldMessengerKey,
+        theme: ThemeData(
+          useMaterial3: true,
+          visualDensity: VisualDensity.standard,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF4F46E5),
+            brightness: Brightness.light,
+          ).copyWith(
+            primary: const Color(0xFF4F46E5),
+            onPrimary: Colors.white,
+            secondary: const Color(0xFF0F9D8A),
+            onSecondary: Colors.white,
+            surface: Colors.white,
+            onSurface: const Color(0xFF172033),
+            error: const Color(0xFFDC2626),
+            outline: const Color(0xFFD9DFEA),
           ),
-        ),
-        textTheme: const TextTheme(
-          displayLarge: TextStyle(
-            color: Color(0xFF172033),
-            fontWeight: FontWeight.w800,
-            letterSpacing: -1.2,
-          ),
-          headlineMedium: TextStyle(
-            color: Color(0xFF172033),
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.65,
-          ),
-          titleLarge: TextStyle(
-            color: Color(0xFF172033),
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.3,
-          ),
-          titleMedium: TextStyle(
-            color: Color(0xFF253047),
-            fontWeight: FontWeight.w600,
-          ),
-          bodyLarge: TextStyle(
-            color: Color(0xFF253047),
-            fontSize: 16,
-            height: 1.45,
-          ),
-          bodyMedium: TextStyle(
-            color: Color(0xFF536078),
-            fontSize: 14,
-            height: 1.45,
-          ),
-          bodySmall: TextStyle(
-            color: Color(0xFF69758B),
-            fontSize: 12,
-            height: 1.4,
-          ),
-          labelLarge: TextStyle(
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.05,
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 15,
-          ),
-          hintStyle: const TextStyle(
-            color: Color(0xFF8A94A8),
-            fontSize: 14,
-          ),
-          labelStyle: const TextStyle(
-            color: Color(0xFF536078),
-            fontSize: 14,
-          ),
-          helperStyle: const TextStyle(
-            color: Color(0xFF69758B),
-            fontSize: 12,
-          ),
-          errorStyle: const TextStyle(
-            color: Color(0xFFDC2626),
-            fontSize: 12,
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(14)),
-            borderSide: BorderSide(color: Color(0xFFD9DFEA)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(14)),
-            borderSide: BorderSide(color: Color(0xFFD9DFEA)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(14)),
-            borderSide: BorderSide(color: Color(0xFF4F46E5), width: 1.6),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(14)),
-            borderSide: BorderSide(color: Color(0xFFDC2626)),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(14)),
-            borderSide: BorderSide(color: Color(0xFFDC2626), width: 1.6),
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF4F46E5),
-            foregroundColor: Colors.white,
-            disabledBackgroundColor: const Color(0xFFE5E7EB),
-            disabledForegroundColor: const Color(0xFF8A94A8),
-            minimumSize: const Size(48, 50),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            textStyle: const TextStyle(
-              fontSize: 14,
+          scaffoldBackgroundColor: const Color(0xFFF5F7FB),
+          canvasColor: const Color(0xFFF5F7FB),
+          cardColor: Colors.white,
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFFF5F7FB),
+            foregroundColor: Color(0xFF172033),
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            surfaceTintColor: Colors.transparent,
+            centerTitle: false,
+            titleTextStyle: TextStyle(
+              color: Color(0xFF172033),
+              fontSize: 20,
               fontWeight: FontWeight.w700,
-              letterSpacing: 0.1,
+              letterSpacing: -0.35,
             ),
           ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF344054),
-            minimumSize: const Size(44, 48),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            side: const BorderSide(color: Color(0xFFD9DFEA)),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+          textTheme: const TextTheme(
+            displayLarge: TextStyle(
+              color: Color(0xFF172033),
+              fontWeight: FontWeight.w800,
+              letterSpacing: -1.2,
             ),
-            textStyle: const TextStyle(
-              fontSize: 14,
+            headlineMedium: TextStyle(
+              color: Color(0xFF172033),
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.65,
+            ),
+            titleLarge: TextStyle(
+              color: Color(0xFF172033),
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+            ),
+            titleMedium: TextStyle(
+              color: Color(0xFF253047),
               fontWeight: FontWeight.w600,
             ),
-          ),
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            foregroundColor: const Color(0xFF4F46E5),
-            minimumSize: const Size(40, 44),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+            bodyLarge: TextStyle(
+              color: Color(0xFF253047),
+              fontSize: 16,
+              height: 1.45,
             ),
-            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+            bodyMedium: TextStyle(
+              color: Color(0xFF536078),
+              fontSize: 14,
+              height: 1.45,
+            ),
+            bodySmall: TextStyle(
+              color: Color(0xFF69758B),
+              fontSize: 12,
+              height: 1.4,
+            ),
+            labelLarge: TextStyle(
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.05,
+            ),
           ),
-        ),
-        iconButtonTheme: IconButtonThemeData(
-          style: IconButton.styleFrom(
-            foregroundColor: const Color(0xFF536078),
-            minimumSize: const Size(44, 44),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 15,
+            ),
+            hintStyle: const TextStyle(
+              color: Color(0xFF8A94A8),
+              fontSize: 14,
+            ),
+            labelStyle: const TextStyle(
+              color: Color(0xFF536078),
+              fontSize: 14,
+            ),
+            helperStyle: const TextStyle(
+              color: Color(0xFF69758B),
+              fontSize: 12,
+            ),
+            errorStyle: const TextStyle(
+              color: Color(0xFFDC2626),
+              fontSize: 12,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.all(Radius.circular(14)),
+              borderSide: BorderSide(color: Color(0xFFD9DFEA)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.all(Radius.circular(14)),
+              borderSide: BorderSide(color: Color(0xFFD9DFEA)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.all(Radius.circular(14)),
+              borderSide: BorderSide(color: Color(0xFF4F46E5), width: 1.6),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.all(Radius.circular(14)),
+              borderSide: BorderSide(color: Color(0xFFDC2626)),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.all(Radius.circular(14)),
+              borderSide: BorderSide(color: Color(0xFFDC2626), width: 1.6),
+            ),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: const Color(0xFFE5E7EB),
+              disabledForegroundColor: const Color(0xFF8A94A8),
+              minimumSize: const Size(48, 50),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.1,
+              ),
+            ),
+          ),
+          outlinedButtonTheme: OutlinedButtonThemeData(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF344054),
+              minimumSize: const Size(44, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              side: const BorderSide(color: Color(0xFFD9DFEA)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF4F46E5),
+              minimumSize: const Size(40, 44),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              textStyle: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          iconButtonTheme: IconButtonThemeData(
+            style: IconButton.styleFrom(
+              foregroundColor: const Color(0xFF536078),
+              minimumSize: const Size(44, 44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(13),
+              ),
+            ),
+          ),
+          navigationBarTheme: NavigationBarThemeData(
+            backgroundColor: Colors.white,
+            indicatorColor: const Color(0xFFE9E8FF),
+            elevation: 0,
+            height: 70,
+          ),
+          floatingActionButtonTheme: FloatingActionButtonThemeData(
+            backgroundColor: const Color(0xFF4F46E5),
+            foregroundColor: Colors.white,
+            elevation: 3,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(13),
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+          snackBarTheme: SnackBarThemeData(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFF172033),
+            contentTextStyle: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w500,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+          chipTheme: ChipThemeData(
+            backgroundColor: const Color(0xFFF0F2F8),
+            selectedColor: const Color(0xFFE9E8FF),
+            secondarySelectedColor: const Color(0xFFDDF7F1),
+            disabledColor: const Color(0xFFF5F7FB),
+            labelStyle: const TextStyle(
+              color: Color(0xFF344054),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+            side: const BorderSide(color: Color(0xFFE3E7EF)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          ),
+          listTileTheme: ListTileThemeData(
+            iconColor: const Color(0xFF536078),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+          dividerTheme: const DividerThemeData(
+            color: Color(0xFFEAEDF3),
+            thickness: 1,
+            space: 1,
+          ),
+          progressIndicatorTheme: const ProgressIndicatorThemeData(
+            color: Color(0xFF4F46E5),
+            linearTrackColor: Color(0xFFE9E8FF),
+            circularTrackColor: Color(0xFFE9E8FF),
+          ),
+          dialogTheme: DialogThemeData(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            titleTextStyle: const TextStyle(
+              color: Color(0xFF172033),
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: Colors.white,
-          indicatorColor: const Color(0xFFE9E8FF),
-          elevation: 0,
-          height: 70,
-        ),
-        floatingActionButtonTheme: FloatingActionButtonThemeData(
-          backgroundColor: const Color(0xFF4F46E5),
-          foregroundColor: Colors.white,
-          elevation: 3,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-        ),
-        snackBarTheme: SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFF172033),
-          contentTextStyle: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w500,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-        chipTheme: ChipThemeData(
-          backgroundColor: const Color(0xFFF0F2F8),
-          selectedColor: const Color(0xFFE9E8FF),
-          secondarySelectedColor: const Color(0xFFDDF7F1),
-          disabledColor: const Color(0xFFF5F7FB),
-          labelStyle: const TextStyle(
-            color: Color(0xFF344054),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-          side: const BorderSide(color: Color(0xFFE3E7EF)),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        ),
-        listTileTheme: ListTileThemeData(
-          iconColor: const Color(0xFF536078),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 4,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-        dividerTheme: const DividerThemeData(
-          color: Color(0xFFEAEDF3),
-          thickness: 1,
-          space: 1,
-        ),
-        progressIndicatorTheme: const ProgressIndicatorThemeData(
-          color: Color(0xFF4F46E5),
-          linearTrackColor: Color(0xFFE9E8FF),
-          circularTrackColor: Color(0xFFE9E8FF),
-        ),
-        dialogTheme: DialogThemeData(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-          ),
-          titleTextStyle: const TextStyle(
-            color: Color(0xFF172033),
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      home: Consumer<AppState>(
-        builder: (_, appState, __) {
-          if (!appState.ready) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (appState.restoreError != null) {
-            return Scaffold(
-              body: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Could not restore your session.'),
-                      const SizedBox(height: 12),
-                      Text(appState.restoreError!, textAlign: TextAlign.center),
-                      const SizedBox(height: 12),
-                      FilledButton(
-                        onPressed: appState.init,
-                        child: const Text('Retry'),
-                      ),
-                    ],
+        home: Consumer<AppState>(
+          builder: (_, appState, __) {
+            if (!appState.ready) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (appState.restoreError != null) {
+              return Scaffold(
+                body: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Could not restore your session.'),
+                        const SizedBox(height: 12),
+                        Text(appState.restoreError!,
+                            textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: appState.init,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              );
+            }
+            if (appState.user != null) return const Home();
+            if (appState.authRequested) {
+              return Auth(startWithRegistration: appState.startRegistration);
+            }
+            return Welcome(
+              onSignIn: () => appState.openAuth(),
+              onGetStarted: () => appState.openAuth(register: true),
             );
-          }
-          if (appState.user != null) return const Home();
-          if (appState.authRequested) {
-            return Auth(startWithRegistration: appState.startRegistration);
-          }
-          return Welcome(
-            onSignIn: () => appState.openAuth(),
-            onGetStarted: () => appState.openAuth(register: true),
-          );
-        },
-      ),
-    );
+          },
+        ),
+      );
 }
 
 // Public welcome/marketing screen shown before a user enters the authenticated app.
@@ -797,7 +824,8 @@ class Welcome extends StatelessWidget {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1160),
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(mobile ? 16 : 30, 18, mobile ? 16 : 30, 30),
+                  padding: EdgeInsets.fromLTRB(
+                      mobile ? 16 : 30, 18, mobile ? 16 : 30, 30),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -806,15 +834,25 @@ class Welcome extends StatelessWidget {
                       if (mobile) ...[
                         Row(children: [
                           Container(
-                            height: 42, width: 42,
+                            height: 42,
+                            width: 42,
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [Color(0xFF7167F8), Color(0xFF4938D2)]),
+                              gradient: const LinearGradient(colors: [
+                                Color(0xFF7167F8),
+                                Color(0xFF4938D2)
+                              ]),
                               borderRadius: BorderRadius.circular(14),
                             ),
-                            child: const Icon(Icons.forum_rounded, color: Colors.white, size: 22),
+                            child: const Icon(Icons.forum_rounded,
+                                color: Colors.white, size: 22),
                           ),
                           const SizedBox(width: 11),
-                          const Text('Chatify', style: TextStyle(color: ink, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
+                          const Text('Chatify',
+                              style: TextStyle(
+                                  color: ink,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.8)),
                         ]),
                         const SizedBox(height: 12),
                         Wrap(
@@ -827,14 +865,18 @@ class Welcome extends StatelessWidget {
                               icon: const Icon(Icons.storefront_outlined),
                               label: const Text('Explore stores'),
                             ),
-                            TextButton(onPressed: onSignIn, child: const Text('Sign in')),
+                            TextButton(
+                                onPressed: onSignIn,
+                                child: const Text('Sign in')),
                             FilledButton(
                               onPressed: onGetStarted,
                               style: FilledButton.styleFrom(
                                 backgroundColor: violet,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 13),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(13)),
                               ),
                               child: const Text('Create account'),
                             ),
@@ -843,97 +885,172 @@ class Welcome extends StatelessWidget {
                       ] else
                         Row(children: [
                           Container(
-                            height: 42, width: 42,
+                            height: 42,
+                            width: 42,
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [Color(0xFF7167F8), Color(0xFF4938D2)]),
+                              gradient: const LinearGradient(colors: [
+                                Color(0xFF7167F8),
+                                Color(0xFF4938D2)
+                              ]),
                               borderRadius: BorderRadius.circular(14),
                             ),
-                            child: const Icon(Icons.forum_rounded, color: Colors.white, size: 22),
+                            child: const Icon(Icons.forum_rounded,
+                                color: Colors.white, size: 22),
                           ),
                           const SizedBox(width: 11),
-                          const Text('Chatify', style: TextStyle(color: ink, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
+                          const Text('Chatify',
+                              style: TextStyle(
+                                  color: ink,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.8)),
                           const Spacer(),
                           TextButton.icon(
                             onPressed: () => _browseStore(context),
                             icon: const Icon(Icons.storefront_outlined),
                             label: const Text('Explore stores'),
                           ),
-                          TextButton(onPressed: onSignIn, child: const Text('Sign in')),
+                          TextButton(
+                              onPressed: onSignIn,
+                              child: const Text('Sign in')),
                           const SizedBox(width: 5),
                           FilledButton(
                             onPressed: onGetStarted,
                             style: FilledButton.styleFrom(
                               backgroundColor: violet,
                               foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(13)),
                             ),
                             child: const Text('Create account'),
                           ),
                         ]),
                       SizedBox(height: wide ? 34 : 22),
                       if (wide)
-                        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                          Expanded(
-                            flex: 4,
-                            child: Padding(
-                              padding: const EdgeInsets.only(right: 26),
-                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                                  decoration: BoxDecoration(color: const Color(0xFFE8E6FF), borderRadius: BorderRadius.circular(30)),
-                                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                                    Icon(Icons.circle, color: Color(0xFF35C997), size: 8),
-                                    SizedBox(width: 7),
-                                    Text('YOUR PEOPLE, RIGHT HERE', style: TextStyle(color: Color(0xFF4D42B8), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
-                                  ]),
+                        Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                flex: 4,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 26),
+                                  child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 7),
+                                          decoration: BoxDecoration(
+                                              color: const Color(0xFFE8E6FF),
+                                              borderRadius:
+                                                  BorderRadius.circular(30)),
+                                          child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.circle,
+                                                    color: Color(0xFF35C997),
+                                                    size: 8),
+                                                SizedBox(width: 7),
+                                                Text('YOUR PEOPLE, RIGHT HERE',
+                                                    style: TextStyle(
+                                                        color:
+                                                            Color(0xFF4D42B8),
+                                                        fontSize: 9,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                        letterSpacing: 0.8)),
+                                              ]),
+                                        ),
+                                        const SizedBox(height: 20),
+                                        const Text('Just chat.',
+                                            style: TextStyle(
+                                                color: ink,
+                                                fontSize: 54,
+                                                height: 1.0,
+                                                fontWeight: FontWeight.w900,
+                                                letterSpacing: -2.8)),
+                                        const SizedBox(height: 10),
+                                        const Text('The moments matter.',
+                                            style: TextStyle(
+                                                color: violet,
+                                                fontSize: 30,
+                                                height: 1.1,
+                                                fontWeight: FontWeight.w800,
+                                                letterSpacing: -1.2)),
+                                        const SizedBox(height: 16),
+                                        const Text(
+                                            'Real conversations. Memories worth keeping.',
+                                            style: TextStyle(
+                                                color: muted,
+                                                fontSize: 14,
+                                                height: 1.6)),
+                                        const SizedBox(height: 24),
+                                        FilledButton.icon(
+                                          onPressed: onGetStarted,
+                                          icon: const Icon(
+                                              Icons.chat_bubble_outline_rounded,
+                                              size: 18),
+                                          label: const Text('Start chatting'),
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: violet,
+                                            minimumSize: const Size(190, 50),
+                                            shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(14)),
+                                          ),
+                                        ),
+                                      ]),
                                 ),
-                                const SizedBox(height: 20),
-                                const Text('Just chat.', style: TextStyle(color: ink, fontSize: 54, height: 1.0, fontWeight: FontWeight.w900, letterSpacing: -2.8)),
-                                const SizedBox(height: 10),
-                                const Text('The moments matter.', style: TextStyle(color: violet, fontSize: 30, height: 1.1, fontWeight: FontWeight.w800, letterSpacing: -1.2)),
-                                const SizedBox(height: 16),
-                                const Text('Real conversations. Memories worth keeping.', style: TextStyle(color: muted, fontSize: 14, height: 1.6)),
-                                const SizedBox(height: 24),
-                                FilledButton.icon(
-                                  onPressed: onGetStarted,
-                                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
-                                  label: const Text('Start chatting'),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: violet,
-                                    minimumSize: const Size(190, 50),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                ),
-                              ]),
-                            ),
-                          ),
-                          const Expanded(flex: 6, child: _ConversationPreview()),
-                        ])
+                              ),
+                              const Expanded(
+                                  flex: 6, child: _ConversationPreview()),
+                            ])
                       else ...[
-                        const Text('Your people. Your conversations.', style: TextStyle(color: ink, fontSize: 27, height: 1.1, fontWeight: FontWeight.w900, letterSpacing: -1)),
+                        const Text('Your people. Your conversations.',
+                            style: TextStyle(
+                                color: ink,
+                                fontSize: 27,
+                                height: 1.1,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -1)),
                         const SizedBox(height: 7),
-                        const Text('Chat, remember, let go.', style: TextStyle(color: muted, fontSize: 13)),
+                        const Text('Chat, remember, let go.',
+                            style: TextStyle(color: muted, fontSize: 13)),
                         const SizedBox(height: 20),
                         const _ConversationPreview(),
                         const SizedBox(height: 18),
                         FilledButton.icon(
                           onPressed: onGetStarted,
-                          icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                          icon: const Icon(Icons.chat_bubble_outline_rounded,
+                              size: 18),
                           label: const Text('Start chatting'),
                           style: FilledButton.styleFrom(
                             backgroundColor: violet,
                             minimumSize: const Size.fromHeight(50),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
                           ),
                         ),
                       ],
                       const SizedBox(height: 18),
-                      const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Icon(Icons.lock_outline_rounded, color: muted, size: 15),
-                        SizedBox(width: 7),
-                        Flexible(child: Text('Private by design · Yours to manage', textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 11, fontWeight: FontWeight.w600))),
-                      ]),
+                      const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.lock_outline_rounded,
+                                color: muted, size: 15),
+                            SizedBox(width: 7),
+                            Flexible(
+                                child: Text(
+                                    'Private by design · Yours to manage',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        color: muted,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600))),
+                          ]),
                     ],
                   ),
                 ),
@@ -944,8 +1061,6 @@ class Welcome extends StatelessWidget {
       ),
     );
   }
-
-
 }
 
 // Small illustrative conversation used by the welcome screen; it is presentation-only, not a real chat.
@@ -964,7 +1079,8 @@ class _ConversationPreview extends StatelessWidget {
           end: Alignment.bottomRight,
         ),
         boxShadow: const [
-          BoxShadow(color: Color(0x1C292C57), blurRadius: 44, offset: Offset(0, 22)),
+          BoxShadow(
+              color: Color(0x1C292C57), blurRadius: 44, offset: Offset(0, 22)),
         ],
       ),
       child: Column(
@@ -973,16 +1089,25 @@ class _ConversationPreview extends StatelessWidget {
             children: [
               const Icon(Icons.forum_rounded, color: Welcome.mint, size: 20),
               const SizedBox(width: 8),
-              const Text('A little preview', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              const Text('A little preview',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w700)),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                decoration: BoxDecoration(color: const Color(0x223DD7B0), borderRadius: BorderRadius.circular(20)),
+                decoration: BoxDecoration(
+                    color: const Color(0x223DD7B0),
+                    borderRadius: BorderRadius.circular(20)),
                 child: const Row(
                   children: [
                     Icon(Icons.circle, color: Welcome.mint, size: 7),
                     SizedBox(width: 6),
-                    Text('CONNECTED', style: TextStyle(color: Welcome.mint, fontSize: 9, letterSpacing: 1.1, fontWeight: FontWeight.w800)),
+                    Text('CONNECTED',
+                        style: TextStyle(
+                            color: Welcome.mint,
+                            fontSize: 9,
+                            letterSpacing: 1.1,
+                            fontWeight: FontWeight.w800)),
                   ],
                 ),
               ),
@@ -991,7 +1116,8 @@ class _ConversationPreview extends StatelessWidget {
           const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(15),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+            decoration: BoxDecoration(
+                color: Colors.white, borderRadius: BorderRadius.circular(20)),
             child: Column(
               children: [
                 Row(
@@ -1000,19 +1126,26 @@ class _ConversationPreview extends StatelessWidget {
                       width: 42,
                       height: 42,
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [Color(0xFF79D8C1), Color(0xFF6C85E8)]),
+                        gradient: const LinearGradient(
+                            colors: [Color(0xFF79D8C1), Color(0xFF6C85E8)]),
                         borderRadius: BorderRadius.circular(15),
                       ),
-                      child: const Icon(Icons.people_alt_rounded, color: Colors.white),
+                      child: const Icon(Icons.people_alt_rounded,
+                          color: Colors.white),
                     ),
                     const SizedBox(width: 12),
                     const Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Weekend plans', style: TextStyle(color: Welcome.ink, fontWeight: FontWeight.w800)),
+                          Text('Weekend plans',
+                              style: TextStyle(
+                                  color: Welcome.ink,
+                                  fontWeight: FontWeight.w800)),
                           SizedBox(height: 3),
-                          Text('Maya, Alex · 3 members', style: TextStyle(color: Welcome.muted, fontSize: 11)),
+                          Text('Maya, Alex · 3 members',
+                              style: TextStyle(
+                                  color: Welcome.muted, fontSize: 11)),
                         ],
                       ),
                     ),
@@ -1044,17 +1177,32 @@ class _ConversationPreview extends StatelessWidget {
                   child: const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.auto_awesome_rounded, color: Color(0xFF087F6A), size: 19),
+                      Icon(Icons.auto_awesome_rounded,
+                          color: Color(0xFF087F6A), size: 19),
                       SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('MEMORY CARD', style: TextStyle(color: Color(0xFF087F6A), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                            Text('MEMORY CARD',
+                                style: TextStyle(
+                                    color: Color(0xFF087F6A),
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.1)),
                             SizedBox(height: 5),
-                            Text('Saturday · 10:00 AM', style: TextStyle(color: Color(0xFF17483E), fontSize: 14, fontWeight: FontWeight.w800)),
+                            Text('Saturday · 10:00 AM',
+                                style: TextStyle(
+                                    color: Color(0xFF17483E),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800)),
                             SizedBox(height: 3),
-                            Text('A detail worth keeping, right when you need it.', style: TextStyle(color: Color(0xFF4F766D), fontSize: 11, height: 1.45)),
+                            Text(
+                                'A detail worth keeping, right when you need it.',
+                                style: TextStyle(
+                                    color: Color(0xFF4F766D),
+                                    fontSize: 11,
+                                    height: 1.45)),
                           ],
                         ),
                       ),
@@ -1064,23 +1212,31 @@ class _ConversationPreview extends StatelessWidget {
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    const Icon(Icons.add_circle_outline_rounded, color: Color(0xFF929AAF), size: 20),
+                    const Icon(Icons.add_circle_outline_rounded,
+                        color: Color(0xFF929AAF), size: 20),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Container(
                         height: 38,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         alignment: Alignment.centerLeft,
-                        decoration: BoxDecoration(color: const Color(0xFFF4F6FA), borderRadius: BorderRadius.circular(13)),
-                        child: const Text('Write a message…', style: TextStyle(color: Color(0xFF929AAF), fontSize: 11)),
+                        decoration: BoxDecoration(
+                            color: const Color(0xFFF4F6FA),
+                            borderRadius: BorderRadius.circular(13)),
+                        child: const Text('Write a message…',
+                            style: TextStyle(
+                                color: Color(0xFF929AAF), fontSize: 11)),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Container(
                       height: 38,
                       width: 38,
-                      decoration: BoxDecoration(color: Welcome.violet, borderRadius: BorderRadius.circular(13)),
-                      child: const Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 19),
+                      decoration: BoxDecoration(
+                          color: Welcome.violet,
+                          borderRadius: BorderRadius.circular(13)),
+                      child: const Icon(Icons.arrow_upward_rounded,
+                          color: Colors.white, size: 19),
                     ),
                   ],
                 ),
@@ -1091,9 +1247,11 @@ class _ConversationPreview extends StatelessWidget {
           const Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.lock_outline_rounded, color: Color(0xFFBAC3E5), size: 14),
+              Icon(Icons.lock_outline_rounded,
+                  color: Color(0xFFBAC3E5), size: 14),
               SizedBox(width: 7),
-              Text('Your conversations, with you in control', style: TextStyle(color: Color(0xFFBAC3E5), fontSize: 10)),
+              Text('Your conversations, with you in control',
+                  style: TextStyle(color: Color(0xFFBAC3E5), fontSize: 10)),
             ],
           ),
         ],
@@ -1121,7 +1279,14 @@ class _PreviewBubble extends StatelessWidget {
       mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
       children: [
         if (!mine) ...[
-          CircleAvatar(radius: 15, backgroundColor: const Color(0xFFE7E8FF), child: Text(initials, style: const TextStyle(color: Welcome.violet, fontSize: 11, fontWeight: FontWeight.w800))),
+          CircleAvatar(
+              radius: 15,
+              backgroundColor: const Color(0xFFE7E8FF),
+              child: Text(initials,
+                  style: const TextStyle(
+                      color: Welcome.violet,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800))),
           const SizedBox(width: 8),
         ],
         Flexible(
@@ -1139,9 +1304,15 @@ class _PreviewBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: const TextStyle(color: Welcome.violet, fontSize: 10, fontWeight: FontWeight.w800)),
+                Text(name,
+                    style: const TextStyle(
+                        color: Welcome.violet,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
-                Text(text, style: const TextStyle(color: Welcome.ink, fontSize: 12, height: 1.4)),
+                Text(text,
+                    style: const TextStyle(
+                        color: Welcome.ink, fontSize: 12, height: 1.4)),
               ],
             ),
           ),
@@ -1169,6 +1340,7 @@ class _AuthState extends State<Auth> {
     super.initState();
     reg = widget.startWithRegistration;
   }
+
   final n = TextEditingController(),
       e = TextEditingController(),
       p = TextEditingController(),
@@ -1284,16 +1456,17 @@ class _AuthState extends State<Auth> {
   Future<void> submit() async {
     if (e.text.trim().isEmpty ||
         p.text.length < 8 ||
-        (reg && (n.text.trim().isEmpty || normalizeKenyanPhone(mpesaPhone.text) == null))) {
+        (reg &&
+            (n.text.trim().isEmpty ||
+                normalizeKenyanPhone(mpesaPhone.text) == null))) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content:
               Text('Complete all fields. Password must be 8+ characters.')));
       return;
     }
     setState(() => busy = true);
-    final err = await context
-        .read<AppState>()
-        .auth(reg, n.text.trim(), e.text.trim(), p.text, mpesaPhone.text.trim());
+    final err = await context.read<AppState>().auth(
+        reg, n.text.trim(), e.text.trim(), p.text, mpesaPhone.text.trim());
     if (mounted) {
       setState(() => busy = false);
       if (err != null) {
@@ -1418,7 +1591,8 @@ class _AuthState extends State<Auth> {
                             hintText: '0712345678 or 254712345678',
                             helperText:
                                 'Your default payment number. You can change it per request.',
-                            prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                            prefixIcon:
+                                Icon(Icons.account_balance_wallet_outlined),
                           ),
                         ),
                       if (reg) const SizedBox(height: 10),
@@ -1436,7 +1610,9 @@ class _AuthState extends State<Auth> {
                         controller: p,
                         obscureText: hide,
                         autofillHints: [
-                          reg ? AutofillHints.newPassword : AutofillHints.password,
+                          reg
+                              ? AutofillHints.newPassword
+                              : AutofillHints.password,
                         ],
                         onSubmitted: (_) => submit(),
                         decoration: InputDecoration(
@@ -1460,7 +1636,8 @@ class _AuthState extends State<Auth> {
                             ? const SizedBox(
                                 height: 20,
                                 width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : Text(reg ? 'Create account' : 'Sign in'),
                       ),
@@ -1476,7 +1653,8 @@ class _AuthState extends State<Auth> {
                       const Divider(),
                       const SizedBox(height: 2),
                       TextButton(
-                        onPressed: busy ? null : () => setState(() => reg = !reg),
+                        onPressed:
+                            busy ? null : () => setState(() => reg = !reg),
                         child: Text(
                           reg
                               ? 'Already have an account? Sign in'
@@ -1542,21 +1720,40 @@ class _HomeState extends State<Home> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
-        title: Text('Delete ${ids.length} conversation${ids.length == 1 ? '' : 's'}?'),
-        content: Text('This removes the selected conversation${ids.length == 1 ? '' : 's'} from your chat list only. Other participants keep their copies. A new message can make a conversation appear again.'),
+        title: Text(
+            'Delete ${ids.length} conversation${ids.length == 1 ? '' : 's'}?'),
+        content: Text(
+            'This removes the selected conversation${ids.length == 1 ? '' : 's'} from your chat list only. Other participants keep their copies. A new message can make a conversation appear again.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for me')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Delete for me')),
         ],
       ),
     );
     if (confirmed != true || !mounted) return;
     try {
-      await app.api.call('POST', '/api/conversations/delete', {'conversationIds': ids});
-      setState(() { chats.removeWhere((c) => c is Map && ids.contains(c['_id']?.toString())); selectedConversationIds.clear(); selectingChats = false; });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${ids.length} conversation${ids.length == 1 ? '' : 's'} deleted from your chat list.')));
+      await app.api
+          .call('POST', '/api/conversations/delete', {'conversationIds': ids});
+      setState(() {
+        chats
+            .removeWhere((c) => c is Map && ids.contains(c['_id']?.toString()));
+        selectedConversationIds.clear();
+        selectingChats = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                '${ids.length} conversation${ids.length == 1 ? '' : 's'} deleted from your chat list.')));
+      }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
     }
   }
 
@@ -1619,7 +1816,14 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
-    final titles = ['Chats', 'Business', 'Memories', 'Contacts', 'Profile', 'Stores'];
+    final titles = [
+      'Chats',
+      'Business',
+      'Memories',
+      'Contacts',
+      'Profile',
+      'Stores'
+    ];
     return Scaffold(
       // Keep Business discoverable from the primary chat screen as well as the
       // dedicated bottom-navigation tab. This is especially helpful on web,
@@ -1648,20 +1852,48 @@ class _HomeState extends State<Home> {
               onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const PaymentHistory()))),
           if (tab == 0 && selectingChats) ...[
-            IconButton(tooltip: 'Select all', icon: const Icon(Icons.select_all), onPressed: () => setState(() { selectedConversationIds..clear()..addAll(chats.whereType<Map>().map((c) => c['_id'].toString())); })),
-            IconButton(tooltip: 'Delete selected conversations', onPressed: selectedConversationIds.isEmpty ? null : _deleteSelectedConversations, icon: const Icon(Icons.delete_outline)),
-            IconButton(tooltip: 'Cancel selection', onPressed: () => setState(() { selectingChats = false; selectedConversationIds.clear(); }), icon: const Icon(Icons.close)),
+            IconButton(
+                tooltip: 'Select all',
+                icon: const Icon(Icons.select_all),
+                onPressed: () => setState(() {
+                      selectedConversationIds
+                        ..clear()
+                        ..addAll(chats
+                            .whereType<Map>()
+                            .map((c) => c['_id'].toString()));
+                    })),
+            IconButton(
+                tooltip: 'Delete selected conversations',
+                onPressed: selectedConversationIds.isEmpty
+                    ? null
+                    : _deleteSelectedConversations,
+                icon: const Icon(Icons.delete_outline)),
+            IconButton(
+                tooltip: 'Cancel selection',
+                onPressed: () => setState(() {
+                      selectingChats = false;
+                      selectedConversationIds.clear();
+                    }),
+                icon: const Icon(Icons.close)),
           ] else if (tab == 0) ...[
-            IconButton(tooltip: 'Select conversations', onPressed: () => setState(() => selectingChats = true), icon: const Icon(Icons.checklist)),
+            IconButton(
+                tooltip: 'Select conversations',
+                onPressed: () => setState(() => selectingChats = true),
+                icon: const Icon(Icons.checklist)),
             IconButton(onPressed: loadChats, icon: const Icon(Icons.refresh)),
           ],
           if (tab == 3)
             IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
         ],
       ),
-      body: IndexedStack(
-          index: tab,
-          children: [_chats(), const BusinessHub(), _memories(), _contacts(), const Profile(), const StoreDirectoryPage()]),
+      body: IndexedStack(index: tab, children: [
+        _chats(),
+        const BusinessHub(),
+        _memories(),
+        _contacts(),
+        const Profile(),
+        const StoreDirectoryPage()
+      ]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (i) {
@@ -1714,7 +1946,8 @@ class _HomeState extends State<Home> {
           // Older API payloads can expose participant IDs as either id or _id.
           final title = c['type'] == 'group'
               ? (c['title'] ?? 'Group').toString()
-              : (conversationPeerName(c, app.user) ?? 'Unknown user').toString();
+              : (conversationPeerName(c, app.user) ?? 'Unknown user')
+                  .toString();
           final last = c['lastMessage'];
           final preview = last is Map
               ? (last['text'] ?? 'Start chatting').toString()
@@ -1723,8 +1956,11 @@ class _HomeState extends State<Home> {
           final selected = selectedConversationIds.contains(id);
           return ListTile(
             leading: selectingChats
-                ? Checkbox(value: selected, onChanged: (_) => _toggleConversationSelection(id))
-                : CircleAvatar(child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
+                ? Checkbox(
+                    value: selected,
+                    onChanged: (_) => _toggleConversationSelection(id))
+                : CircleAvatar(
+                    child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
             title: Text(title),
             subtitle: Text(preview),
             selected: selected,
@@ -1733,7 +1969,10 @@ class _HomeState extends State<Home> {
               _toggleConversationSelection(id);
             },
             onTap: () {
-              if (selectingChats) { _toggleConversationSelection(id); return; }
+              if (selectingChats) {
+                _toggleConversationSelection(id);
+                return;
+              }
               Navigator.push(context,
                       MaterialPageRoute(builder: (_) => Chat(conversation: c)))
                   .then((_) => loadChats());
@@ -1748,10 +1987,18 @@ class _HomeState extends State<Home> {
     if (mounted) setState(() => contactsLoading = true);
     try {
       final result = await app.api.call('GET', '/api/contacts');
-      if (mounted) setState(() => savedContacts = List<dynamic>.from(result['contacts'] ?? []));
+      if (mounted) {
+        setState(
+            () => savedContacts = List<dynamic>.from(result['contacts'] ?? []));
+      }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load contacts: $error')));
-    } finally { if (mounted) setState(() => contactsLoading = false); }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not load contacts: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => contactsLoading = false);
+    }
   }
 
   @override
@@ -1764,20 +2011,32 @@ class _HomeState extends State<Home> {
     final value = (query ?? phoneQuery).trim();
     if (query != null) phoneQuery = query;
     if (value.replaceAll(RegExp(r'\D'), '').length < 3) {
-      if (mounted) setState(() { phoneResults = []; phoneSearching = false; });
+      if (mounted) {
+        setState(() {
+          phoneResults = [];
+          phoneSearching = false;
+        });
+      }
       return;
     }
     setState(() => phoneSearching = true);
     try {
-      final result = await app.api.call('GET', '/api/contacts/search?q=${Uri.encodeQueryComponent(value)}');
-      if (mounted && phoneQuery.trim() == value) setState(() => phoneResults = List<dynamic>.from(result['users'] ?? []));
+      final result = await app.api.call(
+          'GET', '/api/contacts/search?q=${Uri.encodeQueryComponent(value)}');
+      if (mounted && phoneQuery.trim() == value) {
+        setState(
+            () => phoneResults = List<dynamic>.from(result['users'] ?? []));
+      }
     } catch (error) {
       if (mounted && phoneQuery.trim() == value) {
         setState(() => phoneResults = []);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
       }
     } finally {
-      if (mounted && phoneQuery.trim() == value) setState(() => phoneSearching = false);
+      if (mounted && phoneQuery.trim() == value) {
+        setState(() => phoneSearching = false);
+      }
     }
   }
 
@@ -1787,10 +2046,14 @@ class _HomeState extends State<Home> {
       await loadSavedContacts();
       if (mounted) {
         setState(() => phoneResults = []);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact saved.')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Contact saved.')));
       }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
     }
   }
 
@@ -1824,16 +2087,27 @@ class _HomeState extends State<Home> {
       if (mounted) {
         // Keep live search results visible so another matching account can be
         // selected without retyping the query.
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact saved.')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Contact saved.')));
       }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
     }
   }
 
   Future<void> removeSavedContact(Map<String, dynamic> contact) async {
-    try { await app.api.call('DELETE', '/api/contacts/${contact['id']}'); await loadSavedContacts(); }
-    catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString()))); }
+    try {
+      await app.api.call('DELETE', '/api/contacts/${contact['id']}');
+      await loadSavedContacts();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
   }
 
   Widget _contacts() {
@@ -1883,7 +2157,8 @@ class _HomeState extends State<Home> {
           padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Align(
             alignment: Alignment.centerLeft,
-            child: Text('No accounts match that number yet. Keep typing or check the digits.'),
+            child: Text(
+                'No accounts match that number yet. Keep typing or check the digits.'),
           ),
         ),
       if (phoneResults.isNotEmpty)
@@ -2013,7 +2288,8 @@ class _HomeState extends State<Home> {
                       final name = contact['name']?.toString() ?? 'Contact';
                       return ListTile(
                         leading: CircleAvatar(
-                          child: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
+                          child:
+                              Text(name.isEmpty ? '?' : name[0].toUpperCase()),
                         ),
                         title: Text(name),
                         subtitle: Text(
@@ -2468,7 +2744,8 @@ class PaymentCard extends StatelessWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.payments_outlined),
-              title: Text(payment['description']?.toString() ?? 'M-Pesa payment'),
+              title:
+                  Text(payment['description']?.toString() ?? 'M-Pesa payment'),
               subtitle: Text(
                 'KSh ${payment['amount'] ?? ''} · $status · To ${payment['recipientPhone'] ?? 'recipient'}${isMock ? ' · Local demo' : ''}',
               ),
@@ -2484,7 +2761,9 @@ class PaymentCard extends StatelessWidget {
                     label: const Text('Reopen request'),
                   ),
                 if (onReopen == null &&
-                    status == 'PENDING' && isPayer && onPay != null)
+                    status == 'PENDING' &&
+                    isPayer &&
+                    onPay != null)
                   TextButton(
                     onPressed: onPay,
                     child: const Text('Pay with M-Pesa'),
@@ -2651,8 +2930,7 @@ class _ChatState extends State<Chat> {
   void _syncPresence() {
     if (!mounted) return;
     final peerId = _directPeerId();
-    final shouldBeOnline =
-        peerId != null && app.onlineUserIds.contains(peerId);
+    final shouldBeOnline = peerId != null && app.onlineUserIds.contains(peerId);
     final isOnline = peerId != null && onlineIds.contains(peerId);
     if (shouldBeOnline == isOnline) return;
     setState(() {
@@ -2781,14 +3059,18 @@ class _ChatState extends State<Chat> {
     });
     socket!.on('user:online', (data) {
       final peerId = _directPeerId();
-      if (data is Map && mounted && peerId != null &&
+      if (data is Map &&
+          mounted &&
+          peerId != null &&
           data['userId']?.toString() == peerId) {
         setState(() => onlineIds.add(peerId));
       }
     });
     socket!.on('user:offline', (data) {
       final peerId = _directPeerId();
-      if (data is Map && mounted && peerId != null &&
+      if (data is Map &&
+          mounted &&
+          peerId != null &&
           data['userId']?.toString() == peerId) {
         setState(() => onlineIds.remove(peerId));
       }
@@ -2826,12 +3108,19 @@ class _ChatState extends State<Chat> {
       setState(() => payments = mergePayment(payments, incoming));
     });
     socket!.on('message:deleted', (data) {
-      if (!mounted || data is! Map || data['conversationId']?.toString() != widget.conversation['_id']?.toString()) return;
-      final index = messages.indexWhere((m) => m is Map && m['_id']?.toString() == data['messageId']?.toString());
+      if (!mounted ||
+          data is! Map ||
+          data['conversationId']?.toString() !=
+              widget.conversation['_id']?.toString()) {
+        return;
+      }
+      final index = messages.indexWhere((m) =>
+          m is Map && m['_id']?.toString() == data['messageId']?.toString());
       if (index < 0) return;
       setState(() {
         final copy = Map<String, dynamic>.from(messages[index]);
-        copy['deletedAt'] = data['deletedAt'] ?? DateTime.now().toIso8601String();
+        copy['deletedAt'] =
+            data['deletedAt'] ?? DateTime.now().toIso8601String();
         copy['text'] = '';
         copy['mediaUrl'] = null;
         copy['messageType'] = 'text';
@@ -2934,8 +3223,10 @@ class _ChatState extends State<Chat> {
       return;
     }
     final amount = TextEditingController();
-    final payerPhone = TextEditingController(text: other['phone']?.toString() ?? '');
-    final recipientPhone = TextEditingController(text: app.user?['phone']?.toString() ?? '');
+    final payerPhone =
+        TextEditingController(text: other['phone']?.toString() ?? '');
+    final recipientPhone =
+        TextEditingController(text: app.user?['phone']?.toString() ?? '');
     final description = TextEditingController();
     final form = GlobalKey<FormState>();
     final submit = await showDialog<bool>(
@@ -2963,20 +3254,24 @@ class _ChatState extends State<Chat> {
                           decoration: const InputDecoration(
                               labelText: 'Sender / Payer M-Pesa Number',
                               hintText: '0712345678 or 254712345678',
-                              helperText: 'Defaults to the other participant’s registered number. You can edit it for this request.'),
-                          validator: (v) => normalizeKenyanPhone(v ?? '') == null
-                              ? 'Enter a valid Kenyan M-Pesa number'
-                              : null),
+                              helperText:
+                                  'Defaults to the other participant’s registered number. You can edit it for this request.'),
+                          validator: (v) =>
+                              normalizeKenyanPhone(v ?? '') == null
+                                  ? 'Enter a valid Kenyan M-Pesa number'
+                                  : null),
                       TextFormField(
                           controller: recipientPhone,
                           keyboardType: TextInputType.phone,
                           decoration: const InputDecoration(
                               labelText: 'Recipient M-Pesa Number',
                               hintText: '0712345678 or 254712345678',
-                              helperText: 'Defaults to your registered number. Editing affects this request only.'),
-                          validator: (v) => normalizeKenyanPhone(v ?? '') == null
-                              ? 'Enter a valid Kenyan M-Pesa number'
-                              : null),
+                              helperText:
+                                  'Defaults to your registered number. Editing affects this request only.'),
+                          validator: (v) =>
+                              normalizeKenyanPhone(v ?? '') == null
+                                  ? 'Enter a valid Kenyan M-Pesa number'
+                                  : null),
                       TextFormField(
                           controller: description,
                           maxLength: 80,
@@ -3032,7 +3327,10 @@ class _ChatState extends State<Chat> {
 
   Future<void> payPayment(Map<String, dynamic> payment) async {
     final payerPhone = TextEditingController(
-        text: payment['payerPhone']?.toString() ?? payment['phone']?.toString() ?? app.user?['phone']?.toString() ?? '');
+        text: payment['payerPhone']?.toString() ??
+            payment['phone']?.toString() ??
+            app.user?['phone']?.toString() ??
+            '');
     final form = GlobalKey<FormState>();
     final accepted = await showDialog<bool>(
         context: context,
@@ -3072,8 +3370,8 @@ class _ChatState extends State<Chat> {
       return;
     }
     try {
-      final result = await app.api.call(
-          'POST', '/api/payments/${payment['paymentId']}/initiate', {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/initiate', {
         'phone': normalizeKenyanPhone(payerPhone.text)!,
       });
       final updated = Map<String, dynamic>.from(result['payment']);
@@ -3132,13 +3430,14 @@ class _ChatState extends State<Chat> {
 
   Future<void> closePayment(Map<String, dynamic> payment) async {
     try {
-      final result = await app.api.call(
-          'POST', '/api/payments/${payment['paymentId']}/close', {});
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/close', {});
       if (mounted) {
         setState(() => payments = mergePayment(
             payments, Map<String, dynamic>.from(result['payment'])));
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Closed for you. The other person can still see this request.')));
+            content: Text(
+                'Closed for you. The other person can still see this request.')));
       }
     } catch (error) {
       if (mounted) {
@@ -3150,8 +3449,8 @@ class _ChatState extends State<Chat> {
 
   Future<void> reopenPayment(Map<String, dynamic> payment) async {
     try {
-      final result = await app.api.call(
-          'POST', '/api/payments/${payment['paymentId']}/reopen', {});
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/reopen', {});
       if (mounted) {
         setState(() {
           payments = mergePayment(
@@ -3175,7 +3474,8 @@ class _ChatState extends State<Chat> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
-        title: Text(isPayer ? 'Reject M-Pesa request?' : 'Withdraw M-Pesa request?'),
+        title: Text(
+            isPayer ? 'Reject M-Pesa request?' : 'Withdraw M-Pesa request?'),
         content: const Text(
           'This cancels the request for both people and is only available before an M-Pesa prompt has started. If a prompt was already sent, close it for yourself and cancel it on your phone if it is still open.',
         ),
@@ -3191,8 +3491,8 @@ class _ChatState extends State<Chat> {
     );
     if (confirmed != true || !mounted) return;
     try {
-      final result = await app.api.call(
-          'POST', '/api/payments/${payment['paymentId']}/reject', {});
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/reject', {});
       if (mounted) {
         setState(() => payments = mergePayment(
             payments, Map<String, dynamic>.from(result['payment'])));
@@ -3479,8 +3779,7 @@ class _ChatState extends State<Chat> {
         final comma = url.indexOf(',');
         if (comma < 0) throw const FormatException('Invalid image data.');
         mime = url.substring(5, comma).split(';').first.toLowerCase();
-        bytes = Uint8List.fromList(
-            base64Decode(url.substring(comma + 1)));
+        bytes = Uint8List.fromList(base64Decode(url.substring(comma + 1)));
       } else {
         final uri = Uri.parse(url);
         if (uri.scheme != 'https' && uri.scheme != 'http') {
@@ -3520,7 +3819,8 @@ class _ChatState extends State<Chat> {
           );
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Image download requested. Check your browser downloads.'),
+              content: Text(
+                  'Image download requested. Check your browser downloads.'),
             ));
           }
           return;
@@ -3530,10 +3830,14 @@ class _ChatState extends State<Chat> {
               const Duration(seconds: 45),
             );
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          throw Exception('Image download failed (HTTP ${response.statusCode}).');
+          throw Exception(
+              'Image download failed (HTTP ${response.statusCode}).');
         }
         bytes = response.bodyBytes;
-        mime = (response.headers['content-type'] ?? '').split(';').first.toLowerCase();
+        mime = (response.headers['content-type'] ?? '')
+            .split(';')
+            .first
+            .toLowerCase();
         if (!mime.startsWith('image/')) {
           mime = guessedExtension == 'png'
               ? 'image/png'
@@ -3669,7 +3973,8 @@ class _ChatState extends State<Chat> {
   }
 
   // Scan newest-first and stop when a meaningful suggestion is found.
-  Future<void> _scanRecentMessagesForMemory(List<dynamic> sourceMessages) async {
+  Future<void> _scanRecentMessagesForMemory(
+      List<dynamic> sourceMessages) async {
     final recent = sourceMessages.whereType<Map>().toList().reversed.take(12);
     for (final raw in recent) {
       if (await _detectMemoryForMessage(Map<String, dynamic>.from(raw))) return;
@@ -3685,7 +3990,9 @@ class _ChatState extends State<Chat> {
     }
     final text = (message['text'] as String).trim();
     final id = message['_id']?.toString();
-    if (text.isEmpty || id == null || id.isEmpty ||
+    if (text.isEmpty ||
+        id == null ||
+        id.isEmpty ||
         _checkedMemoryMessageIds.contains(id) ||
         _dismissedMemoryMessageIds.contains(id) ||
         _savedMemoryMessageIds.contains(id)) {
@@ -3693,8 +4000,8 @@ class _ChatState extends State<Chat> {
     }
     _checkedMemoryMessageIds.add(id);
     try {
-      final result = await app.api.call(
-          'POST', '/api/memories/extract', {'text': text});
+      final result =
+          await app.api.call('POST', '/api/memories/extract', {'text': text});
       final candidates = List<dynamic>.from(result['candidates'] ?? [])
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
@@ -3853,10 +4160,15 @@ class _ChatState extends State<Chat> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('Delete this message?'),
-        content: const Text('This removes the message for everyone in the conversation. This cannot be undone.'),
+        content: const Text(
+            'This removes the message for everyone in the conversation. This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for everyone')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Delete for everyone')),
         ],
       ),
     );
@@ -3864,29 +4176,53 @@ class _ChatState extends State<Chat> {
     try {
       final result = await app.api.call('DELETE', '/api/messages/$id', {});
       final updated = Map<String, dynamic>.from(result['message']);
-      final index = messages.indexWhere((item) => item is Map && item['_id']?.toString() == id);
+      final index = messages
+          .indexWhere((item) => item is Map && item['_id']?.toString() == id);
       if (index >= 0 && mounted) setState(() => messages[index] = updated);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message deleted for everyone.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Message deleted for everyone.')));
+      }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
     }
   }
 
   Future<void> showMessageActions(Map<String, dynamic> message) async {
     final mine = message['senderId']?.toString() == app.user?['id']?.toString();
-    final deleted = message['deletedAt'] != null || message['expiredAt'] != null;
+    final deleted =
+        message['deletedAt'] != null || message['expiredAt'] != null;
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (sheet) => SafeArea(
         child: Wrap(
           children: [
             if (!deleted) ...[
-              ListTile(leading: const Icon(Icons.reply), title: const Text('Reply'), onTap: () => Navigator.pop(sheet, 'reply')),
-              ListTile(leading: const Text('❤️', style: TextStyle(fontSize: 22)), title: const Text('React with ❤️'), onTap: () => Navigator.pop(sheet, '❤️')),
-              ListTile(leading: const Text('👍', style: TextStyle(fontSize: 22)), title: const Text('React with 👍'), onTap: () => Navigator.pop(sheet, '👍')),
-              ListTile(leading: const Text('😂', style: TextStyle(fontSize: 22)), title: const Text('React with 😂'), onTap: () => Navigator.pop(sheet, '😂')),
+              ListTile(
+                  leading: const Icon(Icons.reply),
+                  title: const Text('Reply'),
+                  onTap: () => Navigator.pop(sheet, 'reply')),
+              ListTile(
+                  leading: const Text('❤️', style: TextStyle(fontSize: 22)),
+                  title: const Text('React with ❤️'),
+                  onTap: () => Navigator.pop(sheet, '❤️')),
+              ListTile(
+                  leading: const Text('👍', style: TextStyle(fontSize: 22)),
+                  title: const Text('React with 👍'),
+                  onTap: () => Navigator.pop(sheet, '👍')),
+              ListTile(
+                  leading: const Text('😂', style: TextStyle(fontSize: 22)),
+                  title: const Text('React with 😂'),
+                  onTap: () => Navigator.pop(sheet, '😂')),
             ],
-            if (mine && !deleted) ListTile(leading: const Icon(Icons.delete_outline, color: Colors.red), title: const Text('Delete for everyone'), onTap: () => Navigator.pop(sheet, 'delete')),
+            if (mine && !deleted)
+              ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('Delete for everyone'),
+                  onTap: () => Navigator.pop(sheet, 'delete')),
           ],
         ),
       ),
@@ -4073,7 +4409,8 @@ class _ChatState extends State<Chat> {
                                       // stretching across the phone screen.
                                       constraints: BoxConstraints(
                                         maxWidth:
-                                            (MediaQuery.sizeOf(context).width * 0.62)
+                                            (MediaQuery.sizeOf(context).width *
+                                                    0.62)
                                                 .clamp(180.0, 520.0)
                                                 .toDouble(),
                                       ),
@@ -4089,8 +4426,10 @@ class _ChatState extends State<Chat> {
                                         borderRadius: BorderRadius.only(
                                           topLeft: const Radius.circular(18),
                                           topRight: const Radius.circular(18),
-                                          bottomLeft: Radius.circular(mine ? 18 : 5),
-                                          bottomRight: Radius.circular(mine ? 5 : 18),
+                                          bottomLeft:
+                                              Radius.circular(mine ? 18 : 5),
+                                          bottomRight:
+                                              Radius.circular(mine ? 5 : 18),
                                         ),
                                         border: Border.all(
                                           color: mine
@@ -4105,127 +4444,190 @@ class _ChatState extends State<Chat> {
                                               : const Color(0xFF253047),
                                         ),
                                         child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            // A reply keeps only the original message ID in storage.
-                                            // Resolve it against the current conversation so deleted,
-                                            // expired, or unavailable originals never break rendering.
-                                            if (message['replyTo'] != null)
-                                              Builder(builder: (context) {
-                                                final original = findReplyTarget(messages, message['replyTo']);
-                                                // A non-null empty map keeps preview rendering null-safe
-                                                // while the unavailable flag preserves deleted-message semantics.
-                                                final originalMap = original ?? <String, dynamic>{};
-                                                final unavailable = original == null ||
-                                                    originalMap['deletedAt'] != null ||
-                                                    originalMap['expiredAt'] != null;
-                                                final originalSender = originalMap['senderId']?.toString() ==
-                                                        app.user?['id']?.toString()
-                                                    ? 'You'
-                                                    : 'Message';
-                                                final preview = unavailable
-                                                    ? 'Original message unavailable'
-                                                    : (originalMap['text'] ?? '[media]').toString();
-                                                return Container(
-                                                  width: double.infinity,
-                                                  margin: const EdgeInsets.only(bottom: 7),
-                                                  padding: const EdgeInsets.all(8),
-                                                  decoration: BoxDecoration(
-                                                    color: mine ? const Color(0x33404040) : const Color(0xFFF0EFFF),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    border: Border(left: BorderSide(
-                                                      color: mine ? Colors.white70 : const Color(0xFF4F46E5),
-                                                      width: 3,
-                                                    )),
-                                                  ),
-                                                  child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    children: [
-                                                      Text('Replying to $originalSender',
-                                                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11,
-                                                              color: mine ? Colors.white : const Color(0xFF4F46E5))),
-                                                      Text(preview, maxLines: 2, overflow: TextOverflow.ellipsis,
-                                                          style: TextStyle(fontSize: 12,
-                                                              color: mine ? Colors.white : const Color(0xFF39445A))),
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              // A reply keeps only the original message ID in storage.
+                                              // Resolve it against the current conversation so deleted,
+                                              // expired, or unavailable originals never break rendering.
+                                              if (message['replyTo'] != null)
+                                                Builder(builder: (context) {
+                                                  final original =
+                                                      findReplyTarget(messages,
+                                                          message['replyTo']);
+                                                  // A non-null empty map keeps preview rendering null-safe
+                                                  // while the unavailable flag preserves deleted-message semantics.
+                                                  final originalMap =
+                                                      original ??
+                                                          <String, dynamic>{};
+                                                  final unavailable =
+                                                      original == null ||
+                                                          originalMap[
+                                                                  'deletedAt'] !=
+                                                              null ||
+                                                          originalMap[
+                                                                  'expiredAt'] !=
+                                                              null;
+                                                  final originalSender =
+                                                      originalMap['senderId']
+                                                                  ?.toString() ==
+                                                              app.user?['id']
+                                                                  ?.toString()
+                                                          ? 'You'
+                                                          : 'Message';
+                                                  final preview = unavailable
+                                                      ? 'Original message unavailable'
+                                                      : (originalMap['text'] ??
+                                                              '[media]')
+                                                          .toString();
+                                                  return Container(
+                                                    width: double.infinity,
+                                                    margin:
+                                                        const EdgeInsets.only(
+                                                            bottom: 7),
+                                                    padding:
+                                                        const EdgeInsets.all(8),
+                                                    decoration: BoxDecoration(
+                                                      color: mine
+                                                          ? const Color(
+                                                              0x33404040)
+                                                          : const Color(
+                                                              0xFFF0EFFF),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              8),
+                                                      border: Border(
+                                                          left: BorderSide(
+                                                        color: mine
+                                                            ? Colors.white70
+                                                            : const Color(
+                                                                0xFF4F46E5),
+                                                        width: 3,
+                                                      )),
+                                                    ),
+                                                    child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      children: [
+                                                        Text(
+                                                            'Replying to $originalSender',
+                                                            style: TextStyle(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w700,
+                                                                fontSize: 11,
+                                                                color: mine
+                                                                    ? Colors
+                                                                        .white
+                                                                    : const Color(
+                                                                        0xFF4F46E5))),
+                                                        Text(preview,
+                                                            maxLines: 2,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: TextStyle(
+                                                                fontSize: 12,
+                                                                color: mine
+                                                                    ? Colors
+                                                                        .white
+                                                                    : const Color(
+                                                                        0xFF39445A))),
+                                                      ],
+                                                    ),
+                                                  );
+                                                }),
+                                              if (mine &&
+                                                  message['deletedAt'] ==
+                                                      null &&
+                                                  message['expiredAt'] == null)
+                                                Align(
+                                                  widthFactor: 1,
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  child:
+                                                      PopupMenuButton<String>(
+                                                    tooltip: 'Message options',
+                                                    padding: EdgeInsets.zero,
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                      minWidth: 44,
+                                                      minHeight: 44,
+                                                    ),
+                                                    iconSize: 20,
+                                                    icon: Icon(
+                                                      Icons.more_horiz,
+                                                      color: mine
+                                                          ? Colors.white
+                                                          : const Color(
+                                                              0xFF536078),
+                                                    ),
+                                                    onSelected: (action) {
+                                                      if (action == 'delete') {
+                                                        deleteMessage(message);
+                                                      }
+                                                    },
+                                                    itemBuilder: (_) => const [
+                                                      PopupMenuItem<String>(
+                                                        value: 'delete',
+                                                        child: Row(
+                                                          children: [
+                                                            Icon(
+                                                              Icons
+                                                                  .delete_outline,
+                                                              color: Color(
+                                                                  0xFFDC2626),
+                                                              size: 20,
+                                                            ),
+                                                            SizedBox(width: 10),
+                                                            Text(
+                                                                'Delete for everyone'),
+                                                          ],
+                                                        ),
+                                                      ),
                                                     ],
                                                   ),
-                                                );
-                                              }),
-                                            if (mine &&
-                                                message['deletedAt'] == null &&
-                                                message['expiredAt'] == null)
-                                              Align(
-                                                widthFactor: 1,
-                                                alignment: Alignment.centerRight,
-                                                child: PopupMenuButton<String>(
-                                                  tooltip: 'Message options',
-                                                  padding: EdgeInsets.zero,
-                                                  constraints: const BoxConstraints(
-                                                    minWidth: 44,
-                                                    minHeight: 44,
-                                                  ),
-                                                  iconSize: 20,
-                                                  icon: Icon(
-                                                    Icons.more_horiz,
-                                                    color: mine
-                                                        ? Colors.white
-                                                        : const Color(0xFF536078),
-                                                  ),
-                                                  onSelected: (action) {
-                                                    if (action == 'delete') {
-                                                      deleteMessage(message);
-                                                    }
-                                                  },
-                                                  itemBuilder: (_) => const [
-                                                    PopupMenuItem<String>(
-                                                      value: 'delete',
-                                                      child: Row(
-                                                        children: [
-                                                          Icon(
-                                                            Icons.delete_outline,
-                                                            color: Color(0xFFDC2626),
-                                                            size: 20,
-                                                          ),
-                                                          SizedBox(width: 10),
-                                                          Text('Delete for everyone'),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ],
                                                 ),
-                                              ),
-                                            if (message['deletedAt'] == null &&
-                                                message['expiredAt'] == null &&
-                                                message['messageType'] == 'image' &&
-                                                message['mediaUrl'] != null)
-                                              renderImage(
-                                                  message['mediaUrl'].toString())
-                                            else
-                                              Text(text),
-                                            if (message['deletedAt'] == null &&
-                                                message['reactions'] is List &&
-                                                (message['reactions'] as List)
-                                                    .isNotEmpty)
-                                              Text((message['reactions'] as List)
-                                                  .map((r) => r['emoji'])
-                                                  .join(' ')),
-                                            if (mine &&
-                                                message['deliveredTo'] is List &&
-                                                (message['deliveredTo'] as List)
-                                                        .length >
-                                                    1)
-                                              Text(
-                                                  message['readBy'] is List &&
-                                                          (message['readBy']
-                                                                      as List)
-                                                                  .length >
-                                                              1
-                                                      ? 'Read'
-                                                      : 'Delivered',
-                                                  style:
-                                                      const TextStyle(fontSize: 10))
-                                          ]),
+                                              if (message['deletedAt'] == null &&
+                                                  message['expiredAt'] ==
+                                                      null &&
+                                                  message['messageType'] ==
+                                                      'image' &&
+                                                  message['mediaUrl'] != null)
+                                                renderImage(message['mediaUrl']
+                                                    .toString())
+                                              else
+                                                Text(text),
+                                              if (message[
+                                                          'deletedAt'] ==
+                                                      null &&
+                                                  message['reactions']
+                                                      is List &&
+                                                  (message['reactions'] as List)
+                                                      .isNotEmpty)
+                                                Text((message['reactions']
+                                                        as List)
+                                                    .map((r) => r['emoji'])
+                                                    .join(' ')),
+                                              if (mine &&
+                                                  message['deliveredTo']
+                                                      is List &&
+                                                  (message['deliveredTo']
+                                                              as List)
+                                                          .length >
+                                                      1)
+                                                Text(
+                                                    message['readBy'] is List &&
+                                                            (message['readBy']
+                                                                        as List)
+                                                                    .length >
+                                                                1
+                                                        ? 'Read'
+                                                        : 'Delivered',
+                                                    style: const TextStyle(
+                                                        fontSize: 10))
+                                            ]),
                                       ),
                                     ),
                                   ),
@@ -4259,7 +4661,9 @@ class _ChatState extends State<Chat> {
                         IconButton(
                           tooltip: 'Not now',
                           visualDensity: VisualDensity.compact,
-                          onPressed: savingMemorySuggestion ? null : _dismissMemorySuggestions,
+                          onPressed: savingMemorySuggestion
+                              ? null
+                              : _dismissMemorySuggestions,
                           icon: const Icon(Icons.close, size: 18),
                         ),
                       ],
@@ -4274,9 +4678,13 @@ class _ChatState extends State<Chat> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(suggestion['title']?.toString() ?? 'Memory',
-                                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                                  Text(suggestion['description']?.toString() ?? ''),
+                                  Text(
+                                      suggestion['title']?.toString() ??
+                                          'Memory',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600)),
+                                  Text(suggestion['description']?.toString() ??
+                                      ''),
                                 ],
                               ),
                             ),
@@ -4288,7 +4696,8 @@ class _ChatState extends State<Chat> {
                                   ? const SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2))
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
                                   : const Text('Save'),
                             ),
                           ],
@@ -4297,7 +4706,9 @@ class _ChatState extends State<Chat> {
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
-                        onPressed: savingMemorySuggestion ? null : _dismissMemorySuggestions,
+                        onPressed: savingMemorySuggestion
+                            ? null
+                            : _dismissMemorySuggestions,
                         child: const Text('Not now'),
                       ),
                     ),
@@ -4314,7 +4725,8 @@ class _ChatState extends State<Chat> {
             // The fallback map lets the composer preview safely handle a missing or expired target.
             final originalMap = original ?? <String, dynamic>{};
             final originalDeleted = original == null ||
-                originalMap['deletedAt'] != null || originalMap['expiredAt'] != null;
+                originalMap['deletedAt'] != null ||
+                originalMap['expiredAt'] != null;
             final originalSender = originalMap['senderId']?.toString() ==
                     app.user?['id']?.toString()
                 ? 'You'
@@ -4327,19 +4739,27 @@ class _ChatState extends State<Chat> {
               padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
               decoration: BoxDecoration(
                 color: const Color(0xFFF0EFFF),
-                border: const Border(left: BorderSide(color: Color(0xFF4F46E5), width: 3)),
+                border: const Border(
+                    left: BorderSide(color: Color(0xFF4F46E5), width: 3)),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(children: [
                 const Icon(Icons.reply, color: Color(0xFF4F46E5), size: 19),
                 const SizedBox(width: 8),
-                Expanded(child: Column(
+                Expanded(
+                    child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Replying to $originalSender',
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF4F46E5))),
-                    Text(originalText, maxLines: 2, overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF39445A))),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: Color(0xFF4F46E5))),
+                    Text(originalText,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 12, color: Color(0xFF39445A))),
                   ],
                 )),
                 IconButton(
@@ -4368,58 +4788,58 @@ class _ChatState extends State<Chat> {
           ),
           Expanded(
               child: Focus(
-                onKeyEvent: (_, event) {
-                  if (event is! KeyDownEvent) return KeyEventResult.ignored;
+            onKeyEvent: (_, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
-                  final key = event.logicalKey;
-                  if (key == LogicalKeyboardKey.enter &&
-                      !HardwareKeyboard.instance.isShiftPressed) {
-                    if (!sending) send();
-                    return KeyEventResult.handled;
-                  }
+              final key = event.logicalKey;
+              if (key == LogicalKeyboardKey.enter &&
+                  !HardwareKeyboard.instance.isShiftPressed) {
+                if (!sending) send();
+                return KeyEventResult.handled;
+              }
 
-                  // When the composer is empty, use the arrow keys to browse
-                  // the conversation instead of moving an invisible caret.
-                  if (input.text.isEmpty &&
-                      _messagesScrollController.hasClients &&
-                      (key == LogicalKeyboardKey.arrowUp ||
-                          key == LogicalKeyboardKey.arrowDown)) {
-                    final position = _messagesScrollController.position;
-                    final distance = position.viewportDimension * 0.7;
-                    final target = (position.pixels +
-                            (key == LogicalKeyboardKey.arrowUp
-                                ? -distance
-                                : distance))
-                        .clamp(
-                          position.minScrollExtent,
-                          position.maxScrollExtent,
-                        )
-                        .toDouble();
-                    _messagesScrollController.animateTo(
-                      target,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                    );
-                    return KeyEventResult.handled;
-                  }
+              // When the composer is empty, use the arrow keys to browse
+              // the conversation instead of moving an invisible caret.
+              if (input.text.isEmpty &&
+                  _messagesScrollController.hasClients &&
+                  (key == LogicalKeyboardKey.arrowUp ||
+                      key == LogicalKeyboardKey.arrowDown)) {
+                final position = _messagesScrollController.position;
+                final distance = position.viewportDimension * 0.7;
+                final target = (position.pixels +
+                        (key == LogicalKeyboardKey.arrowUp
+                            ? -distance
+                            : distance))
+                    .clamp(
+                      position.minScrollExtent,
+                      position.maxScrollExtent,
+                    )
+                    .toDouble();
+                _messagesScrollController.animateTo(
+                  target,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                );
+                return KeyEventResult.handled;
+              }
 
-                  return KeyEventResult.ignored;
-                },
-                child: TextField(
-                  controller: input,
-                  minLines: 1,
-                  maxLines: 5,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) {
-                    if (!sending) send();
-                  },
-                  onChanged: _handleTyping,
-                  decoration: const InputDecoration(
-                    hintText: 'Write a message…',
-                    border: InputBorder.none,
-                  ),
-                ),
-              )),
+              return KeyEventResult.ignored;
+            },
+            child: TextField(
+              controller: input,
+              minLines: 1,
+              maxLines: 5,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) {
+                if (!sending) send();
+              },
+              onChanged: _handleTyping,
+              decoration: const InputDecoration(
+                hintText: 'Write a message…',
+                border: InputBorder.none,
+              ),
+            ),
+          )),
           IconButton(
               onPressed: sending ? null : send,
               icon: sending
@@ -4499,7 +4919,8 @@ class _ProfileState extends State<Profile> {
     final normalized = normalizeKenyanPhone(phone.text);
     if (normalized == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Enter a valid Kenyan M-Pesa number, e.g. 0712345678')));
+          content:
+              Text('Enter a valid Kenyan M-Pesa number, e.g. 0712345678')));
       return;
     }
     try {
@@ -4512,7 +4933,8 @@ class _ProfileState extends State<Profile> {
       app.user = Map<String, dynamic>.from(d['user']);
       phone.text = normalized;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Default M-Pesa number saved. Payment requests will use it automatically.')));
+          content: Text(
+              'Default M-Pesa number saved. Payment requests will use it automatically.')));
       setState(() {});
     } catch (error) {
       if (!mounted) return;
@@ -4585,7 +5007,8 @@ class _ProfileState extends State<Profile> {
         const Text('Default M-Pesa number',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
-        const Text('Set this for your existing account. Chatify will prefill it when you send or receive payment requests. You can still change either number on an individual request.'),
+        const Text(
+            'Set this for your existing account. Chatify will prefill it when you send or receive payment requests. You can still change either number on an individual request.'),
         const SizedBox(height: 10),
         TextField(
             controller: phone,
@@ -4593,7 +5016,12 @@ class _ProfileState extends State<Profile> {
             decoration: InputDecoration(
                 labelText: 'M-Pesa phone number',
                 hintText: '0712345678 or 254712345678',
-                helperText: (context.watch<AppState>().user?['phone']?.toString().isNotEmpty ?? false)
+                helperText: (context
+                            .watch<AppState>()
+                            .user?['phone']
+                            ?.toString()
+                            .isNotEmpty ??
+                        false)
                     ? 'Saved default: ${context.watch<AppState>().user?['phone']}'
                     : 'No default saved yet — add your number below.',
                 border: const OutlineInputBorder())),
@@ -4636,7 +5064,6 @@ class _ProfileState extends State<Profile> {
       ]);
 }
 
-
 /// Customer-facing public marketplace for discovering businesses and their published catalogue.
 class StoreDirectoryPage extends StatefulWidget {
   const StoreDirectoryPage({super.key});
@@ -4669,7 +5096,12 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
   }
 
   Future<void> loadResults() async {
-    if (mounted) setState(() { loading = true; error = null; });
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
     try {
       final parameters = <String, String>{
         if (search.text.trim().isNotEmpty) 'q': search.text.trim(),
@@ -4679,8 +5111,10 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
         'page': '1',
         'pageSize': '50',
       };
-      final endpoint = showingProducts ? '/api/marketplace/products' : '/api/marketplace';
-      final result = await app.api.call('GET', '$endpoint?${Uri(queryParameters: parameters).query}');
+      final endpoint =
+          showingProducts ? '/api/marketplace/products' : '/api/marketplace';
+      final result = await app.api
+          .call('GET', '$endpoint?${Uri(queryParameters: parameters).query}');
       if (!mounted) return;
       setState(() {
         if (showingProducts) {
@@ -4710,7 +5144,10 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
             icon: const Icon(Icons.account_balance_wallet_outlined),
             label: const Text('Payments'),
           ),
-          IconButton(tooltip: 'Refresh marketplace', onPressed: loadResults, icon: const Icon(Icons.refresh)),
+          IconButton(
+              tooltip: 'Refresh marketplace',
+              onPressed: loadResults,
+              icon: const Icon(Icons.refresh)),
         ],
       ),
       body: Column(children: [
@@ -4718,8 +5155,14 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: SegmentedButton<bool>(
             segments: const [
-              ButtonSegment<bool>(value: false, icon: Icon(Icons.storefront_outlined), label: Text('Businesses')),
-              ButtonSegment<bool>(value: true, icon: Icon(Icons.shopping_bag_outlined), label: Text('Products')),
+              ButtonSegment<bool>(
+                  value: false,
+                  icon: Icon(Icons.storefront_outlined),
+                  label: Text('Businesses')),
+              ButtonSegment<bool>(
+                  value: true,
+                  icon: Icon(Icons.shopping_bag_outlined),
+                  label: Text('Products')),
             ],
             selected: {showingProducts},
             onSelectionChanged: (selection) {
@@ -4735,9 +5178,12 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
             textInputAction: TextInputAction.search,
             onSubmitted: (_) => loadResults(),
             decoration: InputDecoration(
-              hintText: showingProducts ? 'Search products and services' : 'Search businesses and products',
+              hintText: showingProducts
+                  ? 'Search products and services'
+                  : 'Search businesses and products',
               prefixIcon: const Icon(Icons.search),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
             ),
           ),
         ),
@@ -4753,7 +5199,8 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                   labelText: 'Category',
                   hintText: 'e.g. retail',
                   prefixIcon: const Icon(Icons.category_outlined),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14)),
                 ),
               ),
             ),
@@ -4764,8 +5211,10 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                 initialValue: country,
                 decoration: InputDecoration(
                   labelText: 'Country',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
                 ),
                 items: const [
                   DropdownMenuItem(value: 'KE', child: Text('Kenya')),
@@ -4796,12 +5245,16 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                   labelText: 'Town or branch',
                   hintText: 'e.g. Nairobi',
                   prefixIcon: const Icon(Icons.location_on_outlined),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14)),
                 ),
               ),
             ),
             const SizedBox(width: 8),
-            FilledButton.icon(onPressed: loadResults, icon: const Icon(Icons.tune), label: const Text('Filter')),
+            FilledButton.icon(
+                onPressed: loadResults,
+                icon: const Icon(Icons.tune),
+                label: const Text('Filter')),
           ]),
         ),
         Expanded(
@@ -4813,37 +5266,58 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                     ? ListView(children: [
                         const SizedBox(height: 90),
                         const Icon(Icons.cloud_off_outlined, size: 48),
-                        Padding(padding: const EdgeInsets.all(16), child: Text(error!, textAlign: TextAlign.center)),
-                        Center(child: FilledButton(onPressed: loadResults, child: const Text('Try again'))),
+                        Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text(error!, textAlign: TextAlign.center)),
+                        Center(
+                            child: FilledButton(
+                                onPressed: loadResults,
+                                child: const Text('Try again'))),
                       ])
                     : entries.isEmpty
                         ? ListView(children: [
                             const SizedBox(height: 80),
-                            const Icon(Icons.storefront_outlined, size: 56, color: Color(0xFF77758B)),
+                            const Icon(Icons.storefront_outlined,
+                                size: 56, color: Color(0xFF77758B)),
                             const SizedBox(height: 12),
-                            Center(child: Text(
-                              showingProducts ? 'No products match these filters.' : 'No businesses match these filters.',
-                              style: const TextStyle(fontWeight: FontWeight.w700),
+                            Center(
+                                child: Text(
+                              showingProducts
+                                  ? 'No products match these filters.'
+                                  : 'No businesses match these filters.',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700),
                             )),
                             const SizedBox(height: 6),
-                            const Center(child: Padding(
+                            const Center(
+                                child: Padding(
                               padding: EdgeInsets.symmetric(horizontal: 28),
-                              child: Text('Published businesses and active catalogue items appear here. Clear a filter or try another search.', textAlign: TextAlign.center),
+                              child: Text(
+                                  'Published businesses and active catalogue items appear here. Clear a filter or try another search.',
+                                  textAlign: TextAlign.center),
                             )),
                           ])
                         : ListView.separated(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                             itemCount: entries.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
                             itemBuilder: (context, index) {
-                              final entry = Map<String, dynamic>.from(entries[index] as Map);
+                              final entry = Map<String, dynamic>.from(
+                                  entries[index] as Map);
                               if (showingProducts) {
                                 final business = entry['business'] is Map
-                                    ? Map<String, dynamic>.from(entry['business'] as Map)
+                                    ? Map<String, dynamic>.from(
+                                        entry['business'] as Map)
                                     : <String, dynamic>{};
-                                final images = entry['images'] is List ? List<dynamic>.from(entry['images']) : <dynamic>[];
-                                final image = images.isNotEmpty ? images.first.toString() : '';
-                                final currency = entry['currency']?.toString() ?? 'KES';
+                                final images = entry['images'] is List
+                                    ? List<dynamic>.from(entry['images'])
+                                    : <dynamic>[];
+                                final image = images.isNotEmpty
+                                    ? images.first.toString()
+                                    : '';
+                                final currency =
+                                    entry['currency']?.toString() ?? 'KES';
                                 final price = entry['price']?.toString() ?? '—';
                                 return Card(
                                   clipBehavior: Clip.antiAlias,
@@ -4852,22 +5326,49 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                     leading: CircleAvatar(
                                       radius: 28,
                                       backgroundColor: const Color(0xFFEDEBFF),
-                                      backgroundImage: image.startsWith('https://') ? NetworkImage(image) : null,
-                                      child: image.startsWith('https://') ? null : const Icon(Icons.inventory_2_outlined, color: Color(0xFF5548E8)),
+                                      backgroundImage:
+                                          image.startsWith('https://')
+                                              ? NetworkImage(image)
+                                              : null,
+                                      child: image.startsWith('https://')
+                                          ? null
+                                          : const Icon(
+                                              Icons.inventory_2_outlined,
+                                              color: Color(0xFF5548E8)),
                                     ),
-                                    title: Text(entry['name']?.toString() ?? 'Product or service', style: const TextStyle(fontWeight: FontWeight.w800)),
-                                    subtitle: Text('${business['name'] ?? 'Chatify business'} · ${entry['category'] ?? 'General'}', maxLines: 2, overflow: TextOverflow.ellipsis),
-                                    trailing: Text('$currency $price', style: const TextStyle(fontWeight: FontWeight.w800)),
-                                    onTap: business['slug'] == null ? null : () => Navigator.of(context).push(
-                                      MaterialPageRoute<void>(builder: (_) => StorefrontPage(slug: business['slug'].toString())),
-                                    ),
+                                    title: Text(
+                                        entry['name']?.toString() ??
+                                            'Product or service',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w800)),
+                                    subtitle: Text(
+                                        '${business['name'] ?? 'Chatify business'} · ${entry['category'] ?? 'General'}',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis),
+                                    trailing: Text('$currency $price',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w800)),
+                                    onTap: business['slug'] == null
+                                        ? null
+                                        : () => Navigator.of(context).push(
+                                              MaterialPageRoute<void>(
+                                                  builder: (_) =>
+                                                      StorefrontPage(
+                                                          slug: business['slug']
+                                                              .toString())),
+                                            ),
                                   ),
                                 );
                               }
-                              final name = entry['name']?.toString() ?? 'Chatify business';
+                              final name = entry['name']?.toString() ??
+                                  'Chatify business';
                               final logo = entry['logo']?.toString() ?? '';
-                              final count = entry['itemCount']?.toString() ?? '0';
-                              final industry = entry['industry']?.toString().replaceAll('_', ' ') ?? '';
+                              final count =
+                                  entry['itemCount']?.toString() ?? '0';
+                              final industry = entry['industry']
+                                      ?.toString()
+                                      .replaceAll('_', ' ') ??
+                                  '';
                               return Card(
                                 clipBehavior: Clip.antiAlias,
                                 child: ListTile(
@@ -4875,22 +5376,45 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                   leading: CircleAvatar(
                                     radius: 28,
                                     backgroundColor: const Color(0xFFEDEBFF),
-                                    backgroundImage: logo.startsWith('https://') ? NetworkImage(logo) : null,
-                                    child: logo.startsWith('https://') ? null : const Icon(Icons.storefront_rounded, color: Color(0xFF5548E8)),
+                                    backgroundImage: logo.startsWith('https://')
+                                        ? NetworkImage(logo)
+                                        : null,
+                                    child: logo.startsWith('https://')
+                                        ? null
+                                        : const Icon(Icons.storefront_rounded,
+                                            color: Color(0xFF5548E8)),
                                   ),
-                                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                                  title: Text(name,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w800)),
                                   subtitle: Padding(
                                     padding: const EdgeInsets.only(top: 5),
-                                    child: Text([
-                                      if (industry.isNotEmpty) industry[0].toUpperCase() + industry.substring(1),
-                                      '$count product/service(s)',
-                                      if ((entry['country']?.toString() ?? '').isNotEmpty) entry['country'].toString(),
-                                      if ((entry['description']?.toString() ?? '').isNotEmpty) entry['description'].toString(),
-                                    ].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                    child: Text(
+                                        [
+                                          if (industry.isNotEmpty)
+                                            industry[0].toUpperCase() +
+                                                industry.substring(1),
+                                          '$count product/service(s)',
+                                          if ((entry['country']?.toString() ??
+                                                  '')
+                                              .isNotEmpty)
+                                            entry['country'].toString(),
+                                          if ((entry['description']
+                                                      ?.toString() ??
+                                                  '')
+                                              .isNotEmpty)
+                                            entry['description'].toString(),
+                                        ].join(' · '),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis),
                                   ),
-                                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
-                                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                                    builder: (_) => StorefrontPage(slug: entry['slug'].toString()),
+                                  trailing: const Icon(
+                                      Icons.arrow_forward_ios_rounded,
+                                      size: 16),
+                                  onTap: () => Navigator.of(context)
+                                      .push(MaterialPageRoute<void>(
+                                    builder: (_) => StorefrontPage(
+                                        slug: entry['slug'].toString()),
                                   )),
                                 ),
                               );
@@ -4935,9 +5459,13 @@ class _StorefrontPageState extends State<StorefrontPage> {
   }
 
   Future<void> loadStore() async {
-    setState(() { loading = true; error = null; });
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
-      final result = await app.api.call('GET', '/api/storefront/${Uri.encodeComponent(widget.slug)}');
+      final result = await app.api
+          .call('GET', '/api/storefront/${Uri.encodeComponent(widget.slug)}');
       if (!mounted) return;
       setState(() {
         storefront = Map<String, dynamic>.from(result['storefront'] ?? {});
@@ -4951,10 +5479,11 @@ class _StorefrontPageState extends State<StorefrontPage> {
   }
 
   double get total => products.whereType<Map>().fold<double>(0, (sum, raw) {
-    final item = Map<String, dynamic>.from(raw);
-    return sum + (double.tryParse(item['price']?.toString() ?? '') ?? 0) *
-        (cart[item['_id']?.toString()] ?? 0);
-  });
+        final item = Map<String, dynamic>.from(raw);
+        return sum +
+            (double.tryParse(item['price']?.toString() ?? '') ?? 0) *
+                (cart[item['_id']?.toString()] ?? 0);
+      });
 
   void addProduct(Map<String, dynamic> item) {
     final id = item['_id']?.toString();
@@ -4962,7 +5491,9 @@ class _StorefrontPageState extends State<StorefrontPage> {
     final current = cart[id] ?? 0;
     final stock = int.tryParse(item['stock']?.toString() ?? '') ?? 0;
     if (stock > 0 && current >= stock) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You have selected all available stock for this product.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('You have selected all available stock for this product.')));
       return;
     }
     setState(() => cart[id] = current + 1);
@@ -4970,35 +5501,53 @@ class _StorefrontPageState extends State<StorefrontPage> {
 
   Future<void> showProduct(Map<String, dynamic> item) async {
     final id = item['_id']?.toString() ?? '';
-    final image = (item['images'] is List && (item['images'] as List).isNotEmpty)
-        ? (item['images'] as List).first.toString() : '';
+    final image =
+        (item['images'] is List && (item['images'] as List).isNotEmpty)
+            ? (item['images'] as List).first.toString()
+            : '';
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(item['name']?.toString() ?? 'Product'),
-        content: SingleChildScrollView(child: Column(
+        content: SingleChildScrollView(
+            child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (image.startsWith('https://')) ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(image, height: 170, width: double.infinity, fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink()),
-            ),
+            if (image.startsWith('https://'))
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(image,
+                    height: 170,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+              ),
             const SizedBox(height: 8),
-            Text('KSh ${item['price'] ?? '—'}', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            Text('KSh ${item['price'] ?? '—'}',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Text(item['description']?.toString() ?? 'No product description yet.'),
-            if ((item['category']?.toString() ?? '').isNotEmpty) Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Chip(label: Text(item['category'].toString())),
-            ),
+            Text(item['description']?.toString() ??
+                'No product description yet.'),
+            if ((item['category']?.toString() ?? '').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Chip(label: Text(item['category'].toString())),
+              ),
           ],
         )),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close')),
           FilledButton.icon(
-            onPressed: () { Navigator.pop(dialogContext); addProduct(item); },
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              addProduct(item);
+            },
             icon: const Icon(Icons.add_shopping_cart),
             label: Text(cart[id] == null ? 'Add to cart' : 'Add another'),
           ),
@@ -5014,10 +5563,15 @@ class _StorefrontPageState extends State<StorefrontPage> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Sign in to pay'),
-          content: const Text('You can browse products without an account. Sign in or create an account to place an order and receive the secure M-Pesa payment prompt.'),
+          content: const Text(
+              'You can browse products without an account. Sign in or create an account to place an order and receive the secure M-Pesa payment prompt.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not now')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Continue')),
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Not now')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Continue')),
           ],
         ),
       );
@@ -5025,20 +5579,39 @@ class _StorefrontPageState extends State<StorefrontPage> {
       return;
     }
     if (normalizeKenyanPhone(phone.text) == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid Kenyan M-Pesa phone number.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Enter a valid Kenyan M-Pesa phone number.')));
       return;
     }
-    setState(() { checkingOut = true; notice = null; error = null; });
+    setState(() {
+      checkingOut = true;
+      notice = null;
+      error = null;
+    });
     try {
-      final result = await app.api.call('POST', '/api/storefront/${Uri.encodeComponent(widget.slug)}/checkout', {
+      final result = await app.api.call('POST',
+          '/api/storefront/${Uri.encodeComponent(widget.slug)}/checkout', {
         'phone': phone.text.trim(),
-        'items': cart.entries.map((entry) => {'itemId': entry.key, 'quantity': entry.value}).toList(),
+        'items': cart.entries
+            .map((entry) => {'itemId': entry.key, 'quantity': entry.value})
+            .toList(),
       });
       final payment = Map<String, dynamic>.from(result['payment'] ?? {});
       final id = payment['paymentId']?.toString();
-      if (id == null || id.isEmpty) throw const FormatException('Order was created but no payment reference was returned.');
-      if (mounted) setState(() { paymentId = id; notice = 'Order created. Requesting M-Pesa payment prompt…'; });
-      final initiated = await app.api.call('POST', '/api/payments/${Uri.encodeComponent(id)}/initiate', {'phone': phone.text.trim()});
+      if (id == null || id.isEmpty) {
+        throw const FormatException(
+            'Order was created but no payment reference was returned.');
+      }
+      if (mounted) {
+        setState(() {
+          paymentId = id;
+          notice = 'Order created. Requesting M-Pesa payment prompt…';
+        });
+      }
+      final initiated = await app.api.call(
+          'POST',
+          '/api/payments/${Uri.encodeComponent(id)}/initiate',
+          {'phone': phone.text.trim()});
       if (!mounted) return;
       final isMock = initiated['mock'] == true;
       setState(() {
@@ -5058,7 +5631,8 @@ class _StorefrontPageState extends State<StorefrontPage> {
     final id = paymentId;
     if (id == null) return;
     try {
-      final result = await app.api.call('GET', '/api/payments/${Uri.encodeComponent(id)}');
+      final result =
+          await app.api.call('GET', '/api/payments/${Uri.encodeComponent(id)}');
       final payment = Map<String, dynamic>.from(result['payment'] ?? {});
       final status = payment['status']?.toString() ?? 'PENDING';
       if (mounted) {
@@ -5075,17 +5649,23 @@ class _StorefrontPageState extends State<StorefrontPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     if (error != null && storefront.isEmpty) {
-      return Scaffold(appBar: AppBar(title: const Text('Storefront')), body: Center(child: Padding(
-        padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.storefront_outlined, size: 48),
-          const SizedBox(height: 12),
-          Text(error!, textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: loadStore, child: const Text('Retry')),
-        ]),
-      )));
+      return Scaffold(
+          appBar: AppBar(title: const Text('Storefront')),
+          body: Center(
+              child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.storefront_outlined, size: 48),
+              const SizedBox(height: 12),
+              Text(error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: loadStore, child: const Text('Retry')),
+            ]),
+          )));
     }
     return Scaffold(
       appBar: AppBar(
@@ -5099,7 +5679,10 @@ class _StorefrontPageState extends State<StorefrontPage> {
             icon: const Icon(Icons.account_balance_wallet_outlined),
             label: const Text('Payments'),
           ),
-          IconButton(tooltip: 'Refresh products', onPressed: loadStore, icon: const Icon(Icons.refresh)),
+          IconButton(
+              tooltip: 'Refresh products',
+              onPressed: loadStore,
+              icon: const Icon(Icons.refresh)),
         ],
       ),
       body: RefreshIndicator(
@@ -5111,114 +5694,235 @@ class _StorefrontPageState extends State<StorefrontPage> {
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
-                gradient: const LinearGradient(colors: [Color(0xFF292C57), Color(0xFF5548E8)]),
+                gradient: const LinearGradient(
+                    colors: [Color(0xFF292C57), Color(0xFF5548E8)]),
               ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Icon(Icons.storefront_rounded, color: Colors.white, size: 30),
-                const SizedBox(height: 10),
-                Text(storefront['name']?.toString() ?? 'Shop', style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 5),
-                Text(storefront['description']?.toString() ?? 'Browse products, add what you need to your cart, and pay securely with M-Pesa.', style: const TextStyle(color: Colors.white70)),
-                const SizedBox(height: 10),
-                const Text('Secure checkout · M-Pesa', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                if ((storefront['sellerMpesaPhone']?.toString() ?? '').isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text('Seller M-Pesa: ${storefront['sellerMpesaPhone']}', style: const TextStyle(color: Colors.white70)),
-                ],
-              ]),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.storefront_rounded,
+                        color: Colors.white, size: 30),
+                    const SizedBox(height: 10),
+                    Text(storefront['name']?.toString() ?? 'Shop',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 23,
+                            fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 5),
+                    Text(
+                        storefront['description']?.toString() ??
+                            'Browse products, add what you need to your cart, and pay securely with M-Pesa.',
+                        style: const TextStyle(color: Colors.white70)),
+                    const SizedBox(height: 10),
+                    const Text('Secure checkout · M-Pesa',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w700)),
+                    if ((storefront['sellerMpesaPhone']?.toString() ?? '')
+                        .isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text('Seller M-Pesa: ${storefront['sellerMpesaPhone']}',
+                          style: const TextStyle(color: Colors.white70)),
+                    ],
+                  ]),
             ),
             const SizedBox(height: 16),
-            Text('Products', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            Text('Products',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
-            if (products.isEmpty) const Padding(
-              padding: EdgeInsets.all(24),
-              child: Text('This store has no active products yet.', textAlign: TextAlign.center),
-            ),
+            if (products.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('This store has no active products yet.',
+                    textAlign: TextAlign.center),
+              ),
             ...products.whereType<Map>().map((raw) {
               final item = Map<String, dynamic>.from(raw);
               final id = item['_id']?.toString() ?? '';
-              final image = (item['images'] is List && (item['images'] as List).isNotEmpty) ? (item['images'] as List).first.toString() : '';
+              final image = (item['images'] is List &&
+                      (item['images'] as List).isNotEmpty)
+                  ? (item['images'] as List).first.toString()
+                  : '';
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: () => showProduct(item),
                   child: Row(children: [
-                    if (image.startsWith('https://')) SizedBox(width: 100, height: 110, child: Image.network(image, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.inventory_2_outlined)))
-                    else Container(width: 100, height: 110, color: const Color(0xFFF0F2F8), child: const Icon(Icons.inventory_2_outlined, size: 34)),
-                    Expanded(child: Padding(
+                    if (image.startsWith('https://'))
+                      SizedBox(
+                          width: 100,
+                          height: 110,
+                          child: Image.network(image,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.inventory_2_outlined)))
+                    else
+                      Container(
+                          width: 100,
+                          height: 110,
+                          color: const Color(0xFFF0F2F8),
+                          child:
+                              const Icon(Icons.inventory_2_outlined, size: 34)),
+                    Expanded(
+                        child: Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(item['name']?.toString() ?? 'Product', style: const TextStyle(fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 4),
-                        Text(item['description']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
-                        const SizedBox(height: 6),
-                        Text('KSh ${item['price'] ?? '—'}', style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF4F46E5))),
-                        const SizedBox(height: 5),
-                        Row(children: [
-                          Expanded(child: Text((cart[id] ?? 0) > 0 ? 'In cart: ${cart[id]}' : 'Tap to view details', style: const TextStyle(fontSize: 11))),
-                          IconButton(onPressed: () => addProduct(item), icon: const Icon(Icons.add_circle_outline), tooltip: 'Add to cart'),
-                        ]),
-                      ]),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(item['name']?.toString() ?? 'Product',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 4),
+                            Text(item['description']?.toString() ?? '',
+                                maxLines: 2, overflow: TextOverflow.ellipsis),
+                            const SizedBox(height: 6),
+                            Text('KSh ${item['price'] ?? '—'}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF4F46E5))),
+                            const SizedBox(height: 5),
+                            Row(children: [
+                              Expanded(
+                                  child: Text(
+                                      (cart[id] ?? 0) > 0
+                                          ? 'In cart: ${cart[id]}'
+                                          : 'Tap to view details',
+                                      style: const TextStyle(fontSize: 11))),
+                              IconButton(
+                                  onPressed: () => addProduct(item),
+                                  icon: const Icon(Icons.add_circle_outline),
+                                  tooltip: 'Add to cart'),
+                            ]),
+                          ]),
                     )),
                   ]),
                 ),
               );
             }),
-            if (cart.isNotEmpty) Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Your cart · ${cart.values.fold<int>(0, (sum, value) => sum + value)} item(s)', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 8),
-                  ...cart.entries.map((entry) {
-                    final item = products.whereType<Map>().firstWhere((p) => p['_id']?.toString() == entry.key, orElse: () => <String, dynamic>{});
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(item['name']?.toString() ?? 'Product'),
-                      subtitle: Text('${entry.value} × KSh ${item['price'] ?? ''}'),
-                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                        IconButton(onPressed: () => setState(() { if (entry.value <= 1) { cart.remove(entry.key); } else { cart[entry.key] = entry.value - 1; } }), icon: const Icon(Icons.remove_circle_outline)),
-                        IconButton(onPressed: () { final product = products.whereType<Map>().firstWhere((p) => p['_id']?.toString() == entry.key, orElse: () => <String, dynamic>{}); if (product.isNotEmpty) addProduct(Map<String, dynamic>.from(product)); }, icon: const Icon(Icons.add_circle_outline)),
+            if (cart.isNotEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                            'Your cart · ${cart.values.fold<int>(0, (sum, value) => sum + value)} item(s)',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 8),
+                        ...cart.entries.map((entry) {
+                          final item = products.whereType<Map>().firstWhere(
+                              (p) => p['_id']?.toString() == entry.key,
+                              orElse: () => <String, dynamic>{});
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(item['name']?.toString() ?? 'Product'),
+                            subtitle: Text(
+                                '${entry.value} × KSh ${item['price'] ?? ''}'),
+                            trailing:
+                                Row(mainAxisSize: MainAxisSize.min, children: [
+                              IconButton(
+                                  onPressed: () => setState(() {
+                                        if (entry.value <= 1) {
+                                          cart.remove(entry.key);
+                                        } else {
+                                          cart[entry.key] = entry.value - 1;
+                                        }
+                                      }),
+                                  icon:
+                                      const Icon(Icons.remove_circle_outline)),
+                              IconButton(
+                                  onPressed: () {
+                                    final product = products
+                                        .whereType<Map>()
+                                        .firstWhere(
+                                            (p) =>
+                                                p['_id']?.toString() ==
+                                                entry.key,
+                                            orElse: () => <String, dynamic>{});
+                                    if (product.isNotEmpty) {
+                                      addProduct(
+                                          Map<String, dynamic>.from(product));
+                                    }
+                                  },
+                                  icon: const Icon(Icons.add_circle_outline)),
+                            ]),
+                          );
+                        }),
+                        const Divider(),
+                        Row(children: [
+                          const Expanded(
+                              child: Text('Total',
+                                  style:
+                                      TextStyle(fontWeight: FontWeight.w800))),
+                          Text('KSh ${total.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.w900)),
+                        ]),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: phone,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                            labelText: 'M-Pesa phone number',
+                            hintText: '0712345678',
+                            prefixIcon: Icon(Icons.phone_android),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: checkingOut ? null : checkout,
+                              icon: checkingOut
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2, color: Colors.white))
+                                  : const Icon(Icons.lock_outline),
+                              label: Text(checkingOut
+                                  ? 'Starting secure checkout…'
+                                  : 'Checkout with M-Pesa'),
+                            )),
                       ]),
-                    );
-                  }),
-                  const Divider(),
-                  Row(children: [
-                    const Expanded(child: Text('Total', style: TextStyle(fontWeight: FontWeight.w800))),
-                    Text('KSh ${total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-                  ]),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: phone,
-                    keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      labelText: 'M-Pesa phone number',
-                      hintText: '0712345678',
-                      prefixIcon: Icon(Icons.phone_android),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(width: double.infinity, child: FilledButton.icon(
-                    onPressed: checkingOut ? null : checkout,
-                    icon: checkingOut ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.lock_outline),
-                    label: Text(checkingOut ? 'Starting secure checkout…' : 'Checkout with M-Pesa'),
-                  )),
-                ]),
+                ),
               ),
-            ),
-            if (notice != null) Card(color: const Color(0xFFE9F8F2), child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(notice!, style: const TextStyle(color: Color(0xFF155E48))),
-                if (paymentId != null) ...[
-                  const SizedBox(height: 8),
-                  SelectableText('Payment reference: $paymentId'),
-                  Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: refreshPayment, icon: const Icon(Icons.refresh), label: const Text('Refresh payment status'))),
-                ],
-              ]),
-            )),
-            if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+            if (notice != null)
+              Card(
+                  color: const Color(0xFFE9F8F2),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(notice!,
+                              style: const TextStyle(color: Color(0xFF155E48))),
+                          if (paymentId != null) ...[
+                            const SizedBox(height: 8),
+                            SelectableText('Payment reference: $paymentId'),
+                            Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                    onPressed: refreshPayment,
+                                    icon: const Icon(Icons.refresh),
+                                    label:
+                                        const Text('Refresh payment status'))),
+                          ],
+                        ]),
+                  )),
+            if (error != null)
+              Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(error!,
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error))),
           ],
         ),
       ),
@@ -5237,7 +5941,11 @@ class BusinessHub extends StatefulWidget {
 class _BusinessHubState extends State<BusinessHub> {
   Map<String, dynamic>? organization;
   Map<String, dynamic> dashboard = {};
-  List<dynamic> organizations = [], catalog = [], customers = [], documents = [], tasks = [];
+  List<dynamic> organizations = [],
+      catalog = [],
+      customers = [],
+      documents = [],
+      tasks = [];
   bool loading = true, saving = false;
   int pendingOfflineCount = 0;
   List<String> syncConflicts = [];
@@ -5251,7 +5959,12 @@ class _BusinessHubState extends State<BusinessHub> {
   }
 
   Future<void> loadOrganizations() async {
-    if (mounted) setState(() { loading = true; error = null; });
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
     try {
       final result = await app.api.call('GET', '/api/business/organizations');
       organizations = List<dynamic>.from(result['organizations'] ?? []);
@@ -5265,7 +5978,10 @@ class _BusinessHubState extends State<BusinessHub> {
       } else {
         organization = null;
         dashboard = {};
-        catalog = []; customers = []; documents = []; tasks = [];
+        catalog = [];
+        customers = [];
+        documents = [];
+        tasks = [];
       }
     } catch (e) {
       error = e.toString();
@@ -5297,7 +6013,10 @@ class _BusinessHubState extends State<BusinessHub> {
     }
     if (syncPending && error == null) {
       final applied = await _flushOfflineQueue(id);
-      if (applied > 0) { await loadWorkspaceData(syncPending: false); return; }
+      if (applied > 0) {
+        await loadWorkspaceData(syncPending: false);
+        return;
+      }
     }
     if (mounted) setState(() {});
   }
@@ -5310,7 +6029,10 @@ class _BusinessHubState extends State<BusinessHub> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Create a business workspace'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'Business name')),
+          TextField(
+              controller: name,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Business name')),
           const SizedBox(height: 12),
           ValueListenableBuilder<String>(
             valueListenable: industry,
@@ -5318,33 +6040,54 @@ class _BusinessHubState extends State<BusinessHub> {
               initialValue: value,
               decoration: const InputDecoration(labelText: 'Industry'),
               items: const [
-                DropdownMenuItem(value: 'retail', child: Text('Retail / wholesale')),
-                DropdownMenuItem(value: 'consulting', child: Text('Consultants / agencies')),
-                DropdownMenuItem(value: 'tourism', child: Text('Tourism / hospitality')),
-                DropdownMenuItem(value: 'logistics', child: Text('Transport / logistics')),
-                DropdownMenuItem(value: 'construction', child: Text('Construction / trades')),
-                DropdownMenuItem(value: 'salon', child: Text('Salon / personal services')),
-                DropdownMenuItem(value: 'education', child: Text('Schools / training')),
-                DropdownMenuItem(value: 'agriculture', child: Text('Agriculture / produce')),
-                DropdownMenuItem(value: 'real_estate', child: Text('Real estate / property')),
+                DropdownMenuItem(
+                    value: 'retail', child: Text('Retail / wholesale')),
+                DropdownMenuItem(
+                    value: 'consulting', child: Text('Consultants / agencies')),
+                DropdownMenuItem(
+                    value: 'tourism', child: Text('Tourism / hospitality')),
+                DropdownMenuItem(
+                    value: 'logistics', child: Text('Transport / logistics')),
+                DropdownMenuItem(
+                    value: 'construction',
+                    child: Text('Construction / trades')),
+                DropdownMenuItem(
+                    value: 'salon', child: Text('Salon / personal services')),
+                DropdownMenuItem(
+                    value: 'education', child: Text('Schools / training')),
+                DropdownMenuItem(
+                    value: 'agriculture', child: Text('Agriculture / produce')),
+                DropdownMenuItem(
+                    value: 'real_estate',
+                    child: Text('Real estate / property')),
                 DropdownMenuItem(value: 'other', child: Text('Other')),
               ],
-              onChanged: (next) { if (next != null) industry.value = next; },
+              onChanged: (next) {
+                if (next != null) industry.value = next;
+              },
             ),
           ),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Create')),
         ],
       ),
     );
     if (accepted != true || name.text.trim().isEmpty) return;
     try {
-      await app.api.call('POST', '/api/business/organizations', {'name': name.text.trim(), 'industry': industry.value});
+      await app.api.call('POST', '/api/business/organizations',
+          {'name': name.text.trim(), 'industry': industry.value});
       await loadOrganizations();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
@@ -5356,30 +6099,88 @@ class _BusinessHubState extends State<BusinessHub> {
     final docType = ValueNotifier<String>('quote');
     final id = organization?['_id']?.toString();
     if (id == null) return;
-    final title = kind == 'catalog' ? 'Add product or service' : kind == 'customer' ? 'Add customer' : kind == 'document' ? 'Create quotation' : 'Create follow-up task';
+    final title = kind == 'catalog'
+        ? 'Add product or service'
+        : kind == 'customer'
+            ? 'Add customer'
+            : kind == 'document'
+                ? 'Create quotation'
+                : 'Create follow-up task';
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: name, autofocus: true, decoration: InputDecoration(labelText: kind == 'catalog' ? 'Product / service name' : kind == 'customer' ? 'Customer name' : kind == 'document' ? 'Quotation title / item' : 'Task title')),
+        content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: name,
+              autofocus: true,
+              decoration: InputDecoration(
+                  labelText: kind == 'catalog'
+                      ? 'Product / service name'
+                      : kind == 'customer'
+                          ? 'Customer name'
+                          : kind == 'document'
+                              ? 'Quotation title / item'
+                              : 'Task title')),
           if (kind == 'catalog') ...[
-            TextField(controller: detail, decoration: const InputDecoration(labelText: 'Description')),
-            TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Price')),
-            TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Stock quantity')),
+            TextField(
+                controller: detail,
+                decoration: const InputDecoration(labelText: 'Description')),
+            TextField(
+                controller: amount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Price')),
+            TextField(
+                controller: quantity,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Stock quantity')),
           ] else if (kind == 'customer') ...[
-            TextField(controller: detail, decoration: const InputDecoration(labelText: 'Email or phone')),
+            TextField(
+                controller: detail,
+                decoration: const InputDecoration(labelText: 'Email or phone')),
           ] else if (kind == 'document') ...[
-            ValueListenableBuilder<String>(valueListenable: docType, builder: (_, value, __) => DropdownButtonFormField<String>(initialValue: value, decoration: const InputDecoration(labelText: 'Document type'), items: const [DropdownMenuItem(value: 'quote', child: Text('Quotation')), DropdownMenuItem(value: 'invoice', child: Text('Invoice')), DropdownMenuItem(value: 'order', child: Text('Sales order'))], onChanged: (next) { if (next != null) docType.value = next; })),
-            TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Unit price')),
-            TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantity')),
+            ValueListenableBuilder<String>(
+                valueListenable: docType,
+                builder: (_, value, __) => DropdownButtonFormField<String>(
+                    initialValue: value,
+                    decoration:
+                        const InputDecoration(labelText: 'Document type'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'quote', child: Text('Quotation')),
+                      DropdownMenuItem(
+                          value: 'invoice', child: Text('Invoice')),
+                      DropdownMenuItem(
+                          value: 'order', child: Text('Sales order'))
+                    ],
+                    onChanged: (next) {
+                      if (next != null) docType.value = next;
+                    })),
+            TextField(
+                controller: amount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Unit price')),
+            TextField(
+                controller: quantity,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Quantity')),
           ] else ...[
-            TextField(controller: detail, decoration: const InputDecoration(labelText: 'Notes / description')),
+            TextField(
+                controller: detail,
+                decoration:
+                    const InputDecoration(labelText: 'Notes / description')),
           ],
         ])),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save')),
         ],
       ),
     );
@@ -5389,43 +6190,104 @@ class _BusinessHubState extends State<BusinessHub> {
       final base = '/api/business/organizations/${Uri.encodeComponent(id)}';
       if (kind == 'catalog') {
         final price = double.tryParse(amount.text) ?? -1;
-        if (price < 0) throw const FormatException('Enter a valid non-negative price.');
-        await app.api.call('POST', '$base/catalog', {'name': name.text.trim(), 'description': detail.text.trim(), 'price': price, 'stock': int.tryParse(quantity.text) ?? 0});
+        if (price < 0) {
+          throw const FormatException('Enter a valid non-negative price.');
+        }
+        await app.api.call('POST', '$base/catalog', {
+          'name': name.text.trim(),
+          'description': detail.text.trim(),
+          'price': price,
+          'stock': int.tryParse(quantity.text) ?? 0
+        });
       } else if (kind == 'customer') {
         final contact = detail.text.trim();
-        await app.api.call('POST', '$base/customers', {'name': name.text.trim(), if (contact.contains('@')) 'email': contact else 'phone': contact});
+        await app.api.call('POST', '$base/customers', {
+          'name': name.text.trim(),
+          if (contact.contains('@')) 'email': contact else 'phone': contact
+        });
       } else if (kind == 'document') {
         final price = double.tryParse(amount.text) ?? -1;
         final count = int.tryParse(quantity.text) ?? 0;
-        if (price < 0 || count < 1) throw const FormatException('Enter a valid price and quantity.');
-        await app.api.call('POST', '$base/documents', {'type': docType.value, 'items': [{'name': name.text.trim(), 'quantity': count, 'unitPrice': price}]});
+        if (price < 0 || count < 1) {
+          throw const FormatException('Enter a valid price and quantity.');
+        }
+        await app.api.call('POST', '$base/documents', {
+          'type': docType.value,
+          'items': [
+            {'name': name.text.trim(), 'quantity': count, 'unitPrice': price}
+          ]
+        });
       } else {
-        await app.api.call('POST', '$base/tasks', {'title': name.text.trim(), 'description': detail.text.trim(), 'type': 'follow_up'});
+        await app.api.call('POST', '$base/tasks', {
+          'title': name.text.trim(),
+          'description': detail.text.trim(),
+          'type': 'follow_up'
+        });
       }
       await loadWorkspaceData();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Business record saved.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Business record saved.')));
+      }
     } catch (e) {
-      if ((e is http.ClientException || e is TimeoutException) && kind != 'document') {
-        final entityType = kind == 'catalog' ? 'catalog' : kind == 'customer' ? 'customer' : 'task';
-        final changes = kind == 'catalog' ? {'name': name.text.trim(), 'description': detail.text.trim(), 'price': double.tryParse(amount.text) ?? 0, 'stock': int.tryParse(quantity.text) ?? 0} : kind == 'customer' ? {'name': name.text.trim(), if (detail.text.trim().contains('@')) 'email': detail.text.trim() else 'phone': detail.text.trim()} : {'title': name.text.trim(), 'description': detail.text.trim(), 'type': 'follow_up'};
+      if ((e is http.ClientException || e is TimeoutException) &&
+          kind != 'document') {
+        final entityType = kind == 'catalog'
+            ? 'catalog'
+            : kind == 'customer'
+                ? 'customer'
+                : 'task';
+        final changes = kind == 'catalog'
+            ? {
+                'name': name.text.trim(),
+                'description': detail.text.trim(),
+                'price': double.tryParse(amount.text) ?? 0,
+                'stock': int.tryParse(quantity.text) ?? 0
+              }
+            : kind == 'customer'
+                ? {
+                    'name': name.text.trim(),
+                    if (detail.text.trim().contains('@'))
+                      'email': detail.text.trim()
+                    else
+                      'phone': detail.text.trim()
+                  }
+                : {
+                    'title': name.text.trim(),
+                    'description': detail.text.trim(),
+                    'type': 'follow_up'
+                  };
         await _enqueueOfflineCreate(id, entityType, changes);
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved to the device queue. It will sync when connectivity returns.')));
-      } else if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Saved to the device queue. It will sync when connectivity returns.')));
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
   }
 
-
   String _offlineQueueKey(String id) => 'chatify_business_offline_$id';
   String _offlineIssuesKey(String id) => 'chatify_business_sync_issues_$id';
 
   // Persist only offline record creates; each mutation ID makes retry safe if the response is lost.
-  Future<void> _enqueueOfflineCreate(String id, String entityType, Map<String, dynamic> changes) async {
+  Future<void> _enqueueOfflineCreate(
+      String id, String entityType, Map<String, dynamic> changes) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _offlineQueueKey(id);
     final queue = prefs.getStringList(key) ?? <String>[];
-    queue.add(jsonEncode({'mutationId': 'mobile:$entityType:${DateTime.now().microsecondsSinceEpoch}', 'operation': 'create', 'entityType': entityType, 'changes': changes}));
+    queue.add(jsonEncode({
+      'mutationId':
+          'mobile:$entityType:${DateTime.now().microsecondsSinceEpoch}',
+      'operation': 'create',
+      'entityType': entityType,
+      'changes': changes
+    }));
     await prefs.setStringList(key, queue);
     if (mounted) setState(() => pendingOfflineCount = queue.length);
   }
@@ -5434,26 +6296,51 @@ class _BusinessHubState extends State<BusinessHub> {
     final prefs = await SharedPreferences.getInstance();
     final key = _offlineQueueKey(id);
     final queue = prefs.getStringList(key) ?? <String>[];
-    if (queue.isEmpty) { if (mounted) setState(() => pendingOfflineCount = 0); return 0; }
+    if (queue.isEmpty) {
+      if (mounted) setState(() => pendingOfflineCount = 0);
+      return 0;
+    }
     try {
-      final mutations = queue.map((entry) => Map<String, dynamic>.from(jsonDecode(entry) as Map)).toList();
-      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/sync', {'mutations': mutations});
+      final mutations = queue
+          .map((entry) => Map<String, dynamic>.from(jsonDecode(entry) as Map))
+          .toList();
+      final response = await app.api.call(
+          'POST',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/sync',
+          {'mutations': mutations});
       final results = List<dynamic>.from(response['results'] ?? []);
-      final byId = <String, Map<String, dynamic>>{for (final result in results.whereType<Map>()) result['mutationId'].toString(): Map<String, dynamic>.from(result)};
+      final byId = <String, Map<String, dynamic>>{
+        for (final result in results.whereType<Map>())
+          result['mutationId'].toString(): Map<String, dynamic>.from(result)
+      };
       final remaining = <String>[];
       final issues = prefs.getStringList(_offlineIssuesKey(id)) ?? <String>[];
       var applied = 0;
       for (final entry in queue) {
         final mutation = Map<String, dynamic>.from(jsonDecode(entry) as Map);
         final result = byId[mutation['mutationId'].toString()];
-        if (result == null) { remaining.add(entry); }
-        else if (result['status'] == 'applied') { applied++; }
-        else { issues.add(jsonEncode({'mutation': mutation, 'result': result})); }
+        if (result == null) {
+          remaining.add(entry);
+        } else if (result['status'] == 'applied') {
+          applied++;
+        } else {
+          issues.add(jsonEncode({'mutation': mutation, 'result': result}));
+        }
       }
       await prefs.setStringList(key, remaining);
-      await prefs.setStringList(_offlineIssuesKey(id), issues.take(100).toList());
-      if (mounted) setState(() { pendingOfflineCount = remaining.length; syncConflicts = issues.take(100).toList(); });
-      if (issues.isNotEmpty && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Some offline changes need review in Business Tools.')));
+      await prefs.setStringList(
+          _offlineIssuesKey(id), issues.take(100).toList());
+      if (mounted) {
+        setState(() {
+          pendingOfflineCount = remaining.length;
+          syncConflicts = issues.take(100).toList();
+        });
+      }
+      if (issues.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content:
+                Text('Some offline changes need review in Business Tools.')));
+      }
       return applied;
     } catch (_) {
       if (mounted) setState(() => pendingOfflineCount = queue.length);
@@ -5473,7 +6360,8 @@ class _BusinessHubState extends State<BusinessHub> {
     final next = !currentlyPublished;
     setState(() => saving = true);
     try {
-      await app.api.call('PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}', {
+      await app.api.call(
+          'PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}', {
         'settings': {'storefrontPublished': next},
       });
       await loadOrganizations();
@@ -5485,7 +6373,10 @@ class _BusinessHubState extends State<BusinessHub> {
         ));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -5499,8 +6390,11 @@ class _BusinessHubState extends State<BusinessHub> {
     // The storefront API resolves the actual owner account default, even if a manager is editing settings.
     if (slug.isNotEmpty) {
       try {
-        final storefrontResponse = await app.api.call('GET', '/api/storefront/${Uri.encodeComponent(slug)}');
-        final sellerDefault = storefrontResponse['storefront']?['sellerMpesaPhone']?.toString() ?? '';
+        final storefrontResponse = await app.api
+            .call('GET', '/api/storefront/${Uri.encodeComponent(slug)}');
+        final sellerDefault =
+            storefrontResponse['storefront']?['sellerMpesaPhone']?.toString() ??
+                '';
         if (sellerDefault.isNotEmpty) registeredPhone = sellerDefault;
       } catch (_) {
         // Keep the signed-in user's registered number as a useful offline/fallback default.
@@ -5512,16 +6406,18 @@ class _BusinessHubState extends State<BusinessHub> {
         ? Map<String, dynamic>.from(organization!['settings'] as Map)
         : <String, dynamic>{};
     final phone = TextEditingController(
-      text: currentSettings['mpesaRecipientPhone']?.toString().isNotEmpty == true
-          ? currentSettings['mpesaRecipientPhone'].toString()
-          : registeredPhone,
+      text:
+          currentSettings['mpesaRecipientPhone']?.toString().isNotEmpty == true
+              ? currentSettings['mpesaRecipientPhone'].toString()
+              : registeredPhone,
     );
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Seller M-Pesa number'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Registered account number: ${registeredPhone.isEmpty ? 'Not set' : registeredPhone}'),
+          Text(
+              'Registered account number: ${registeredPhone.isEmpty ? 'Not set' : registeredPhone}'),
           const SizedBox(height: 12),
           TextField(
             controller: phone,
@@ -5530,14 +6426,19 @@ class _BusinessHubState extends State<BusinessHub> {
             decoration: const InputDecoration(
               labelText: 'Customer payment number',
               hintText: '0712345678',
-              helperText: 'Starts with your registered number. Change it if you want customers to pay using another Kenyan M-Pesa number. Leave blank to use your registered account number.',
+              helperText:
+                  'Starts with your registered number. Change it if you want customers to pay using another Kenyan M-Pesa number. Leave blank to use your registered account number.',
               prefixIcon: Icon(Icons.phone_android),
             ),
           ),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save number')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save number')),
         ],
       ),
     );
@@ -5545,82 +6446,218 @@ class _BusinessHubState extends State<BusinessHub> {
     final id = organization?['_id']?.toString();
     if (id == null) return;
     try {
-      await app.api.call('PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}', {
+      await app.api.call(
+          'PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}', {
         'settings': {'mpesaRecipientPhone': phone.text.trim()},
       });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Seller M-Pesa number saved.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Seller M-Pesa number saved.')));
+      }
       await loadOrganizations();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
   Future<void> _configureTaxProfile() async {
-    final country = TextEditingController(text: organization?['country']?.toString() ?? 'KE');
-    final currency = TextEditingController(text: organization?['currency']?.toString() ?? 'KES');
+    final country = TextEditingController(
+        text: organization?['country']?.toString() ?? 'KE');
+    final currency = TextEditingController(
+        text: organization?['currency']?.toString() ?? 'KES');
     final rate = TextEditingController(text: '0');
     String mode = 'exclusive';
-    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-      title: const Text('Tax and currency profile'),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: country, maxLength: 2, decoration: const InputDecoration(labelText: 'Country code (e.g. KE)')),
-        TextField(controller: currency, maxLength: 3, decoration: const InputDecoration(labelText: 'Currency (e.g. KES)')),
-        TextField(controller: rate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Tax rate (%)')),
-        DropdownButtonFormField<String>(initialValue: mode, decoration: const InputDecoration(labelText: 'Tax treatment'), items: const [DropdownMenuItem(value: 'exclusive', child: Text('Tax added on top')), DropdownMenuItem(value: 'inclusive', child: Text('Tax included')), DropdownMenuItem(value: 'none', child: Text('No tax'))], onChanged: (value) { if (value != null) setDialogState(() => mode = value); }),
-        const Text('Confirm local rates with your accountant or tax authority.', style: TextStyle(fontSize: 12)),
-      ])),
-      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save'))],
-    )));
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Tax and currency profile'),
+                  content: SingleChildScrollView(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: country,
+                        maxLength: 2,
+                        decoration: const InputDecoration(
+                            labelText: 'Country code (e.g. KE)')),
+                    TextField(
+                        controller: currency,
+                        maxLength: 3,
+                        decoration: const InputDecoration(
+                            labelText: 'Currency (e.g. KES)')),
+                    TextField(
+                        controller: rate,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration:
+                            const InputDecoration(labelText: 'Tax rate (%)')),
+                    DropdownButtonFormField<String>(
+                        initialValue: mode,
+                        decoration:
+                            const InputDecoration(labelText: 'Tax treatment'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'exclusive',
+                              child: Text('Tax added on top')),
+                          DropdownMenuItem(
+                              value: 'inclusive', child: Text('Tax included')),
+                          DropdownMenuItem(value: 'none', child: Text('No tax'))
+                        ],
+                        onChanged: (value) {
+                          if (value != null) setDialogState(() => mode = value);
+                        }),
+                    const Text(
+                        'Confirm local rates with your accountant or tax authority.',
+                        style: TextStyle(fontSize: 12)),
+                  ])),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(dialogContext, true),
+                        child: const Text('Save'))
+                  ],
+                )));
     if (accepted != true) return;
     try {
       final id = organization!['_id'].toString();
-      final response = await app.api.call('PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}/tax-profile', {'country': country.text.trim().toUpperCase(), 'currency': currency.text.trim().toUpperCase(), 'rate': double.tryParse(rate.text) ?? -1, 'mode': mode});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Tax profile saved.')));
+      final response = await app.api.call(
+          'PATCH',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/tax-profile',
+          {
+            'country': country.text.trim().toUpperCase(),
+            'currency': currency.text.trim().toUpperCase(),
+            'rate': double.tryParse(rate.text) ?? -1,
+            'mode': mode
+          });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(response['notice']?.toString() ?? 'Tax profile saved.')));
+      }
       await loadOrganizations();
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   Future<void> _translateBusinessText() async {
     final source = TextEditingController();
     final target = TextEditingController(text: 'Kiswahili');
     bool consent = false;
-    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-      title: const Text('Translate business text'),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: source, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: 'Text to translate')),
-        TextField(controller: target, decoration: const InputDecoration(labelText: 'Target language')),
-        CheckboxListTile(value: consent, contentPadding: EdgeInsets.zero, title: const Text('I consent to sending this text to the configured AI provider'), onChanged: (value) => setDialogState(() => consent = value ?? false)),
-      ])),
-      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: consent ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Translate'))],
-    )));
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Translate business text'),
+                  content: SingleChildScrollView(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: source,
+                        minLines: 3,
+                        maxLines: 6,
+                        decoration: const InputDecoration(
+                            labelText: 'Text to translate')),
+                    TextField(
+                        controller: target,
+                        decoration: const InputDecoration(
+                            labelText: 'Target language')),
+                    CheckboxListTile(
+                        value: consent,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                            'I consent to sending this text to the configured AI provider'),
+                        onChanged: (value) =>
+                            setDialogState(() => consent = value ?? false)),
+                  ])),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: consent
+                            ? () => Navigator.pop(dialogContext, true)
+                            : null,
+                        child: const Text('Translate'))
+                  ],
+                )));
     if (accepted != true) return;
     try {
       final id = organization!['_id'].toString();
-      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/translate', {'text': source.text, 'targetLanguage': target.text.trim(), 'consent': true});
+      final response = await app.api.call('POST',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/translate', {
+        'text': source.text,
+        'targetLanguage': target.text.trim(),
+        'consent': true
+      });
       if (!mounted) return;
-      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Translation'), content: SelectableText(response['translated']?.toString() ?? 'No translation returned.'), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))]));
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+      await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                  title: const Text('Translation'),
+                  content: SelectableText(response['translated']?.toString() ??
+                      'No translation returned.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Close'))
+                  ]));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
-
 
   Future<void> _translateVoice() async {
     final target = TextEditingController(text: 'Kiswahili');
     bool consent = false;
-    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-      title: const Text('Voice message translation'),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: target, decoration: const InputDecoration(labelText: 'Translate speech into')),
-        CheckboxListTile(value: consent, contentPadding: EdgeInsets.zero, title: const Text('I consent to sending this audio to the configured AI provider'), onChanged: (value) => setDialogState(() => consent = value ?? false)),
-      ]),
-      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: consent ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Choose audio'))],
-    )));
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Voice message translation'),
+                  content: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: target,
+                        decoration: const InputDecoration(
+                            labelText: 'Translate speech into')),
+                    CheckboxListTile(
+                        value: consent,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                            'I consent to sending this audio to the configured AI provider'),
+                        onChanged: (value) =>
+                            setDialogState(() => consent = value ?? false)),
+                  ]),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: consent
+                            ? () => Navigator.pop(dialogContext, true)
+                            : null,
+                        child: const Text('Choose audio'))
+                  ],
+                )));
     if (accepted != true) return;
     try {
-      final selected = await FilePicker.platform.pickFiles(type: FileType.audio, withData: true, allowMultiple: false);
+      final selected = await FilePicker.platform.pickFiles(
+          type: FileType.audio, withData: true, allowMultiple: false);
       if (selected == null || selected.files.isEmpty) return;
       final file = selected.files.first;
       final bytes = file.bytes;
-      if (bytes == null || bytes.isEmpty || bytes.length > 11 * 1024 * 1024) throw const FormatException('Choose an audio file smaller than 11 MB.');
+      if (bytes == null || bytes.isEmpty || bytes.length > 11 * 1024 * 1024) {
+        throw const FormatException('Choose an audio file smaller than 11 MB.');
+      }
       final extension = (file.extension ?? '').toLowerCase();
       final mime = switch (extension) {
         'mp3' || 'mpeg' => 'audio/mpeg',
@@ -5628,119 +6665,375 @@ class _BusinessHubState extends State<BusinessHub> {
         'wav' => 'audio/wav',
         'ogg' => 'audio/ogg',
         'webm' => 'audio/webm',
-        _ => throw const FormatException('Supported audio formats: MP3, M4A, WAV, OGG and WebM.'),
+        _ => throw const FormatException(
+            'Supported audio formats: MP3, M4A, WAV, OGG and WebM.'),
       };
       final id = organization!['_id'].toString();
-      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/voice-translate', {'audioBase64': base64Encode(bytes), 'mimeType': mime, 'targetLanguage': target.text.trim(), 'consent': true});
+      final response = await app.api.call(
+          'POST',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/voice-translate',
+          {
+            'audioBase64': base64Encode(bytes),
+            'mimeType': mime,
+            'targetLanguage': target.text.trim(),
+            'consent': true
+          });
       if (!mounted) return;
-      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
-        title: const Text('Voice translation'),
-        content: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Transcription', style: TextStyle(fontWeight: FontWeight.bold)),
-          SelectableText(response['transcription']?.toString() ?? ''),
-          const SizedBox(height: 12),
-          const Text('Translation', style: TextStyle(fontWeight: FontWeight.bold)),
-          SelectableText(response['translated']?.toString() ?? ''),
-        ])),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
-      ));
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+      await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                title: const Text('Voice translation'),
+                content: SingleChildScrollView(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      const Text('Transcription',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      SelectableText(
+                          response['transcription']?.toString() ?? ''),
+                      const SizedBox(height: 12),
+                      const Text('Translation',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      SelectableText(response['translated']?.toString() ?? ''),
+                    ])),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Close'))
+                ],
+              ));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   Future<void> _memorySuggestions() async {
     final source = TextEditingController();
-    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Business Memory suggestions'), content: TextField(controller: source, autofocus: true, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: 'Paste a conversation or business note')), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Find suggestions'))]));
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+                title: const Text('Business Memory suggestions'),
+                content: TextField(
+                    controller: source,
+                    autofocus: true,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: const InputDecoration(
+                        labelText: 'Paste a conversation or business note')),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Find suggestions'))
+                ]));
     if (accepted != true || source.text.trim().isEmpty) return;
     try {
       final id = organization!['_id'].toString();
-      final response = await app.api.call('POST', '/api/business/organizations/${Uri.encodeComponent(id)}/memory-candidates', {'text': source.text});
+      final response = await app.api.call(
+          'POST',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/memory-candidates',
+          {'text': source.text});
       final candidates = List<dynamic>.from(response['candidates'] ?? []);
       if (!mounted) return;
-      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Review suggestions'), content: SizedBox(width: 420, child: candidates.isEmpty ? const Text('No clear candidates found.') : ListView(shrinkWrap: true, children: candidates.whereType<Map>().map((item) => ListTile(title: Text(item['title']?.toString() ?? 'Suggestion'), subtitle: Text('${item['type']}: ${item['description']}'))).toList())), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))]));
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+      await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                  title: const Text('Review suggestions'),
+                  content: SizedBox(
+                      width: 420,
+                      child: candidates.isEmpty
+                          ? const Text('No clear candidates found.')
+                          : ListView(
+                              shrinkWrap: true,
+                              children: candidates
+                                  .whereType<Map>()
+                                  .map((item) => ListTile(
+                                      title: Text(item['title']?.toString() ??
+                                          'Suggestion'),
+                                      subtitle: Text(
+                                          '${item['type']}: ${item['description']}')))
+                                  .toList())),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Close'))
+                  ]));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   Future<void> _sendCustomerMessage() async {
     final eligible = customers.whereType<Map>().toList();
-    if (eligible.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add a customer before sending a message.'))); return; }
+    if (eligible.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Add a customer before sending a message.')));
+      return;
+    }
     String? customerId = eligible.first['_id']?.toString();
     String channel = 'whatsapp';
     bool confirmedOptIn = false;
     final message = TextEditingController();
-    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-      title: const Text('Message a customer'),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        DropdownButtonFormField<String>(initialValue: customerId, decoration: const InputDecoration(labelText: 'Customer'), items: eligible.map((item) => DropdownMenuItem<String>(value: item['_id']?.toString(), child: Text(item['name']?.toString() ?? 'Customer', overflow: TextOverflow.ellipsis))).toList(), onChanged: (value) => setDialogState(() => customerId = value)),
-        DropdownButtonFormField<String>(initialValue: channel, decoration: const InputDecoration(labelText: 'Channel'), items: const [DropdownMenuItem(value: 'whatsapp', child: Text('WhatsApp')), DropdownMenuItem(value: 'sms', child: Text('SMS'))], onChanged: (value) { if (value != null) setDialogState(() => channel = value); }),
-        TextField(controller: message, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Message')),
-        CheckboxListTile(value: confirmedOptIn, contentPadding: EdgeInsets.zero, title: const Text('Customer has explicitly opted in'), onChanged: (value) => setDialogState(() => confirmedOptIn = value ?? false)),
-      ])),
-      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: confirmedOptIn && message.text.trim().isNotEmpty ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Send'))],
-    )));
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Message a customer'),
+                  content: SingleChildScrollView(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    DropdownButtonFormField<String>(
+                        initialValue: customerId,
+                        decoration:
+                            const InputDecoration(labelText: 'Customer'),
+                        items: eligible
+                            .map((item) => DropdownMenuItem<String>(
+                                value: item['_id']?.toString(),
+                                child: Text(
+                                    item['name']?.toString() ?? 'Customer',
+                                    overflow: TextOverflow.ellipsis)))
+                            .toList(),
+                        onChanged: (value) =>
+                            setDialogState(() => customerId = value)),
+                    DropdownButtonFormField<String>(
+                        initialValue: channel,
+                        decoration: const InputDecoration(labelText: 'Channel'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'whatsapp', child: Text('WhatsApp')),
+                          DropdownMenuItem(value: 'sms', child: Text('SMS'))
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => channel = value);
+                          }
+                        }),
+                    TextField(
+                        controller: message,
+                        minLines: 2,
+                        maxLines: 5,
+                        decoration:
+                            const InputDecoration(labelText: 'Message')),
+                    CheckboxListTile(
+                        value: confirmedOptIn,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Customer has explicitly opted in'),
+                        onChanged: (value) => setDialogState(
+                            () => confirmedOptIn = value ?? false)),
+                  ])),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed:
+                            confirmedOptIn && message.text.trim().isNotEmpty
+                                ? () => Navigator.pop(dialogContext, true)
+                                : null,
+                        child: const Text('Send'))
+                  ],
+                )));
     if (accepted != true || customerId == null) return;
     try {
-      final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
-      await app.api.call('PATCH', '$base/customers/${Uri.encodeComponent(customerId!)}/messaging-consent', {'consent': true});
-      final response = await app.api.call('POST', '$base/communications/send', {'customerId': customerId, 'channel': channel, 'message': message.text.trim()});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Message submitted.')));
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+      final base =
+          '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
+      await app.api.call(
+          'PATCH',
+          '$base/customers/${Uri.encodeComponent(customerId!)}/messaging-consent',
+          {'consent': true});
+      final response = await app.api.call('POST', '$base/communications/send', {
+        'customerId': customerId,
+        'channel': channel,
+        'message': message.text.trim()
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(response['notice']?.toString() ?? 'Message submitted.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   Future<void> _createScheduledWorkflow() async {
     final name = TextEditingController(text: 'Daily follow-up reminder');
     final interval = TextEditingController(text: '60');
-    final actionText = TextEditingController(text: 'Review open customer follow-ups');
+    final actionText =
+        TextEditingController(text: 'Review open customer follow-ups');
     String action = 'create_task';
-    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-      title: const Text('Scheduled workflow'),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: name, decoration: const InputDecoration(labelText: 'Workflow name')),
-        TextField(controller: interval, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Repeat every minutes (5–10080)')),
-        DropdownButtonFormField<String>(initialValue: action, decoration: const InputDecoration(labelText: 'Action'), items: const [DropdownMenuItem(value: 'create_task', child: Text('Create follow-up task')), DropdownMenuItem(value: 'notify_team', child: Text('Notify team in Chatify'))], onChanged: (value) { if (value != null) setDialogState(() => action = value); }),
-        TextField(controller: actionText, decoration: InputDecoration(labelText: action == 'create_task' ? 'Task title' : 'Notification')),
-      ]),
-      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create and enable'))],
-    )));
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Scheduled workflow'),
+                  content: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: name,
+                        decoration:
+                            const InputDecoration(labelText: 'Workflow name')),
+                    TextField(
+                        controller: interval,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                            labelText: 'Repeat every minutes (5–10080)')),
+                    DropdownButtonFormField<String>(
+                        initialValue: action,
+                        decoration: const InputDecoration(labelText: 'Action'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'create_task',
+                              child: Text('Create follow-up task')),
+                          DropdownMenuItem(
+                              value: 'notify_team',
+                              child: Text('Notify team in Chatify'))
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => action = value);
+                          }
+                        }),
+                    TextField(
+                        controller: actionText,
+                        decoration: InputDecoration(
+                            labelText: action == 'create_task'
+                                ? 'Task title'
+                                : 'Notification')),
+                  ]),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(dialogContext, true),
+                        child: const Text('Create and enable'))
+                  ],
+                )));
     if (accepted != true) return;
     try {
-      final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
-      final created = await app.api.call('POST', '$base/workflows', {'name': name.text.trim(), 'trigger': 'schedule', 'scheduleEveryMinutes': int.tryParse(interval.text) ?? 60, 'actions': [{'actionType': action, 'config': action == 'create_task' ? {'title': actionText.text.trim()} : {'message': actionText.text.trim()}}]});
+      final base =
+          '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
+      final created = await app.api.call('POST', '$base/workflows', {
+        'name': name.text.trim(),
+        'trigger': 'schedule',
+        'scheduleEveryMinutes': int.tryParse(interval.text) ?? 60,
+        'actions': [
+          {
+            'actionType': action,
+            'config': action == 'create_task'
+                ? {'title': actionText.text.trim()}
+                : {'message': actionText.text.trim()}
+          }
+        ]
+      });
       final workflowId = (created['workflow'] as Map?)?['_id']?.toString();
-      if (workflowId == null) throw const FormatException('Workflow was created but its ID was missing.');
-      await app.api.call('POST', '$base/workflows/${Uri.encodeComponent(workflowId)}/test', {'sample': {'source': 'mobile setup'}});
-      await app.api.call('PATCH', '$base/workflows/${Uri.encodeComponent(workflowId)}', {'enabled': true});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Workflow enabled. Keep the backend worker running.')));
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+      if (workflowId == null) {
+        throw const FormatException(
+            'Workflow was created but its ID was missing.');
+      }
+      await app.api.call(
+          'POST', '$base/workflows/${Uri.encodeComponent(workflowId)}/test', {
+        'sample': {'source': 'mobile setup'}
+      });
+      await app.api.call(
+          'PATCH',
+          '$base/workflows/${Uri.encodeComponent(workflowId)}',
+          {'enabled': true});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content:
+                Text('Workflow enabled. Keep the backend worker running.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   Future<void> _invoiceIntegration(String documentId, String action) async {
     try {
-      final base = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(documentId)}';
+      final base =
+          '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(documentId)}';
       Map<String, dynamic> response;
       if (action == 'stripe' || action == 'paypal') {
-        final providerRoute = action == 'stripe' ? 'stripe-checkout' : 'paypal-checkout';
+        final providerRoute =
+            action == 'stripe' ? 'stripe-checkout' : 'paypal-checkout';
         response = await app.api.call('POST', '$base/$providerRoute', {});
-        final checkoutUrl = response['payment'] is Map ? (response['payment'] as Map)['checkoutUrl']?.toString() : null;
-        if (checkoutUrl == null || !await launchUrl(Uri.parse(checkoutUrl), mode: LaunchMode.externalApplication)) {
-          if (mounted && checkoutUrl != null) await showDialog<void>(context: context, builder: (context) => AlertDialog(title: const Text('Hosted checkout'), content: SelectableText(checkoutUrl), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))]));
+        final checkoutUrl = response['payment'] is Map
+            ? (response['payment'] as Map)['checkoutUrl']?.toString()
+            : null;
+        if (checkoutUrl == null ||
+            !await launchUrl(Uri.parse(checkoutUrl),
+                mode: LaunchMode.externalApplication)) {
+          if (mounted && checkoutUrl != null) {
+            await showDialog<void>(
+                context: context,
+                builder: (context) => AlertDialog(
+                        title: const Text('Hosted checkout'),
+                        content: SelectableText(checkoutUrl),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Close'))
+                        ]));
+          }
         }
       } else if (action == 'mpesa') {
         final phone = TextEditingController();
-        final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Request M-Pesa payment'), content: TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Customer M-Pesa phone')), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send STK prompt'))]));
+        final accepted = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+                    title: const Text('Request M-Pesa payment'),
+                    content: TextField(
+                        controller: phone,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                            labelText: 'Customer M-Pesa phone')),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Send STK prompt'))
+                    ]));
         if (accepted != true) return;
-        response = await app.api.call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
+        response = await app.api
+            .call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
       } else {
         response = await app.api.call('POST', '$base/etims-submit', {});
       }
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Request submitted.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(response['notice']?.toString() ?? 'Request submitted.')));
+      }
       await loadWorkspaceData();
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   Future<void> _showPaymentMatching(String documentId) async {
     try {
       final orgId = Uri.encodeComponent(organization!['_id'].toString());
-      final path = '/api/business/organizations/$orgId/documents/${Uri.encodeComponent(documentId)}/payment-matching';
+      final path =
+          '/api/business/organizations/$orgId/documents/${Uri.encodeComponent(documentId)}/payment-matching';
       final result = await app.api.call('GET', path);
       final matches = List<dynamic>.from(result['matches'] ?? []);
       if (!mounted) return;
@@ -5750,35 +7043,53 @@ class _BusinessHubState extends State<BusinessHub> {
           title: Text('Payment matching · ${result['number'] ?? 'Invoice'}'),
           content: SizedBox(
             width: 480,
-            child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Confirmed paid: ${result['currency'] ?? 'KES'} ${result['confirmedPaidAmount'] ?? 0}'),
-              Text('Outstanding: ${result['currency'] ?? 'KES'} ${result['outstandingAmount'] ?? 0}'),
-              const SizedBox(height: 8),
-              const Text('Confidence is a triage hint only. Unverified manual references are not proof of payment.'),
-              const Divider(),
-              if (matches.isEmpty) const Text('No payment records attached to this document.'),
-              for (final match in matches.whereType<Map>())
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(match['verified'] == true ? Icons.verified_outlined : Icons.warning_amber_outlined),
-                  title: Text('${match['status'] ?? 'unmatched'} · ${result['currency'] ?? 'KES'} ${match['amount'] ?? 0}'),
-                  subtitle: Text('Confidence: ${match['confidence'] ?? 0}% · Reference: ${match['reference'] ?? 'none'}\n${match['notice'] ?? ''}'),
-                ),
-            ])),
+            child: SingleChildScrollView(
+                child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(
+                      'Confirmed paid: ${result['currency'] ?? 'KES'} ${result['confirmedPaidAmount'] ?? 0}'),
+                  Text(
+                      'Outstanding: ${result['currency'] ?? 'KES'} ${result['outstandingAmount'] ?? 0}'),
+                  const SizedBox(height: 8),
+                  const Text(
+                      'Confidence is a triage hint only. Unverified manual references are not proof of payment.'),
+                  const Divider(),
+                  if (matches.isEmpty)
+                    const Text('No payment records attached to this document.'),
+                  for (final match in matches.whereType<Map>())
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(match['verified'] == true
+                          ? Icons.verified_outlined
+                          : Icons.warning_amber_outlined),
+                      title: Text(
+                          '${match['status'] ?? 'unmatched'} · ${result['currency'] ?? 'KES'} ${match['amount'] ?? 0}'),
+                      subtitle: Text(
+                          'Confidence: ${match['confidence'] ?? 0}% · Reference: ${match['reference'] ?? 'none'}\n${match['notice'] ?? ''}'),
+                    ),
+                ])),
           ),
-          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close'))
+          ],
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
   Future<void> _shareBusinessDocument(String documentId) async {
     try {
       final orgId = Uri.encodeComponent(organization!['_id'].toString());
-      final result = await app.api.call('POST', '/api/business/organizations/$orgId/enterprise/shares', {
+      final result = await app.api.call(
+          'POST', '/api/business/organizations/$orgId/enterprise/shares', {
         'entityType': 'document',
         'entityId': documentId,
         'expiresInHours': 72,
@@ -5790,18 +7101,27 @@ class _BusinessHubState extends State<BusinessHub> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Customer document link'),
-          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('The customer can view this document without seeing internal notes. The link expires in 72 hours.'),
-            const SizedBox(height: 8),
-            SelectableText(link),
-          ]),
+          content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                    'The customer can view this document without seeing internal notes. The link expires in 72 hours.'),
+                const SizedBox(height: 8),
+                SelectableText(link),
+              ]),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close')),
             FilledButton.icon(
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: link));
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Customer document link copied.')));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Customer document link copied.')));
+                }
               },
               icon: const Icon(Icons.copy),
               label: const Text('Copy link'),
@@ -5810,76 +7130,232 @@ class _BusinessHubState extends State<BusinessHub> {
         ),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
   Future<void> _showDocumentActions(Map item) async {
     final type = item['type']?.toString() ?? '';
     final status = item['status']?.toString() ?? '';
-    final action = await showModalBottomSheet<String>(context: context, builder: (context) => SafeArea(child: Wrap(children: [
-      ListTile(title: Text(item['number']?.toString() ?? 'Sales document'), subtitle: Text('Status: $status')),
-      if (!['draft', 'rejected', 'cancelled'].contains(status)) ListTile(leading: const Icon(Icons.link), title: const Text('Share customer link (expires in 72 hours)'), onTap: () => Navigator.pop(context, 'share')),
-      if (type == 'invoice' && status != 'draft') ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Review payment matching'), onTap: () => Navigator.pop(context, 'matching')),
-      if (status == 'draft') ListTile(leading: const Icon(Icons.send), title: const Text('Issue / send document'), onTap: () => Navigator.pop(context, 'issue')),
-      if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.credit_card), title: const Text('Pay online (Stripe)'), onTap: () => Navigator.pop(context, 'stripe')),
-      if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.account_balance_wallet_outlined), title: const Text('Pay with PayPal'), onTap: () => Navigator.pop(context, 'paypal')),
-      if (type == 'invoice' && status != 'draft' && !['paid','cancelled','rejected','fulfilled'].contains(status)) ListTile(leading: const Icon(Icons.payments), title: const Text('Request M-Pesa STK payment'), onTap: () => Navigator.pop(context, 'mpesa')),
-      if (type == 'invoice' && status != 'draft' && !['cancelled','rejected'].contains(status)) ListTile(leading: const Icon(Icons.receipt_long), title: const Text('Submit through configured eTIMS gateway'), onTap: () => Navigator.pop(context, 'etims')),
-    ])));
+    final action = await showModalBottomSheet<String>(
+        context: context,
+        builder: (context) => SafeArea(
+                child: Wrap(children: [
+              ListTile(
+                  title: Text(item['number']?.toString() ?? 'Sales document'),
+                  subtitle: Text('Status: $status')),
+              if (!['draft', 'rejected', 'cancelled'].contains(status))
+                ListTile(
+                    leading: const Icon(Icons.link),
+                    title:
+                        const Text('Share customer link (expires in 72 hours)'),
+                    onTap: () => Navigator.pop(context, 'share')),
+              if (type == 'invoice' && status != 'draft')
+                ListTile(
+                    leading: const Icon(Icons.fact_check_outlined),
+                    title: const Text('Review payment matching'),
+                    onTap: () => Navigator.pop(context, 'matching')),
+              if (status == 'draft')
+                ListTile(
+                    leading: const Icon(Icons.send),
+                    title: const Text('Issue / send document'),
+                    onTap: () => Navigator.pop(context, 'issue')),
+              if (type == 'invoice' &&
+                  status != 'draft' &&
+                  !['paid', 'cancelled', 'rejected', 'fulfilled']
+                      .contains(status))
+                ListTile(
+                    leading: const Icon(Icons.credit_card),
+                    title: const Text('Pay online (Stripe)'),
+                    onTap: () => Navigator.pop(context, 'stripe')),
+              if (type == 'invoice' &&
+                  status != 'draft' &&
+                  !['paid', 'cancelled', 'rejected', 'fulfilled']
+                      .contains(status))
+                ListTile(
+                    leading: const Icon(Icons.account_balance_wallet_outlined),
+                    title: const Text('Pay with PayPal'),
+                    onTap: () => Navigator.pop(context, 'paypal')),
+              if (type == 'invoice' &&
+                  status != 'draft' &&
+                  !['paid', 'cancelled', 'rejected', 'fulfilled']
+                      .contains(status))
+                ListTile(
+                    leading: const Icon(Icons.payments),
+                    title: const Text('Request M-Pesa STK payment'),
+                    onTap: () => Navigator.pop(context, 'mpesa')),
+              if (type == 'invoice' &&
+                  status != 'draft' &&
+                  !['cancelled', 'rejected'].contains(status))
+                ListTile(
+                    leading: const Icon(Icons.receipt_long),
+                    title:
+                        const Text('Submit through configured eTIMS gateway'),
+                    onTap: () => Navigator.pop(context, 'etims')),
+            ])));
     if (action == null) return;
     final id = item['_id']?.toString();
     if (id == null) return;
-    if (action == 'share') { await _shareBusinessDocument(id); return; }
-    if (action == 'matching') { await _showPaymentMatching(id); return; }
+    if (action == 'share') {
+      await _shareBusinessDocument(id);
+      return;
+    }
+    if (action == 'matching') {
+      await _showPaymentMatching(id);
+      return;
+    }
     try {
       if (action == 'issue') {
-        final path = '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(id)}/status';
+        final path =
+            '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(id)}/status';
         await app.api.call('PATCH', path, {'status': 'sent'});
         await loadWorkspaceData();
-      } else { await _invoiceIntegration(id, action); }
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+      } else {
+        await _invoiceIntegration(id, action);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   Widget toolsPanel() => ListView(padding: const EdgeInsets.all(12), children: [
-    // Keep the enterprise feature suite visible from the existing Business Tools panel.
-    Card(child: ListTile(
-      leading: const Icon(Icons.dashboard_customize_outlined),
-      title: const Text('Enterprise workspace'),
-      subtitle: const Text('Handbook, approvals, customer promises, disputes, projects, incidents and global search'),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => BusinessEnterprisePage(
-          organizationId: organization!['_id'].toString(),
-          organizationName: organization!['name']?.toString() ?? 'Business',
-        ),
-      )),
-    )),
-    Card(child: ListTile(leading: const Icon(Icons.public), title: const Text('Tax and currency profile'), subtitle: const Text('Configure jurisdiction and tax treatment'), trailing: const Icon(Icons.chevron_right), onTap: _configureTaxProfile)),
-    Card(child: ListTile(leading: const Icon(Icons.translate), title: const Text('Translate business text'), subtitle: const Text('Consent-gated AI translation'), trailing: const Icon(Icons.chevron_right), onTap: _translateBusinessText)),
-    Card(child: ListTile(leading: const Icon(Icons.mic_none), title: const Text('Translate voice message'), subtitle: const Text('Transcribe and translate an audio file with consent'), trailing: const Icon(Icons.chevron_right), onTap: _translateVoice)),
-    Card(child: ListTile(leading: const Icon(Icons.psychology_alt), title: const Text('Business Memory suggestions'), subtitle: const Text('Find possible tasks, dates and payment details'), trailing: const Icon(Icons.chevron_right), onTap: _memorySuggestions)),
-    Card(child: ListTile(leading: const Icon(Icons.mark_chat_unread_outlined), title: const Text('Message a customer'), subtitle: const Text('WhatsApp / SMS; opt-in required'), trailing: const Icon(Icons.chevron_right), onTap: _sendCustomerMessage)),
-    Card(child: ListTile(leading: const Icon(Icons.schedule), title: const Text('Scheduled workflow'), subtitle: const Text('Create, test and enable an allowed action'), trailing: const Icon(Icons.chevron_right), onTap: _createScheduledWorkflow)),
-    Card(child: ListTile(leading: const Icon(Icons.sync), title: Text('Sync offline records ($pendingOfflineCount)'), subtitle: Text(syncConflicts.isEmpty ? 'Queued creates sync when connected' : '${syncConflicts.length} changes need review'), trailing: const Icon(Icons.chevron_right), onTap: () async { final id = organization!['_id'].toString(); final applied = await _flushOfflineQueue(id); if (applied > 0) await loadWorkspaceData(syncPending: false); if (syncConflicts.isNotEmpty && mounted) await showDialog<void>(context: context, builder: (context) => AlertDialog(title: const Text('Sync conflicts'), content: SizedBox(width: 420, child: ListView(shrinkWrap: true, children: syncConflicts.map((entry) { final item = jsonDecode(entry) as Map; final result = item['result'] as Map? ?? {}; return ListTile(title: Text(result['status']?.toString() ?? 'Needs review'), subtitle: Text(result['error']?.toString() ?? result['reason']?.toString() ?? 'Server record changed; compare versions before retrying.')); }).toList())), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))])); })),
-  ]);
+        // Keep the enterprise feature suite visible from the existing Business Tools panel.
+        Card(
+            child: ListTile(
+          leading: const Icon(Icons.dashboard_customize_outlined),
+          title: const Text('Enterprise workspace'),
+          subtitle: const Text(
+              'Handbook, approvals, customer promises, disputes, projects, incidents and global search'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => BusinessEnterprisePage(
+              organizationId: organization!['_id'].toString(),
+              organizationName: organization!['name']?.toString() ?? 'Business',
+            ),
+          )),
+        )),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.public),
+                title: const Text('Tax and currency profile'),
+                subtitle:
+                    const Text('Configure jurisdiction and tax treatment'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _configureTaxProfile)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.translate),
+                title: const Text('Translate business text'),
+                subtitle: const Text('Consent-gated AI translation'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _translateBusinessText)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.mic_none),
+                title: const Text('Translate voice message'),
+                subtitle: const Text(
+                    'Transcribe and translate an audio file with consent'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _translateVoice)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.psychology_alt),
+                title: const Text('Business Memory suggestions'),
+                subtitle: const Text(
+                    'Find possible tasks, dates and payment details'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _memorySuggestions)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.mark_chat_unread_outlined),
+                title: const Text('Message a customer'),
+                subtitle: const Text('WhatsApp / SMS; opt-in required'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _sendCustomerMessage)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.schedule),
+                title: const Text('Scheduled workflow'),
+                subtitle:
+                    const Text('Create, test and enable an allowed action'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _createScheduledWorkflow)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.sync),
+                title: Text('Sync offline records ($pendingOfflineCount)'),
+                subtitle: Text(syncConflicts.isEmpty
+                    ? 'Queued creates sync when connected'
+                    : '${syncConflicts.length} changes need review'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  final id = organization!['_id'].toString();
+                  final applied = await _flushOfflineQueue(id);
+                  if (applied > 0) await loadWorkspaceData(syncPending: false);
+                  if (syncConflicts.isNotEmpty && mounted) {
+                    await showDialog<void>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                                title: const Text('Sync conflicts'),
+                                content: SizedBox(
+                                    width: 420,
+                                    child: ListView(
+                                        shrinkWrap: true,
+                                        children: syncConflicts.map((entry) {
+                                          final item = jsonDecode(entry) as Map;
+                                          final result =
+                                              item['result'] as Map? ?? {};
+                                          return ListTile(
+                                              title: Text(result['status']
+                                                      ?.toString() ??
+                                                  'Needs review'),
+                                              subtitle: Text(result['error']
+                                                      ?.toString() ??
+                                                  result['reason']
+                                                      ?.toString() ??
+                                                  'Server record changed; compare versions before retrying.'));
+                                        }).toList())),
+                                actions: [
+                                  TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('Close'))
+                                ]));
+                  }
+                })),
+      ]);
 
   Widget metric(String label, dynamic value, IconData icon) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Row(children: [
-        Icon(icon, size: 24),
-        const SizedBox(width: 10),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(value?.toString() ?? '0', style: Theme.of(context).textTheme.titleLarge),
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-        ])),
-      ]),
-    ),
-  );
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            Icon(icon, size: 24),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(value?.toString() ?? '0',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  Text(label, style: Theme.of(context).textTheme.bodySmall),
+                ])),
+          ]),
+        ),
+      );
 
   Widget recordList(List<dynamic> records, String kind, IconData icon) {
-    if (records.isEmpty) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('No $kind yet. Use Add to create your first record.', textAlign: TextAlign.center)));
+    if (records.isEmpty) {
+      return Center(
+          child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text('No $kind yet. Use Add to create your first record.',
+                  textAlign: TextAlign.center)));
+    }
     return ListView.separated(
       padding: const EdgeInsets.only(bottom: 24),
       itemCount: records.length,
@@ -5887,15 +7363,26 @@ class _BusinessHubState extends State<BusinessHub> {
       itemBuilder: (_, index) {
         final item = records[index];
         if (item is! Map) return const SizedBox.shrink();
-        final title = item['name']?.toString() ?? item['title']?.toString() ?? item['number']?.toString() ?? kind;
-        final subtitle = item['description']?.toString() ?? item['company']?.toString() ?? item['status']?.toString() ?? '';
+        final title = item['name']?.toString() ??
+            item['title']?.toString() ??
+            item['number']?.toString() ??
+            kind;
+        final subtitle = item['description']?.toString() ??
+            item['company']?.toString() ??
+            item['status']?.toString() ??
+            '';
         final amount = item['price'] ?? item['total'];
         return ListTile(
           leading: CircleAvatar(child: Icon(icon)),
           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-          trailing: amount == null ? null : Text('${item['currency'] ?? 'KES'} $amount'),
-          onTap: kind == 'sales documents' ? () => _showDocumentActions(Map<String, dynamic>.from(item)) : null,
+          subtitle:
+              Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+          trailing: amount == null
+              ? null
+              : Text('${item['currency'] ?? 'KES'} $amount'),
+          onTap: kind == 'sales documents'
+              ? () => _showDocumentActions(Map<String, dynamic>.from(item))
+              : null,
         );
       },
     );
@@ -5905,24 +7392,38 @@ class _BusinessHubState extends State<BusinessHub> {
   Widget build(BuildContext context) {
     if (loading) return const Center(child: CircularProgressIndicator());
     if (error != null && organizations.isEmpty) {
-      return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.business_outlined, size: 48),
-        const SizedBox(height: 12),
-        Text(error!, textAlign: TextAlign.center),
-        const SizedBox(height: 12),
-        FilledButton(onPressed: loadOrganizations, child: const Text('Retry')),
-      ])));
+      return Center(
+          child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.business_outlined, size: 48),
+                const SizedBox(height: 12),
+                Text(error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                FilledButton(
+                    onPressed: loadOrganizations, child: const Text('Retry')),
+              ])));
     }
     if (organization == null) {
-      return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.storefront_outlined, size: 56),
-        const SizedBox(height: 12),
-        Text('Turn conversations into business', style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
-        const SizedBox(height: 8),
-        const Text('Create a workspace to manage customers, products, quotations and follow-ups alongside your conversations.', textAlign: TextAlign.center),
-        const SizedBox(height: 18),
-        FilledButton.icon(onPressed: createOrganization, icon: const Icon(Icons.add_business), label: const Text('Create business workspace')),
-      ])));
+      return Center(
+          child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.storefront_outlined, size: 56),
+                const SizedBox(height: 12),
+                Text('Turn conversations into business',
+                    style: Theme.of(context).textTheme.titleLarge,
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 8),
+                const Text(
+                    'Create a workspace to manage customers, products, quotations and follow-ups alongside your conversations.',
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                    onPressed: createOrganization,
+                    icon: const Icon(Icons.add_business),
+                    label: const Text('Create business workspace')),
+              ])));
     }
     final metrics = dashboard;
     return DefaultTabController(
@@ -5932,14 +7433,28 @@ class _BusinessHubState extends State<BusinessHub> {
         // especially on touch screens and when this dashboard was used in a browser.
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            DropdownButtonHideUnderline(child: DropdownButton<String>(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
               isExpanded: true,
               value: organization!['_id']?.toString(),
-              items: organizations.whereType<Map>().map((item) => DropdownMenuItem<String>(value: item['_id'].toString(), child: Text(item['name']?.toString() ?? 'Business', overflow: TextOverflow.ellipsis))).toList(),
+              items: organizations
+                  .whereType<Map>()
+                  .map((item) => DropdownMenuItem<String>(
+                      value: item['_id'].toString(),
+                      child: Text(item['name']?.toString() ?? 'Business',
+                          overflow: TextOverflow.ellipsis)))
+                  .toList(),
               onChanged: (id) async {
                 if (id == null) return;
-                setState(() { organization = organizations.whereType<Map>().firstWhere((item) => item['_id'].toString() == id).cast<String, dynamic>(); loading = true; });
+                setState(() {
+                  organization = organizations
+                      .whereType<Map>()
+                      .firstWhere((item) => item['_id'].toString() == id)
+                      .cast<String, dynamic>();
+                  loading = true;
+                });
                 await loadWorkspaceData();
                 if (mounted) setState(() => loading = false);
               },
@@ -5953,18 +7468,31 @@ class _BusinessHubState extends State<BusinessHub> {
                   onPressed: () {
                     final slug = organization?['slug']?.toString() ?? '';
                     if (slug.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This workspace has no storefront slug yet.')));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text(
+                              'This workspace has no storefront slug yet.')));
                       return;
                     }
-                    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StorefrontPage(slug: slug)));
+                    Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (_) => StorefrontPage(slug: slug)));
                   },
                   icon: const Icon(Icons.storefront_outlined),
                   label: const Text('View storefront'),
                 ),
                 OutlinedButton.icon(
                   onPressed: saving ? null : _toggleStorefrontPublished,
-                  icon: Icon((organization?['settings'] is Map && (organization!['settings'] as Map)['storefrontPublished'] == false) ? Icons.publish_outlined : Icons.visibility_off_outlined),
-                  label: Text((organization?['settings'] is Map && (organization!['settings'] as Map)['storefrontPublished'] == false) ? 'Publish storefront' : 'Hide storefront'),
+                  icon: Icon((organization?['settings'] is Map &&
+                          (organization!['settings']
+                                  as Map)['storefrontPublished'] ==
+                              false)
+                      ? Icons.publish_outlined
+                      : Icons.visibility_off_outlined),
+                  label: Text((organization?['settings'] is Map &&
+                          (organization!['settings']
+                                  as Map)['storefrontPublished'] ==
+                              false)
+                      ? 'Publish storefront'
+                      : 'Hide storefront'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _configureMpesaNumbers,
@@ -5985,34 +7513,102 @@ class _BusinessHubState extends State<BusinessHub> {
             ),
           ]),
         ),
-        SizedBox(height: 118, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
-          SizedBox(width: 170, child: metric('Customers', metrics['customers'], Icons.people_outline)),
-          SizedBox(width: 170, child: metric('Products / services', metrics['activeCatalogItems'], Icons.inventory_2_outlined)),
-          SizedBox(width: 170, child: metric('Open tasks', metrics['openTasks'], Icons.task_alt)),
-          SizedBox(width: 170, child: metric('Open cases', metrics['openCases'], Icons.support_agent_outlined)),
-        ])),
+        SizedBox(
+            height: 118,
+            child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                children: [
+                  SizedBox(
+                      width: 170,
+                      child: metric('Customers', metrics['customers'],
+                          Icons.people_outline)),
+                  SizedBox(
+                      width: 170,
+                      child: metric(
+                          'Products / services',
+                          metrics['activeCatalogItems'],
+                          Icons.inventory_2_outlined)),
+                  SizedBox(
+                      width: 170,
+                      child: metric(
+                          'Open tasks', metrics['openTasks'], Icons.task_alt)),
+                  SizedBox(
+                      width: 170,
+                      child: metric('Open cases', metrics['openCases'],
+                          Icons.support_agent_outlined)),
+                ])),
         const TabBar(isScrollable: true, tabs: [
-          Tab(text: 'Catalogue'), Tab(text: 'Customers'), Tab(text: 'Sales'), Tab(text: 'Tasks'), Tab(text: 'Tools'),
+          Tab(text: 'Catalogue'),
+          Tab(text: 'Customers'),
+          Tab(text: 'Sales'),
+          Tab(text: 'Tasks'),
+          Tab(text: 'Tools'),
         ]),
-        Expanded(child: TabBarView(children: [
-          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('catalog'), icon: const Icon(Icons.add), label: const Text('Add product / service'))), Expanded(child: recordList(catalog, 'products or services', Icons.inventory_2_outlined))]),
-          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('customer'), icon: const Icon(Icons.add), label: const Text('Add customer'))), Expanded(child: recordList(customers, 'customers', Icons.person_outline))]),
-          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('document'), icon: const Icon(Icons.add), label: const Text('Create quotation'))), Expanded(child: recordList(documents, 'sales documents', Icons.receipt_long_outlined))]),
-          Column(children: [Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: saving ? null : () => createRecord('task'), icon: const Icon(Icons.add), label: const Text('Add task / follow-up'))), Expanded(child: recordList(tasks, 'tasks', Icons.task_alt))]),
+        Expanded(
+            child: TabBarView(children: [
+          Column(children: [
+            Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                    onPressed: saving ? null : () => createRecord('catalog'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add product / service'))),
+            Expanded(
+                child: recordList(catalog, 'products or services',
+                    Icons.inventory_2_outlined))
+          ]),
+          Column(children: [
+            Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                    onPressed: saving ? null : () => createRecord('customer'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add customer'))),
+            Expanded(
+                child: recordList(customers, 'customers', Icons.person_outline))
+          ]),
+          Column(children: [
+            Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                    onPressed: saving ? null : () => createRecord('document'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Create quotation'))),
+            Expanded(
+                child: recordList(
+                    documents, 'sales documents', Icons.receipt_long_outlined))
+          ]),
+          Column(children: [
+            Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                    onPressed: saving ? null : () => createRecord('task'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add task / follow-up'))),
+            Expanded(child: recordList(tasks, 'tasks', Icons.task_alt))
+          ]),
           toolsPanel(),
         ])),
         if (saving) const LinearProgressIndicator(),
-        if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+        if (error != null)
+          Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(error!,
+                  style:
+                      TextStyle(color: Theme.of(context).colorScheme.error))),
       ]),
     );
   }
 }
 
-
 // A single, permission-aware screen exposes the enterprise APIs without duplicating business data.
 // Every operation is scoped by the selected organization ID and re-authorized by the server.
 class BusinessEnterprisePage extends StatefulWidget {
-  const BusinessEnterprisePage({super.key, required this.organizationId, required this.organizationName});
+  const BusinessEnterprisePage(
+      {super.key,
+      required this.organizationId,
+      required this.organizationName});
   final String organizationId;
   final String organizationName;
 
@@ -6028,7 +7624,8 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
   String query = '';
   String? error;
   AppState get app => context.read<AppState>();
-  String get base => '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/enterprise';
+  String get base =>
+      '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/enterprise';
 
   static const recordTypes = <String, String>{
     'handbook': 'Company handbook / procedure',
@@ -6064,7 +7661,12 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
   }
 
   Future<void> load() async {
-    if (mounted) setState(() { loading = true; error = null; });
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
     try {
       final results = await Future.wait([
         app.api.call('GET', '$base/overview'),
@@ -6092,19 +7694,26 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
       if (item is! Map) return false;
       if (typeFilter != 'all' && item['type'] != typeFilter) return false;
       if (q.isEmpty) return true;
-      return '${item['title'] ?? ''} ${item['description'] ?? ''} ${item['status'] ?? ''}'.toLowerCase().contains(q);
+      return '${item['title'] ?? ''} ${item['description'] ?? ''} ${item['status'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
     }).toList();
   }
 
   Future<void> searchAll() async {
     final q = query.trim();
     if (q.length < 2) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter at least two characters to search all business records.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Enter at least two characters to search all business records.')));
+      }
       return;
     }
     setState(() => searching = true);
     try {
-      final response = await app.api.call('GET', '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/search?q=${Uri.encodeQueryComponent(q)}');
+      final response = await app.api.call('GET',
+          '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/search?q=${Uri.encodeQueryComponent(q)}');
       searchResults = List<dynamic>.from(response['results'] ?? []);
       if (mounted) setState(() {});
       if (!mounted) return;
@@ -6115,54 +7724,99 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
           content: SizedBox(
             width: 480,
             child: searchResults.isEmpty
-                ? const Text('No matching customers, products, invoices, tasks or enterprise records found in this workspace.')
+                ? const Text(
+                    'No matching customers, products, invoices, tasks or enterprise records found in this workspace.')
                 : ListView(
                     shrinkWrap: true,
-                    children: searchResults.map((item) => ListTile(
-                      leading: const Icon(Icons.search),
-                      title: Text(item['title']?.toString() ?? 'Business record'),
-                      subtitle: Text('${item['type'] ?? 'record'} · ${item['status'] ?? item['subtitle'] ?? ''}'),
-                    )).toList(),
+                    children: searchResults
+                        .map((item) => ListTile(
+                              leading: const Icon(Icons.search),
+                              title: Text(item['title']?.toString() ??
+                                  'Business record'),
+                              subtitle: Text(
+                                  '${item['type'] ?? 'record'} · ${item['status'] ?? item['subtitle'] ?? ''}'),
+                            ))
+                        .toList(),
                   ),
           ),
-          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close'))
+          ],
         ),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => searching = false);
     }
   }
 
   Future<void> configureEnterpriseSettings() async {
-    final targets = settings['serviceTargets'] is Map ? Map<String, dynamic>.from(settings['serviceTargets']) : <String, dynamic>{};
-    final credit = settings['creditPolicy'] is Map ? Map<String, dynamic>.from(settings['creditPolicy']) : <String, dynamic>{};
-    final firstResponse = TextEditingController(text: (targets['firstResponseMinutes'] ?? 15).toString());
-    final escalation = TextEditingController(text: (targets['escalationMinutes'] ?? 60).toString());
-    final terms = TextEditingController(text: (credit['defaultTermsDays'] ?? 0).toString());
-    final threshold = TextEditingController(text: (credit['approvalRequiredAbove'] ?? 0).toString());
+    final targets = settings['serviceTargets'] is Map
+        ? Map<String, dynamic>.from(settings['serviceTargets'])
+        : <String, dynamic>{};
+    final credit = settings['creditPolicy'] is Map
+        ? Map<String, dynamic>.from(settings['creditPolicy'])
+        : <String, dynamic>{};
+    final firstResponse = TextEditingController(
+        text: (targets['firstResponseMinutes'] ?? 15).toString());
+    final escalation = TextEditingController(
+        text: (targets['escalationMinutes'] ?? 60).toString());
+    final terms = TextEditingController(
+        text: (credit['defaultTermsDays'] ?? 0).toString());
+    final threshold = TextEditingController(
+        text: (credit['approvalRequiredAbove'] ?? 0).toString());
     final creditEnabled = ValueNotifier<bool>(credit['enabled'] == true);
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Service and credit controls'),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: firstResponse, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'First response target (minutes)')),
-          TextField(controller: escalation, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Escalation target (minutes)')),
+        content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: firstResponse,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'First response target (minutes)')),
+          TextField(
+              controller: escalation,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'Escalation target (minutes)')),
           const Divider(height: 24),
-          ValueListenableBuilder<bool>(valueListenable: creditEnabled, builder: (_, value, __) => SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Enable customer credit policy'),
-            value: value,
-            onChanged: (next) => creditEnabled.value = next,
-          )),
-          TextField(controller: terms, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Default payment terms (days, 0–365)')),
-          TextField(controller: threshold, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Require approval above (amount, 0 disables threshold)')),
+          ValueListenableBuilder<bool>(
+              valueListenable: creditEnabled,
+              builder: (_, value, __) => SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Enable customer credit policy'),
+                    value: value,
+                    onChanged: (next) => creditEnabled.value = next,
+                  )),
+          TextField(
+              controller: terms,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'Default payment terms (days, 0–365)')),
+          TextField(
+              controller: threshold,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                  labelText:
+                      'Require approval above (amount, 0 disables threshold)')),
         ])),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save controls')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save controls')),
         ],
       ),
     );
@@ -6171,20 +7825,41 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     final escalate = int.tryParse(escalation.text) ?? 0;
     final termsDays = int.tryParse(terms.text) ?? -1;
     final approvalAmount = double.tryParse(threshold.text) ?? -1;
-    if (first < 1 || escalate < first || termsDays < 0 || termsDays > 365 || approvalAmount < 0) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Check the response targets, credit terms and approval threshold.')));
+    if (first < 1 ||
+        escalate < first ||
+        termsDays < 0 ||
+        termsDays > 365 ||
+        approvalAmount < 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Check the response targets, credit terms and approval threshold.')));
+      }
       return;
     }
     setState(() => saving = true);
     try {
       await app.api.call('PATCH', '$base/settings', {
-        'serviceTargets': {'firstResponseMinutes': first, 'escalationMinutes': escalate},
-        'creditPolicy': {'enabled': creditEnabled.value, 'defaultTermsDays': termsDays, 'approvalRequiredAbove': approvalAmount},
+        'serviceTargets': {
+          'firstResponseMinutes': first,
+          'escalationMinutes': escalate
+        },
+        'creditPolicy': {
+          'enabled': creditEnabled.value,
+          'defaultTermsDays': termsDays,
+          'approvalRequiredAbove': approvalAmount
+        },
       });
       await load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Service and credit settings saved.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Service and credit settings saved.')));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -6194,20 +7869,36 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     setState(() => saving = true);
     try {
       final token = app.api.token;
-      if (token == null || token.isEmpty) throw Exception('Sign in again before exporting business records.');
+      if (token == null || token.isEmpty) {
+        throw Exception('Sign in again before exporting business records.');
+      }
       final orgId = Uri.encodeComponent(widget.organizationId);
-      final uri = Uri.parse('${app.api.base}/api/business/organizations/$orgId/export');
-      final response = await app.api.client.get(uri, headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'});
-      if (response.statusCode != 200) throw Exception('Business archive export failed with status ${response.statusCode}. Manager permissions may be required.');
+      final uri =
+          Uri.parse('${app.api.base}/api/business/organizations/$orgId/export');
+      final response = await app.api.client.get(uri, headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json'
+      });
+      if (response.statusCode != 200) {
+        throw Exception(
+            'Business archive export failed with status ${response.statusCode}. Manager permissions may be required.');
+      }
       await FileSaver.instance.saveFile(
         name: 'chatify-business-archive',
         bytes: response.bodyBytes,
         fileExtension: 'json',
         mimeType: MimeType.json,
       );
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Full business archive exported. Keep it in a secure location.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Full business archive exported. Keep it in a secure location.')));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -6217,19 +7908,31 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     setState(() => saving = true);
     try {
       final token = app.api.token;
-      if (token == null || token.isEmpty) throw Exception('Sign in again before exporting business records.');
+      if (token == null || token.isEmpty) {
+        throw Exception('Sign in again before exporting business records.');
+      }
       final uri = Uri.parse('${app.api.base}$base/export');
-      final response = await app.api.client.get(uri, headers: {'Authorization': 'Bearer $token', 'Accept': 'text/csv'});
-      if (response.statusCode != 200) throw Exception('Export failed with status ${response.statusCode}. Check your finance or manager permissions.');
+      final response = await app.api.client.get(uri,
+          headers: {'Authorization': 'Bearer $token', 'Accept': 'text/csv'});
+      if (response.statusCode != 200) {
+        throw Exception(
+            'Export failed with status ${response.statusCode}. Check your finance or manager permissions.');
+      }
       await FileSaver.instance.saveFile(
         name: 'chatify-business-records',
         bytes: response.bodyBytes,
         fileExtension: 'csv',
         mimeType: MimeType.csv,
       );
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Business records CSV exported.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Business records CSV exported.')));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -6237,20 +7940,38 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
 
   Future<void> closeFinancialPeriod() async {
     final now = DateTime.now();
-    final startDate = TextEditingController(text: DateTime(now.year, now.month, 1).toIso8601String().substring(0, 10));
-    final endDate = TextEditingController(text: now.add(const Duration(days: 1)).toIso8601String().substring(0, 10));
+    final startDate = TextEditingController(
+        text: DateTime(now.year, now.month, 1)
+            .toIso8601String()
+            .substring(0, 10));
+    final endDate = TextEditingController(
+        text: now
+            .add(const Duration(days: 1))
+            .toIso8601String()
+            .substring(0, 10));
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Close financial period'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Creates an immutable snapshot of invoices created between the start date and the exclusive end date.'),
-          TextField(controller: startDate, decoration: const InputDecoration(labelText: 'Start date (YYYY-MM-DD)')),
-          TextField(controller: endDate, decoration: const InputDecoration(labelText: 'End date, exclusive (YYYY-MM-DD)')),
+          const Text(
+              'Creates an immutable snapshot of invoices created between the start date and the exclusive end date.'),
+          TextField(
+              controller: startDate,
+              decoration:
+                  const InputDecoration(labelText: 'Start date (YYYY-MM-DD)')),
+          TextField(
+              controller: endDate,
+              decoration: const InputDecoration(
+                  labelText: 'End date, exclusive (YYYY-MM-DD)')),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Close period')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Close period')),
         ],
       ),
     );
@@ -6258,19 +7979,31 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     final start = DateTime.tryParse(startDate.text.trim());
     final end = DateTime.tryParse(endDate.text.trim());
     if (start == null || end == null || !start.isBefore(end)) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter valid dates; the end date must be after the start date.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Enter valid dates; the end date must be after the start date.')));
+      }
       return;
     }
     setState(() => saving = true);
     try {
-      final result = await app.api.call('POST', '$base/financial-periods/close', {
+      final result =
+          await app.api.call('POST', '$base/financial-periods/close', {
         'periodStart': '${startDate.text.trim()}T00:00:00.000Z',
         'periodEnd': '${endDate.text.trim()}T00:00:00.000Z',
       });
       await load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['notice']?.toString() ?? 'Financial period snapshot created.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(result['notice']?.toString() ??
+                'Financial period snapshot created.')));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -6285,30 +8018,57 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Create enterprise record'),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ValueListenableBuilder<String>(valueListenable: type, builder: (_, value, __) => DropdownButtonFormField<String>(
-            isExpanded: true, initialValue: value,
-            decoration: const InputDecoration(labelText: 'Record type'),
-            items: recordTypes.entries.where((entry) => entry.key != 'financial_close').map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value))).toList(),
-            onChanged: (next) { if (next != null) type.value = next; },
-          )),
+        content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ValueListenableBuilder<String>(
+              valueListenable: type,
+              builder: (_, value, __) => DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    initialValue: value,
+                    decoration: const InputDecoration(labelText: 'Record type'),
+                    items: recordTypes.entries
+                        .where((entry) => entry.key != 'financial_close')
+                        .map((entry) => DropdownMenuItem(
+                            value: entry.key, child: Text(entry.value)))
+                        .toList(),
+                    onChanged: (next) {
+                      if (next != null) type.value = next;
+                    },
+                  )),
           const SizedBox(height: 8),
-          TextField(controller: title, autofocus: true, maxLength: 200, decoration: const InputDecoration(labelText: 'Title')),
-          TextField(controller: description, maxLines: 3, maxLength: 6000, decoration: const InputDecoration(labelText: 'Details / reason')),
-          ValueListenableBuilder<String>(valueListenable: priority, builder: (_, value, __) => DropdownButtonFormField<String>(
-            initialValue: value, decoration: const InputDecoration(labelText: 'Priority'),
-            items: const [
-              DropdownMenuItem(value: 'low', child: Text('Low')),
-              DropdownMenuItem(value: 'normal', child: Text('Normal')),
-              DropdownMenuItem(value: 'high', child: Text('High')),
-              DropdownMenuItem(value: 'urgent', child: Text('Urgent')),
-            ],
-            onChanged: (next) { if (next != null) priority.value = next; },
-          )),
+          TextField(
+              controller: title,
+              autofocus: true,
+              maxLength: 200,
+              decoration: const InputDecoration(labelText: 'Title')),
+          TextField(
+              controller: description,
+              maxLines: 3,
+              maxLength: 6000,
+              decoration: const InputDecoration(labelText: 'Details / reason')),
+          ValueListenableBuilder<String>(
+              valueListenable: priority,
+              builder: (_, value, __) => DropdownButtonFormField<String>(
+                    initialValue: value,
+                    decoration: const InputDecoration(labelText: 'Priority'),
+                    items: const [
+                      DropdownMenuItem(value: 'low', child: Text('Low')),
+                      DropdownMenuItem(value: 'normal', child: Text('Normal')),
+                      DropdownMenuItem(value: 'high', child: Text('High')),
+                      DropdownMenuItem(value: 'urgent', child: Text('Urgent')),
+                    ],
+                    onChanged: (next) {
+                      if (next != null) priority.value = next;
+                    },
+                  )),
         ])),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Create')),
         ],
       ),
     );
@@ -6316,12 +8076,21 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     setState(() => saving = true);
     try {
       await app.api.call('POST', '$base/records', {
-        'type': type.value, 'title': title.text.trim(), 'description': description.text.trim(), 'priority': priority.value,
+        'type': type.value,
+        'title': title.text.trim(),
+        'description': description.text.trim(),
+        'priority': priority.value,
       });
       await load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enterprise record created.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Enterprise record created.')));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -6341,18 +8110,27 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Secure customer link'),
-          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('This link expires in 72 hours. Share it only with the intended customer.'),
-            const SizedBox(height: 8),
-            SelectableText(link),
-          ]),
+          content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                    'This link expires in 72 hours. Share it only with the intended customer.'),
+                const SizedBox(height: 8),
+                SelectableText(link),
+              ]),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close')),
             FilledButton.icon(
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: link));
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Customer link copied.')));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Customer link copied.')));
+                }
               },
               icon: const Icon(Icons.copy),
               label: const Text('Copy link'),
@@ -6361,7 +8139,10 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
         ),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
@@ -6374,35 +8155,60 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
       } else if (action == 'approve' || action == 'reject') {
         final reason = TextEditingController();
         if (action == 'reject') {
-          final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
-            title: const Text('Reason for rejection'),
-            content: TextField(controller: reason, maxLines: 3, decoration: const InputDecoration(labelText: 'Required reason')),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Reject request')),
-            ],
-          ));
+          final accepted = await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                    title: const Text('Reason for rejection'),
+                    content: TextField(
+                        controller: reason,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                            labelText: 'Required reason')),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Reject request')),
+                    ],
+                  ));
           if (accepted != true || reason.text.trim().isEmpty) return;
         }
-        await app.api.call('POST', '$base/records/$id/decision', {'decision': action == 'approve' ? 'approved' : 'rejected', 'reason': reason.text.trim()});
+        await app.api.call('POST', '$base/records/$id/decision', {
+          'decision': action == 'approve' ? 'approved' : 'rejected',
+          'reason': reason.text.trim()
+        });
       } else {
-        await app.api.call('POST', '$base/records/$id/resolve', {'resolution': 'Resolved from Chatify Business'});
+        await app.api.call('POST', '$base/records/$id/resolve',
+            {'resolution': 'Resolved from Chatify Business'});
       }
       await load();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final counts = overview['counts'] is Map ? Map<String, dynamic>.from(overview['counts']) : <String, dynamic>{};
-    final business = overview['business'] is Map ? Map<String, dynamic>.from(overview['business']) : <String, dynamic>{};
+    final counts = overview['counts'] is Map
+        ? Map<String, dynamic>.from(overview['counts'])
+        : <String, dynamic>{};
+    final business = overview['business'] is Map
+        ? Map<String, dynamic>.from(overview['business'])
+        : <String, dynamic>{};
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.organizationName, maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(widget.organizationName,
+            maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
-          IconButton(tooltip: 'Refresh enterprise workspace', onPressed: load, icon: const Icon(Icons.refresh)),
+          IconButton(
+              tooltip: 'Refresh enterprise workspace',
+              onPressed: load,
+              icon: const Icon(Icons.refresh)),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -6413,158 +8219,285 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : error != null
-              ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text(error!, textAlign: TextAlign.center),
-                  const SizedBox(height: 12),
-                  FilledButton(onPressed: load, child: const Text('Retry')),
-                ])))
+              ? Center(
+                  child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Text(error!, textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                            onPressed: load, child: const Text('Retry')),
+                      ])))
               : RefreshIndicator(
                   onRefresh: load,
-                  child: ListView(padding: const EdgeInsets.fromLTRB(12, 8, 12, 96), children: [
-                    Text('Business command centre', style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 4),
-                    Text('Overview, accountability and follow-up records for this workspace. Sensitive actions are checked by the server.'),
-                    const SizedBox(height: 12),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      _enterpriseMetric('Customers', business['customers'] ?? 0, Icons.people_outline),
-                      _enterpriseMetric('Active products', business['activeCatalogItems'] ?? 0, Icons.inventory_2_outlined),
-                      _enterpriseMetric('Open tasks', business['openTasks'] ?? 0, Icons.task_alt),
-                      _enterpriseMetric('Open cases', business['openCases'] ?? 0, Icons.support_agent_outlined),
-                      _enterpriseMetric('Overdue records', overview['overdueEnterpriseRecords'] ?? 0, Icons.warning_amber_outlined),
-                    ]),
-                    const SizedBox(height: 16),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('Setup readiness: ${readiness['complete'] ?? 0}/${readiness['total'] ?? 0}', style: Theme.of(context).textTheme.titleMedium),
-                          const SizedBox(height: 8),
-                          for (final check in (readiness['checks'] as List? ?? const []).whereType<Map>())
-                            ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              leading: Icon(check['complete'] == true ? Icons.check_circle_outline : Icons.radio_button_unchecked),
-                              title: Text(check['label']?.toString() ?? 'Setup step'),
-                              trailing: Text(check['complete'] == true ? 'Ready' : 'Incomplete'),
-                            ),
+                  child: ListView(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+                      children: [
+                        Text('Business command centre',
+                            style: Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 4),
+                        Text(
+                            'Overview, accountability and follow-up records for this workspace. Sensitive actions are checked by the server.'),
+                        const SizedBox(height: 12),
+                        Wrap(spacing: 8, runSpacing: 8, children: [
+                          _enterpriseMetric('Customers',
+                              business['customers'] ?? 0, Icons.people_outline),
+                          _enterpriseMetric(
+                              'Active products',
+                              business['activeCatalogItems'] ?? 0,
+                              Icons.inventory_2_outlined),
+                          _enterpriseMetric('Open tasks',
+                              business['openTasks'] ?? 0, Icons.task_alt),
+                          _enterpriseMetric(
+                              'Open cases',
+                              business['openCases'] ?? 0,
+                              Icons.support_agent_outlined),
+                          _enterpriseMetric(
+                              'Overdue records',
+                              overview['overdueEnterpriseRecords'] ?? 0,
+                              Icons.warning_amber_outlined),
                         ]),
-                      ),
-                    ),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('Plan and usage', style: Theme.of(context).textTheme.titleMedium),
-                          Text('Plan: ${usage['plan'] ?? settings['plan'] ?? 'free'}'),
-                          Text('Staff: ${(usage['usage'] as Map?)?['members'] ?? 1} · Customers: ${(usage['usage'] as Map?)?['customers'] ?? 0} · Catalogue items: ${(usage['usage'] as Map?)?['catalogItems'] ?? 0}'),
-                          Text('Response target: ${(settings['serviceTargets'] as Map?)?['firstResponseMinutes'] ?? 15} minutes · Escalation: ${(settings['serviceTargets'] as Map?)?['escalationMinutes'] ?? 60} minutes'),
-                          Text('Credit policy: ${(settings['creditPolicy'] as Map?)?['enabled'] == true ? 'Enabled' : 'Disabled'}'),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton.icon(
-                              onPressed: saving ? null : configureEnterpriseSettings,
-                              icon: const Icon(Icons.tune),
-                              label: const Text('Configure response and credit controls'),
+                        const SizedBox(height: 16),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                      'Setup readiness: ${readiness['complete'] ?? 0}/${readiness['total'] ?? 0}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium),
+                                  const SizedBox(height: 8),
+                                  for (final check
+                                      in (readiness['checks'] as List? ??
+                                              const [])
+                                          .whereType<Map>())
+                                    ListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: Icon(check['complete'] == true
+                                          ? Icons.check_circle_outline
+                                          : Icons.radio_button_unchecked),
+                                      title: Text(check['label']?.toString() ??
+                                          'Setup step'),
+                                      trailing: Text(check['complete'] == true
+                                          ? 'Ready'
+                                          : 'Incomplete'),
+                                    ),
+                                ]),
+                          ),
+                        ),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Plan and usage',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium),
+                                  Text(
+                                      'Plan: ${usage['plan'] ?? settings['plan'] ?? 'free'}'),
+                                  Text(
+                                      'Staff: ${(usage['usage'] as Map?)?['members'] ?? 1} · Customers: ${(usage['usage'] as Map?)?['customers'] ?? 0} · Catalogue items: ${(usage['usage'] as Map?)?['catalogItems'] ?? 0}'),
+                                  Text(
+                                      'Response target: ${(settings['serviceTargets'] as Map?)?['firstResponseMinutes'] ?? 15} minutes · Escalation: ${(settings['serviceTargets'] as Map?)?['escalationMinutes'] ?? 60} minutes'),
+                                  Text(
+                                      'Credit policy: ${(settings['creditPolicy'] as Map?)?['enabled'] == true ? 'Enabled' : 'Disabled'}'),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed: saving
+                                          ? null
+                                          : configureEnterpriseSettings,
+                                      icon: const Icon(Icons.tune),
+                                      label: const Text(
+                                          'Configure response and credit controls'),
+                                    ),
+                                  ),
+                                ]),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text('Enterprise modules',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        Wrap(spacing: 8, runSpacing: 8, children: [
+                          for (final entry in recordTypes.entries)
+                            Chip(
+                                avatar: const Icon(Icons.checklist, size: 16),
+                                label: Text(
+                                    '${entry.value}: ${counts[entry.key] ?? 0}')),
+                        ]),
+                        const SizedBox(height: 16),
+                        TextField(
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.search),
+                            labelText: 'Search business records',
+                            helperText:
+                                'Type to filter this list, or use the search icon for customers, products, invoices, tasks and cases.',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              tooltip: 'Search all business data',
+                              onPressed: searching ? null : searchAll,
+                              icon: searching
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
+                                  : const Icon(Icons.manage_search),
                             ),
                           ),
+                          onChanged: (value) => setState(() => query = value),
+                          onSubmitted: (_) => searchAll(),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          initialValue: typeFilter,
+                          decoration: const InputDecoration(
+                              labelText: 'Filter by module',
+                              border: OutlineInputBorder()),
+                          items: [
+                            const DropdownMenuItem(
+                                value: 'all',
+                                child: Text('All enterprise records')),
+                            ...recordTypes.entries.map((entry) =>
+                                DropdownMenuItem(
+                                    value: entry.key,
+                                    child: Text(entry.value))),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => typeFilter = value ?? 'all'),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(children: [
+                          Expanded(
+                              child: Text('Records (${visibleRecords.length})',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium)),
+                          TextButton.icon(
+                            onPressed: saving ? null : downloadEnterpriseExport,
+                            icon: const Icon(Icons.file_download_outlined),
+                            label: const Text('Export CSV'),
+                          ),
                         ]),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text('Enterprise modules', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      for (final entry in recordTypes.entries)
-                        Chip(avatar: const Icon(Icons.checklist, size: 16), label: Text('${entry.value}: ${counts[entry.key] ?? 0}')),
-                    ]),
-                    const SizedBox(height: 16),
-                    TextField(
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.search),
-                        labelText: 'Search business records',
-                        helperText: 'Type to filter this list, or use the search icon for customers, products, invoices, tasks and cases.',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          tooltip: 'Search all business data',
-                          onPressed: searching ? null : searchAll,
-                          icon: searching ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.manage_search),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: saving ? null : closeFinancialPeriod,
+                            icon: const Icon(Icons.lock_clock_outlined),
+                            label: const Text('Close financial period'),
+                          ),
                         ),
-                      ),
-                      onChanged: (value) => setState(() => query = value),
-                      onSubmitted: (_) => searchAll(),
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      isExpanded: true,
-                      initialValue: typeFilter,
-                      decoration: const InputDecoration(labelText: 'Filter by module', border: OutlineInputBorder()),
-                      items: [
-                        const DropdownMenuItem(value: 'all', child: Text('All enterprise records')),
-                        ...recordTypes.entries.map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value))),
-                      ],
-                      onChanged: (value) => setState(() => typeFilter = value ?? 'all'),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(children: [
-                      Expanded(child: Text('Records (${visibleRecords.length})', style: Theme.of(context).textTheme.titleMedium)),
-                      TextButton.icon(
-                        onPressed: saving ? null : downloadEnterpriseExport,
-                        icon: const Icon(Icons.file_download_outlined),
-                        label: const Text('Export CSV'),
-                      ),
-                    ]),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: OutlinedButton.icon(
-                        onPressed: saving ? null : closeFinancialPeriod,
-                        icon: const Icon(Icons.lock_clock_outlined),
-                        label: const Text('Close financial period'),
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: OutlinedButton.icon(
-                        onPressed: saving ? null : downloadBusinessArchive,
-                        icon: const Icon(Icons.backup_outlined),
-                        label: const Text('Export full business archive (JSON)'),
-                      ),
-                    ),
-                    if (visibleRecords.isEmpty)
-                      const Padding(padding: EdgeInsets.all(24), child: Text('No matching records yet. Add a handbook, approval request, project room, promise, support case or other enterprise record.', textAlign: TextAlign.center)),
-                    for (final item in visibleRecords.whereType<Map>())
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: CircleAvatar(child: Icon(item['priority'] == 'urgent' ? Icons.priority_high : Icons.business_center_outlined)),
-                              title: Text(item['title']?.toString() ?? 'Business record'),
-                              subtitle: Text(_enterpriseRecordSubtitle(Map<String, dynamic>.from(item)), maxLines: 4, overflow: TextOverflow.ellipsis),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: saving ? null : downloadBusinessArchive,
+                            icon: const Icon(Icons.backup_outlined),
+                            label: const Text(
+                                'Export full business archive (JSON)'),
+                          ),
+                        ),
+                        if (visibleRecords.isEmpty)
+                          const Padding(
+                              padding: EdgeInsets.all(24),
+                              child: Text(
+                                  'No matching records yet. Add a handbook, approval request, project room, promise, support case or other enterprise record.',
+                                  textAlign: TextAlign.center)),
+                        for (final item in visibleRecords.whereType<Map>())
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: CircleAvatar(
+                                          child: Icon(item['priority'] ==
+                                                  'urgent'
+                                              ? Icons.priority_high
+                                              : Icons
+                                                  .business_center_outlined)),
+                                      title: Text(item['title']?.toString() ??
+                                          'Business record'),
+                                      subtitle: Text(
+                                          _enterpriseRecordSubtitle(
+                                              Map<String, dynamic>.from(item)),
+                                          maxLines: 4,
+                                          overflow: TextOverflow.ellipsis),
+                                    ),
+                                    Wrap(spacing: 8, children: [
+                                      if (item['type'] == 'handbook' ||
+                                          item['type'] == 'service_policy')
+                                        OutlinedButton.icon(
+                                            onPressed: () => runAction(
+                                                Map<String, dynamic>.from(item),
+                                                'acknowledge'),
+                                            icon: const Icon(
+                                                Icons.fact_check_outlined),
+                                            label: const Text('Acknowledge')),
+                                      if ([
+                                        'project_room',
+                                        'customer_portal',
+                                        'service_policy',
+                                        'delivery_proof'
+                                      ].contains(item['type']))
+                                        OutlinedButton.icon(
+                                          onPressed: () => createCustomerShare(
+                                              Map<String, dynamic>.from(item)),
+                                          icon: const Icon(Icons.link),
+                                          label:
+                                              const Text('Share with customer'),
+                                        ),
+                                      if (item['status'] == 'pending' &&
+                                          [
+                                            'approval',
+                                            'refund_case',
+                                            'credit_profile',
+                                            'dispute'
+                                          ].contains(item['type'])) ...[
+                                        OutlinedButton.icon(
+                                            onPressed: () => runAction(
+                                                Map<String, dynamic>.from(item),
+                                                'reject'),
+                                            icon: const Icon(Icons.close),
+                                            label: const Text('Reject')),
+                                        FilledButton.tonalIcon(
+                                            onPressed: () => runAction(
+                                                Map<String, dynamic>.from(item),
+                                                'approve'),
+                                            icon: const Icon(Icons.check),
+                                            label: const Text('Approve')),
+                                      ],
+                                      if (![
+                                        'closed',
+                                        'cancelled',
+                                        'resolved',
+                                        'approved',
+                                        'rejected'
+                                      ].contains(item['status']))
+                                        TextButton.icon(
+                                            onPressed: () => runAction(
+                                                Map<String, dynamic>.from(item),
+                                                'resolve'),
+                                            icon: const Icon(Icons.done_all),
+                                            label: const Text('Resolve')),
+                                    ]),
+                                  ]),
                             ),
-                            Wrap(spacing: 8, children: [
-                              if (item['type'] == 'handbook' || item['type'] == 'service_policy')
-                                OutlinedButton.icon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'acknowledge'), icon: const Icon(Icons.fact_check_outlined), label: const Text('Acknowledge')),
-                              if (['project_room', 'customer_portal', 'service_policy', 'delivery_proof'].contains(item['type']))
-                                OutlinedButton.icon(
-                                  onPressed: () => createCustomerShare(Map<String, dynamic>.from(item)),
-                                  icon: const Icon(Icons.link),
-                                  label: const Text('Share with customer'),
-                                ),
-                              if (item['status'] == 'pending' && ['approval', 'refund_case', 'credit_profile', 'dispute'].contains(item['type'])) ...[
-                                OutlinedButton.icon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'reject'), icon: const Icon(Icons.close), label: const Text('Reject')),
-                                FilledButton.tonalIcon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'approve'), icon: const Icon(Icons.check), label: const Text('Approve')),
-                              ],
-                              if (!['closed', 'cancelled', 'resolved', 'approved', 'rejected'].contains(item['status']))
-                                TextButton.icon(onPressed: () => runAction(Map<String, dynamic>.from(item), 'resolve'), icon: const Icon(Icons.done_all), label: const Text('Resolve')),
-                            ]),
-                          ]),
-                        ),
-                      ),
-                    const SizedBox(height: 16),
-                    Text('Payment and security reminder', style: Theme.of(context).textTheme.titleMedium),
-                    const Text('A payment screenshot, manually typed reference or accepted checkout request is not proof of receipt. Only verified provider callbacks or authorized reconciliation can confirm money received.'),
-                  ]),
+                          ),
+                        const SizedBox(height: 16),
+                        Text('Payment and security reminder',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const Text(
+                            'A payment screenshot, manually typed reference or accepted checkout request is not proof of receipt. Only verified provider callbacks or authorized reconciliation can confirm money received.'),
+                      ]),
                 ),
     );
   }
@@ -6576,7 +8509,9 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     final description = item['description']?.toString() ?? '';
     if (type == 'financial_close' && item['payload'] is Map) {
       final payload = Map<String, dynamic>.from(item['payload'] as Map);
-      final org = overview['organization'] is Map ? Map<String, dynamic>.from(overview['organization']) : <String, dynamic>{};
+      final org = overview['organization'] is Map
+          ? Map<String, dynamic>.from(overview['organization'])
+          : <String, dynamic>{};
       final currency = org['currency']?.toString() ?? 'KES';
       return 'Closed snapshot · ${payload['invoiceCount'] ?? 0} invoices\n'
           'Invoiced: $currency ${payload['invoicedTotal'] ?? 0} · Verified receipts in period: $currency ${payload['confirmedPaidTotal'] ?? 0}\n'
@@ -6585,15 +8520,24 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     return '${recordTypes[type] ?? type} · $status · $priority\n$description';
   }
 
-  Widget _enterpriseMetric(String label, dynamic value, IconData icon) => SizedBox(
-    width: 150,
-    child: Card(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
-      Icon(icon, size: 22),
-      const SizedBox(width: 8),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(value.toString(), style: Theme.of(context).textTheme.titleLarge),
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-      ])),
-    ]))),
-  );
+  Widget _enterpriseMetric(String label, dynamic value, IconData icon) =>
+      SizedBox(
+        width: 150,
+        child: Card(
+            child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(children: [
+                  Icon(icon, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(value.toString(),
+                            style: Theme.of(context).textTheme.titleLarge),
+                        Text(label,
+                            style: Theme.of(context).textTheme.bodySmall),
+                      ])),
+                ]))),
+      );
 }

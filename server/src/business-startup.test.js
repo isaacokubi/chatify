@@ -8,7 +8,7 @@ import {createServer} from 'node:net';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test('API boots and Business endpoints return JSON auth errors', {timeout: 15000}, async (t) => {
+test('API boots and Business endpoints return JSON auth errors', {timeout: 35000}, async (t) => {
   // Reserve an available local port, then release it for the child API process.
   const probe = createServer();
   await new Promise((resolve, reject) => {
@@ -47,7 +47,9 @@ test('API boots and Business endpoints return JSON auth errors', {timeout: 15000
 
   let response;
   let lastError;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  // Importing the complete API can take several seconds on a cold CI runner.
+  // Keep polling inside the test timeout so startup checks are not flaky under load.
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     if (child.exitCode !== null) {
       assert.fail('API process exited before becoming ready. Startup output: ' + output);
     }

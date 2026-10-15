@@ -18,6 +18,8 @@ flutter build linux --release --dart-define=CHATIFY_API=https://chatify-api-c1eh
 flutter build apk --release --dart-define=CHATIFY_API=https://chatify-api-c1eh.onrender.com
 ```
 
+Android release builds require signing material supplied through `CHATIFY_ANDROID_KEYSTORE_PATH`, `CHATIFY_ANDROID_KEYSTORE_PASSWORD`, `CHATIFY_ANDROID_KEY_ALIAS`, and `CHATIFY_ANDROID_KEY_PASSWORD`. Keep the keystore outside Git and provide these values through a private CI/deployment secret store. Release builds fail clearly when signing is not configured; debug builds do not need a keystore. Before publishing, replace the sample `com.example.chatify` Android application ID with an organization-owned ID and configure the corresponding store listing.
+
 ## Production environment checklist
 
 Set these as private Render environment variables. Never put real values in Git, docs, logs, or chat.

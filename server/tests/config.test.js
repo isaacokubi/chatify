@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {corsOriginCallback,resolveClientOrigins,resolveNodeEnv} from '../src/config.js';
+import {corsOriginCallback,resolveClientOrigins,resolveNodeEnv,requireProductionMongoUri} from '../src/config.js';
 
 const isAllowed = (configuration, origin) => new Promise((resolve,reject) => {
   corsOriginCallback(configuration)(origin,(error,allowed) => error ? reject(error) : resolve(Boolean(allowed)));
@@ -12,6 +12,12 @@ test('runtime environment must be explicit and supported', () => {
   assert.equal(resolveNodeEnv('test'), 'test');
   assert.throws(() => resolveNodeEnv(undefined), /explicitly set/);
   assert.throws(() => resolveNodeEnv('staging'), /explicitly set/);
+});
+
+test('production database configuration fails fast when MongoDB URI is missing', () => {
+  assert.equal(requireProductionMongoUri(' mongodb+srv://chatify.example/app '), 'mongodb+srv://chatify.example/app');
+  assert.throws(() => requireProductionMongoUri(''), /Production requires MONGODB_URI/);
+  assert.throws(() => requireProductionMongoUri(undefined), /Production requires MONGODB_URI/);
 });
 
 test('development can retain wildcard CORS for local Flutter web use', async () => {

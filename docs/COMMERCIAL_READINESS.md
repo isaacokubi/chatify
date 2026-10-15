@@ -75,9 +75,20 @@ These gates must pass before describing the platform as commercially ready:
 8. Record the exact command, result, commit and external blocker for each checkpoint.
 9. Mark a gate PASS only with evidence; otherwise retain PARTIAL, BLOCKED or NOT TESTED.
 
-## Audit limitation
+## Local audit run — 2026-10-15
 
-This checkpoint used the connected GitHub repository/file interface. It can inspect and commit text files but does not provide a local shell, database, Flutter SDK, Node runtime, deployment dashboard or payment-provider credentials. Consequently, no local test suite, production build, database migration, live payment, backup restoration or deployment check is claimed as executed by this checkpoint.
+The repository was fast-forwarded on `main` from `6de3471` to `99a354a` before inspection. The working tree was clean before the audit. Local verification was then run against the changed working tree:
+
+- Backend dependencies installed with `cd server && npm ci` (295 packages; npm reported 0 vulnerabilities).
+- Backend `npm test`: 101 passed, 0 failed, 0 skipped. This includes HTTP startup/authentication and production database-configuration regression tests.
+- Backend `npm run lint` and `bash -n scripts/backup-mongodb.sh scripts/restore-mongodb.sh`: passed.
+- Backend `npm audit --omit=dev`: 0 vulnerabilities.
+- `dart format --output=none --set-exit-if-changed .`: passed; Flutter analysis: no issues; Flutter tests: 13 passed.
+- `flutter build web`: passed and produced the standard web build. The optional WebAssembly dry run reported an incompatibility in the current `socket_io_common` dependency; this did not prevent the JavaScript web build.
+- Android debug APK build was intentionally left incomplete at the project owner's request. No APK build result is claimed.
+- No production database or provider credentials were used. Production database indexes, live payment callbacks, backup restoration, provider delivery, remote CI status and production deployment remain unverified.
+
+The API startup regression test's cold-start wait was raised from six to thirty seconds after the locked dependency graph took about nineteen seconds to initialize locally. The API then started and returned the expected JSON authentication errors. Production startup now fails with a clear error when `MONGODB_URI` is absent instead of starting an unusable service. These changes do not claim a production deployment.
 
 
 ## Additional operational tooling committed
@@ -98,6 +109,7 @@ The repository now includes a private compressed MongoDB archive script and a gu
 - Flutter analysis and tests passed in GitHub Actions for commit `e713fe1b` after fixing three analyzer findings in the marketplace screen.
 - Storefront publication enforcement and its Business workspace toggle were added after that successful run; verify the newest commit in [GitHub Actions](https://github.com/isaacokubi/chatify/actions) before release.
 - No live provider credentials, production database, deployment console, or infrastructure scheduler were available in this repository-editing session. Live payment callbacks, KRA eTIMS approval, recurring subscription billing, scheduled/off-site backup, restore drills, custom-domain DNS verification and production deployment are not claimed as complete.
+- Android release artifacts now require an externally managed signing keystore and secrets. A company-owned Android application ID still needs to be selected before Play Store publication.
 
 
 ## Additions after the initial readiness review

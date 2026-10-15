@@ -6,6 +6,12 @@ export function resolveNodeEnv(value) {
   return environment;
 }
 
+export function requireProductionMongoUri(value) {
+  const uri = typeof value === 'string' ? value.trim() : '';
+  if (!uri) throw new Error('Production requires MONGODB_URI');
+  return uri;
+}
+
 export function resolveClientOrigins(value, production = false) {
   const configured = typeof value === 'string' ? value.trim() : '';
   if (!production && (!configured || configured === '*')) {
