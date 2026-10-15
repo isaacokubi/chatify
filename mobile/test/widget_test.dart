@@ -83,7 +83,7 @@ void main() {
         hasLength(2));
   });
 
-  testWidgets('Chatify opens on a branded public welcome homepage',
+  testWidgets('Chatify opens directly on the sign-in screen',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
@@ -92,15 +92,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Chatify'), findsOneWidget);
-    expect(find.text('Your people. Your conversations.'), findsOneWidget);
-    expect(find.text('Start chatting'), findsOneWidget);
-    expect(find.text('Create account'), findsOneWidget);
-    expect(find.text('Forgot password?'), findsNothing);
-
-    await tester.tap(find.text('Sign in'));
-    await tester.pumpAndSettle();
-    expect(find.text('Forgot password?'), findsOneWidget);
     expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.text('Forgot password?'), findsOneWidget);
+    expect(find.text('Your people. Your conversations.'), findsNothing);
+    expect(find.text('Create a new account'), findsOneWidget);
   });
 
   testWidgets('Registration form exposes editable identity and password fields',
@@ -111,7 +106,7 @@ void main() {
           create: (_) => AppState(), child: const ChatifyApp()),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Create account').first);
+    await tester.tap(find.text('Create a new account'));
     await tester.pumpAndSettle();
     expect(find.text('Full name'), findsOneWidget);
     expect(find.text('Email address'), findsOneWidget);

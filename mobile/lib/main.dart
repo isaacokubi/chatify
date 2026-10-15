@@ -1689,13 +1689,6 @@ class _AuthState extends State<Auth> {
                               : 'Create a new account',
                         ),
                       ),
-                      TextButton.icon(
-                        onPressed: busy
-                            ? null
-                            : () => context.read<AppState>().returnToWelcome(),
-                        icon: const Icon(Icons.arrow_back_rounded, size: 17),
-                        label: const Text('Back to homepage'),
-                      ),
                     ],
                   ),
                 ),
