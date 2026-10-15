@@ -253,6 +253,7 @@ String? conversationPeerName(
 // Shared app state. Screens listen to this object and rebuild after login, chat, contact, memory, or payment data changes.
 class AppState extends ChangeNotifier {
   final Api api;
+  ThemeMode themeMode = ThemeMode.light;
   bool ready = false;
   bool authRequested = false;
   bool startRegistration = false;
@@ -271,6 +272,10 @@ class AppState extends ChangeNotifier {
     ready = false;
     restoreError = null;
     await api.restore();
+    final preferences = await SharedPreferences.getInstance();
+    themeMode = preferences.getBool('chatify_dark_mode') == true
+        ? ThemeMode.dark
+        : ThemeMode.light;
     if (api.token != null) {
       try {
         user = Map<String, dynamic>.from(
@@ -359,6 +364,7 @@ class AppState extends ChangeNotifier {
           .listen(_openConversationFromNotification);
       await _foregroundMessageSubscription?.cancel();
       _foregroundMessageSubscription = FirebaseMessaging.onMessage.listen((_) {
+        unawaited(SystemSound.play(SystemSoundType.alert));
         chatifyScaffoldMessengerKey.currentState?.showSnackBar(
           const SnackBar(content: Text('You received a new message.')),
         );
@@ -430,6 +436,10 @@ class AppState extends ChangeNotifier {
                   'phone': normalizeKenyanPhone(phone)
                 }
               : {'email': email, 'password': pass});
+      if (reg && d['verificationRequired'] == true) {
+        return d['message']?.toString() ??
+            'Check your email and confirm your address before signing in.';
+      }
       api.token = d['token'];
       user = Map<String, dynamic>.from(d['user']);
       await (await SharedPreferences.getInstance())
@@ -441,6 +451,13 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       return e.toString().replaceFirst('Exception: ', '');
     }
+  }
+
+  Future<void> setDarkMode(bool enabled) async {
+    themeMode = enabled ? ThemeMode.dark : ThemeMode.light;
+    await (await SharedPreferences.getInstance())
+        .setBool('chatify_dark_mode', enabled);
+    notifyListeners();
   }
 
   void openAuth({bool register = false}) {
@@ -497,6 +514,21 @@ class ChatifyApp extends StatelessWidget {
   const ChatifyApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
+        themeMode: context.watch<AppState>().themeMode,
+        darkTheme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF7C75FF),
+            brightness: Brightness.dark,
+          ),
+          scaffoldBackgroundColor: const Color(0xFF10131D),
+          cardColor: const Color(0xFF1B2030),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFF10131D),
+            foregroundColor: Color(0xFFF3F5FC),
+            surfaceTintColor: Colors.transparent,
+          ),
+        ),
         debugShowCheckedModeBanner: false,
         title: 'Chatify',
         navigatorKey: chatifyNavigatorKey,
@@ -776,13 +808,9 @@ class ChatifyApp extends StatelessWidget {
               );
             }
             if (appState.user != null) return const Home();
-            if (appState.authRequested) {
-              return Auth(startWithRegistration: appState.startRegistration);
-            }
-            return Welcome(
-              onSignIn: () => appState.openAuth(),
-              onGetStarted: () => appState.openAuth(register: true),
-            );
+            // Open directly to authentication; the marketing homepage is no longer
+            // a mandatory stop before a user can sign in or create an account.
+            return Auth(startWithRegistration: appState.startRegistration);
           },
         ),
       );
@@ -1758,7 +1786,9 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> loadChats() async {
-    setState(() => loading = true);
+    // Keep the current list visible while refreshing so a slow/waking API does
+    // not replace usable content with a full-screen spinner.
+    if (chats.isEmpty) setState(() => loading = true);
     try {
       chats = List<dynamic>.from(
           (await app.api.call('GET', '/api/conversations'))['conversations'] ??
@@ -1800,7 +1830,7 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> loadMemories() async {
-    setState(() => memoriesLoading = true);
+    if (memories.isEmpty) setState(() => memoriesLoading = true);
     try {
       memories = List<dynamic>.from(
           (await app.api.call('GET', '/api/memories'))['memories'] ?? []);
@@ -2368,7 +2398,12 @@ class _HomeState extends State<Home> {
           onDismissed: (_) async {
             try {
               await app.api.call('DELETE', '/api/memories/${memory['_id']}');
-            } catch (_) {}
+            } catch (error) {
+              if (!mounted) return;
+              await loadMemories();
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('Could not delete memory: $error')));
+            }
           },
           child: Card(
               child: ListTile(
@@ -2833,6 +2868,7 @@ class _ChatState extends State<Chat> {
   final Set<String> onlineIds = {};
   io.Socket? socket;
   bool loading = true;
+  bool _socketConnectedOnce = false;
   String? loadError;
   AppState get app => context.read<AppState>();
 
@@ -3027,12 +3063,22 @@ class _ChatState extends State<Chat> {
       io.OptionBuilder()
           .setTransports(['websocket'])
           .setAuth({'token': app.api.token})
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
           .disableAutoConnect()
           .build(),
     );
     socket!.connect();
-    socket!.onConnect(
-        (_) => socket!.emit('conversation:join', widget.conversation['_id']));
+    socket!.onConnect((_) {
+      socket!.emit('conversation:join', widget.conversation['_id']);
+      // A long-idle socket can reconnect after messages were sent on another
+      // device. Fetch the durable server history after reconnect to fill gaps.
+      if (_socketConnectedOnce) unawaited(load());
+      _socketConnectedOnce = true;
+    });
+    socket!.io.options?['reconnection'] = true;
     socket!.on('typing:start', (data) {
       if (!mounted ||
           data is! Map ||
@@ -3084,6 +3130,9 @@ class _ChatState extends State<Chat> {
         if (id == null ||
             !messages
                 .any((item) => item is Map && item['_id']?.toString() == id)) {
+          if (incoming['senderId']?.toString() != app.user?['id']?.toString()) {
+            unawaited(SystemSound.play(SystemSoundType.alert));
+          }
           setState(() => messages = mergeMessages(messages, [incoming]));
           _scrollToLatestMessage();
           // Detect meaningful information in new live messages.
@@ -4915,6 +4964,49 @@ class _ProfileState extends State<Profile> {
     }
   }
 
+  Future<void> chooseProfilePicture() async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 82,
+        maxWidth: 1200,
+        maxHeight: 1200,
+      );
+      if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      if (bytes.length > 10 * 1024 * 1024) {
+        throw Exception('Choose an image smaller than 10 MB.');
+      }
+      final path = picked.path.toLowerCase();
+      final mimeType = path.endsWith('.png')
+          ? 'image/png'
+          : path.endsWith('.webp')
+              ? 'image/webp'
+              : 'image/jpeg';
+      final api = context.read<AppState>().api;
+      final upload = await api.call('POST', '/api/media', {
+        'data': base64Encode(bytes),
+        'mimeType': mimeType,
+      });
+      final mediaUrl = upload['mediaUrl']?.toString();
+      if (mediaUrl == null || !mediaUrl.startsWith('https://')) {
+        throw Exception('Image upload did not return a secure image URL.');
+      }
+      final saved = await api.call(
+          'PATCH', '/api/users/me', {'profileImage': mediaUrl});
+      if (!mounted) return;
+      context.read<AppState>().user = Map<String, dynamic>.from(saved['user']);
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile picture updated.')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not update picture: $error')));
+      }
+    }
+  }
+
   Future<void> saveDefaultPhone() async {
     final normalized = normalizeKenyanPhone(phone.text);
     if (normalized == null) {
@@ -4997,8 +5089,38 @@ class _ProfileState extends State<Profile> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      ListView(padding: const EdgeInsets.all(18), children: [
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final profileImage = app.user?['profileImage']?.toString();
+    return ListView(padding: const EdgeInsets.all(18), children: [
+        Center(
+          child: Column(children: [
+            CircleAvatar(
+              radius: 42,
+              backgroundImage: profileImage != null && profileImage.isNotEmpty
+                  ? NetworkImage(profileImage)
+                  : null,
+              child: profileImage == null || profileImage.isEmpty
+                  ? const Icon(Icons.person_outline, size: 42)
+                  : null,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: chooseProfilePicture,
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Change profile picture'),
+            ),
+          ]),
+        ),
+        SwitchListTile(
+          value: app.themeMode == ThemeMode.dark,
+          onChanged: app.setDarkMode,
+          secondary: Icon(app.themeMode == ThemeMode.dark
+              ? Icons.dark_mode_outlined
+              : Icons.light_mode_outlined),
+          title: const Text('Dark mode'),
+          subtitle: const Text('Use a darker, low-glare appearance'),
+        ),
         TextField(
             controller: name,
             decoration: const InputDecoration(
@@ -5062,6 +5184,7 @@ class _ProfileState extends State<Profile> {
             onPressed: () => context.read<AppState>().logout(),
             child: const Text('Sign out'))
       ]);
+  }
 }
 
 /// Customer-facing public marketplace for discovering businesses and their published catalogue.

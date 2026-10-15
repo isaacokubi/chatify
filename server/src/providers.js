@@ -110,10 +110,11 @@ export function createEmailProvider(config = {}, transport) {
   const smtpUrl = config.smtpUrl?.trim();
   const from = config.from?.trim();
   const injectedReset = typeof transport?.sendPasswordReset === 'function';
+  const injectedVerification = typeof transport?.sendEmailVerification === 'function';
   const mailer = transport?.sendMail ? transport : (smtpUrl && from
     ? nodemailer.createTransport(smtpUrl)
     : null);
-  const available = injectedReset || Boolean(mailer && from);
+  const available = injectedReset || injectedVerification || Boolean(mailer && from);
 
   return {
     name: injectedReset || transport?.sendMail ? 'custom' : (available ? 'smtp' : 'unavailable'),
@@ -132,6 +133,23 @@ export function createEmailProvider(config = {}, transport) {
         to: payload.email,
         subject: 'Reset your Chatify password',
         text: `Use this one-time reset token in Chatify:\n\n${payload.token}\n\nIt expires at ${expires}. If you did not request this, you can ignore this email.`,
+      });
+      return {sent: true};
+    },
+    async sendEmailVerification(payload) {
+      if (injectedVerification) return transport.sendEmailVerification(payload);
+      if (!available || !mailer) {
+        if (config.production) throw new Error('Email confirmation is not configured');
+        return {sent: false, mock: true};
+      }
+      const expires = payload.expiresAt instanceof Date
+        ? payload.expiresAt.toISOString()
+        : String(payload.expiresAt);
+      await mailer.sendMail({
+        from,
+        to: payload.email,
+        subject: 'Confirm your Chatify email address',
+        text: `Welcome to Chatify. Confirm your email address by opening this link:\n\n${payload.verificationUrl}\n\nThis link expires at ${expires}. If you did not create this account, you can ignore this email.`,
       });
       return {sent: true};
     },
@@ -165,6 +183,8 @@ export function createNotificationProvider(config = {}, transport) {
       const message = {
         token: payload.token,
         notification: {title: 'Chatify', body: 'You received a new message.'},
+        android: {notification: {sound: 'default'}},
+        apns: {payload: {aps: {sound: 'default'}}},
         data: {
           type: String(payload.type || 'message'),
           messageId: String(payload.messageId || ''),
