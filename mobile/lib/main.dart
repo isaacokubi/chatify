@@ -4680,7 +4680,7 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
         'pageSize': '50',
       };
       final endpoint = showingProducts ? '/api/marketplace/products' : '/api/marketplace';
-      final result = await app.api.call('GET', endpoint + '?' + Uri(queryParameters: parameters).query);
+      final result = await app.api.call('GET', '$endpoint?${Uri(queryParameters: parameters).query}');
       if (!mounted) return;
       setState(() {
         if (showingProducts) {
@@ -4761,7 +4761,7 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
             SizedBox(
               width: 105,
               child: DropdownButtonFormField<String>(
-                value: country,
+                initialValue: country,
                 decoration: InputDecoration(
                   labelText: 'Country',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -4856,7 +4856,7 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                       child: image.startsWith('https://') ? null : const Icon(Icons.inventory_2_outlined, color: Color(0xFF5548E8)),
                                     ),
                                     title: Text(entry['name']?.toString() ?? 'Product or service', style: const TextStyle(fontWeight: FontWeight.w800)),
-                                    subtitle: Text((business['name']?.toString() ?? 'Chatify business') + ' · ' + (entry['category']?.toString() ?? 'General'), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                    subtitle: Text('${business['name'] ?? 'Chatify business'} · ${entry['category'] ?? 'General'}', maxLines: 2, overflow: TextOverflow.ellipsis),
                                     trailing: Text('$currency $price', style: const TextStyle(fontWeight: FontWeight.w800)),
                                     onTap: business['slug'] == null ? null : () => Navigator.of(context).push(
                                       MaterialPageRoute<void>(builder: (_) => StorefrontPage(slug: business['slug'].toString())),
