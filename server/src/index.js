@@ -15,6 +15,7 @@ import {registerBusinessEnterpriseRoutes} from './business-enterprise.js';
 import {registerBusinessSearchRoutes} from './business-search.js';
 import {registerBusinessMarketplaceRoutes} from './business-marketplace.js';
 import {registerBusinessStatementRoutes} from './business-statements.js';
+import {registerBusinessSubscriptionRoutes} from './business-subscriptions.js';
 import {registerPublicStatusRoute} from './service-status.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
@@ -29,7 +30,7 @@ const emailProvider=createEmailProvider({smtpUrl:process.env.SMTP_URL,from:proce
 const storageProvider=createStorageProvider({cloudinaryUrl:process.env.CLOUDINARY_URL,production:process.env.NODE_ENV==='production'});
 const notificationProvider=createNotificationProvider({fcmProjectId:process.env.FCM_PROJECT_ID,serviceAccountJson:process.env.FIREBASE_SERVICE_ACCOUNT_JSON,production});
 const mpesaProvider=resolveMpesaProvider(process.env);
-const app=express(); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb',verify:(req,res,buffer)=>{if(req.originalUrl?.startsWith('/api/business/payments/stripe/webhook'))req.rawBody=Buffer.from(buffer);}})); app.use(rateLimit({windowMs:900000,max:300}));
+const app=express(); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb',verify:(req,res,buffer)=>{if(req.originalUrl?.startsWith('/api/business/payments/stripe/webhook')||req.originalUrl?.startsWith('/api/business/billing/webhook'))req.rawBody=Buffer.from(buffer);}})); app.use(rateLimit({windowMs:900000,max:300}));
 // MongoDB schemas below describe the durable records used by the app.
 const O=mongoose.Schema.Types.ObjectId;
 // User accounts include password hashes, profile/privacy settings, blocked users and push-notification tokens.
@@ -66,6 +67,7 @@ registerBusinessSearchRoutes({app,auth,mongoose});
 // Public discovery routes expose only published business and catalogue fields.
 registerBusinessMarketplaceRoutes({app,mongoose});
 registerBusinessStatementRoutes({app,auth,mongoose});
+registerBusinessSubscriptionRoutes({app,auth,mongoose});
 registerPublicStatusRoute({app,mongoose});
 io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);if(!await User.exists({_id:s.user.sub,status:'active'}))throw new Error('Inactive');n();}catch{n(new Error('Unauthorized'));}});
 const onlineUsers=new Set();

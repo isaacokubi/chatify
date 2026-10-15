@@ -192,3 +192,13 @@ Authorized owners, admins, managers and finance team members can request a tenan
 
 
 The Flutter customer-facing **Stores** tab now consumes the paginated marketplace APIs. It supports switching between business discovery and product/service search, keyword/category filters, country and town/branch filters, opening the business storefront, and starting checkout through the existing authenticated checkout flow. The UI does not expose the Business administration workspace to customers during browsing.
+
+
+## Subscription lifecycle API (billing integration boundary)
+
+- `GET /api/business/subscription-plans` lists plans and indicates whether signed events are configured.
+- `GET /api/business/organizations/:orgId/subscription` returns the current plan and lifecycle status to the workspace owner.
+- `POST /api/business/organizations/:orgId/subscription/request` records an upgrade request only; it does not grant paid access.
+- `POST /api/business/billing/webhook` processes signed, idempotent lifecycle events: `subscription.activated`, `subscription.past_due`, `subscription.canceled`, and `subscription.expired`.
+
+Set `CHATIFY_BILLING_WEBHOOK_SECRET` to a long random secret and configure a trusted billing adapter to sign the exact JSON request bytes using HMAC-SHA256 in `x-chatify-billing-signature`. This is an integration boundary, not hosted checkout. A real Stripe/PayPal subscription checkout, native provider-signature verification, renewals, proration, retries, and end-to-end provider callbacks remain unverified until a provider adapter and live test credentials are configured.
