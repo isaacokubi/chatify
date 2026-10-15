@@ -219,3 +219,12 @@ This job changes case priority and records an update; it does not send email/SMS
 - `GET /api/storefront/:slug/reviews` exposes approved reviews only. A review submission requires a matching paid/fulfilled order created by that signed-in buyer; one review per order is enforced by a unique index. Owners/admins/managers moderate reviews through `/api/business/organizations/:orgId/reviews`.
 
 These are authenticated API journeys; a polished customer-facing portal UI, provider-backed refund automation, and production database/index migration checks remain separate acceptance items.
+
+
+## Customer CSV migration
+
+- `POST /api/business/organizations/:orgId/import/customers/preview` validates a CSV without writing data.
+- `POST /api/business/organizations/:orgId/import/customers` revalidates and imports valid rows; by default any invalid/duplicate row blocks the entire import. `allowPartial: true` explicitly permits valid rows while returning skipped-row errors.
+- Supported headers: `name,email,phone,company,notes,tags` (tags are semicolon-separated). Imports are limited to 500 rows and 1 MB, are tenant-scoped, require manager access, avoid existing email/phone duplicates, and enforce customer quotas before writes.
+
+The import is currently for customers only. Product/catalogue migrations, downloadable error reports and a production-scale import job queue remain future acceptance items.

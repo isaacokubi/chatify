@@ -19,6 +19,7 @@ import {registerBusinessSubscriptionRoutes} from './business-subscriptions.js';
 import {registerBusinessSlaRoutes} from './business-sla.js';
 import {registerBusinessCustomerPortalRoutes} from './business-customer-portal.js';
 import {registerBusinessReviewRoutes} from './business-reviews.js';
+import {registerBusinessCustomerImportRoutes} from './business-customer-import.js';
 import {registerPublicStatusRoute} from './service-status.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
@@ -74,6 +75,7 @@ registerBusinessSubscriptionRoutes({app,auth,mongoose});
 registerBusinessSlaRoutes({app,auth,mongoose});
 registerBusinessCustomerPortalRoutes({app,auth,mongoose});
 registerBusinessReviewRoutes({app,auth,mongoose});
+registerBusinessCustomerImportRoutes({app,auth,mongoose});
 registerPublicStatusRoute({app,mongoose});
 io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);if(!await User.exists({_id:s.user.sub,status:'active'}))throw new Error('Inactive');n();}catch{n(new Error('Unauthorized'));}});
 const onlineUsers=new Set();
