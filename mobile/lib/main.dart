@@ -5461,6 +5461,36 @@ class _BusinessHubState extends State<BusinessHub> {
     }
   }
 
+  // Publish or hide the customer-facing store without deleting the catalogue.
+  // The server applies this flag to public discovery, storefront, enquiry and checkout routes.
+  Future<void> _toggleStorefrontPublished() async {
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    final currentSettings = organization?['settings'] is Map
+        ? Map<String, dynamic>.from(organization!['settings'] as Map)
+        : <String, dynamic>{};
+    final currentlyPublished = currentSettings['storefrontPublished'] != false;
+    final next = !currentlyPublished;
+    setState(() => saving = true);
+    try {
+      await app.api.call('PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}', {
+        'settings': {'storefrontPublished': next},
+      });
+      await loadOrganizations();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(next
+              ? 'Storefront published. Customers can now discover your business.'
+              : 'Storefront hidden from public discovery. Your business records are unchanged.'),
+        ));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   // Seller M-Pesa settings start with the registered account phone, but owners can
   // save a different Kenyan number for customer-facing storefront payments.
   Future<void> _configureMpesaNumbers() async {
@@ -5930,6 +5960,11 @@ class _BusinessHubState extends State<BusinessHub> {
                   },
                   icon: const Icon(Icons.storefront_outlined),
                   label: const Text('View storefront'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: saving ? null : _toggleStorefrontPublished,
+                  icon: Icon((organization?['settings'] is Map && (organization!['settings'] as Map)['storefrontPublished'] == false) ? Icons.publish_outlined : Icons.visibility_off_outlined),
+                  label: Text((organization?['settings'] is Map && (organization!['settings'] as Map)['storefrontPublished'] == false) ? 'Publish storefront' : 'Hide storefront'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _configureMpesaNumbers,
