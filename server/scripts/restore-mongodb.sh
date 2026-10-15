@@ -4,9 +4,9 @@
 set -Eeuo pipefail
 umask 077
 
-: "\${ARCHIVE:?Set ARCHIVE to the exact backup archive path}"
-: "\${RESTORE_TARGET_URI:?Set RESTORE_TARGET_URI to a separate staging/recovery database}"
-if [[ "\${RESTORE_TARGET_IS_NON_PRODUCTION:-}" != "YES" || "\${CONFIRM_RESTORE:-}" != "YES" ]]; then
+: "${ARCHIVE:?Set ARCHIVE to the exact backup archive path}"
+: "${RESTORE_TARGET_URI:?Set RESTORE_TARGET_URI to a separate staging/recovery database}"
+if [[ "${RESTORE_TARGET_IS_NON_PRODUCTION:-}" != "YES" || "${CONFIRM_RESTORE:-}" != "YES" ]]; then
   echo "Refusing restore: set RESTORE_TARGET_IS_NON_PRODUCTION=YES and CONFIRM_RESTORE=YES after verifying the target is non-production." >&2
   exit 2
 fi
