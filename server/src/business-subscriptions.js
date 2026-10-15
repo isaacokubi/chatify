@@ -95,12 +95,14 @@ export function registerBusinessSubscriptionRoutes({app,auth,mongoose}) {
       if(error?.code===11000)return res.json({received:true,duplicate:true});
       throw error;
     }
+    if(String(record.organizationId)!==String(org._id)||record.eventType!==event.eventType)return res.status(409).json({error:'Billing event ID conflicts with a previously received event'});
     if(record.processedAt)return res.json({received:true,duplicate:true});
     const state=subscriptionStateForEvent(event);
     org.plan=state.plan||org.plan||'free';
     org.settings=org.settings||{};
     org.settings.subscription={...(org.settings.subscription||{}),...state.subscription};
     if(state.subscription.status==='active') delete org.settings.subscription.requestedPlan;
+    org.markModified('settings');
     await org.save();
     await BillingEvent.updateOne({_id:record._id,processedAt:{$exists:false}},{$set:{processedAt:new Date()}});
     return res.json({received:true,applied:true,status:state.subscription.status});
