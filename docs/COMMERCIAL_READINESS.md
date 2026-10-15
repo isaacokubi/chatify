@@ -27,13 +27,13 @@ This document is a verification ledger, not a claim that Chatify is commercially
 | Workflow runner | PARTIAL | Allow-listed actions and test mode are documented; durable queues, retries and dead-letter monitoring remain necessary for critical workloads. |
 | Public business marketplace | PARTIAL | Public business/product search APIs, bounded pagination, a Flutter Stores search interface, storefront opening, and checkout entry exist. Owners/managers can publish or hide the storefront using the Business workspace; `settings.storefrontPublished=false` is enforced across discovery, storefront, enquiry and checkout routes. Public checkout and web storefront polish, route-level security tests, and customer guest checkout remain open. |
 | Shared inbox real-time UI | NOT IMPLEMENTED / PARTIAL | Existing documentation identifies real-time shared-inbox/customer case-room UI as future work. |
-| Subscription lifecycle and enforceable entitlements | PARTIAL / BLOCKED for paid billing | Server-side quotas exist for member seats, customers, catalogue items, documents, enterprise records, branches and workflows. Recurring billing, payment-provider subscription webhooks, plan lifecycle and entitlement reconciliation are not implemented/verified. |
+| Subscription lifecycle and enforceable entitlements | PARTIAL / BLOCKED for paid billing | Server-side quotas exist; signed HMAC lifecycle-event handling and plan transitions were added. Hosted checkout, native provider signatures, renewals and live payment reconciliation remain blocked/unverified. |
 | Inventory ledger and procurement | NOT TESTED | Must verify stock reservations, concurrency, movements, purchasing and tenant boundaries before commercial claims. |
-| CRM pipeline | PARTIAL / NOT TESTED | Existing business records may cover leads/customers; full pipeline, conversion, reminders, reporting and end-to-end journey require verification. |
-| Support desk and delivery operations | PARTIAL / NOT TESTED | Record types exist in the documented business model; operational screens, SLA logic, notifications and acceptance journeys need verification. |
+| CRM pipeline | PARTIAL | Customer CSV preview/import is implemented with tenant scoping, duplicate checks and plan quotas. Full visual pipeline, conversions and reminders remain open. |
+| Support desk and delivery operations | PARTIAL | Tenant-scoped SLA reporting and a secret-protected escalation job were added; customer portal service requests are supported by APIs. Scheduler, notifications, fulfilment and UI journeys remain to verify. |
 | Business Copilot | PARTIAL / NOT TESTED | Deterministic memory suggestions exist; authorized retrieval, record citations, action confirmation and AI safety require separate acceptance tests. |
 | Supplier marketplace | PARTIAL / NOT TESTED | Supplier records and quotes are documented; public discovery, offers, purchase requests and secure supplier workflows require verification. |
-| Public versioned API and integrations directory | NOT TESTED | Existing integration endpoints do not by themselves establish a versioned public API, scoped keys, webhook delivery guarantees or integration catalogue. |
+| Public versioned API and integrations directory | PARTIAL | A read-only v1 storefront catalogue API now uses one-time, hashed, revocable, expiring tenant API keys with a `catalog:read` scope. Reliable outbound webhooks, more scopes and integrations directory UI remain open. |
 | Internationalization and custom domains | PARTIAL / NOT TESTED | Currency/tax configuration and industry configuration are documented; locale-complete UI, domain ownership verification and safe tenant hostname resolution require verification. |
 | Backups and disaster recovery | PARTIAL / NOT VERIFIED | Manual MongoDB archive/checksum and guarded restore scripts plus an operations runbook exist. Scheduled off-site encrypted backup, alerts and a successful isolated restore drill are infrastructure-owned and unverified. |
 | Monitoring and incident response | PARTIAL | `GET /api/status` is documented as a basic API/database health endpoint, not historical monitoring or a full incident telemetry system. |
@@ -98,3 +98,10 @@ The repository now includes a private compressed MongoDB archive script and a gu
 - Flutter analysis and tests passed in GitHub Actions for commit `e713fe1b` after fixing three analyzer findings in the marketplace screen.
 - Storefront publication enforcement and its Business workspace toggle were added after that successful run; verify the newest commit in [GitHub Actions](https://github.com/isaacokubi/chatify/actions) before release.
 - No live provider credentials, production database, deployment console, or infrastructure scheduler were available in this repository-editing session. Live payment callbacks, KRA eTIMS approval, recurring subscription billing, scheduled/off-site backup, restore drills, custom-domain DNS verification and production deployment are not claimed as complete.
+
+
+## Additions after the initial readiness review
+
+- Added a signed subscription lifecycle boundary, but not a hosted billing checkout or a provider-certified subscription integration.
+- Added support SLA reporting/escalation, authenticated customer order/request APIs, verified-purchase review moderation, customer CSV preview/import, and a read-only v1 catalogue API with revocable keys.
+- These additions have focused Node tests. The latest workflow status should be checked before release; repository access does not establish production database indexes, live provider behavior, scheduled-job configuration, or Flutter UI coverage for the new API journeys.

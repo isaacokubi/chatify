@@ -228,3 +228,12 @@ These are authenticated API journeys; a polished customer-facing portal UI, prov
 - Supported headers: `name,email,phone,company,notes,tags` (tags are semicolon-separated). Imports are limited to 500 rows and 1 MB, are tenant-scoped, require manager access, avoid existing email/phone duplicates, and enforce customer quotas before writes.
 
 The import is currently for customers only. Product/catalogue migrations, downloadable error reports and a production-scale import job queue remain future acceptance items.
+
+
+## Versioned public catalogue API
+
+- Owners/admins/managers create and revoke API keys at `/api/business/organizations/:orgId/integrations/api-keys`.
+- Keys are shown once, stored as SHA-256 digests, limited to the `catalog:read` scope, expire after 1–365 days and can be revoked.
+- `GET /api/v1/storefronts/:slug/catalog` requires an API key and returns only active public catalogue fields for a published storefront with bounded pagination.
+
+This is a read-only v1 API foundation. Webhook delivery with retry queues/signature receipts, additional scopes, an integrations directory UI and live third-party integration tests remain unimplemented.
