@@ -16,7 +16,7 @@ This document is a verification ledger, not a claim that Chatify is commercially
 
 | Area | Initial status | Evidence / notes |
 |---|---|---|
-| Flutter mobile client | PARTIAL | `mobile/`; core chat and memory product exists. This audit did not execute Flutter tooling. |
+| Flutter mobile client | PARTIAL | `mobile/`; core chat, memory, business workspace, public Stores search and storefront publication controls exist. GitHub Actions ran Flutter analysis and tests successfully at commit `e713fe1b`; the latest storefront-control change is queued for re-verification. |
 | Express/Socket.IO API | PARTIAL | `server/`; Node.js >=22, Express 5 and MongoDB/Mongoose. |
 | Authentication and direct messaging | PARTIAL | Existing product documentation describes JWT-protected REST and Socket.IO, password hashing and membership checks; production security still requires test verification. |
 | Memory Cards and message expiry | PARTIAL | Core differentiators are documented; expiry is application-level hiding/removal, not cryptographic erasure. |
@@ -25,9 +25,9 @@ This document is a verification ledger, not a claim that Chatify is commercially
 | Stripe / PayPal hosted checkout | PARTIAL / BLOCKED for live use | Hosted checkout and webhook paths are documented; provider account eligibility, live credentials and end-to-end production callbacks remain external prerequisites. |
 | International tax profiles | PARTIAL | Configurable profiles exist; jurisdictional tax rules and invoice compliance require independent review. |
 | Workflow runner | PARTIAL | Allow-listed actions and test mode are documented; durable queues, retries and dead-letter monitoring remain necessary for critical workloads. |
-| Public business marketplace | PARTIAL | Public business/product search APIs, bounded pagination, a Flutter Stores search interface, storefront opening, and checkout entry exist. Publication can be disabled with `settings.storefrontPublished=false`; public checkout and web storefront polish, route-level security tests, and customer guest checkout remain open. |
+| Public business marketplace | PARTIAL | Public business/product search APIs, bounded pagination, a Flutter Stores search interface, storefront opening, and checkout entry exist. Owners/managers can publish or hide the storefront using the Business workspace; `settings.storefrontPublished=false` is enforced across discovery, storefront, enquiry and checkout routes. Public checkout and web storefront polish, route-level security tests, and customer guest checkout remain open. |
 | Shared inbox real-time UI | NOT IMPLEMENTED / PARTIAL | Existing documentation identifies real-time shared-inbox/customer case-room UI as future work. |
-| Subscription lifecycle and enforceable entitlements | NOT IMPLEMENTED | Existing documentation says usage is informational and does not claim plan limits or recurring subscription billing are enforced. |
+| Subscription lifecycle and enforceable entitlements | PARTIAL / BLOCKED for paid billing | Server-side quotas exist for member seats, customers, catalogue items, documents, enterprise records, branches and workflows. Recurring billing, payment-provider subscription webhooks, plan lifecycle and entitlement reconciliation are not implemented/verified. |
 | Inventory ledger and procurement | NOT TESTED | Must verify stock reservations, concurrency, movements, purchasing and tenant boundaries before commercial claims. |
 | CRM pipeline | PARTIAL / NOT TESTED | Existing business records may cover leads/customers; full pipeline, conversion, reminders, reporting and end-to-end journey require verification. |
 | Support desk and delivery operations | PARTIAL / NOT TESTED | Record types exist in the documented business model; operational screens, SLA logic, notifications and acceptance journeys need verification. |
@@ -35,7 +35,7 @@ This document is a verification ledger, not a claim that Chatify is commercially
 | Supplier marketplace | PARTIAL / NOT TESTED | Supplier records and quotes are documented; public discovery, offers, purchase requests and secure supplier workflows require verification. |
 | Public versioned API and integrations directory | NOT TESTED | Existing integration endpoints do not by themselves establish a versioned public API, scoped keys, webhook delivery guarantees or integration catalogue. |
 | Internationalization and custom domains | PARTIAL / NOT TESTED | Currency/tax configuration and industry configuration are documented; locale-complete UI, domain ownership verification and safe tenant hostname resolution require verification. |
-| Backups and disaster recovery | NOT IMPLEMENTED / NOT VERIFIED | A script or policy is not accepted as proof of scheduled backups or successful restoration. |
+| Backups and disaster recovery | PARTIAL / NOT VERIFIED | Manual MongoDB archive/checksum and guarded restore scripts plus an operations runbook exist. Scheduled off-site encrypted backup, alerts and a successful isolated restore drill are infrastructure-owned and unverified. |
 | Monitoring and incident response | PARTIAL | `GET /api/status` is documented as a basic API/database health endpoint, not historical monitoring or a full incident telemetry system. |
 | Enterprise SSO and advanced security | NOT IMPLEMENTED / NOT TESTED | Must not be represented as available until implemented and verified. |
 
@@ -90,3 +90,11 @@ The repository now includes a private compressed MongoDB archive script and a gu
 - Public storefront APIs and marketplace search now honor the optional `settings.storefrontPublished` flag. Omitting the flag preserves existing storefront visibility; setting it to `false` hides the business from public discovery and rejects storefront viewing, enquiry submission and checkout.
 - The Flutter Stores screen is connected to the public business and product search APIs with keyword, category, country and town/branch filters.
 - The customer statement endpoint and plan quota checks have unit coverage in the Node test suite. These tests do not replace live payment, database migration, deployment or restore drills.
+
+
+## Verification record
+
+- Node API tests and syntax checks passed in GitHub Actions for commit `4a20d5a6` and later quality-check runs.
+- Flutter analysis and tests passed in GitHub Actions for commit `e713fe1b` after fixing three analyzer findings in the marketplace screen.
+- Storefront publication enforcement and its Business workspace toggle were added after that successful run; verify the newest commit in [GitHub Actions](https://github.com/isaacokubi/chatify/actions) before release.
+- No live provider credentials, production database, deployment console, or infrastructure scheduler were available in this repository-editing session. Live payment callbacks, KRA eTIMS approval, recurring subscription billing, scheduled/off-site backup, restore drills, custom-domain DNS verification and production deployment are not claimed as complete.
