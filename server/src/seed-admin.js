@@ -24,6 +24,7 @@ const User = mongoose.models.User || mongoose.model('User', new mongoose.Schema(
   name: {type: String, required: true, trim: true, maxlength: 80},
   email: {type: String, unique: true, lowercase: true, trim: true, required: true},
   phone: String,
+  encryptionPublicKey: {type: String, select: true},
   passwordHash: {type: String, required: true},
   emailVerified: {type: Boolean, default: true},
   emailVerificationTokenHash: String,
