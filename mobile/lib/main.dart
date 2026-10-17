@@ -4690,6 +4690,12 @@ class _ChatState extends State<Chat> {
               })
           .toList();
       if (!mounted || candidates.isEmpty) return false;
+      // Persist the one-time suggestion claim across app restarts and devices. A deleted card keeps its tombstone, so the source can never be suggested again.
+      final seen = await app.api.call('POST', '/api/memories/seen', {
+        'conversationId': widget.conversation['_id'],
+        'sourceMessageId': id,
+      });
+      if (seen['alreadySeen'] == true || !mounted) return false;
       // The user must approve the suggestion; detection itself never saves data.
       setState(() {
         memorySuggestions = candidates;
