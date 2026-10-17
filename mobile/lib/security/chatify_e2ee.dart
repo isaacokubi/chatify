@@ -64,6 +64,7 @@ class ChatifyE2EE {
 
   Future<Map<String, dynamic>> encryptText({
     required String senderId,
+    required String conversationId,
     required String plaintext,
     required Map<String, String> participantPublicKeys,
     String? registeredSenderPublicKey,
@@ -93,7 +94,7 @@ class ChatifyE2EE {
         utf8.encode(plaintext),
         secretKey: key,
         nonce: nonce,
-        aad: utf8.encode('chatify-v1:$peerId'),
+        aad: utf8.encode('chatify-v1:$conversationId:$peerId'),
       );
       envelopes[peerId] = <String, String>{
         'nonce': base64Encode(box.nonce),
@@ -112,6 +113,7 @@ class ChatifyE2EE {
 
   Future<String> decryptText({
     required String accountId,
+    required String conversationId,
     required String senderPublicKey,
     required String encryptedPayload,
     String? registeredAccountPublicKey,
@@ -147,7 +149,7 @@ class ChatifyE2EE {
     final clear = await _aead.decrypt(
       SecretBox(cipherText, nonce: nonce, mac: mac),
       secretKey: key,
-      aad: utf8.encode('chatify-v1:$accountId'),
+      aad: utf8.encode('chatify-v1:$conversationId:$accountId'),
     );
     return utf8.decode(clear);
   }
