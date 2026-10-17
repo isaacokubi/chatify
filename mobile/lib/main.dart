@@ -1699,6 +1699,247 @@ class _AuthState extends State<Auth> {
       );
 }
 
+// Platform operations dashboard. Every action is re-authorized by the API.
+class AdminDashboard extends StatefulWidget {
+  const AdminDashboard({super.key});
+  @override
+  State<AdminDashboard> createState() => _AdminDashboardState();
+}
+
+class _AdminDashboardState extends State<AdminDashboard> {
+  Map<String, dynamic> overview = {};
+  List<dynamic> users = [], payments = [];
+  bool loading = true, usersLoading = false, paymentsLoading = false;
+  String? error;
+  String userQuery = '', paymentStatus = '';
+  final TextEditingController searchController = TextEditingController();
+  Api get api => context.read<AppState>().api;
+
+  Future<void> loadOverview() async {
+    if (mounted && overview.isEmpty) setState(() => loading = true);
+    try {
+      final result = await api.call('GET', '/api/admin/overview');
+      if (!mounted) return;
+      setState(() {
+        overview = Map<String, dynamic>.from(result['stats'] ?? {});
+        users = List<dynamic>.from(result['recentUsers'] ?? []);
+        payments = List<dynamic>.from(result['recentPayments'] ?? []);
+        error = null;
+        loading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { error = e.toString(); loading = false; });
+    }
+  }
+
+  Future<void> loadUsers() async {
+    setState(() => usersLoading = true);
+    try {
+      final query = userQuery.trim();
+      final path = '/api/admin/users?limit=30' +
+          (query.isEmpty ? '' : '&q=' + Uri.encodeQueryComponent(query));
+      final result = await api.call('GET', path);
+      if (mounted) setState(() => users = List<dynamic>.from(result['users'] ?? []));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load users: ' + e.toString())));
+    } finally {
+      if (mounted) setState(() => usersLoading = false);
+    }
+  }
+
+  Future<void> loadPayments() async {
+    setState(() => paymentsLoading = true);
+    try {
+      final path = '/api/admin/payments?limit=30' +
+          (paymentStatus.isEmpty ? '' : '&status=' + paymentStatus);
+      final result = await api.call('GET', path);
+      if (mounted) setState(() => payments = List<dynamic>.from(result['payments'] ?? []));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load payments: ' + e.toString())));
+    } finally {
+      if (mounted) setState(() => paymentsLoading = false);
+    }
+  }
+
+  Future<void> changeStatus(Map<String, dynamic> user) async {
+    final id = user['_id']?.toString() ?? user['id']?.toString();
+    if (id == null || id.isEmpty) return;
+    final current = user['status']?.toString() ?? 'active';
+    final next = current == 'active' ? 'suspended' : 'active';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(next == 'suspended' ? 'Suspend account?' : 'Reactivate account?'),
+        content: Text((user['email'] ?? user['name'] ?? 'This user').toString() +
+            ' will ' + (next == 'suspended' ? 'lose access' : 'regain access') + ' to Chatify.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(next == 'suspended' ? 'Suspend' : 'Reactivate')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await api.call('PATCH', '/api/admin/users/' + id + '/status', {'status': next});
+      await loadOverview();
+      await loadUsers();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Account ' + (next == 'active' ? 'reactivated.' : 'suspended.'))));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Account status was not changed: ' + e.toString())));
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    loadOverview();
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  Widget _metric(String label, dynamic value, IconData icon) {
+    final shown = value is num ? value.toString() : (value?.toString() ?? '0');
+    return Card(child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, size: 24, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(height: 12),
+        Text(shown, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ]),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (loading && overview.isEmpty) return const Center(child: CircularProgressIndicator());
+    if (error != null && overview.isEmpty) return Center(child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.admin_panel_settings_outlined, size: 48),
+        const SizedBox(height: 12),
+        Text('Administrator dashboard could not load', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 8),
+        Text(error!, textAlign: TextAlign.center),
+        const SizedBox(height: 16),
+        FilledButton.icon(onPressed: loadOverview, icon: const Icon(Icons.refresh), label: const Text('Try again')),
+      ]),
+    ));
+    final money = (overview['successfulPaymentAmount'] as num?)?.toDouble() ?? 0;
+    return RefreshIndicator(child: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(children: [
+            CircleAvatar(radius: 26, child: Icon(Icons.admin_panel_settings, size: 28, color: theme.colorScheme.primary)),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Platform overview', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text('Monitor users, conversations, memories and payments.', style: theme.textTheme.bodyMedium),
+            ])),
+            IconButton(tooltip: 'Refresh dashboard', onPressed: loadOverview, icon: const Icon(Icons.refresh)),
+          ]),
+        )),
+        const SizedBox(height: 8),
+        GridView.count(
+          crossAxisCount: MediaQuery.sizeOf(context).width > 700 ? 4 : 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          childAspectRatio: 1.35,
+          children: [
+            _metric('Total users', overview['totalUsers'], Icons.people_alt_outlined),
+            _metric('Active users', overview['activeUsers'], Icons.verified_user_outlined),
+            _metric('Verified emails', overview['verifiedUsers'], Icons.mark_email_read_outlined),
+            _metric('Conversations', overview['totalConversations'], Icons.forum_outlined),
+            _metric('Messages', overview['totalMessages'], Icons.chat_bubble_outline),
+            _metric('Saved memories', overview['totalMemories'], Icons.auto_awesome_outlined),
+            _metric('Pending payments', overview['pendingPayments'], Icons.hourglass_top),
+            _metric('Successful payments', overview['successfulPayments'], Icons.check_circle_outline),
+          ],
+        ),
+        Card(child: ListTile(
+          leading: const Icon(Icons.payments_outlined),
+          title: const Text('Successful payment volume'),
+          subtitle: const Text('Gross recorded transaction volume, not net profit.'),
+          trailing: Text('KES ' + money.toStringAsFixed(2), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+        )),
+        const SizedBox(height: 16),
+        Text('User management', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: TextField(
+            controller: searchController,
+            decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search name or email', border: OutlineInputBorder(),
+            ),
+            onSubmitted: (value) { userQuery = value; loadUsers(); },
+          )),
+          const SizedBox(width: 8),
+          IconButton.filledTonal(onPressed: () { userQuery = searchController.text; loadUsers(); }, icon: const Icon(Icons.search)),
+        ]),
+        if (usersLoading) const LinearProgressIndicator(),
+        ...users.map((item) {
+          final user = Map<String, dynamic>.from(item as Map);
+          final role = user['role']?.toString() ?? 'user';
+          final status = user['status']?.toString() ?? 'active';
+          final name = user['name']?.toString() ?? 'Unnamed user';
+          return Card(child: ListTile(
+            leading: CircleAvatar(child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?')),
+            title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text((user['email'] ?? '').toString() + '\n' + role.toUpperCase() + ' · ' + status.toUpperCase() + ' · ' + (user['emailVerified'] == true ? 'Verified' : 'Unverified')),
+            isThreeLine: true,
+            trailing: role == 'admin' ? const Chip(label: Text('Admin')) : PopupMenuButton<String>(
+              tooltip: 'Account actions',
+              onSelected: (_) => changeStatus(user),
+              itemBuilder: (_) => [PopupMenuItem(value: 'toggle', child: Text(status == 'active' ? 'Suspend account' : 'Reactivate account'))],
+            ),
+          ));
+        }),
+        const SizedBox(height: 16),
+        Row(children: [
+          Expanded(child: Text('Payment monitoring', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+          DropdownButton<String>(
+            value: paymentStatus,
+            items: const [
+              DropdownMenuItem(value: '', child: Text('All statuses')),
+              DropdownMenuItem(value: 'PENDING', child: Text('Pending')),
+              DropdownMenuItem(value: 'SUCCESS', child: Text('Successful')),
+              DropdownMenuItem(value: 'FAILED', child: Text('Failed')),
+              DropdownMenuItem(value: 'CANCELLED', child: Text('Cancelled')),
+            ],
+            onChanged: (value) { setState(() => paymentStatus = value ?? ''); loadPayments(); },
+          ),
+        ]),
+        if (paymentsLoading) const LinearProgressIndicator(),
+        ...payments.map((item) {
+          final payment = Map<String, dynamic>.from(item as Map);
+          final amount = (payment['amount'] as num?)?.toDouble() ?? 0;
+          final status = payment['status']?.toString() ?? 'Unknown';
+          return Card(child: ListTile(
+            leading: Icon(status == 'SUCCESS' ? Icons.check_circle : status == 'FAILED' ? Icons.error_outline : Icons.payments_outlined),
+            title: Text(payment['description']?.toString() ?? payment['paymentId']?.toString() ?? 'Payment'),
+            subtitle: Text((payment['provider'] ?? 'Provider').toString() + ' · ' + status),
+            trailing: Text('KES ' + amount.toStringAsFixed(2)),
+          ));
+        }),
+        const SizedBox(height: 20),
+        Text('Administrator actions are authorized by the API, not by hiding buttons in the app.', style: theme.textTheme.bodySmall),
+      ],
+    ), onRefresh: loadOverview);
+  }
+}
+
 // Return the other participant's HTTPS profile image for a direct chat. Group chats
 // intentionally use their title initial until a dedicated group image is configured.
 String? _conversationProfileImage(dynamic conversation) {
@@ -1853,13 +2094,15 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = context.watch<AppState>().user?['role'] == 'admin';
     final titles = [
       'Chats',
       'Business',
       'Memories',
       'Contacts',
       'Profile',
-      'Stores'
+      'Stores',
+      if (isAdmin) 'Admin'
     ];
     return Scaffold(
       // Keep Business discoverable from the primary chat screen as well as the
@@ -1929,7 +2172,8 @@ class _HomeState extends State<Home> {
         _memories(),
         _contacts(),
         const Profile(),
-        const StoreDirectoryPage()
+        const StoreDirectoryPage(),
+        if (isAdmin) const AdminDashboard()
       ]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
@@ -1952,6 +2196,9 @@ class _HomeState extends State<Home> {
           // Keep the customer marketplace reachable after sign-in, not only from the welcome page.
           NavigationDestination(
               icon: Icon(Icons.storefront_outlined), label: 'Stores'),
+          if (isAdmin)
+            const NavigationDestination(
+                icon: Icon(Icons.admin_panel_settings_outlined), label: 'Admin'),
         ],
       ),
     );
