@@ -2948,6 +2948,7 @@ class _PaymentHistoryState extends State<PaymentHistory> {
     }
     return ChatifyE2EE.instance.encryptText(
       senderId: senderId,
+      conversationId: widget.conversation['_id'].toString(),
       plaintext: plaintext,
       participantPublicKeys: publicKeys,
       registeredSenderPublicKey: ownPublicKey,
@@ -2983,6 +2984,7 @@ class _PaymentHistoryState extends State<PaymentHistory> {
       }
       final clearText = await ChatifyE2EE.instance.decryptText(
         accountId: currentId,
+        conversationId: widget.conversation['_id'].toString(),
         senderPublicKey: senderPublicKey,
         encryptedPayload: raw['encryptedPayload'].toString(),
         registeredAccountPublicKey: app.user?['encryptionPublicKey']?.toString(),
