@@ -3318,7 +3318,9 @@ class PaymentCard extends StatelessWidget {
 // Screen for one direct or group conversation, including messages and the composer.
 class Chat extends StatefulWidget {
   final Map<String, dynamic> conversation;
-  const Chat({super.key, required this.conversation});
+  // Optional editable draft for a product enquiry; it is only sent after the user taps Send.
+  final String? initialMessage;
+  const Chat({super.key, required this.conversation, this.initialMessage});
   @override
   State<Chat> createState() => _ChatState();
 }
@@ -3357,6 +3359,10 @@ class _ChatState extends State<Chat> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialMessage != null && widget.initialMessage!.trim().isNotEmpty) {
+      input.text = widget.initialMessage!.trim();
+      input.selection = TextSelection.collapsed(offset: input.text.length);
+    }
     app.addListener(_syncPresence);
     _syncPresence();
     load();
@@ -6309,8 +6315,15 @@ class _StorefrontPageState extends State<StorefrontPage> {
           content: Text('Chat opened. Ask about ' + (item['name']?.toString() ?? 'this item') + '; secure M-Pesa checkout is available on this storefront.'),
         ));
       }
+      final draft = item == null
+          ? null
+          : 'Hi, I am interested in ' +
+              (item['name']?.toString() ?? 'this item') +
+              ' from ' +
+              (storefront['name']?.toString() ?? 'your store') +
+              '. Could you share availability, delivery options and the best way to pay?';
       await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => Chat(conversation: conversation),
+        builder: (_) => Chat(conversation: conversation, initialMessage: draft),
       ));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
