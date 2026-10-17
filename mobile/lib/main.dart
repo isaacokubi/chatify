@@ -2002,21 +2002,27 @@ class _AdminDashboardState extends State<AdminDashboard> {
 // Return the other participant's HTTPS profile image for a direct chat. Group chats
 // intentionally use their title initial until a dedicated group image is configured.
 String? _conversationProfileImage(dynamic conversation, dynamic currentUser) {
-  if (conversation is! Map || conversation['participants'] is! List) return null;
+  // Only direct chats use a participant's profile photo. Group imagery is a
+  // separate conversation-level field and must never inherit a member's avatar.
+  if (conversation is! Map ||
+      conversation['type'] != 'direct' ||
+      conversation['participants'] is! List) return null;
   final currentId = currentUser is Map
       ? (currentUser['id'] ?? currentUser['_id'])?.toString()
       : null;
-  final participants = (conversation['participants'] as List)
-      .whereType<Map>()
-      .toList();
-  // Show the other participant's picture, not the signed-in user's own avatar.
-  for (final person in participants) {
+  for (final person in (conversation['participants'] as List).whereType<Map>()) {
     final personId = (person['_id'] ?? person['id'])?.toString();
     if (currentId != null && personId == currentId) continue;
     final image = person['profileImage'];
     if (image is String && image.startsWith('https://')) return image;
   }
   return null;
+}
+
+String? _conversationGroupImage(dynamic conversation) {
+  if (conversation is! Map || conversation['type'] != 'group') return null;
+  final image = conversation['image'];
+  return image is String && image.startsWith('https://') ? image : null;
 }
 
 // Main authenticated workspace containing chats, contacts and saved memories.
@@ -2335,9 +2341,12 @@ class _HomeState extends State<Home> {
                     value: selected,
                     onChanged: (_) => _toggleConversationSelection(id))
                 : CircleAvatar(
-                    foregroundImage: _conversationProfileImage(c, app.user) == null
+                    foregroundImage: (_conversationGroupImage(c) ??
+                                _conversationProfileImage(c, app.user)) ==
+                            null
                         ? null
-                        : NetworkImage(_conversationProfileImage(c, app.user)!),
+                        : NetworkImage(_conversationGroupImage(c) ??
+                            _conversationProfileImage(c, app.user)!),
                     child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
             title: Text(title),
             subtitle: Text(preview),
@@ -2765,7 +2774,11 @@ class _HomeState extends State<Home> {
           child: Card(
               child: ListTile(
                   title: Text(memory['title']?.toString() ?? 'Memory'),
-                  subtitle: Text(memory['description']?.toString() ?? ''),
+                  subtitle: Text([
+                    if ((memory['personName']?.toString() ?? '').trim().isNotEmpty)
+                      'About ${memory['personName']}',
+                    memory['description']?.toString() ?? '',
+                  ].where((part) => part.trim().isNotEmpty).join(' · ')),
                   trailing: IconButton(
                     tooltip: 'Delete saved memory',
                     icon: const Icon(Icons.delete_outline),
@@ -3538,7 +3551,6 @@ class _ChatState extends State<Chat> {
           .disableAutoConnect()
           .build(),
     );
-    socket!.connect();
     socket!.onConnect((_) {
       socket!.emit('conversation:join', widget.conversation['_id']);
       // A long-idle socket can reconnect after messages were sent on another
@@ -3663,6 +3675,9 @@ class _ChatState extends State<Chat> {
     socket!.on(
         'message:delivered', (data) => updateMessageState(data, 'deliveredTo'));
     socket!.on('message:read', (data) => updateMessageState(data, 'readBy'));
+    // Register all listeners before opening the socket so the first incoming
+    // event cannot race listener setup on fast connections.
+    socket!.connect();
   }
 
   void updateMessageState(dynamic data, String field) {
@@ -4561,6 +4576,7 @@ class _ChatState extends State<Chat> {
           await app.api.call('POST', '/api/memories/extract', {
             'text': text,
             'sourceMessageId': id,
+            'conversationId': widget.conversation['_id']?.toString(),
           });
       final candidates = List<dynamic>.from(result['candidates'] ?? [])
           .whereType<Map>()
@@ -5245,8 +5261,15 @@ class _ChatState extends State<Chat> {
                                           'Memory',
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w600)),
-                                  Text(suggestion['description']?.toString() ??
-                                      ''),
+                                  if ((suggestion['personName']?.toString() ?? '')
+                                  .trim().isNotEmpty)
+                                Text(
+                                  'About ${suggestion['personName']}',
+                                  style: const TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                              Text(suggestion['description']?.toString() ??
+                                  ''),
                                 ],
                               ),
                             ),
@@ -5509,7 +5532,10 @@ class _ProfileState extends State<Profile> {
       final saved = await api.call(
           'PATCH', '/api/users/me', {'profileImage': mediaUrl});
       if (!mounted) return;
-      context.read<AppState>().user = Map<String, dynamic>.from(saved['user']);
+      final appState = context.read<AppState>();
+      appState.user = Map<String, dynamic>.from(saved['user']);
+      // Propagate this account's updated photo to widgets listening to app state.
+      appState.notifyListeners();
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile picture updated.')));
@@ -5818,7 +5844,7 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
             decoration: InputDecoration(
               hintText: showingProducts
                   ? 'Search products and services'
-                  : 'Search businesses and products',
+                  : 'Business name or @handle (e.g. @prime-cafe)',
               prefixIcon: const Icon(Icons.search),
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
