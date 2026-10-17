@@ -37,6 +37,7 @@ It does not represent reconciled settlements, refunds, provider fees, or tax acc
 ## Core innovations
 - **Remember:** deterministic local extraction identifies event, task, payment, place and note candidates that users can save as Memory Cards.
 - **Let Go:** messages support NONE, AFTER_READ, AFTER_TIME and AFTER_REPLY application-level lifecycles.
+- **Private text:** new text messages use client-side X25519/HKDF/AES-GCM encryption; see [the E2EE design and limitations](docs/E2EE.md).
 
 ## Backend
 ~~~bash
@@ -74,6 +75,6 @@ MongoDB Atlas is supported directly through configuration. SMTP password-reset e
 Set a persistent JWT_SECRET in the local environment if demo sessions must survive server restarts; production refuses to start without a 32-character secret. Production CORS requires exact HTTPS Flutter Web origins in CLIENT_ORIGIN; the Flutter Web host is not currently specified in this repository.
 
 ## Security
-Passwords are bcrypt-hashed. JWTs protect REST and Socket.IO. Server-side membership/admin checks protect conversations and groups. Helmet, CORS and rate limiting are enabled. Secrets are excluded by Git ignore rules. Message expiration is application-level removal/hiding and is not cryptographic secure deletion.
+Passwords are bcrypt-hashed. JWTs protect REST and Socket.IO. Server-side membership/admin checks protect conversations and groups. Helmet, CORS and rate limiting are enabled. Secrets are excluded by Git ignore rules. New text-message bodies are encrypted on the client, but legacy messages, attachments, Memory Cards, multi-device recovery and forward secrecy are not yet covered; do not claim the whole system is fully end-to-end encrypted. Message expiration is application-level removal/hiding and is not cryptographic secure deletion. See [docs/E2EE.md](docs/E2EE.md) for the threat model and production gates.
 
 See docs/ for the defense-oriented architecture, API, database, development, security and demo notes.
