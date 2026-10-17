@@ -39,7 +39,7 @@ const app=express(); app.use(helmet()); app.use(cors({origin:corsOrigin,credenti
 // MongoDB schemas below describe the durable records used by the app.
 const O=mongoose.Schema.Types.ObjectId;
 // User accounts include password hashes, profile/privacy settings, blocked users and push-notification tokens.
-const User=mongoose.model('User',new mongoose.Schema({name:{type:String,required:true,trim:true,maxlength:80},email:{type:String,unique:true,lowercase:true,trim:true,required:true},phone:String,passwordHash:{type:String,required:true},emailVerified:{type:Boolean,default:true},emailVerificationTokenHash:String,emailVerificationExpiresAt:Date,profileImage:String,status:{type:String,default:'active'},lastSeen:Date,privacy:{lastSeen:{type:Boolean,default:true},readReceipts:{type:Boolean,default:true}},blockedUsers:[O],pushTokens:{type:[String],default:[]},notificationPreferences:{messages:{type:Boolean,default:true},mentions:{type:Boolean,default:true},memories:{type:Boolean,default:true}}},{timestamps:true}));
+const User=mongoose.model('User',new mongoose.Schema({name:{type:String,required:true,trim:true,maxlength:80},email:{type:String,unique:true,lowercase:true,trim:true,required:true},phone:String,passwordHash:{type:String,required:true},emailVerified:{type:Boolean,default:true},emailVerificationTokenHash:String,emailVerificationExpiresAt:Date,profileImage:String,status:{type:String,default:'active'},role:{type:String,enum:['user','admin'],default:'user',index:true},lastSeen:Date,privacy:{lastSeen:{type:Boolean,default:true},readReceipts:{type:Boolean,default:true}},blockedUsers:[O],pushTokens:{type:[String],default:[]},notificationPreferences:{messages:{type:Boolean,default:true},mentions:{type:Boolean,default:true},memories:{type:Boolean,default:true}}},{timestamps:true}));
 User.schema.index({name:'text',email:'text'});
 // Conversations track direct/group membership, group admins, hidden state and the latest-message summary.
 const Conversation=mongoose.model('Conversation',new mongoose.Schema({type:{type:String,enum:['direct','group'],default:'direct'},participants:[{type:O,ref:'User'}],hiddenFor:{type:[O],default:[]},directKey:{type:String,unique:true,sparse:true},title:String,description:String,image:String,admins:[O],lastMessage:{text:String,senderId:O,createdAt:Date}},{timestamps:true}));
@@ -55,7 +55,7 @@ const PasswordReset=mongoose.model('PasswordReset',new mongoose.Schema({userId:{
 // Payment records track requester/payer, amount, provider references and lifecycle status.
 const Payment=mongoose.model('Payment',new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},requesterId:{type:O,required:true,index:true},payerId:{type:O,required:true,index:true},conversationId:{type:O,index:true},amount:{type:Number,required:true,min:1,max:150000},recipientPhone:{type:String},payerPhone:{type:String},phone:{type:String},businessOrganizationId:{type:O,index:true},businessDocumentId:{type:O,index:true},description:{type:String,required:true,maxlength:80},status:{type:String,enum:PAYMENT_STATUSES,default:'PENDING',index:true},provider:{type:String,required:true},checkoutRequestId:{type:String,sparse:true,index:true},merchantRequestId:String,resultCode:Number,resultDescription:String,requestedAt:{type:Date,required:true},initiating:{type:Boolean,default:false},initiatedAt:Date,completedAt:Date,callbackProcessedAt:Date,dismissedBy:{type:[O],default:[]}},{timestamps:true}));
 Payment.schema.index({checkoutRequestId:1,merchantRequestId:1},{unique:true,sparse:true});
-const safe=u=>({id:String(u._id),name:u.name,email:u.email,emailVerified:u.emailVerified!==false,phone:u.phone,profileImage:u.profileImage,status:u.status,lastSeen:u.lastSeen,privacy:u.privacy,notificationPreferences:u.notificationPreferences});
+const safe=u=>({id:String(u._id),name:u.name,email:u.email,emailVerified:u.emailVerified!==false,phone:u.phone,profileImage:u.profileImage,status:u.status,role:u.role||'user',lastSeen:u.lastSeen,privacy:u.privacy,notificationPreferences:u.notificationPreferences});
 const visibleUser=u=>{const value=u.toObject?u.toObject():{...u};if(value.privacy?.lastSeen===false)delete value.lastSeen;return value;};
 const sign=u=>jwt.sign({sub:String(u._id)},env.jwt,{expiresIn:env.jwtExpiresIn});
 // Authentication middleware verifies a bearer token and loads its user before protected handlers run.
@@ -125,6 +125,53 @@ app.post('/api/auth/register',async(q,r)=>{const {name,email,password,phone}=q.b
 app.get('/api/auth/verify-email',async(q,r)=>{const token=typeof q.query.token==='string'?q.query.token:'';if(!token||token.length>200)return r.status(400).json({error:'A valid email confirmation token is required'});const user=await User.findOneAndUpdate({emailVerified:false,emailVerificationTokenHash:hashResetToken(token),emailVerificationExpiresAt:{$gt:new Date()}},{$set:{emailVerified:true},$unset:{emailVerificationTokenHash:1,emailVerificationExpiresAt:1}},{new:true});if(!user)return r.status(400).json({error:'Confirmation link is invalid or expired. Request a new registration or contact support.'});r.json({ok:true,message:'Email confirmed. You can now sign in to Chatify.'});});
 app.post('/api/auth/login',async(q,r)=>{const credentials=normalizeLoginCredentials(q.body);if(!credentials)return r.status(401).json({error:'Invalid email or password'});const u=await User.findOne({email:credentials.email});if(!u||!(await bcrypt.compare(credentials.password,u.passwordHash)))return r.status(401).json({error:'Invalid email or password'});if(u.emailVerified===false)return r.status(403).json({error:'Confirm your email address using the link we sent before signing in.'});u.lastSeen=new Date();await u.save();r.json({token:sign(u),user:safe(u)});});
 app.get('/api/auth/me',auth,(q,r)=>r.json({user:safe(q.user)}));
+/**
+ * Platform administration endpoints. Every route requires a verified server-side admin role;
+ * the client cannot grant itself privileges by changing a submitted JSON field.
+ */
+const requireAdmin=(q,r,next)=>q.user?.role==='admin'?next():r.status(403).json({error:'Administrator access required'});
+app.get('/api/admin/overview',auth,requireAdmin,async(q,r)=>{
+  const [totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,recentUsers,recentPayments]=await Promise.all([
+    User.countDocuments({}),User.countDocuments({status:'active'}),User.countDocuments({emailVerified:true}),
+    Conversation.countDocuments({}),Message.countDocuments({}),Memory.countDocuments({}),Payment.countDocuments({}),
+    Payment.countDocuments({status:'PENDING'}),Payment.countDocuments({status:'SUCCESS'}),
+    User.find({}).sort({createdAt:-1}).limit(8).select('name email role status emailVerified createdAt lastSeen'),
+    Payment.find({}).sort({createdAt:-1}).limit(8).select('paymentId amount status provider description createdAt requesterId payerId').lean()
+  ]);
+  const revenue=await Payment.aggregate([{$match:{status:'SUCCESS'}},{$group:{_id:null,total:{$sum:'$amount'},count:{$sum:1}}}]);
+  r.json({stats:{totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,successfulPaymentAmount:revenue[0]?.total||0},recentUsers,recentPayments});
+});
+app.get('/api/admin/users',auth,requireAdmin,async(q,r)=>{
+  const page=Math.max(1,Math.min(10000,Number.parseInt(q.query.page,10)||1));
+  const limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||25));
+  const term=typeof q.query.q==='string'?q.query.q.trim().slice(0,80):'';
+  const filter=term?{$or:[{name:{$regex:term.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\app.get('/api/auth/me',auth,(q,r)=>r.json({user:safe(q.user)}));'),$options:'i'}},{email:{$regex:term.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\app.get('/api/auth/me',auth,(q,r)=>r.json({user:safe(q.user)}));'),$options:'i'}}]}:{};
+  const [users,total]=await Promise.all([User.find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit).select('name email role status emailVerified createdAt lastSeen'),User.countDocuments(filter)]);
+  r.json({users,total,page,limit});
+});
+app.patch('/api/admin/users/:id/status',auth,requireAdmin,async(q,r)=>{
+  if(!mongoose.isValidObjectId(q.params.id))return r.status(400).json({error:'Invalid user ID'});
+  if(String(q.params.id)===String(q.user._id))return r.status(400).json({error:'You cannot change your own account status'});
+  const status=q.body?.status;
+  if(!['active','suspended'].includes(status))return r.status(400).json({error:'Status must be active or suspended'});
+  const target=await User.findById(q.params.id);
+  if(!target)return r.status(404).json({error:'User not found'});
+  if(target.role==='admin'&&status==='suspended'){
+    const admins=await User.countDocuments({role:'admin',status:'active'});
+    if(admins<=1)return r.status(409).json({error:'Cannot suspend the last active administrator'});
+  }
+  target.status=status;await target.save();
+  r.json({user:safe(target)});
+});
+app.get('/api/admin/payments',auth,requireAdmin,async(q,r)=>{
+  const page=Math.max(1,Math.min(10000,Number.parseInt(q.query.page,10)||1));
+  const limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||25));
+  const status=typeof q.query.status==='string'?q.query.status:'';
+  const filter=PAYMENT_STATUSES.includes(status)?{status}:{};
+  const [payments,total]=await Promise.all([Payment.find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit).select('paymentId amount status provider description createdAt requesterId payerId conversationId'),Payment.countDocuments(filter)]);
+  r.json({payments,total,page,limit});
+});
+
 app.post('/api/auth/forgot-password',async(q,r)=>{
   const email=typeof q.body?.email==='string'?q.body.email.trim().toLowerCase():'';
   if(email.length>254||!/^\S+@\S+\.\S+$/.test(email))return r.status(400).json({error:'Enter a valid email address'});
