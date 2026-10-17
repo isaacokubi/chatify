@@ -3574,13 +3574,19 @@ class _ChatState extends State<Chat> {
 
   Future<void> load() async {
     try {
-      final detail = await app.api
-          .call('GET', '/api/conversations/${widget.conversation['_id']}');
+      // Fetch conversation metadata and messages together: these are independent
+      // requests, and serialising them adds a full network round-trip to every
+      // conversation open (especially noticeable on mobile connections).
+      final results = await Future.wait([
+        app.api.call(
+            'GET', '/api/conversations/${widget.conversation['_id']}'),
+        app.api.call(
+            'GET', '/api/conversations/${widget.conversation['_id']}/messages'),
+      ]);
+      final detail = results[0];
       widget.conversation
           .addAll(Map<String, dynamic>.from(detail['conversation']));
-      final result = await app.api.call(
-          'GET', '/api/conversations/${widget.conversation['_id']}/messages');
-      final fetched = List<dynamic>.from(result['messages'] ?? []);
+      final fetched = List<dynamic>.from(results[1]['messages'] ?? []);
       final decryptedFetched = await Future.wait(fetched.map((raw) async {
         if (raw is Map) return _decryptMessage(Map<String, dynamic>.from(raw));
         return raw;
@@ -3588,34 +3594,43 @@ class _ChatState extends State<Chat> {
       if (mounted) {
         setState(() {
           messages = mergeMessages(messages, decryptedFetched);
+          loading = false;
+          loadError = null;
         });
         _scrollToLatestMessage();
         // Inspect recent text messages automatically; users do not need the manual-save menu.
         _scanRecentMessagesForMemory(fetched);
       }
-      try {
-        final paymentResult = await app.api.call('GET', '/api/payments');
-        final conversationPayments =
-            List<dynamic>.from(paymentResult['payments'] ?? [])
-                .where((item) =>
-                    item is Map &&
-                    item['conversationId']?.toString() ==
-                        widget.conversation['_id']?.toString())
-                .toList();
-        if (mounted) setState(() => payments = conversationPayments);
-      } catch (_) {
-        // Payment history is optional to loading a conversation and its messages.
-      }
+
+      // Payment history is supplementary. Do not keep the whole conversation
+      // behind a spinner while an unrelated payments endpoint responds slowly.
+      unawaited(() async {
+        try {
+          final paymentResult = await app.api.call('GET', '/api/payments');
+          final conversationPayments =
+              List<dynamic>.from(paymentResult['payments'] ?? [])
+                  .where((item) =>
+                      item is Map &&
+                      item['conversationId']?.toString() ==
+                          widget.conversation['_id']?.toString())
+                  .toList();
+          if (mounted) setState(() => payments = conversationPayments);
+        } catch (_) {
+          // Payment history is optional; the chat remains usable without it.
+        }
+      }());
+
+      // Delivery receipts are also non-blocking; message content is already visible.
       for (final item in fetched) {
         if (item is Map &&
             item['senderId']?.toString() != app.user?['id']?.toString()) {
-          markReceived(item['_id'].toString());
+          unawaited(markReceived(item['_id'].toString()));
         }
       }
     } catch (error) {
       loadError = error.toString();
     }
-    if (mounted) {
+    if (mounted && loading) {
       setState(() => loading = false);
       _scrollToLatestMessage();
     }
