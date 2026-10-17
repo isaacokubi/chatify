@@ -3221,6 +3221,7 @@ class _ChatState extends State<Chat> {
   final Set<String> _checkedMemoryMessageIds = {};
   final Set<String> _dismissedMemoryMessageIds = {};
   final Set<String> _savedMemoryMessageIds = {};
+  bool _savedMemoryMessageIdsLoaded = false;
   bool showClosedPayments = false;
   String expiry = 'NONE';
   String? reply;
@@ -4522,14 +4523,17 @@ class _ChatState extends State<Chat> {
       // Load the user's saved cards before suggesting anything from history.
       // This survives app restarts and prevents an already-saved source message
       // from repeatedly appearing as a new suggestion on another device.
-      final saved = List<dynamic>.from(
-          (await app.api.call('GET', '/api/memories'))['memories'] ?? []);
-      final alreadySaved = saved.any((item) =>
-          item is Map && item['sourceMessageId']?.toString() == id);
-      if (alreadySaved) {
-        _savedMemoryMessageIds.add(id);
-        return false;
+      if (!_savedMemoryMessageIdsLoaded) {
+        final saved = List<dynamic>.from(
+            (await app.api.call('GET', '/api/memories'))['memories'] ?? []);
+        for (final item in saved) {
+          if (item is Map && item['sourceMessageId'] != null) {
+            _savedMemoryMessageIds.add(item['sourceMessageId'].toString());
+          }
+        }
+        _savedMemoryMessageIdsLoaded = true;
       }
+      if (_savedMemoryMessageIds.contains(id)) return false;
       final result =
           await app.api.call('POST', '/api/memories/extract', {
             'text': text,
