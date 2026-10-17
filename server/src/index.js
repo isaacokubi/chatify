@@ -144,8 +144,10 @@ app.get('/api/admin/overview',auth,requireAdmin,async(q,r)=>{
 app.get('/api/admin/users',auth,requireAdmin,async(q,r)=>{
   const page=Math.max(1,Math.min(10000,Number.parseInt(q.query.page,10)||1));
   const limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||25));
+  // Restrict search syntax so user input cannot inject regular-expression operators.
   const term=typeof q.query.q==='string'?q.query.q.trim().slice(0,80):'';
-  const filter=term?{$or:[{name:{$regex:term.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\app.get('/api/auth/me',auth,(q,r)=>r.json({user:safe(q.user)}));'),$options:'i'}},{email:{$regex:term.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\app.get('/api/auth/me',auth,(q,r)=>r.json({user:safe(q.user)}));'),$options:'i'}}]}:{};
+  const safeTerm=term.replace(/[^a-zA-Z0-9 @_-]/g,'');
+  const filter=safeTerm?{$or:[{name:{$regex:safeTerm,$options:'i'}},{email:{$regex:safeTerm,$options:'i'}}]}:{};
   const [users,total]=await Promise.all([User.find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit).select('name email role status emailVerified createdAt lastSeen'),User.countDocuments(filter)]);
   r.json({users,total,page,limit});
 });
