@@ -2273,7 +2273,7 @@ class _HomeState extends State<Home> {
           if (i == 0) loadChats();
           if (i == 2) loadMemories();
         },
-        destinations: const [
+        destinations: [
           NavigationDestination(
               icon: Icon(Icons.chat_bubble_outline), label: 'Chats'),
           NavigationDestination(
