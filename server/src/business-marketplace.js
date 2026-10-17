@@ -6,7 +6,7 @@ export function normalizeMarketplaceFilters(query = {}) {
   const page = Number.parseInt(query.page, 10);
   const pageSize = Number.parseInt(query.pageSize, 10);
   return {
-    q: text(query.q, 100),
+    q: text(query.q, 100).replace(/^@/, ''),
     category: text(query.category, 80),
     country: text(query.country, 2).toUpperCase(),
     location: text(query.location, 100),
