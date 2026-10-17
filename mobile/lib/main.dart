@@ -14,6 +14,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'security/chatify_e2ee.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
@@ -267,6 +268,7 @@ class AppState extends ChangeNotifier {
   bool startRegistration = false;
   Map<String, dynamic>? user;
   String? restoreError;
+  String? encryptionError;
   final Set<String> onlineUserIds = {};
   // Monotonic counter lets chat-list screens refresh summaries without polling.
   int messageEventVersion = 0;
@@ -299,11 +301,35 @@ class AppState extends ChangeNotifier {
       }
     }
     if (user != null) {
+      try {
+        await ensureEncryptionKey();
+      } catch (error) {
+        // Do not block sign-in, but encrypted sends remain disabled until key recovery.
+        encryptionError = error.toString();
+      }
       _connectPresence();
       await _initializePushNotifications();
     }
     ready = true;
     notifyListeners();
+  }
+
+  /// Creates the device-local key on first use and registers only its public half.
+  Future<String> ensureEncryptionKey() async {
+    final accountId = user?['id']?.toString() ?? '';
+    if (accountId.isEmpty) throw StateError('Sign in before enabling encryption.');
+    final registered = user?['encryptionPublicKey']?.toString();
+    final publicKey = await ChatifyE2EE.instance.publicKeyFor(
+      accountId,
+      registeredPublicKey: (registered == null || registered.isEmpty) ? null : registered,
+    );
+    if (registered == null || registered.isEmpty) {
+      await api.call('PUT', '/api/users/me/encryption-key', {'publicKey': publicKey});
+      user!['encryptionPublicKey'] = publicKey;
+      encryptionError = null;
+      notifyListeners();
+    }
+    return publicKey;
   }
 
   void _connectPresence() {
