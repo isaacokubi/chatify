@@ -2413,12 +2413,14 @@ class _HomeState extends State<Home> {
                     value: selected,
                     onChanged: (_) => _toggleConversationSelection(id))
                 : CircleAvatar(
-                    foregroundImage: (_conversationGroupImage(c) ??
-                                _conversationProfileImage(c, app.user)) ==
-                            null
-                        ? null
-                        : NetworkImage(_conversationGroupImage(c) ??
-                            _conversationProfileImage(c, app.user)!),
+                    // A group can only display its own group image. Never fall
+                    // back to a member's personal profile photo for group chats.
+                    foregroundImage: (() {
+                      final image = c['type'] == 'group'
+                          ? _conversationGroupImage(c)
+                          : _conversationProfileImage(c, app.user);
+                      return image == null ? null : NetworkImage(image);
+                    })(),
                     child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
             title: Text(title),
             subtitle: Text(preview),
@@ -2833,6 +2835,15 @@ class _HomeState extends State<Home> {
               padding: const EdgeInsets.only(right: 20),
               child: const Icon(Icons.delete_outline)),
           onDismissed: (_) async {
+            // Dismissible requires the item to leave the backing list immediately;
+            // otherwise Flutter can report that a dismissed widget is still in the tree.
+            if (mounted) {
+              setState(() {
+                memories.removeWhere((item) =>
+                    item is Map &&
+                    item['_id']?.toString() == memory['_id']?.toString());
+              });
+            }
             try {
               await app.api.call('DELETE', '/api/memories/${memory['_id']}');
             } catch (error) {
