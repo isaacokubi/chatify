@@ -2765,7 +2765,30 @@ class _HomeState extends State<Home> {
           child: Card(
               child: ListTile(
                   title: Text(memory['title']?.toString() ?? 'Memory'),
-                  subtitle: Text(memory['description']?.toString() ?? ''))),
+                  subtitle: Text(memory['description']?.toString() ?? ''),
+                  trailing: IconButton(
+                    tooltip: 'Delete saved memory',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () async {
+                      try {
+                        await app.api.call(
+                            'DELETE', '/api/memories/${memory['_id']}');
+                        if (!mounted) return;
+                        setState(() {
+                          memories.removeWhere((item) =>
+                              item is Map &&
+                              item['_id']?.toString() ==
+                                  memory['_id']?.toString());
+                        });
+                      } catch (error) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                              content: Text('Could not delete memory: $error')),
+                        );
+                      }
+                    },
+                  )),
         );
       },
     );
