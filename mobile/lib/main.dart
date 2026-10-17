@@ -320,6 +320,12 @@ class AppState extends ChangeNotifier {
           .enableReconnection()
           .build(),
     );
+    // Refresh the chat list after the socket reconnects so messages sent while
+    // this device was offline are reflected in conversation previews.
+    _presenceSocket!.onConnect((_) {
+      messageEventVersion++;
+      notifyListeners();
+    });
     // Play one alert for incoming messages even when the user is viewing another tab.
     // The active chat screen deliberately does not play a second copy of this sound.
     _presenceSocket!.on('message:new', (data) {
