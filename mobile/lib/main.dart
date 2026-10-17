@@ -2921,6 +2921,82 @@ class _PaymentHistoryState extends State<PaymentHistory> {
   List<dynamic> payments = [];
   bool loading = true;
   String? error;
+  String _participantId(dynamic participant) {
+    if (participant is Map) {
+      return (participant['_id'] ?? participant['id'] ?? '').toString();
+    }
+    return participant?.toString() ?? '';
+  }
+
+  Future<Map<String, dynamic>> _encryptTextPayload(String plaintext) async {
+    final senderId = app.user?['id']?.toString() ?? '';
+    final ownPublicKey = await app.ensureEncryptionKey();
+    final publicKeys = <String, String>{};
+    for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
+      if (participant is! Map) continue;
+      final id = _participantId(participant);
+      if (id.isEmpty) continue;
+      if (id == senderId) {
+        publicKeys[id] = ownPublicKey;
+        continue;
+      }
+      final key = participant['encryptionPublicKey']?.toString();
+      if (key == null || key.isEmpty) {
+        throw StateError('Every conversation member must open the latest Chatify version once to enable encrypted messaging.');
+      }
+      publicKeys[id] = key;
+    }
+    return ChatifyE2EE.instance.encryptText(
+      senderId: senderId,
+      plaintext: plaintext,
+      participantPublicKeys: publicKeys,
+      registeredSenderPublicKey: ownPublicKey,
+    );
+  }
+
+  Future<Map<String, dynamic>> _decryptMessage(Map<String, dynamic> raw) async {
+    if (raw['encryptionVersion'] != 1 ||
+        raw['encryptedPayload'] is! String ||
+        raw['deletedAt'] != null ||
+        raw['expiredAt'] != null) {
+      return raw;
+    }
+    final currentId = app.user?['id']?.toString() ?? '';
+    final senderId = _participantId(raw['senderId']);
+    String? senderPublicKey;
+    if (senderId == currentId) {
+      senderPublicKey = app.user?['encryptionPublicKey']?.toString();
+      if (senderPublicKey == null || senderPublicKey.isEmpty) {
+        senderPublicKey = await app.ensureEncryptionKey();
+      }
+    } else {
+      for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
+        if (participant is Map && _participantId(participant) == senderId) {
+          senderPublicKey = participant['encryptionPublicKey']?.toString();
+          break;
+        }
+      }
+    }
+    try {
+      if (senderPublicKey == null || senderPublicKey.isEmpty) {
+        throw StateError('The sender public key is unavailable.');
+      }
+      final clearText = await ChatifyE2EE.instance.decryptText(
+        accountId: currentId,
+        senderPublicKey: senderPublicKey,
+        encryptedPayload: raw['encryptedPayload'].toString(),
+        registeredAccountPublicKey: app.user?['encryptionPublicKey']?.toString(),
+      );
+      return <String, dynamic>{...raw, 'text': clearText, 'decryptionFailed': false};
+    } catch (_) {
+      return <String, dynamic>{
+        ...raw,
+        'text': '🔒 Unable to decrypt this message on this device.',
+        'decryptionFailed': true,
+      };
+    }
+  }
+
   Future<void> load() async {
     try {
       final result =
@@ -3378,9 +3454,13 @@ class _ChatState extends State<Chat> {
       final result = await app.api.call(
           'GET', '/api/conversations/${widget.conversation['_id']}/messages');
       final fetched = List<dynamic>.from(result['messages'] ?? []);
+      final decryptedFetched = await Future.wait(fetched.map((raw) async {
+        if (raw is Map) return _decryptMessage(Map<String, dynamic>.from(raw));
+        return raw;
+      }));
       if (mounted) {
         setState(() {
-          messages = mergeMessages(messages, fetched);
+          messages = mergeMessages(messages, decryptedFetched);
         });
         _scrollToLatestMessage();
         // Inspect recent text messages automatically; users do not need the manual-save menu.
@@ -3477,11 +3557,12 @@ class _ChatState extends State<Chat> {
         setState(() => onlineIds.remove(peerId));
       }
     });
-    socket!.on('message:new', (data) {
+    socket!.on('message:new', (data) async {
       if (!mounted || data is! Map) return;
       if (data['conversationId']?.toString() ==
           widget.conversation['_id']?.toString()) {
-        final incoming = Map<String, dynamic>.from(data);
+        final incoming = await _decryptMessage(Map<String, dynamic>.from(data));
+        if (!mounted) return;
         final id = incoming['_id']?.toString();
         if (id == null ||
             !messages
@@ -3579,15 +3660,17 @@ class _ChatState extends State<Chat> {
     _stopTyping();
     setState(() => sending = true);
     try {
+      final encrypted = await _encryptTextPayload(text);
       final result = await app.api.call(
           'POST', '/api/conversations/${widget.conversation['_id']}/messages', {
-        'text': text,
+        ...encrypted,
         'expiryType': expiry,
         'expiresInSeconds': expiry == 'AFTER_TIME' ? 3600 : null,
         'replyTo': reply,
       });
       if (!mounted) return;
-      final sent = Map<String, dynamic>.from(result['message']);
+      final sent = await _decryptMessage(
+          Map<String, dynamic>.from(result['message']));
       final sentId = sent['_id']?.toString();
       setState(() {
         if (sentId == null ||
@@ -4384,7 +4467,11 @@ class _ChatState extends State<Chat> {
   }
 
   Future<bool> _detectMemoryForMessage(Map<String, dynamic> message) async {
-    if (message['messageType'] != 'text' ||
+    // Never send decrypted end-to-end encrypted content to the server-side
+    // memory extractor; encrypted messages are excluded until local-only extraction
+    // and encrypted Memory Card storage are implemented.
+    if (message['encryptionVersion'] == 1 ||
+        message['messageType'] != 'text' ||
         message['deletedAt'] != null ||
         message['expiredAt'] != null ||
         message['text'] is! String) {
