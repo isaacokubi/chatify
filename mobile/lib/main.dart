@@ -345,6 +345,13 @@ class AppState extends ChangeNotifier {
   AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
     if (autoInit) init();
   }
+
+  // Update the signed-in account and notify listeners from inside ChangeNotifier.
+  void updateCurrentUser(Map<String, dynamic> updatedUser) {
+    user = updatedUser;
+    notifyListeners();
+  }
+
   Future<void> init() async {
     ready = false;
     restoreError = null;
@@ -2867,7 +2874,7 @@ class _HomeState extends State<Home> {
                       }
                     },
                   )),
-        );
+        ));
       },
     );
   }
@@ -5601,10 +5608,9 @@ class _ProfileState extends State<Profile> {
       final saved = await api.call(
           'PATCH', '/api/users/me', {'profileImage': mediaUrl});
       if (!mounted) return;
-      final appState = context.read<AppState>();
-      appState.user = Map<String, dynamic>.from(saved['user']);
-      // Propagate this account's updated photo to widgets listening to app state.
-      appState.notifyListeners();
+      context.read<AppState>().updateCurrentUser(
+            Map<String, dynamic>.from(saved['user']),
+          );
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile picture updated.')));
