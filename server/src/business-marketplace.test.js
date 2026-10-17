@@ -16,6 +16,7 @@ test('marketplace filters normalize text and bound pagination', () => {
   });
   assert.equal(normalizeMarketplaceFilters({page: '-1', pageSize: '0'}).page, 1);
   assert.equal(normalizeMarketplaceFilters({page: '-1', pageSize: '0'}).pageSize, 20);
+  assert.equal(normalizeMarketplaceFilters({q: '  @Prime-Cafe '}).q, 'Prime-Cafe');
 });
 
 test('marketplace regex escapes user-supplied operators', () => {

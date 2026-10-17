@@ -259,6 +259,71 @@ String? conversationPeerName(
   return firstAvailableName;
 }
 
+// Extract candidate memories locally on the device. This is intentionally heuristic and
+// suggestion-only: decrypted end-to-end encrypted messages never leave the device for analysis.
+List<Map<String, dynamic>> extractMemoryCandidatesLocally(String input) {
+  final text = input.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (text.length < 8) return [];
+  final candidates = <Map<String, dynamic>>[];
+  if (RegExp(
+    r'\b(meet(?:ing)?|appointment|doctor|interview|flight|deadline|due date|reservation|call with|scheduled|tomorrow|tonight|today|next week|this (?:morning|afternoon|evening)|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b',
+    caseSensitive: false,
+  ).hasMatch(text)) {
+    candidates.add({
+      'type': 'EVENT',
+      'title': RegExp(r'\b(deadline|due date)\b', caseSensitive: false).hasMatch(text)
+          ? 'Deadline'
+          : RegExp(r'\b(doctor|appointment)\b', caseSensitive: false).hasMatch(text)
+              ? 'Appointment'
+              : 'Upcoming event',
+      'description': text,
+    });
+  }
+  final task = RegExp(
+    r'\b(?:remember to|don.t forget to|do not forget to|remind me to|need to|have to|must|todo|to-do|task is to)\s+(.+?)(?:[.!?]|$)',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (task != null && (task.group(1)?.trim().length ?? 0) >= 4) {
+    candidates.add({
+      'type': 'TASK',
+      'title': 'Reminder',
+      'description': task.group(1)!.trim(),
+    });
+  }
+  final hasMoney = RegExp(
+    r'\b(?:KES|KSh|shillings?)\s*[0-9][0-9,]*(?:\.\d{1,2})?\b|\b(?:pay|paid|owe|owed|costs?|rent|bill|payment)\b[^.!?]{0,70}\b[0-9][0-9,]*(?:\.\d{1,2})?\b',
+    caseSensitive: false,
+  ).hasMatch(text);
+  if (hasMoney) {
+    candidates.add({
+      'type': 'PAYMENT',
+      'title': 'Payment or amount',
+      'description': text,
+    });
+  }
+  if (RegExp(
+    r'\b(?:my birthday is|my anniversary is|i live in|i work at|i work in|i am based in|i.m based in|my job is|i work as|my goal is|my favorite|my favourite|i prefer|my child.s name is|my dog.s name is|my cat.s name is)\b',
+    caseSensitive: false,
+  ).hasMatch(text)) {
+    candidates.add({
+      'type': 'NOTE',
+      'title': RegExp(r'birthday|anniversary', caseSensitive: false).hasMatch(text)
+          ? 'Important date'
+          : RegExp(r'prefer|favorite|favourite', caseSensitive: false).hasMatch(text)
+              ? 'Preference'
+              : RegExp(r'work|job', caseSensitive: false).hasMatch(text)
+                  ? 'Work detail'
+                  : 'Personal detail',
+      'description': text,
+    });
+  }
+  final seen = <String>{};
+  return candidates.where((item) {
+    final key = '${item['type']}:${item['title']}';
+    return seen.add(key);
+  }).take(3).toList();
+}
+
 // Shared app state. Screens listen to this object and rebuild after login, chat, contact, memory, or payment data changes.
 class AppState extends ChangeNotifier {
   final Api api;
@@ -280,6 +345,13 @@ class AppState extends ChangeNotifier {
   AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
     if (autoInit) init();
   }
+
+  // Update the signed-in account and notify listeners from inside ChangeNotifier.
+  void updateCurrentUser(Map<String, dynamic> updatedUser) {
+    user = updatedUser;
+    notifyListeners();
+  }
+
   Future<void> init() async {
     ready = false;
     restoreError = null;
@@ -2002,21 +2074,27 @@ class _AdminDashboardState extends State<AdminDashboard> {
 // Return the other participant's HTTPS profile image for a direct chat. Group chats
 // intentionally use their title initial until a dedicated group image is configured.
 String? _conversationProfileImage(dynamic conversation, dynamic currentUser) {
-  if (conversation is! Map || conversation['participants'] is! List) return null;
+  // Only direct chats use a participant's profile photo. Group imagery is a
+  // separate conversation-level field and must never inherit a member's avatar.
+  if (conversation is! Map ||
+      conversation['type'] != 'direct' ||
+      conversation['participants'] is! List) return null;
   final currentId = currentUser is Map
       ? (currentUser['id'] ?? currentUser['_id'])?.toString()
       : null;
-  final participants = (conversation['participants'] as List)
-      .whereType<Map>()
-      .toList();
-  // Show the other participant's picture, not the signed-in user's own avatar.
-  for (final person in participants) {
+  for (final person in (conversation['participants'] as List).whereType<Map>()) {
     final personId = (person['_id'] ?? person['id'])?.toString();
     if (currentId != null && personId == currentId) continue;
     final image = person['profileImage'];
     if (image is String && image.startsWith('https://')) return image;
   }
   return null;
+}
+
+String? _conversationGroupImage(dynamic conversation) {
+  if (conversation is! Map || conversation['type'] != 'group') return null;
+  final image = conversation['image'];
+  return image is String && image.startsWith('https://') ? image : null;
 }
 
 // Main authenticated workspace containing chats, contacts and saved memories.
@@ -2335,9 +2413,12 @@ class _HomeState extends State<Home> {
                     value: selected,
                     onChanged: (_) => _toggleConversationSelection(id))
                 : CircleAvatar(
-                    foregroundImage: _conversationProfileImage(c, app.user) == null
+                    foregroundImage: (_conversationGroupImage(c) ??
+                                _conversationProfileImage(c, app.user)) ==
+                            null
                         ? null
-                        : NetworkImage(_conversationProfileImage(c, app.user)!),
+                        : NetworkImage(_conversationGroupImage(c) ??
+                            _conversationProfileImage(c, app.user)!),
                     child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
             title: Text(title),
             subtitle: Text(preview),
@@ -2765,7 +2846,11 @@ class _HomeState extends State<Home> {
           child: Card(
               child: ListTile(
                   title: Text(memory['title']?.toString() ?? 'Memory'),
-                  subtitle: Text(memory['description']?.toString() ?? ''),
+                  subtitle: Text([
+                    if ((memory['personName']?.toString() ?? '').trim().isNotEmpty)
+                      'About ${memory['personName']}',
+                    memory['description']?.toString() ?? '',
+                  ].where((part) => part.trim().isNotEmpty).join(' · ')),
                   trailing: IconButton(
                     tooltip: 'Delete saved memory',
                     icon: const Icon(Icons.delete_outline),
@@ -2789,7 +2874,7 @@ class _HomeState extends State<Home> {
                       }
                     },
                   )),
-        );
+        ));
       },
     );
   }
@@ -3538,7 +3623,6 @@ class _ChatState extends State<Chat> {
           .disableAutoConnect()
           .build(),
     );
-    socket!.connect();
     socket!.onConnect((_) {
       socket!.emit('conversation:join', widget.conversation['_id']);
       // A long-idle socket can reconnect after messages were sent on another
@@ -3663,6 +3747,9 @@ class _ChatState extends State<Chat> {
     socket!.on(
         'message:delivered', (data) => updateMessageState(data, 'deliveredTo'));
     socket!.on('message:read', (data) => updateMessageState(data, 'readBy'));
+    // Register all listeners before opening the socket so the first incoming
+    // event cannot race listener setup on fast connections.
+    socket!.connect();
   }
 
   void updateMessageState(dynamic data, String field) {
@@ -4520,12 +4607,22 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  String? _memoryPersonNameForMessage(Map<String, dynamic> message) {
+    final senderId = _participantId(message['senderId']);
+    final currentId = app.user?['id']?.toString() ?? '';
+    if (senderId.isEmpty || senderId == currentId) return null;
+    for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
+      if (participant is Map && _participantId(participant) == senderId) {
+        final name = participant['name']?.toString().trim() ?? '';
+        if (name.isNotEmpty) return name;
+      }
+    }
+    return null;
+  }
+
   Future<bool> _detectMemoryForMessage(Map<String, dynamic> message) async {
-    // Never send decrypted end-to-end encrypted content to the server-side
-    // memory extractor; encrypted messages are excluded until local-only extraction
-    // and encrypted Memory Card storage are implemented.
-    if (message['encryptionVersion'] == 1 ||
-        message['messageType'] != 'text' ||
+    // Encrypted text is decrypted on this device first; candidate extraction stays local.
+    if (message['messageType'] != 'text' ||
         message['deletedAt'] != null ||
         message['expiredAt'] != null ||
         message['text'] is! String) {
@@ -4557,19 +4654,14 @@ class _ChatState extends State<Chat> {
         _savedMemoryMessageIdsLoaded = true;
       }
       if (_savedMemoryMessageIds.contains(id)) return false;
-      final result =
-          await app.api.call('POST', '/api/memories/extract', {
-            'text': text,
-            'sourceMessageId': id,
-          });
-      final candidates = List<dynamic>.from(result['candidates'] ?? [])
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .where((item) =>
-              item['title'] is String &&
-              (item['title'] as String).trim().isNotEmpty &&
-              item['description'] is String &&
-              (item['description'] as String).trim().isNotEmpty)
+      // Do not upload plaintext from an end-to-end encrypted message to the API.
+      // Attribution is attached for display here and re-derived by the server when saved.
+      final personName = _memoryPersonNameForMessage(message);
+      final candidates = extractMemoryCandidatesLocally(text)
+          .map((item) => <String, dynamic>{
+                ...item,
+                if (personName != null) 'personName': personName,
+              })
           .toList();
       if (!mounted || candidates.isEmpty) return false;
       // The user must approve the suggestion; detection itself never saves data.
@@ -5245,8 +5337,15 @@ class _ChatState extends State<Chat> {
                                           'Memory',
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w600)),
-                                  Text(suggestion['description']?.toString() ??
-                                      ''),
+                                  if ((suggestion['personName']?.toString() ?? '')
+                                  .trim().isNotEmpty)
+                                Text(
+                                  'About ${suggestion['personName']}',
+                                  style: const TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                              Text(suggestion['description']?.toString() ??
+                                  ''),
                                 ],
                               ),
                             ),
@@ -5509,7 +5608,9 @@ class _ProfileState extends State<Profile> {
       final saved = await api.call(
           'PATCH', '/api/users/me', {'profileImage': mediaUrl});
       if (!mounted) return;
-      context.read<AppState>().user = Map<String, dynamic>.from(saved['user']);
+      context.read<AppState>().updateCurrentUser(
+            Map<String, dynamic>.from(saved['user']),
+          );
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile picture updated.')));
@@ -5818,7 +5919,7 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
             decoration: InputDecoration(
               hintText: showingProducts
                   ? 'Search products and services'
-                  : 'Search businesses and products',
+                  : 'Business name or @handle (e.g. @prime-cafe)',
               prefixIcon: const Icon(Icons.search),
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
