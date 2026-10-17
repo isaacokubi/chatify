@@ -2028,13 +2028,6 @@ class _HomeState extends State<Home> {
     loadSavedContacts();
   }
 
-  @override
-  void dispose() {
-    app.removeListener(_onAppStateChanged);
-    _phoneSearchDebounce?.cancel();
-    super.dispose();
-  }
-
   void _toggleConversationSelection(String id) {
     setState(() {
       if (!selectedConversationIds.add(id)) selectedConversationIds.remove(id);
@@ -2357,6 +2350,7 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
+    app.removeListener(_onAppStateChanged);
     _phoneSearchDebounce?.cancel();
     super.dispose();
   }
