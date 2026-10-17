@@ -318,6 +318,16 @@ class AppState extends ChangeNotifier {
           .enableReconnection()
           .build(),
     );
+    // Play one alert for incoming messages even when the user is viewing another tab.
+    // The active chat screen deliberately does not play a second copy of this sound.
+    _presenceSocket!.on('message:new', (data) {
+      if (data is! Map) return;
+      final senderId = data['senderId']?.toString();
+      final currentId = user?['id']?.toString();
+      if (senderId != null && senderId.isNotEmpty && senderId != currentId) {
+        unawaited(SystemSound.play(SystemSoundType.alert));
+      }
+    });
     _presenceSocket!.on('presence:initial', (data) {
       if (data is! Map || data['userIds'] is! List) return;
       onlineUserIds
@@ -3428,9 +3438,6 @@ class _ChatState extends State<Chat> {
         if (id == null ||
             !messages
                 .any((item) => item is Map && item['_id']?.toString() == id)) {
-          if (incoming['senderId']?.toString() != app.user?['id']?.toString()) {
-            unawaited(SystemSound.play(SystemSoundType.alert));
-          }
           setState(() => messages = mergeMessages(messages, [incoming]));
           _scrollToLatestMessage();
           // Detect meaningful information in new live messages.
