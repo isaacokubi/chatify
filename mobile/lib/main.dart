@@ -2017,6 +2017,7 @@ class _HomeState extends State<Home> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    final deletedIds = <String>{};
     try {
       // The API caps each batch at 100 IDs. Chunk large selections so
       // Select all still works for accounts with hundreds of conversations.
@@ -2024,22 +2025,31 @@ class _HomeState extends State<Home> {
         final batch = ids.skip(offset).take(100).toList();
         await app.api.call(
             'POST', '/api/conversations/delete', {'conversationIds': batch});
+        deletedIds.addAll(batch);
       }
-      setState(() {
-        chats
-            .removeWhere((c) => c is Map && ids.contains(c['_id']?.toString()));
-        selectedConversationIds.clear();
-        selectingChats = false;
-      });
       if (mounted) {
+        setState(() {
+          chats.removeWhere((c) => c is Map && deletedIds.contains(c['_id']?.toString()));
+          selectedConversationIds.clear();
+          selectingChats = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                '${ids.length} conversation${ids.length == 1 ? '' : 's'} deleted from your chat list.')));
+            content: Text('${deletedIds.length} conversation${deletedIds.length == 1 ? '' : 's'} deleted from your chat list.')));
       }
     } catch (error) {
+      // Preserve the successful part of a large batch operation and leave only
+      // the remaining conversations selected so the user can retry safely.
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+        setState(() {
+          chats.removeWhere((c) => c is Map && deletedIds.contains(c['_id']?.toString()));
+          selectedConversationIds.removeAll(deletedIds);
+          if (selectedConversationIds.isEmpty) selectingChats = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(deletedIds.isEmpty
+                ? error.toString()
+                : 'Deleted ' + deletedIds.length.toString() +
+                    ' conversations. Some remaining items could not be deleted: ' + error.toString())));
       }
     }
   }
