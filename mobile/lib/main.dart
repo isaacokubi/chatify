@@ -3607,6 +3607,8 @@ class _ChatState extends State<Chat> {
         copy['deletedAt'] =
             data['deletedAt'] ?? DateTime.now().toIso8601String();
         copy['text'] = '';
+        copy['encryptedPayload'] = null;
+        copy['encryptionVersion'] = null;
         copy['mediaUrl'] = null;
         copy['messageType'] = 'text';
         copy['reactions'] = [];
@@ -3622,6 +3624,8 @@ class _ChatState extends State<Chat> {
           final copy = Map<String, dynamic>.from(messages[index]);
           copy['expiredAt'] = DateTime.now().toIso8601String();
           copy['text'] = '';
+          copy['encryptedPayload'] = null;
+          copy['encryptionVersion'] = null;
           copy['mediaUrl'] = null;
           messages[index] = copy;
         });
