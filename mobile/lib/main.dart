@@ -498,6 +498,11 @@ class AppState extends ChangeNotifier {
       user = Map<String, dynamic>.from(d['user']);
       await (await SharedPreferences.getInstance())
           .setString('token', api.token!);
+      try {
+        await ensureEncryptionKey();
+      } catch (error) {
+        encryptionError = error.toString();
+      }
       _connectPresence();
       await _initializePushNotifications();
       notifyListeners();
