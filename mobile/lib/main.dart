@@ -3659,6 +3659,11 @@ class _ChatState extends State<Chat> {
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
+    if (text.length > 5000) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Messages must be 5,000 characters or fewer.')));
+      return;
+    }
     _stopTyping();
     setState(() => sending = true);
     try {
@@ -4014,6 +4019,20 @@ class _ChatState extends State<Chat> {
   }
 
   Future<void> sendImageLink() async {
+    // Attachments are not covered by the current text-message E2EE protocol.
+    // Warn explicitly rather than implying that images have the same protection.
+    final acknowledgeRisk = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Image privacy notice'),
+        content: const Text('Images and shared image URLs are not end-to-end encrypted yet. The service may be able to access uploaded images or URLs. Do not send sensitive images until attachment encryption is available.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Continue')),
+        ],
+      ),
+    );
+    if (!mounted || acknowledgeRisk != true) return;
     final source = await showModalBottomSheet<String>(
         context: context,
         builder: (sheet) => SafeArea(
