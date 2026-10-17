@@ -60,7 +60,7 @@ export function candidate(input) {
     {pattern:/\b(?:i am allergic to|i'm allergic to|i cannot eat|i can't eat|i avoid)\b/i,title:'Dietary or sensitivity detail'},
     {pattern:/\b(?:my email is|email me at|my phone number is|you can call me at|reach me at)\b/i,title:'Contact detail'},
     {pattern:/\b(?:remember that|keep in mind|please remember|important to me|i need you to know)\b/i,title:'Important personal context'},
-    {pattern:/\b(?:he is|she is|they are|his birthday is|her birthday is|their birthday is|he works at|she works at|they work at|he prefers|she prefers|they prefer|he studies|she studies|they study|his goal is|her goal is|their goal is|his number is|her number is|his email is|her email is)\b/i,title:'Other person's details'},
+    {pattern:/\b(?:he is|she is|they are|his birthday is|her birthday is|their birthday is|he works at|she works at|they work at|he prefers|she prefers|they prefer|he studies|she studies|they study|his goal is|her goal is|their goal is|his number is|her number is|his email is|her email is)\b/i,title:"Other person details"},
   ];
   for (const personalMatch of personalPatterns.filter(item => item.pattern.test(text))) {
     out.push({type:'NOTE',title:personalMatch.title,description:text,...(location?{location}:{})});
