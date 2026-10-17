@@ -1942,12 +1942,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
 // Return the other participant's HTTPS profile image for a direct chat. Group chats
 // intentionally use their title initial until a dedicated group image is configured.
-String? _conversationProfileImage(dynamic conversation) {
+String? _conversationProfileImage(dynamic conversation, dynamic currentUser) {
   if (conversation is! Map || conversation['participants'] is! List) return null;
+  final currentId = currentUser is Map
+      ? (currentUser['id'] ?? currentUser['_id'])?.toString()
+      : null;
   final participants = (conversation['participants'] as List)
       .whereType<Map>()
       .toList();
+  // Show the other participant's picture, not the signed-in user's own avatar.
   for (final person in participants) {
+    final personId = (person['_id'] ?? person['id'])?.toString();
+    if (currentId != null && personId == currentId) continue;
     final image = person['profileImage'];
     if (image is String && image.startsWith('https://')) return image;
   }
@@ -2244,9 +2250,9 @@ class _HomeState extends State<Home> {
                     value: selected,
                     onChanged: (_) => _toggleConversationSelection(id))
                 : CircleAvatar(
-                    foregroundImage: _conversationProfileImage(c) == null
+                    foregroundImage: _conversationProfileImage(c, app.user) == null
                         ? null
-                        : NetworkImage(_conversationProfileImage(c)!),
+                        : NetworkImage(_conversationProfileImage(c, app.user)!),
                     child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
             title: Text(title),
             subtitle: Text(preview),
