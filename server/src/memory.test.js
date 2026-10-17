@@ -10,7 +10,7 @@ test('memory extraction captures useful first-person context with descriptive ti
 
 test('memory extraction captures details about the other person in a conversation', () => {
   const items = candidate('She works at a hospital and she prefers to communicate in the morning.');
-  assert.ok(items.some(item => item.type === 'NOTE' && item.title === "Other person's details"));
+  assert.ok(items.some(item => item.type === 'NOTE' && item.title === 'Other person details'));
 });
 
 test('memory extraction keeps specific dates, preferences and dietary restrictions in the description', () => {
