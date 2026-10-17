@@ -46,17 +46,25 @@ export function candidate(input) {
   const money = text.match(/\b(?:KES|KSh|shillings?)\s*[0-9][0-9,]*(?:\.\d{1,2})?\b|\b(?:pay|paid|owe|owed|costs?|rent|bill|payment)\b[^.!?]{0,70}\b[0-9][0-9,]*(?:\.\d{1,2})?\b/i);
   if (money) out.push({ type: 'PAYMENT', title: 'Payment or amount', description: text });
 
-  // Stable personal details are useful memory candidates, but remain suggestions
-  // that the user must explicitly approve.
-  const personalFact = /\b(?:my birthday is|my anniversary is|i live in|i work at|i work in|i am based in|i'm based in|my job is|i work as|my goal is|my favorite|my favourite|i prefer|i am allergic to|i'm allergic to|my child's name is|my dog's name is|my cat's name is)\b/i.test(text);
-  if (personalFact) {
-    const title = /birthday|anniversary/i.test(text) ? 'Important date'
-      : /live in|based in/i.test(text) ? 'Home or location'
-      : /work|job/i.test(text) ? 'Work detail'
-      : /prefer|favorite|favourite/i.test(text) ? 'Preference'
-      : /allergic/i.test(text) ? 'Important personal detail'
-      : 'Personal detail';
-    out.push({ type: 'NOTE', title, description: text, ...(location ? { location } : {}) });
+  // Capture useful context from both first-person and third-person messages: relationships,
+  // work, education, goals, preferences, dietary restrictions, dates and contact details.
+  // Every result remains a suggestion that the user must explicitly approve.
+  const personalPatterns = [
+    {pattern:/\\b(?:my birthday is|my anniversary is|born on|birthday falls on)\\b/i,title:'Birthday or anniversary'},
+    {pattern:/\\b(?:my (?:wife|husband|partner|fiancee?|friend|brother|sister|mother|father|son|daughter|child|colleague|manager|client|customer)'?s? name is|my name is)\\b/i,title:'Person or relationship'},
+    {pattern:/\\b(?:i live in|i am based in|i'm based in|my home is in|i moved to)\\b/i,title:'Home or location'},
+    {pattern:/\\b(?:i work at|i work in|i work as|my job is|my business is|i run|i own|i am employed by)\\b/i,title:'Work or business'},
+    {pattern:/\\b(?:i study|i am studying|i'm studying|my course is|i attend|my school is|my university is)\\b/i,title:'Education or studies'},
+    {pattern:/\\b(?:my goal is|i plan to|i want to|i hope to|i am working toward|i'm working toward)\\b/i,title:'Goal or plan'},
+    {pattern:/\\b(?:my favorite|my favourite|i prefer|i like|i love|i dislike|i hate)\\b/i,title:'Likes and preferences'},
+    {pattern:/\\b(?:i am allergic to|i'm allergic to|i cannot eat|i can't eat|i avoid)\\b/i,title:'Dietary or sensitivity detail'},
+    {pattern:/\\b(?:my email is|email me at|my phone number is|you can call me at|reach me at)\\b/i,title:'Contact detail'},
+    {pattern:/\\b(?:remember that|keep in mind|please remember|important to me|i need you to know)\\b/i,title:'Important personal context'},
+    {pattern:/\\b(?:he is|she is|they are|his birthday is|her birthday is|their birthday is|he works at|she works at|they work at|he prefers|she prefers|they prefer|he studies|she studies|they study|his goal is|her goal is|their goal is|his number is|her number is|his email is|her email is)\\b/i,title:'Other person's details'},
+  ];
+  const personalMatch = personalPatterns.find(item => item.pattern.test(text));
+  if (personalMatch) {
+    out.push({type:'NOTE',title:personalMatch.title,description:text,...(location?{location}:{})});
   }
 
   // A place alone is suggested only when the message clearly says it matters.
