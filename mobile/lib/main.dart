@@ -1699,6 +1699,20 @@ class _AuthState extends State<Auth> {
       );
 }
 
+// Return the other participant's HTTPS profile image for a direct chat. Group chats
+// intentionally use their title initial until a dedicated group image is configured.
+String? _conversationProfileImage(dynamic conversation) {
+  if (conversation is! Map || conversation['participants'] is! List) return null;
+  final participants = (conversation['participants'] as List)
+      .whereType<Map>()
+      .toList();
+  for (final person in participants) {
+    final image = person['profileImage'];
+    if (image is String && image.startsWith('https://')) return image;
+  }
+  return null;
+}
+
 // Main authenticated workspace containing chats, contacts and saved memories.
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -1983,6 +1997,9 @@ class _HomeState extends State<Home> {
                     value: selected,
                     onChanged: (_) => _toggleConversationSelection(id))
                 : CircleAvatar(
+                    foregroundImage: _conversationProfileImage(c) == null
+                        ? null
+                        : NetworkImage(_conversationProfileImage(c)!),
                     child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
             title: Text(title),
             subtitle: Text(preview),
@@ -2195,6 +2212,10 @@ class _HomeState extends State<Home> {
               return ListTile(
                 dense: true,
                 leading: CircleAvatar(
+                  foregroundImage: (person['profileImage'] is String &&
+                          (person['profileImage'] as String).startsWith('https://'))
+                      ? NetworkImage(person['profileImage'] as String)
+                      : null,
                   child: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
                 ),
                 title: Text(name),
@@ -2311,8 +2332,11 @@ class _HomeState extends State<Home> {
                       final name = contact['name']?.toString() ?? 'Contact';
                       return ListTile(
                         leading: CircleAvatar(
-                          child:
-                              Text(name.isEmpty ? '?' : name[0].toUpperCase()),
+                          foregroundImage: (contact['profileImage'] is String &&
+                                  (contact['profileImage'] as String).startsWith('https://'))
+                              ? NetworkImage(contact['profileImage'] as String)
+                              : null,
+                          child: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
                         ),
                         title: Text(name),
                         subtitle: Text(
@@ -5101,12 +5125,13 @@ class _ProfileState extends State<Profile> {
           child: Column(children: [
             CircleAvatar(
               radius: 42,
-              backgroundImage: profileImage != null && profileImage.isNotEmpty
+              foregroundImage: profileImage != null &&
+                      profileImage.startsWith('https://')
                   ? NetworkImage(profileImage)
                   : null,
-              child: profileImage == null || profileImage.isEmpty
-                  ? const Icon(Icons.person_outline, size: 42)
-                  : null,
+              // Keep the placeholder beneath the foreground image so it remains
+              // visible when a stored URL is expired, blocked, or unreachable.
+              child: const Icon(Icons.person_outline, size: 42),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
