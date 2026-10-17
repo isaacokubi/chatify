@@ -2,6 +2,29 @@
 
 Chatify is a final-year-project mobile communication system built around real-time **Chat**, structured conversational **Memory**, and configurable message **Expiration**.
 
+## Platform administrator
+
+Chatify has a role-protected platform administrator dashboard for operational metrics,
+user account status management, and payment monitoring. The dashboard is visible only
+when the authenticated API response reports `role: "admin"`; the API independently
+checks the database role on every administrative request.
+
+To provision the first administrator safely:
+
+1. Set `MONGODB_URI`, `ADMIN_NAME`, `ADMIN_EMAIL`, and a unique `ADMIN_PASSWORD`
+   (12–72 UTF-8 bytes) in the private environment used for the server.
+2. From `server/`, run `npm run seed:admin` once against the intended database.
+3. Sign in using those configured credentials and open the **Admin** tab.
+4. Store the password in a password manager and rotate it after provisioning if required.
+   Never commit real credentials or put the administrator password in mobile app source.
+
+The seed command creates or promotes only the account matching `ADMIN_EMAIL`, marks
+its email verified, and does not use a hard-coded default administrator password. Re-running
+the command resets that account's password to the currently configured secret.
+
+The dashboard's successful payment total is gross recorded transaction volume, not profit.
+It does not represent reconciled settlements, refunds, provider fees, or tax accounting.
+
 ## Repository
 - mobile/ — Flutter/Dart client
 - server/ — Node.js/Express/Socket.IO API
