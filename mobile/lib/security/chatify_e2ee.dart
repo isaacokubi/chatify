@@ -13,10 +13,10 @@ class ChatifyE2EE {
   ChatifyE2EE._();
   static final ChatifyE2EE instance = ChatifyE2EE._();
 
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
-  static const X25519 _agreement = X25519();
-  static const AesGcm _aead = AesGcm.with256bits();
-  static const Hkdf _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
+  static final FlutterSecureStorage _storage = FlutterSecureStorage();
+  static final X25519 _agreement = X25519();
+  static final AesGcm _aead = AesGcm.with256bits();
+  static final Hkdf _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
 
   String _keyName(String accountId) => 'chatify_e2ee_private_v1_$accountId';
 
