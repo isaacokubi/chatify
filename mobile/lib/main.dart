@@ -6270,6 +6270,55 @@ class _StorefrontPageState extends State<StorefrontPage> {
     setState(() => cart[id] = current + 1);
   }
 
+  // Open a private customer/seller conversation without exposing the seller's contact details.
+  // The normal Chat screen retains end-to-end encryption and existing payment tools.
+  Future<void> chatWithSeller({Map<String, dynamic>? item}) async {
+    final sellerId = storefront['sellerUserId']?.toString() ?? '';
+    if (sellerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This seller has not enabled direct Chatify messaging yet.')));
+      return;
+    }
+    if (app.user == null) {
+      final shouldSignIn = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Chat with seller'),
+          content: const Text('Sign in to discuss products, delivery and payment securely with this seller.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not now')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Sign in')),
+          ],
+        ),
+      );
+      if (shouldSignIn == true && mounted) app.openAuth();
+      return;
+    }
+    final currentUserId = app.user?['_id']?.toString() ?? app.user?['id']?.toString() ?? '';
+    if (sellerId == currentUserId) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Open this store using a customer account to contact the seller.')));
+      return;
+    }
+    try {
+      final result = await app.api.call('POST', '/api/conversations/direct', {'userId': sellerId});
+      final conversation = Map<String, dynamic>.from(result['conversation'] ?? {});
+      if (!mounted || conversation.isEmpty) return;
+      if (item != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Chat opened. Ask about ' + (item['name']?.toString() ?? 'this item') + '; secure M-Pesa checkout is available on this storefront.'),
+        ));
+      }
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => Chat(conversation: conversation),
+      ));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to open seller chat: $e')),
+      );
+    }
+  }
+
   Future<void> showProduct(Map<String, dynamic> item) async {
     final id = item['_id']?.toString() ?? '';
     final image =
@@ -6314,6 +6363,14 @@ class _StorefrontPageState extends State<StorefrontPage> {
           TextButton(
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Close')),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              chatWithSeller(item: item);
+            },
+            icon: const Icon(Icons.chat_bubble_outline),
+            label: const Text('Ask seller'),
+          ),
           FilledButton.icon(
             onPressed: () {
               Navigator.pop(dialogContext);
@@ -6442,6 +6499,11 @@ class _StorefrontPageState extends State<StorefrontPage> {
       appBar: AppBar(
         title: Text(storefront['name']?.toString() ?? 'Storefront'),
         actions: [
+          TextButton.icon(
+            onPressed: () => chatWithSeller(),
+            icon: const Icon(Icons.chat_bubble_outline),
+            label: const Text('Chat seller'),
+          ),
           // Keep payment history visible from the customer storefront, not hidden behind an icon-only menu.
           TextButton.icon(
             onPressed: () => Navigator.of(context).push(
