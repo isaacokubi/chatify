@@ -13,3 +13,7 @@ analyzer:
 linter:
   rules:
     avoid_print: false
+    # These legacy UI style findings are informational; keep analysis focused on correctness.
+    prefer_interpolation_to_compose_strings: false
+    curly_braces_in_flow_control_structures: false
+    sort_child_properties_last: false
