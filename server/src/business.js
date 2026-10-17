@@ -277,7 +277,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const sellerMpesaPhone = resolveSellerMpesaPhone(org.settings, owner?.phone, org.phone);
       const items = await CatalogItem.find({organizationId: org._id, active: true}).sort({category: 1, name: 1}).limit(500).select('name description price currency images category type stock');
       res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
-      res.json({storefront: {name: org.name, slug: org.slug, description: org.description, website: org.website, currency: org.currency, sellerMpesaPhone}, items});
+      res.json({storefront: {name: org.name, slug: org.slug, description: org.description, website: org.website, currency: org.currency, sellerMpesaPhone, sellerUserId: String(org.ownerId)}, items});
     } catch (error) { safeError(res, error); }
   });
 
