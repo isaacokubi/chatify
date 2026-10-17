@@ -2921,84 +2921,6 @@ class _PaymentHistoryState extends State<PaymentHistory> {
   List<dynamic> payments = [];
   bool loading = true;
   String? error;
-  String _participantId(dynamic participant) {
-    if (participant is Map) {
-      return (participant['_id'] ?? participant['id'] ?? '').toString();
-    }
-    return participant?.toString() ?? '';
-  }
-
-  Future<Map<String, dynamic>> _encryptTextPayload(String plaintext) async {
-    final senderId = app.user?['id']?.toString() ?? '';
-    final ownPublicKey = await app.ensureEncryptionKey();
-    final publicKeys = <String, String>{};
-    for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
-      if (participant is! Map) continue;
-      final id = _participantId(participant);
-      if (id.isEmpty) continue;
-      if (id == senderId) {
-        publicKeys[id] = ownPublicKey;
-        continue;
-      }
-      final key = participant['encryptionPublicKey']?.toString();
-      if (key == null || key.isEmpty) {
-        throw StateError('Every conversation member must open the latest Chatify version once to enable encrypted messaging.');
-      }
-      publicKeys[id] = key;
-    }
-    return ChatifyE2EE.instance.encryptText(
-      senderId: senderId,
-      conversationId: widget.conversation['_id'].toString(),
-      plaintext: plaintext,
-      participantPublicKeys: publicKeys,
-      registeredSenderPublicKey: ownPublicKey,
-    );
-  }
-
-  Future<Map<String, dynamic>> _decryptMessage(Map<String, dynamic> raw) async {
-    if (raw['encryptionVersion'] != 1 ||
-        raw['encryptedPayload'] is! String ||
-        raw['deletedAt'] != null ||
-        raw['expiredAt'] != null) {
-      return raw;
-    }
-    final currentId = app.user?['id']?.toString() ?? '';
-    final senderId = _participantId(raw['senderId']);
-    String? senderPublicKey;
-    if (senderId == currentId) {
-      senderPublicKey = app.user?['encryptionPublicKey']?.toString();
-      if (senderPublicKey == null || senderPublicKey.isEmpty) {
-        senderPublicKey = await app.ensureEncryptionKey();
-      }
-    } else {
-      for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
-        if (participant is Map && _participantId(participant) == senderId) {
-          senderPublicKey = participant['encryptionPublicKey']?.toString();
-          break;
-        }
-      }
-    }
-    try {
-      if (senderPublicKey == null || senderPublicKey.isEmpty) {
-        throw StateError('The sender public key is unavailable.');
-      }
-      final clearText = await ChatifyE2EE.instance.decryptText(
-        accountId: currentId,
-        conversationId: widget.conversation['_id'].toString(),
-        senderPublicKey: senderPublicKey,
-        encryptedPayload: raw['encryptedPayload'].toString(),
-        registeredAccountPublicKey: app.user?['encryptionPublicKey']?.toString(),
-      );
-      return <String, dynamic>{...raw, 'text': clearText, 'decryptionFailed': false};
-    } catch (_) {
-      return <String, dynamic>{
-        ...raw,
-        'text': '🔒 Unable to decrypt this message on this device.',
-        'decryptionFailed': true,
-      };
-    }
-  }
-
   Future<void> load() async {
     try {
       final result =
@@ -3445,6 +3367,84 @@ class _ChatState extends State<Chat> {
     }
     _typingTimer?.cancel();
     _typingTimer = Timer(const Duration(milliseconds: 1600), _stopTyping);
+  }
+
+  String _participantId(dynamic participant) {
+    if (participant is Map) {
+      return (participant['_id'] ?? participant['id'] ?? '').toString();
+    }
+    return participant?.toString() ?? '';
+  }
+
+  Future<Map<String, dynamic>> _encryptTextPayload(String plaintext) async {
+    final senderId = app.user?['id']?.toString() ?? '';
+    final ownPublicKey = await app.ensureEncryptionKey();
+    final publicKeys = <String, String>{};
+    for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
+      if (participant is! Map) continue;
+      final id = _participantId(participant);
+      if (id.isEmpty) continue;
+      if (id == senderId) {
+        publicKeys[id] = ownPublicKey;
+        continue;
+      }
+      final key = participant['encryptionPublicKey']?.toString();
+      if (key == null || key.isEmpty) {
+        throw StateError('Every conversation member must open the latest Chatify version once to enable encrypted messaging.');
+      }
+      publicKeys[id] = key;
+    }
+    return ChatifyE2EE.instance.encryptText(
+      senderId: senderId,
+      conversationId: widget.conversation['_id'].toString(),
+      plaintext: plaintext,
+      participantPublicKeys: publicKeys,
+      registeredSenderPublicKey: ownPublicKey,
+    );
+  }
+
+  Future<Map<String, dynamic>> _decryptMessage(Map<String, dynamic> raw) async {
+    if (raw['encryptionVersion'] != 1 ||
+        raw['encryptedPayload'] is! String ||
+        raw['deletedAt'] != null ||
+        raw['expiredAt'] != null) {
+      return raw;
+    }
+    final currentId = app.user?['id']?.toString() ?? '';
+    final senderId = _participantId(raw['senderId']);
+    String? senderPublicKey;
+    if (senderId == currentId) {
+      senderPublicKey = app.user?['encryptionPublicKey']?.toString();
+      if (senderPublicKey == null || senderPublicKey.isEmpty) {
+        senderPublicKey = await app.ensureEncryptionKey();
+      }
+    } else {
+      for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
+        if (participant is Map && _participantId(participant) == senderId) {
+          senderPublicKey = participant['encryptionPublicKey']?.toString();
+          break;
+        }
+      }
+    }
+    try {
+      if (senderPublicKey == null || senderPublicKey.isEmpty) {
+        throw StateError('The sender public key is unavailable.');
+      }
+      final clearText = await ChatifyE2EE.instance.decryptText(
+        accountId: currentId,
+        conversationId: widget.conversation['_id'].toString(),
+        senderPublicKey: senderPublicKey,
+        encryptedPayload: raw['encryptedPayload'].toString(),
+        registeredAccountPublicKey: app.user?['encryptionPublicKey']?.toString(),
+      );
+      return <String, dynamic>{...raw, 'text': clearText, 'decryptionFailed': false};
+    } catch (_) {
+      return <String, dynamic>{
+        ...raw,
+        'text': '🔒 Unable to decrypt this message on this device.',
+        'decryptionFailed': true,
+      };
+    }
   }
 
   Future<void> load() async {
