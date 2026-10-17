@@ -47,7 +47,7 @@ export function registerBusinessMarketplaceRoutes({app, mongoose}) {
       if (filters.country) organizationFilter.country = new RegExp('^' + escapeMarketplaceRegex(filters.country) + '$', 'i');
       if (filters.q) {
         const term = new RegExp(escapeMarketplaceRegex(filters.q), 'i');
-        organizationFilter.$or = [{name: term}, {description: term}, {industry: term}, {_id: {$in: itemOrganizationIds}}];
+        organizationFilter.$or = [{name: term}, {slug: term}, {description: term}, {industry: term}, {_id: {$in: itemOrganizationIds}}];
       } else if (filters.category) {
         organizationFilter._id = {$in: itemOrganizationIds};
       }
@@ -65,7 +65,7 @@ export function registerBusinessMarketplaceRoutes({app, mongoose}) {
         const itemCount = countById.get(String(organization._id)) || 0;
         if (!itemCount) return [];
         return [{
-          id: String(organization._id), name: organization.name, slug: organization.slug,
+          id: String(organization._id), name: organization.name, slug: organization.slug, handle: organization.slug, storefrontPath: '/store/' + organization.slug,
           description: organization.description || '', logo: organization.logo || null,
           industry: organization.industry || 'other', country: organization.country || 'KE',
           currency: organization.currency || 'KES', website: organization.website || '',
