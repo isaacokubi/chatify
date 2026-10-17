@@ -4519,6 +4519,17 @@ class _ChatState extends State<Chat> {
     }
     _checkedMemoryMessageIds.add(id);
     try {
+      // Load the user's saved cards before suggesting anything from history.
+      // This survives app restarts and prevents an already-saved source message
+      // from repeatedly appearing as a new suggestion on another device.
+      final saved = List<dynamic>.from(
+          (await app.api.call('GET', '/api/memories'))['memories'] ?? []);
+      final alreadySaved = saved.any((item) =>
+          item is Map && item['sourceMessageId']?.toString() == id);
+      if (alreadySaved) {
+        _savedMemoryMessageIds.add(id);
+        return false;
+      }
       final result =
           await app.api.call('POST', '/api/memories/extract', {
             'text': text,
