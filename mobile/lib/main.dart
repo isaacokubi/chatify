@@ -56,26 +56,34 @@ class Api {
         path.contains('/api/payments/') && path.endsWith('/initiate')
             ? const Duration(seconds: 35)
             : const Duration(seconds: 20);
+    Future<http.Response> sendRequest() {
+      if (method == 'POST') {
+        return client.post(u, headers: h, body: jsonEncode(body ?? {}));
+      } else if (method == 'PATCH') {
+        return client.patch(u, headers: h, body: jsonEncode(body ?? {}));
+      } else if (method == 'PUT') {
+        return client.put(u, headers: h, body: jsonEncode(body ?? {}));
+      } else if (method == 'DELETE') {
+        return client.delete(u, headers: h,
+            body: body == null ? null : jsonEncode(body));
+      }
+      return client.get(u, headers: h);
+    }
+
     late http.Response r;
-    if (method == 'POST') {
-      r = await client
-          .post(u, headers: h, body: jsonEncode(body ?? {}))
-          .timeout(requestTimeout);
-    } else if (method == 'PATCH') {
-      r = await client
-          .patch(u, headers: h, body: jsonEncode(body ?? {}))
-          .timeout(requestTimeout);
-    } else if (method == 'PUT') {
-      // PUT supports idempotent business updates such as shared-inbox assignment and handover.
-      r = await client
-          .put(u, headers: h, body: jsonEncode(body ?? {}))
-          .timeout(requestTimeout);
-    } else if (method == 'DELETE') {
-      r = await client
-          .delete(u, headers: h, body: body == null ? null : jsonEncode(body))
-          .timeout(requestTimeout);
-    } else {
-      r = await client.get(u, headers: h).timeout(requestTimeout);
+    try {
+      r = await sendRequest().timeout(requestTimeout);
+    } on TimeoutException {
+      // A sleeping free-tier API may need to wake after a long idle period.
+      // Retry only safe GET requests; never automatically repeat payment or write requests.
+      if (method != 'GET') rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      try {
+        r = await sendRequest().timeout(const Duration(seconds: 25));
+      } on TimeoutException {
+        throw ApiException(408,
+            'Chatify is taking longer than expected to respond. Check your connection and retry.');
+      }
     }
     // API routes must return JSON. Render/Vercel error pages and stale deployments
     // sometimes return HTML (starting with "<"), which jsonDecode would expose as
