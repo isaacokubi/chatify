@@ -7,8 +7,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// Client-side encryption for Chatify message bodies.
 ///
 /// Private keys are device-local and never sent to the API. Each message gets a
-/// fresh AES-GCM nonce. A separate envelope is encrypted for each participant,
-/// allowing the server to relay ciphertext without seeing message text.
+/// fresh AES-GCM nonce and a recipient-specific envelope. The server relays only
+/// ciphertext for new text messages.
 class ChatifyE2EE {
   ChatifyE2EE._();
   static final ChatifyE2EE instance = ChatifyE2EE._();
@@ -20,54 +20,45 @@ class ChatifyE2EE {
 
   String _keyName(String accountId) => 'chatify_e2ee_private_v1_$accountId';
 
-  Future<SimpleKeyPair> _loadKeyPair(String accountId) async {
+  Future<SimpleKeyPair> _loadKeyPair(
+    String accountId, {
+    String? registeredPublicKey,
+  }) async {
     if (accountId.isEmpty) throw StateError('Sign in before enabling encryption.');
     final stored = await _storage.read(key: _keyName(accountId));
     if (stored != null) {
       final seed = base64Decode(stored);
       if (seed.length != 32) {
-        throw StateError('The local encryption key is invalid. Do not delete app data; contact support before recovery.');
+        throw StateError('The local encryption key is invalid. Secure recovery is required.');
       }
-      return _agreement.newKeyPairFromSeed(seed);
+      final pair = await _agreement.newKeyPairFromSeed(seed);
+      final localPublicKey = base64Encode((await pair.extractPublicKey()).bytes);
+      if (registeredPublicKey != null && registeredPublicKey != localPublicKey) {
+        throw StateError('This device encryption key does not match the account key. Do not overwrite either key; secure recovery is required.');
+      }
+      return pair;
     }
 
-    // A missing key may mean this is a new device. Never silently replace a
-    // previously registered account key, because that would lock out history.
+    // A missing local key may mean a new device. Never replace an account's
+    // existing public key automatically, because doing so strands old messages.
+    if (registeredPublicKey != null && registeredPublicKey.isNotEmpty) {
+      throw StateError('This account already has an encryption key on another device. Secure device transfer/recovery is required before this device can decrypt messages.');
+    }
     final random = Random.secure();
     final seed = List<int>.generate(32, (_) => random.nextInt(256));
     final pair = await _agreement.newKeyPairFromSeed(seed);
-    final publicKey = await pair.extractPublicKey();
-    final remote = await _registeredPublicKey(accountId);
-    if (remote != null && remote != base64Encode(publicKey.bytes)) {
-      throw StateError('This account already has an encryption key on another device. Secure device transfer/recovery is required before this device can send encrypted messages.');
-    }
     await _storage.write(key: _keyName(accountId), value: base64Encode(seed));
-    if (remote == null) {
-      await _registerPublicKey(accountId, base64Encode(publicKey.bytes));
-    }
     return pair;
   }
 
-  Future<String?> _registeredPublicKey(String accountId) async {
-    // This callback-free helper is intentionally supplied by the app's API
-    // integration through public-key sync methods below.
-    return _remoteKeys[accountId];
-  }
-
-  final Map<String, String> _remoteKeys = <String, String>{};
-
-  void cachePublicKey(String accountId, String publicKey) {
-    _remoteKeys[accountId] = publicKey;
-  }
-
-  Future<void> _registerPublicKey(String accountId, String publicKey) async {
-    // The UI layer performs the authenticated registration request. This cache
-    // prevents repeated registration attempts within the current app session.
-    _remoteKeys[accountId] = publicKey;
-  }
-
-  Future<String> publicKeyFor(String accountId) async {
-    final pair = await _loadKeyPair(accountId);
+  Future<String> publicKeyFor(
+    String accountId, {
+    String? registeredPublicKey,
+  }) async {
+    final pair = await _loadKeyPair(
+      accountId,
+      registeredPublicKey: registeredPublicKey,
+    );
     return base64Encode((await pair.extractPublicKey()).bytes);
   }
 
@@ -75,8 +66,12 @@ class ChatifyE2EE {
     required String senderId,
     required String plaintext,
     required Map<String, String> participantPublicKeys,
+    String? registeredSenderPublicKey,
   }) async {
-    final senderPair = await _loadKeyPair(senderId);
+    final senderPair = await _loadKeyPair(
+      senderId,
+      registeredPublicKey: registeredSenderPublicKey,
+    );
     final envelopes = <String, dynamic>{};
     for (final entry in participantPublicKeys.entries) {
       final peerId = entry.key;
@@ -84,15 +79,14 @@ class ChatifyE2EE {
       if (peerBytes.length != 32) {
         throw StateError('A conversation member has an invalid encryption key.');
       }
-      final peerPublic = SimplePublicKey(peerBytes, type: KeyPairType.x25519);
       final shared = await _agreement.sharedSecretKey(
         keyPair: senderPair,
-        remotePublicKey: peerPublic,
+        remotePublicKey: SimplePublicKey(peerBytes, type: KeyPairType.x25519),
       );
       final key = await _hkdf.deriveKey(
         secretKey: shared,
         nonce: utf8.encode('chatify-e2ee-v1'),
-        info: utf8.encode('direct-and-group-message'),
+        info: utf8.encode('chatify-message-v1'),
       );
       final nonce = List<int>.generate(12, (_) => Random.secure().nextInt(256));
       final box = await _aead.encrypt(
@@ -120,10 +114,11 @@ class ChatifyE2EE {
     required String accountId,
     required String senderPublicKey,
     required String encryptedPayload,
+    String? registeredAccountPublicKey,
   }) async {
     final allEnvelopes = jsonDecode(encryptedPayload);
     if (allEnvelopes is! Map || allEnvelopes[accountId] is! Map) {
-      throw StateError('This message has no encrypted envelope for this device.');
+      throw StateError('This message has no encrypted envelope for this account.');
     }
     final envelope = Map<String, dynamic>.from(allEnvelopes[accountId] as Map);
     final nonce = base64Decode(envelope['nonce'] as String);
@@ -132,7 +127,10 @@ class ChatifyE2EE {
     if (nonce.length != 12 || mac.bytes.length != 16) {
       throw StateError('Encrypted message authentication data is invalid.');
     }
-    final pair = await _loadKeyPair(accountId);
+    final pair = await _loadKeyPair(
+      accountId,
+      registeredPublicKey: registeredAccountPublicKey,
+    );
     final senderBytes = base64Decode(senderPublicKey);
     if (senderBytes.length != 32) {
       throw StateError('The sender encryption key is invalid.');
@@ -144,7 +142,7 @@ class ChatifyE2EE {
     final key = await _hkdf.deriveKey(
       secretKey: shared,
       nonce: utf8.encode('chatify-e2ee-v1'),
-      info: utf8.encode('direct-and-group-message'),
+      info: utf8.encode('chatify-message-v1'),
     );
     final clear = await _aead.decrypt(
       SecretBox(cipherText, nonce: nonce, mac: mac),
