@@ -268,6 +268,8 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? user;
   String? restoreError;
   final Set<String> onlineUserIds = {};
+  // Monotonic counter lets chat-list screens refresh summaries without polling.
+  int messageEventVersion = 0;
   io.Socket? _presenceSocket;
   StreamSubscription<String>? _tokenRefreshSubscription;
   StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
@@ -324,6 +326,8 @@ class AppState extends ChangeNotifier {
       if (data is! Map) return;
       final senderId = data['senderId']?.toString();
       final currentId = user?['id']?.toString();
+      messageEventVersion++;
+      notifyListeners();
       if (senderId != null && senderId.isNotEmpty && senderId != currentId) {
         unawaited(SystemSound.play(SystemSoundType.alert));
       }
@@ -2000,11 +2004,29 @@ class _HomeState extends State<Home> {
   Timer? _phoneSearchDebounce;
   String? chatsError, memoriesError, usersError;
   AppState get app => context.read<AppState>();
+  int _lastMessageEventVersion = 0;
+
+  void _onAppStateChanged() {
+    final version = app.messageEventVersion;
+    if (version == _lastMessageEventVersion) return;
+    _lastMessageEventVersion = version;
+    if (tab == 0) unawaited(loadChats());
+  }
+
   @override
   void initState() {
     super.initState();
+    _lastMessageEventVersion = app.messageEventVersion;
+    app.addListener(_onAppStateChanged);
     loadChats();
     loadSavedContacts();
+  }
+
+  @override
+  void dispose() {
+    app.removeListener(_onAppStateChanged);
+    _phoneSearchDebounce?.cancel();
+    super.dispose();
   }
 
   void _toggleConversationSelection(String id) {
