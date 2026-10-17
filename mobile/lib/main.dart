@@ -2018,8 +2018,13 @@ class _HomeState extends State<Home> {
     );
     if (confirmed != true || !mounted) return;
     try {
-      await app.api
-          .call('POST', '/api/conversations/delete', {'conversationIds': ids});
+      // The API caps each batch at 100 IDs. Chunk large selections so
+      // Select all still works for accounts with hundreds of conversations.
+      for (var offset = 0; offset < ids.length; offset += 100) {
+        final batch = ids.skip(offset).take(100).toList();
+        await app.api.call(
+            'POST', '/api/conversations/delete', {'conversationIds': batch});
+      }
       setState(() {
         chats
             .removeWhere((c) => c is Map && ids.contains(c['_id']?.toString()));
