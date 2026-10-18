@@ -3534,7 +3534,7 @@ class PaymentCard extends StatelessWidget {
                   Text(payment['description']?.toString() ?? 'M-Pesa payment'),
               subtitle: Text(
                 platformFee > 0
-                    ? 'Base KSh $baseAmount + platform fee KSh $platformFee = total KSh $totalAmount · $status · Fee pending settlement${isMock ? ' · Local demo' : ''}'
+                    ? 'Base KSh $baseAmount + platform fee KSh $platformFee = total KSh $totalAmount · $status · Fee ${payment['platformFeeStatus'] ?? 'PENDING_PAYMENT'}${isMock ? ' · Local demo' : ''}'
                     : 'KSh ${payment['amount'] ?? ''} · $status · To ${payment['recipientPhone'] ?? 'recipient'}${isMock ? ' · Local demo' : ''}',
               ),
             ),
@@ -4476,7 +4476,7 @@ class _ChatState extends State<Chat> {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Text('Requested amount: KSh $baseAmount\nPlatform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nTotal charged: KSh $totalAmount', style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 10),
-                  const Text('The fee is recorded as pending settlement. Chatify does not automatically receive or split the fee yet. This STK payment goes to the configured business shortcode, not directly to a personal recipient.', style: TextStyle(fontSize: 12)),
+                  const Text('If payment succeeds, the fee is recorded as pending settlement. Chatify does not automatically receive or split the fee yet. This STK payment goes to the configured business shortcode, not directly to a personal recipient.', style: TextStyle(fontSize: 12)),
                   const SizedBox(height: 10),
                   TextFormField(
                   controller: payerPhone,
@@ -6956,7 +6956,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
       final totalAmount = (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
       final consent = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
         title: const Text('Confirm checkout total'),
-        content: Text('Order subtotal: KSh $baseAmount\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nTotal M-Pesa charge: KSh $totalAmount\n\nThe platform fee is pending settlement and is not automatically transferred to Chatify yet.'),
+        content: Text('Order subtotal: KSh $baseAmount\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nTotal M-Pesa charge: KSh $totalAmount\n\nIf payment succeeds, the platform fee is accrued as pending settlement; it is not automatically transferred to Chatify.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Continue to M-Pesa')),
@@ -8372,7 +8372,7 @@ class _BusinessHubState extends State<BusinessHub> {
                     content: Column(mainAxisSize: MainAxisSize.min, children: [
                       Text('Invoice balance: KSh $baseAmount\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nBuyer total: KSh $totalAmount'),
                       const SizedBox(height: 8),
-                      const Text('The platform fee remains pending settlement and is not automatically transferred to Chatify. Disclose this total to the customer before sending the prompt.', style: TextStyle(fontSize: 12)),
+                      const Text('If payment succeeds, the platform fee is accrued as pending settlement and is not automatically transferred to Chatify. Disclose this total to the customer before sending the prompt.', style: TextStyle(fontSize: 12)),
                       const SizedBox(height: 8),
                       TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Customer M-Pesa phone')),
                     ]),
@@ -9062,7 +9062,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     final total = n + fee;
     final accepted = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
       title: const Text('Confirm POS checkout fee'),
-      content: Text('Sale amount: KSh $n\nChatify platform fee (0.5%): KSh $fee\nBuyer total: KSh $total\n\nShow this breakdown to the buyer before they scan/pay. The fee is accrued as pending settlement; it is not automatically transferred to Chatify.'),
+      content: Text('Sale amount: KSh $n\nChatify platform fee (0.5%): KSh $fee\nBuyer total: KSh $total\n\nShow this breakdown to the buyer before they scan/pay. If payment succeeds, the fee is accrued as pending settlement; it is not automatically transferred to Chatify.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
         FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Create payment QR')),
@@ -9160,7 +9160,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         Text(widget.organizationName, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
         Text('Buyer total: KSh ${item['totalAmount'] ?? item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
         Text('Sale amount: KSh ${item['baseAmount'] ?? item['amount'] ?? ''}  +  Chatify fee: KSh ${item['platformFee'] ?? 0} (0.5%, rounded up to whole KSh)', textAlign: TextAlign.center),
-        const Text('Platform fee is pending settlement; this payment is not automatically split or transferred to Chatify.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+        const Text('If payment succeeds, the platform fee is accrued as pending settlement; this payment is not automatically split or transferred to Chatify.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
         Text(item['description']?.toString() ?? ''),
         SelectableText('Reference: ${item['reference'] ?? ''}'),
         Text('Status: ${item['status'] ?? 'PENDING'}'),
