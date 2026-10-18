@@ -2191,14 +2191,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ...payments.map((item) {
         final payment = Map<String, dynamic>.from(item as Map);
         final amount = (payment['amount'] as num?)?.toDouble() ?? 0;
+        final platformFee = (payment['platformFee'] as num?)?.toDouble() ?? 0;
+        final totalAmount = (payment['totalAmount'] as num?)?.toDouble() ?? amount + platformFee;
         final status = payment['status']?.toString() ?? 'Unknown';
         final color = status == 'SUCCESS' ? Colors.green : status == 'FAILED' ? theme.colorScheme.error : theme.colorScheme.tertiary;
         return Card(child: ListTile(
           leading: CircleAvatar(backgroundColor: color.withValues(alpha: .1), child: Icon(status == 'SUCCESS' ? Icons.check_circle_outline : status == 'FAILED' ? Icons.error_outline : Icons.payments_outlined, color: color)),
           title: Text(payment['description']?.toString() ?? payment['paymentId']?.toString() ?? 'Payment'),
-          subtitle: Text('${payment['provider'] ?? 'Provider'} · $status\n${payment['paymentId'] ?? ''}'),
+          subtitle: Text('${payment['provider'] ?? 'Provider'} · $status\n${payment['paymentId'] ?? ''}${platformFee > 0 ? '\nPlatform fee KSh ${platformFee.toStringAsFixed(0)} · ${payment['platformFeeStatus'] ?? 'PENDING_SETTLEMENT'}' : ''}'),
           isThreeLine: true,
-          trailing: Text('KES ${amount.toStringAsFixed(2)}', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          trailing: Text('KES ${totalAmount.toStringAsFixed(2)}', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
         ));
       }),
       _pager(page: paymentPage, total: paymentTotal, previous: () { setState(() => paymentPage--); loadPayments(); }, next: () { setState(() => paymentPage++); loadPayments(); }),
