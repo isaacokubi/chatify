@@ -3902,6 +3902,18 @@ class _ChatState extends State<Chat> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.storefront_outlined),
+              title: const Text('Send Money to Till'),
+              subtitle: const Text('Pay a shop using its Buy Goods Till number'),
+              onTap: () => Navigator.pop(dialog, 'till'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.receipt_long_outlined),
+              title: const Text('Paybill'),
+              subtitle: const Text('Pay a business using its Paybill and account number'),
+              onTap: () => Navigator.pop(dialog, 'paybill'),
+            ),
+            ListTile(
               leading: const Icon(Icons.call_received),
               title: const Text('Receive Money'),
               subtitle: const Text('Request money from this contact'),
@@ -3918,6 +3930,5956 @@ class _ChatState extends State<Chat> {
       ),
     );
     if (!mounted || mode == null) return;
+
+    // Till and Paybill payments are merchant payments, not person-to-person requests.
+    // Collect the merchant details and copy them for quick use in the official M-Pesa app.
+    if (mode == 'till' || mode == 'paybill') {
+      final isTill = mode == 'till';
+      final businessNumber = TextEditingController();
+      final accountNumber = TextEditingController();
+      final paymentAmount = TextEditingController();
+      final paymentForm = GlobalKey<FormState>();
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: Text(isTill ? 'Send Money to Till' : 'Paybill'),
+          content: Form(
+            key: paymentForm,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: businessNumber,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: isTill ? 'Buy Goods Till number' : 'Paybill business number',
+                    ),
+                    validator: (value) {
+                      final number = (value ?? '').trim();
+                      return RegExp(r'^\\d{5,10}        List<dynamic>.from(widget.conversation['participants'] ?? []);
+    final me = app.user?['id']?.toString();
+    final other = participants.whereType<Map>().firstWhere(
+        (p) => p['_id']?.toString() != me,
+        orElse: () => <String, dynamic>{});
+    final payerId = other['_id']?.toString();
+    if (payerId == null || payerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Conversation member details are unavailable.')));
+      return;
+    }
+    final amount = TextEditingController();
+    final payerPhone =
+        TextEditingController(text: other['phone']?.toString() ?? '');
+    final recipientPhone =
+        TextEditingController(text: app.user?['phone']?.toString() ?? '');
+    final description = TextEditingController();
+    final form = GlobalKey<FormState>();
+    final submit = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+              title: const Text('Request M-Pesa'),
+              content: Form(
+                  key: form,
+                  child: SingleChildScrollView(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      TextFormField(
+                          controller: amount,
+                          keyboardType: TextInputType.number,
+                          decoration:
+                              const InputDecoration(labelText: 'Amount (KSh)'),
+                          validator: (v) {
+                            final value = int.tryParse(v ?? '');
+                            return value == null || value < 1 || value > 150000
+                                ? 'Enter KSh 1–150,000'
+                                : null;
+                          }),
+                      TextFormField(
+                          controller: payerPhone,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                              labelText: 'Sender / Payer M-Pesa Number',
+                              hintText: '0712345678 or 254712345678',
+                              helperText:
+                                  'Defaults to the other participant’s registered number. You can edit it for this request.'),
+                          validator: (v) =>
+                              normalizeKenyanPhone(v ?? '') == null
+                                  ? 'Enter a valid Kenyan M-Pesa number'
+                                  : null),
+                      TextFormField(
+                          controller: recipientPhone,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                              labelText: 'Recipient M-Pesa Number',
+                              hintText: '0712345678 or 254712345678',
+                              helperText:
+                                  'Defaults to your registered number. Editing affects this request only.'),
+                          validator: (v) =>
+                              normalizeKenyanPhone(v ?? '') == null
+                                  ? 'Enter a valid Kenyan M-Pesa number'
+                                  : null),
+                      TextFormField(
+                          controller: description,
+                          maxLength: 80,
+                          decoration:
+                              const InputDecoration(labelText: 'Description'),
+                          validator: (v) => v == null || v.trim().isEmpty
+                              ? 'Enter a description'
+                              : null),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'The selected payer number is the default for the STK prompt and can be changed before payment. STK Push payments settle to the configured business shortcode; this does not send money directly to a personal number.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ]),
+                  )),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialog, false),
+                    child: const Text('Cancel')),
+                FilledButton(
+                    onPressed: () {
+                      if (form.currentState!.validate()) {
+                        Navigator.pop(dialog, true);
+                      }
+                    },
+                    child: const Text('Request'))
+              ],
+            ));
+    if (submit == true && mounted) {
+      try {
+        final response = await app.api.call('POST', '/api/payments', {
+          'payerUserId': payerId,
+          'conversationId': widget.conversation['_id'],
+          'amount': int.parse(amount.text),
+          'recipientPhone': normalizeKenyanPhone(recipientPhone.text)!,
+          'payerPhone': normalizeKenyanPhone(payerPhone.text)!,
+          'description': description.text.trim()
+        });
+        final payment = Map<String, dynamic>.from(response['payment']);
+        if (mounted) setState(() => payments = mergePayment(payments, payment));
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(error.toString())));
+        }
+      }
+    }
+    amount.dispose();
+    payerPhone.dispose();
+    recipientPhone.dispose();
+    description.dispose();
+  }
+
+  Future<void> payPayment(Map<String, dynamic> payment) async {
+    final payerPhone = TextEditingController(
+        text: payment['payerPhone']?.toString() ??
+            payment['phone']?.toString() ??
+            app.user?['phone']?.toString() ??
+            '');
+    final form = GlobalKey<FormState>();
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+              title: const Text('Pay with M-Pesa'),
+              content: Form(
+                key: form,
+                child: TextFormField(
+                  controller: payerPhone,
+                  autofocus: true,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Your M-Pesa phone number',
+                    hintText: '0712345678 or 254712345678',
+                    helperText: 'The STK prompt will be sent to this number.',
+                  ),
+                  validator: (v) => normalizeKenyanPhone(v ?? '') == null
+                      ? 'Enter a valid Kenyan M-Pesa number'
+                      : null,
+                ),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialog, false),
+                    child: const Text('Cancel')),
+                FilledButton(
+                    onPressed: () {
+                      if (form.currentState!.validate()) {
+                        Navigator.pop(dialog, true);
+                      }
+                    },
+                    child: const Text('Continue')),
+              ],
+            ));
+    if (accepted != true || !mounted) {
+      payerPhone.dispose();
+      return;
+    }
+    try {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/initiate', {
+        'phone': normalizeKenyanPhone(payerPhone.text)!,
+      });
+      final updated = Map<String, dynamic>.from(result['payment']);
+      if (mounted) {
+        final i = payments.indexWhere(
+            (p) => p is Map && p['paymentId'] == updated['paymentId']);
+        setState(() {
+          if (i >= 0) payments[i] = updated;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(result['mock'] == true
+                ? 'Local demo only: no Safaricom prompt was sent. Configure live Daraja on the API service to send real prompts.'
+                : 'Check ${normalizeKenyanPhone(payerPhone.text)} for the M-Pesa prompt. Enter your PIN only in the Safaricom prompt.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      payerPhone.dispose();
+    }
+  }
+
+  Future<void> refreshPayment(Map<String, dynamic> payment) async {
+    try {
+      final result =
+          await app.api.paymentStatus(payment['paymentId'].toString());
+      final updated = Map<String, dynamic>.from(result['payment']);
+      final i = payments.indexWhere(
+          (p) => p is Map && p['paymentId'] == updated['paymentId']);
+      if (mounted && i >= 0) setState(() => payments[i] = updated);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> retryPayment(Map<String, dynamic> payment) async {
+    try {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/retry', {});
+      if (mounted) {
+        setState(() => payments = mergePayment(
+            payments, Map<String, dynamic>.from(result['payment'])));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> closePayment(Map<String, dynamic> payment) async {
+    try {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/close', {});
+      if (mounted) {
+        setState(() => payments = mergePayment(
+            payments, Map<String, dynamic>.from(result['payment'])));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Closed for you. The other person can still see this request.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> reopenPayment(Map<String, dynamic> payment) async {
+    try {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/reopen', {});
+      if (mounted) {
+        setState(() {
+          payments = mergePayment(
+              payments, Map<String, dynamic>.from(result['payment']));
+          showClosedPayments = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Request reopened in this conversation.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> rejectPayment(Map<String, dynamic> payment) async {
+    final isPayer =
+        payment['payerId']?.toString() == app.user?['id']?.toString();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(
+            isPayer ? 'Reject M-Pesa request?' : 'Withdraw M-Pesa request?'),
+        content: const Text(
+          'This cancels the request for both people and is only available before an M-Pesa prompt has started. If a prompt was already sent, close it for yourself and cancel it on your phone if it is still open.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Keep request')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(isPayer ? 'Reject request' : 'Withdraw request')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final result = await app.api
+          .call('POST', '/api/payments/${payment['paymentId']}/reject', {});
+      if (mounted) {
+        setState(() => payments = mergePayment(
+            payments, Map<String, dynamic>.from(result['payment'])));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(isPayer
+                ? 'Payment request rejected.'
+                : 'Payment request withdrawn.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> searchMessages(String query) async {
+    try {
+      final result = await app.api.call('GET',
+          '/api/conversations/${widget.conversation['_id']}/messages?q=${Uri.encodeQueryComponent(query)}');
+      if (mounted) {
+        setState(() => messages =
+            mergeMessages([], List<dynamic>.from(result['messages'] ?? [])));
+        _scrollToLatestMessage();
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> sendImageLink() async {
+    // Attachments are not covered by the current text-message E2EE protocol.
+    // Warn explicitly rather than implying that images have the same protection.
+    final acknowledgeRisk = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Image privacy notice'),
+        content: const Text('Images and shared image URLs are not end-to-end encrypted yet. The service may be able to access uploaded images or URLs. Do not send sensitive images until attachment encryption is available.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Continue')),
+        ],
+      ),
+    );
+    if (!mounted || acknowledgeRisk != true) return;
+    final source = await showModalBottomSheet<String>(
+        context: context,
+        builder: (sheet) => SafeArea(
+              child: Wrap(children: [
+                ListTile(
+                    leading: const Icon(Icons.photo_library_outlined),
+                    title: const Text('Choose from device'),
+                    onTap: () => Navigator.pop(sheet, 'device')),
+                ListTile(
+                    leading: const Icon(Icons.link),
+                    title: const Text('Share secure image URL'),
+                    onTap: () => Navigator.pop(sheet, 'url')),
+              ]),
+            ));
+    if (!mounted || source == null) return;
+    try {
+      Map<String, dynamic> uploadRequest;
+      if (source == 'url') {
+        final url = TextEditingController();
+        final accepted = await showDialog<bool>(
+            context: context,
+            builder: (dialog) => AlertDialog(
+                    title: const Text('Share an image'),
+                    content: TextField(
+                        controller: url,
+                        keyboardType: TextInputType.url,
+                        decoration: const InputDecoration(
+                            labelText: 'Secure image URL',
+                            hintText: 'https://…')),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(dialog, false),
+                          child: const Text('Cancel')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(dialog, true),
+                          child: const Text('Share'))
+                    ]));
+        if (accepted != true) {
+          url.dispose();
+          return;
+        }
+        uploadRequest = {'url': url.text.trim()};
+        url.dispose();
+      } else {
+        final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+        if (file == null) return;
+        final bytes = await file.readAsBytes();
+        if (bytes.length > 10 * 1024 * 1024) {
+          throw Exception('Choose an image no larger than 10 MB');
+        }
+        final name = file.name.toLowerCase();
+        final mimeType = name.endsWith('.png')
+            ? 'image/png'
+            : (name.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
+        uploadRequest = {'data': base64Encode(bytes), 'mimeType': mimeType};
+      }
+      final uploaded = await app.api.call('POST', '/api/media', uploadRequest);
+      final sent = await app.api.call(
+          'POST', '/api/conversations/${widget.conversation['_id']}/messages', {
+        'messageType': 'image',
+        'mediaUrl': uploaded['mediaUrl'],
+        'expiryType': expiry
+      });
+      if (mounted) {
+        final message = Map<String, dynamic>.from(sent['message']);
+        final id = message['_id']?.toString();
+        setState(() {
+          if (id == null ||
+              !messages.any(
+                  (item) => item is Map && item['_id']?.toString() == id)) {
+            messages.add(message);
+          }
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> groupOptions() async {
+    final members =
+        List<dynamic>.from(widget.conversation['participants'] ?? []);
+    final isAdmin = List<dynamic>.from(widget.conversation['admins'] ?? [])
+        .any((id) => id.toString() == app.user?['id']?.toString());
+    await showModalBottomSheet<void>(
+        context: context,
+        builder: (sheet) => SafeArea(
+                child: Wrap(children: [
+              Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                      widget.conversation['description']
+                                  ?.toString()
+                                  .isNotEmpty ==
+                              true
+                          ? widget.conversation['description'].toString()
+                          : '${members.length} members',
+                      style: Theme.of(context).textTheme.titleMedium)),
+              if (isAdmin)
+                ListTile(
+                    leading: const Icon(Icons.person_add_alt_1),
+                    title: const Text('Add member'),
+                    onTap: () async {
+                      final email = TextEditingController();
+                      try {
+                        final chosen = await showDialog<bool>(
+                            context: context,
+                            builder: (d) => AlertDialog(
+                                    title: const Text('Add group member'),
+                                    content: TextField(
+                                        controller: email,
+                                        keyboardType:
+                                            TextInputType.emailAddress,
+                                        decoration: const InputDecoration(
+                                            labelText: 'Member email')),
+                                    actions: [
+                                      TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(d, false),
+                                          child: const Text('Cancel')),
+                                      FilledButton(
+                                          onPressed: () =>
+                                              Navigator.pop(d, true),
+                                          child: const Text('Add'))
+                                    ]));
+                        if (chosen != true) return;
+                        final found = await app.api.call('GET',
+                            '/api/users/search?q=${Uri.encodeQueryComponent(email.text.trim())}');
+                        final users = List<dynamic>.from(found['users'] ?? []);
+                        final emailValue = email.text.trim().toLowerCase();
+                        final matches = users.where((user) =>
+                            user is Map &&
+                            user['email']?.toString().toLowerCase() ==
+                                emailValue);
+                        if (matches.isEmpty) {
+                          throw Exception('No matching account found');
+                        }
+                        await app.api.call(
+                            'POST',
+                            '/api/conversations/${widget.conversation['_id']}/members',
+                            {'userId': matches.first['_id']});
+                        final d = await app.api.call('GET',
+                            '/api/conversations/${widget.conversation['_id']}');
+                        if (mounted) {
+                          setState(() => widget.conversation.addAll(
+                              Map<String, dynamic>.from(d['conversation'])));
+                        }
+                        if (sheet.mounted) Navigator.pop(sheet);
+                      } catch (error) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(error.toString())));
+                        }
+                      } finally {
+                        email.dispose();
+                      }
+                    }),
+              ...members.map((raw) {
+                final person = Map<String, dynamic>.from(raw);
+                final id = (person['_id'] ?? person['id']).toString();
+                final admin =
+                    List<dynamic>.from(widget.conversation['admins'] ?? [])
+                        .any((item) => item.toString() == id);
+                return ListTile(
+                    leading: const Icon(Icons.person_outline),
+                    title: Text(
+                        '${person['name'] ?? 'Member'}${admin ? ' · admin' : ''}'),
+                    subtitle: Text(person['email']?.toString() ?? ''),
+                    trailing: isAdmin && id != app.user?['id']?.toString()
+                        ? PopupMenuButton<String>(
+                            onSelected: (action) async {
+                              try {
+                                if (action == 'remove') {
+                                  await app.api.call('DELETE',
+                                      '/api/conversations/${widget.conversation['_id']}/members/$id');
+                                } else if (admin) {
+                                  await app.api.call('DELETE',
+                                      '/api/conversations/${widget.conversation['_id']}/admins/$id');
+                                } else {
+                                  await app.api.call(
+                                      'POST',
+                                      '/api/conversations/${widget.conversation['_id']}/admins/$id',
+                                      {});
+                                }
+                                final d = await app.api.call('GET',
+                                    '/api/conversations/${widget.conversation['_id']}');
+                                if (mounted) {
+                                  setState(() => widget.conversation.addAll(
+                                      Map<String, dynamic>.from(
+                                          d['conversation'])));
+                                }
+                              } catch (error) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          content: Text(error.toString())));
+                                }
+                              }
+                            },
+                            itemBuilder: (_) => [
+                                  PopupMenuItem(
+                                      value: admin ? 'demote' : 'promote',
+                                      child: Text(admin
+                                          ? 'Remove admin'
+                                          : 'Make admin')),
+                                  const PopupMenuItem(
+                                      value: 'remove',
+                                      child: Text('Remove member'))
+                                ])
+                        : null);
+              }),
+              if (!isAdmin ||
+                  List<dynamic>.from(widget.conversation['admins'] ?? [])
+                          .length >
+                      1)
+                ListTile(
+                    leading: const Icon(Icons.exit_to_app),
+                    title: const Text('Leave group'),
+                    onTap: () async {
+                      try {
+                        await app.api.call(
+                            'POST',
+                            '/api/conversations/${widget.conversation['_id']}/leave',
+                            {});
+                        if (mounted && sheet.mounted) {
+                          Navigator.pop(sheet);
+                          Navigator.pop(context);
+                        }
+                      } catch (error) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(error.toString())));
+                        }
+                      }
+                    })
+            ])));
+  }
+
+  Future<void> downloadImage(String url) async {
+    if (url.trim().isEmpty) return;
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      Uint8List? bytes;
+      var mime = 'image/jpeg';
+
+      if (url.startsWith('data:image/')) {
+        final comma = url.indexOf(',');
+        if (comma < 0) throw const FormatException('Invalid image data.');
+        mime = url.substring(5, comma).split(';').first.toLowerCase();
+        bytes = Uint8List.fromList(base64Decode(url.substring(comma + 1)));
+      } else {
+        final uri = Uri.parse(url);
+        if (uri.scheme != 'https' && uri.scheme != 'http') {
+          throw Exception('This image URL cannot be downloaded safely.');
+        }
+
+        final path = uri.path.toLowerCase();
+        final guessedExtension = path.endsWith('.png')
+            ? 'png'
+            : path.endsWith('.webp')
+                ? 'webp'
+                : path.endsWith('.gif')
+                    ? 'gif'
+                    : path.endsWith('.heic')
+                        ? 'heic'
+                        : 'jpg';
+
+        // Browsers ignore the download attribute for many cross-origin URLs.
+        // Cloudinary supports fl_attachment, which makes the original asset
+        // respond with Content-Disposition: attachment so the browser saves it.
+        if (kIsWeb) {
+          var downloadUri = uri;
+          if (uri.host.toLowerCase() == 'res.cloudinary.com' &&
+              uri.path.contains('/image/upload/') &&
+              !uri.path.contains('/image/upload/fl_attachment/')) {
+            downloadUri = uri.replace(
+              path: uri.path.replaceFirst(
+                '/image/upload/',
+                '/image/upload/fl_attachment/',
+              ),
+            );
+          }
+
+          await FileSaver.instance.downloadLink(
+            link: LinkDetails(link: downloadUri.toString()),
+            name: 'chatify_image_$timestamp.$guessedExtension',
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Image download requested. Check your browser downloads.'),
+            ));
+          }
+          return;
+        }
+
+        final response = await http.get(uri).timeout(
+              const Duration(seconds: 45),
+            );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception(
+              'Image download failed (HTTP ${response.statusCode}).');
+        }
+        bytes = response.bodyBytes;
+        mime = (response.headers['content-type'] ?? '')
+            .split(';')
+            .first
+            .toLowerCase();
+        if (!mime.startsWith('image/')) {
+          mime = guessedExtension == 'png'
+              ? 'image/png'
+              : guessedExtension == 'webp'
+                  ? 'image/webp'
+                  : guessedExtension == 'gif'
+                      ? 'image/gif'
+                      : 'image/jpeg';
+        }
+      }
+
+      final extension = mime.contains('png')
+          ? 'png'
+          : mime.contains('webp')
+              ? 'webp'
+              : mime.contains('gif')
+                  ? 'gif'
+                  : mime.contains('heic')
+                      ? 'heic'
+                      : mime.contains('svg')
+                          ? 'svg'
+                          : 'jpg';
+      final saverMime = extension == 'png'
+          ? MimeType.png
+          : extension == 'webp'
+              ? MimeType.webp
+              : extension == 'gif'
+                  ? MimeType.gif
+                  : extension == 'heic'
+                      ? MimeType.heic
+                      : extension == 'svg'
+                          ? MimeType.svg
+                          : MimeType.jpeg;
+
+      if (bytes.isEmpty) {
+        throw Exception('The image file is empty.');
+      }
+
+      // Save the original response bytes directly. Never resize, recompress,
+      // decode or re-encode the image during download.
+      if (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS) &&
+          extension != 'svg') {
+        await FileSaver.instance.saveToGallery(
+          name: 'chatify_image_$timestamp',
+          bytes: bytes,
+          fileExtension: extension,
+          mimeType: saverMime,
+        );
+      } else {
+        await FileSaver.instance.saveFile(
+          name: 'chatify_image_$timestamp',
+          bytes: bytes,
+          fileExtension: extension,
+          mimeType: saverMime,
+        );
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Image saved in its original quality.'),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not download image: $error')),
+        );
+      }
+    }
+  }
+
+  Widget renderImage(String url) {
+    Widget image;
+    if (url.startsWith('data:image/')) {
+      try {
+        image = Image.memory(
+          base64Decode(url.substring(url.indexOf(',') + 1)),
+          width: 220,
+          fit: BoxFit.contain,
+        );
+      } catch (_) {
+        return const Text('Image unavailable');
+      }
+    } else {
+      image = Image.network(
+        url,
+        width: 220,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => const Text('Image unavailable'),
+      );
+    }
+
+    return Stack(
+      alignment: Alignment.topRight,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: image,
+        ),
+        Padding(
+          padding: const EdgeInsets.all(6),
+          child: Material(
+            color: const Color(0xE6172033),
+            borderRadius: BorderRadius.circular(24),
+            child: IconButton(
+              tooltip: 'Download original image',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints.tightFor(width: 38, height: 38),
+              padding: EdgeInsets.zero,
+              color: Colors.white,
+              icon: const Icon(Icons.download_rounded, size: 20),
+              onPressed: () => downloadImage(url),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    app.removeListener(_syncPresence);
+    _typingTimer?.cancel();
+    _remoteTypingTimer?.cancel();
+    if (_isTyping) socket?.emit('typing:stop', widget.conversation['_id']);
+    socket?.dispose();
+    _messagesScrollController.dispose();
+    input.dispose();
+    searchInput.dispose();
+    super.dispose();
+  }
+
+  // Scan newest-first and stop when a meaningful suggestion is found.
+  Future<void> _scanRecentMessagesForMemory(
+      List<dynamic> sourceMessages) async {
+    final recent = sourceMessages.whereType<Map>().toList().reversed.take(12);
+    for (final raw in recent) {
+      if (await _detectMemoryForMessage(Map<String, dynamic>.from(raw))) return;
+    }
+  }
+
+  String? _memoryPersonNameForMessage(Map<String, dynamic> message) {
+    final senderId = _participantId(message['senderId']);
+    final currentId = app.user?['id']?.toString() ?? '';
+    if (senderId.isEmpty || senderId == currentId) return null;
+    for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
+      if (participant is Map && _participantId(participant) == senderId) {
+        final name = participant['name']?.toString().trim() ?? '';
+        if (name.isNotEmpty) return name;
+      }
+    }
+    return null;
+  }
+
+  Future<bool> _detectMemoryForMessage(Map<String, dynamic> message) async {
+    // Encrypted text is decrypted on this device first; candidate extraction stays local.
+    if (message['messageType'] != 'text' ||
+        message['deletedAt'] != null ||
+        message['expiredAt'] != null ||
+        message['text'] is! String) {
+      return false;
+    }
+    final text = (message['text'] as String).trim();
+    final id = message['_id']?.toString();
+    if (text.isEmpty ||
+        id == null ||
+        id.isEmpty ||
+        _checkedMemoryMessageIds.contains(id) ||
+        _dismissedMemoryMessageIds.contains(id) ||
+        _savedMemoryMessageIds.contains(id)) {
+      return false;
+    }
+    _checkedMemoryMessageIds.add(id);
+    try {
+      // Load the user's saved cards before suggesting anything from history.
+      // This survives app restarts and prevents an already-saved source message
+      // from repeatedly appearing as a new suggestion on another device.
+      if (!_savedMemoryMessageIdsLoaded) {
+        final saved = List<dynamic>.from(
+            (await app.api.call('GET', '/api/memories'))['memories'] ?? []);
+        for (final item in saved) {
+          if (item is Map && item['sourceMessageId'] != null) {
+            _savedMemoryMessageIds.add(item['sourceMessageId'].toString());
+          }
+        }
+        _savedMemoryMessageIdsLoaded = true;
+      }
+      if (_savedMemoryMessageIds.contains(id)) return false;
+      // Do not upload plaintext from an end-to-end encrypted message to the API.
+      // Attribution is attached for display here and re-derived by the server when saved.
+      final personName = _memoryPersonNameForMessage(message);
+      final candidates = extractMemoryCandidatesLocally(text)
+          .map((item) => <String, dynamic>{
+                ...item,
+                if (personName != null) 'personName': personName,
+              })
+          .toList();
+      if (!mounted || candidates.isEmpty) return false;
+      // Persist the one-time suggestion claim across app restarts and devices. A deleted card keeps its tombstone, so the source can never be suggested again.
+      final seen = await app.api.call('POST', '/api/memories/seen', {
+        'conversationId': widget.conversation['_id'],
+        'sourceMessageId': id,
+      });
+      if (seen['alreadySeen'] == true || !mounted) return false;
+      // The user must approve the suggestion; detection itself never saves data.
+      setState(() {
+        memorySuggestions = candidates;
+        memorySuggestionSourceId = id;
+      });
+      return true;
+    } catch (_) {
+      // Memory detection is optional and must never interrupt normal messaging.
+      return false;
+    }
+  }
+
+  void _dismissMemorySuggestions() {
+    final id = memorySuggestionSourceId;
+    if (id != null) _dismissedMemoryMessageIds.add(id);
+    if (!mounted) return;
+    setState(() {
+      memorySuggestions = [];
+      memorySuggestionSourceId = null;
+    });
+  }
+
+  Future<void> _saveMemorySuggestion(Map<String, dynamic> candidate) async {
+    final sourceId = memorySuggestionSourceId;
+    if (sourceId == null || savingMemorySuggestion) return;
+    setState(() => savingMemorySuggestion = true);
+    try {
+      final savedResult = await app.api.call('POST', '/api/memories', {
+        ...candidate,
+        'conversationId': widget.conversation['_id'],
+        'sourceMessageId': sourceId,
+      });
+      if (!mounted) return;
+      _savedMemoryMessageIds.add(sourceId);
+      setState(() {
+        memorySuggestions.remove(candidate);
+        if (memorySuggestions.isEmpty) memorySuggestionSourceId = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(savedResult['alreadySaved'] == true
+              ? 'This Memory Card was already saved.'
+              : 'Memory saved to your Memory Cards.')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not save memory: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => savingMemorySuggestion = false);
+    }
+  }
+
+  Future<void> extractMemory() async {
+    try {
+      final eligibleSources = messages
+          .whereType<Map>()
+          .where((item) =>
+              item['expiredAt'] == null &&
+              item['messageType'] == 'text' &&
+              item['text'] is String &&
+              (item['text'] as String).trim().isNotEmpty)
+          .toList();
+      final source = input.text.trim().isNotEmpty || eligibleSources.isEmpty
+          ? null
+          : eligibleSources.last;
+      final sourceText = input.text.trim().isNotEmpty
+          ? input.text.trim()
+          : source?['text']?.toString() ?? '';
+      if (sourceText.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Send a message before extracting a memory.')));
+        return;
+      }
+      final result = await app.api
+          .call('POST', '/api/memories/extract', {'text': sourceText});
+      final candidates = List<dynamic>.from(result['candidates'] ?? []);
+      if (!mounted) return;
+      if (candidates.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No memory candidate found.')));
+        return;
+      }
+      final selected = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: const Text('Save a memory'),
+          content: SizedBox(
+            width: 420,
+            child: ListView(
+              shrinkWrap: true,
+              children: candidates.map((raw) {
+                final item = Map<String, dynamic>.from(raw);
+                return ListTile(
+                  leading: const Icon(Icons.auto_awesome),
+                  title: Text(item['title']?.toString() ?? 'Memory'),
+                  subtitle: Text(item['description']?.toString() ?? ''),
+                  onTap: () => Navigator.pop(dialog, item),
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialog),
+                child: const Text('Cancel'))
+          ],
+        ),
+      );
+      if (selected == null) return;
+      await app.api.call('POST', '/api/memories', {
+        ...selected,
+        'conversationId': widget.conversation['_id'],
+        if (source != null && source['_id'] != null)
+          'sourceMessageId': source['_id'],
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Memory saved')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> reactTo(String messageId, String emoji) async {
+    try {
+      final result = await app.api
+          .call('POST', '/api/messages/$messageId/reactions', {'emoji': emoji});
+      final updated = Map<String, dynamic>.from(result['message']);
+      final index = messages.indexWhere(
+          (item) => item is Map && item['_id']?.toString() == messageId);
+      if (index >= 0 && mounted) setState(() => messages[index] = updated);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> deleteMessage(Map<String, dynamic> message) async {
+    final id = message['_id']?.toString();
+    if (id == null || id.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Delete this message?'),
+        content: const Text(
+            'This removes the message for everyone in the conversation. This cannot be undone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Delete for everyone')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final result = await app.api.call('DELETE', '/api/messages/$id', {});
+      final updated = Map<String, dynamic>.from(result['message']);
+      final index = messages
+          .indexWhere((item) => item is Map && item['_id']?.toString() == id);
+      if (index >= 0 && mounted) setState(() => messages[index] = updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Message deleted for everyone.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  Future<void> showMessageActions(Map<String, dynamic> message) async {
+    final mine = message['senderId']?.toString() == app.user?['id']?.toString();
+    final deleted =
+        message['deletedAt'] != null || message['expiredAt'] != null;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Wrap(
+          children: [
+            if (!deleted) ...[
+              ListTile(
+                  leading: const Icon(Icons.reply),
+                  title: const Text('Reply'),
+                  onTap: () => Navigator.pop(sheet, 'reply')),
+              ListTile(
+                  leading: const Text('❤️', style: TextStyle(fontSize: 22)),
+                  title: const Text('React with ❤️'),
+                  onTap: () => Navigator.pop(sheet, '❤️')),
+              ListTile(
+                  leading: const Text('👍', style: TextStyle(fontSize: 22)),
+                  title: const Text('React with 👍'),
+                  onTap: () => Navigator.pop(sheet, '👍')),
+              ListTile(
+                  leading: const Text('😂', style: TextStyle(fontSize: 22)),
+                  title: const Text('React with 😂'),
+                  onTap: () => Navigator.pop(sheet, '😂')),
+            ],
+            if (mine && !deleted)
+              ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('Delete for everyone'),
+                  onTap: () => Navigator.pop(sheet, 'delete')),
+          ],
+        ),
+      ),
+    );
+    if (action == null) return;
+    if (action == 'reply') {
+      setState(() => reply = message['_id']?.toString());
+    } else if (action == 'delete') {
+      await deleteMessage(message);
+    } else if (message['_id'] != null) {
+      await reactTo(message['_id'].toString(), action);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Direct chats show the other participant's real name above their presence status.
+    // Group chats keep using the configured group title.
+    final title = widget.conversation['type'] == 'group'
+        ? (widget.conversation['title'] ?? 'Group').toString()
+        : (_directPeerName() ?? 'Chat');
+    final currentUserId = app.user?['id']?.toString();
+    final closedPaymentCount = payments.where((item) {
+      if (item is! Map) return false;
+      return List<dynamic>.from(item['dismissedBy'] ?? [])
+          .any((id) => id.toString() == currentUserId);
+    }).length;
+    final visiblePayments = payments.where((item) {
+      if (item is! Map) return false;
+      final dismissedBy = List<dynamic>.from(item['dismissedBy'] ?? []);
+      final isClosedForMe =
+          dismissedBy.any((id) => id.toString() == currentUserId);
+      return showClosedPayments || !isClosedForMe;
+    }).toList();
+    return Scaffold(
+      appBar: AppBar(
+        title: searching
+            ? TextField(
+                controller: searchInput,
+                autofocus: true,
+                onChanged: searchMessages,
+                decoration: const InputDecoration(
+                    hintText: 'Search this chat', border: InputBorder.none))
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                    Text(title),
+                    if (widget.conversation['type'] == 'direct')
+                      Text(onlineIds.isNotEmpty ? 'Online' : 'Offline',
+                          style: Theme.of(context).textTheme.labelSmall)
+                  ]),
+        actions: [
+          if (widget.conversation['type'] == 'direct')
+            IconButton(
+                onPressed: requestMpesa,
+                tooltip: 'Request M-Pesa',
+                icon: const Icon(Icons.payments_outlined)),
+          IconButton(
+              onPressed: () {
+                setState(() {
+                  searching = !searching;
+                  if (!searching) {
+                    searchInput.clear();
+                    load();
+                  }
+                });
+              },
+              tooltip: 'Search messages',
+              icon: Icon(searching ? Icons.close : Icons.search)),
+          if (widget.conversation['type'] == 'group')
+            IconButton(
+                onPressed: groupOptions,
+                tooltip: 'Group details',
+                icon: const Icon(Icons.group_outlined)),
+          IconButton(
+              onPressed: extractMemory,
+              tooltip: 'Save memory',
+              icon: const Icon(Icons.auto_awesome)),
+        ],
+      ),
+      body: Column(children: [
+        if (closedPaymentCount > 0)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () =>
+                  setState(() => showClosedPayments = !showClosedPayments),
+              icon: Icon(showClosedPayments
+                  ? Icons.visibility_off_outlined
+                  : Icons.history),
+              label: Text(showClosedPayments
+                  ? 'Hide closed requests'
+                  : 'Show closed requests ($closedPaymentCount)'),
+            ),
+          ),
+        if (visiblePayments.isNotEmpty)
+          SizedBox(
+              height: visiblePayments.length > 2 ? 220 : null,
+              child: ListView.builder(
+                  shrinkWrap: visiblePayments.length <= 2,
+                  itemCount: visiblePayments.length,
+                  itemBuilder: (_, index) {
+                    final payment =
+                        Map<String, dynamic>.from(visiblePayments[index]);
+                    final isPayer =
+                        payment['payerId']?.toString() == currentUserId;
+                    final isClosedForMe =
+                        List<dynamic>.from(payment['dismissedBy'] ?? [])
+                            .any((id) => id.toString() == currentUserId);
+                    return PaymentCard(
+                        payment: payment,
+                        currentUserId: currentUserId,
+                        onPay: isClosedForMe ? null : () => payPayment(payment),
+                        onRetry:
+                            isClosedForMe ? null : () => retryPayment(payment),
+                        onClose:
+                            isClosedForMe ? null : () => closePayment(payment),
+                        onReject:
+                            isClosedForMe ? null : () => rejectPayment(payment),
+                        onReopen:
+                            isClosedForMe ? () => reopenPayment(payment) : null,
+                        rejectLabel:
+                            isPayer ? 'Reject request' : 'Withdraw request',
+                        onRefresh: () => refreshPayment(payment));
+                  })),
+        if (widget.conversation['type'] == 'direct')
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: requestMpesa,
+                icon: const Icon(Icons.payments_outlined),
+                label: const Text('Request M-Pesa'),
+              ),
+            ),
+          ),
+        if (typingUser != null)
+          const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text('Someone is typing…')),
+        Expanded(
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : loadError != null
+                  ? Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text(loadError!, textAlign: TextAlign.center),
+                      const SizedBox(height: 12),
+                      FilledButton(onPressed: load, child: const Text('Retry'))
+                    ]))
+                  : messages.isEmpty
+                      ? const Empty(
+                          icon: Icons.chat_bubble_outline,
+                          title: 'Start the conversation',
+                          subtitle: 'Send the first message.')
+                      : ListView.builder(
+                          controller: _messagesScrollController,
+                          padding: const EdgeInsets.all(12),
+                          itemCount: messages.length,
+                          itemBuilder: (_, i) {
+                            final message =
+                                Map<String, dynamic>.from(messages[i]);
+                            final mine = message['senderId']?.toString() ==
+                                app.user?['id']?.toString();
+                            final text = message['deletedAt'] != null
+                                ? 'This message was deleted.'
+                                : message['expiredAt'] != null
+                                    ? 'This message has expired.'
+                                    : (message['text'] ?? '[media]').toString();
+                            return GestureDetector(
+                              onLongPress: () => showMessageActions(message),
+                              child: Row(
+                                mainAxisAlignment: mine
+                                    ? MainAxisAlignment.end
+                                    : MainAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Flexible(
+                                    child: Container(
+                                      // Keep bubbles content-sized and aligned like a
+                                      // modern messenger; long messages wrap instead of
+                                      // stretching across the phone screen.
+                                      constraints: BoxConstraints(
+                                        maxWidth:
+                                            (MediaQuery.sizeOf(context).width *
+                                                    0.62)
+                                                .clamp(180.0, 520.0)
+                                                .toDouble(),
+                                      ),
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 13, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        // Strongly distinct, high-contrast colors make
+                                        // sent and received messages easy to scan.
+                                        color: mine
+                                            ? const Color(0xFF4F46E5)
+                                            : const Color(0xFFFFFFFF),
+                                        borderRadius: BorderRadius.only(
+                                          topLeft: const Radius.circular(18),
+                                          topRight: const Radius.circular(18),
+                                          bottomLeft:
+                                              Radius.circular(mine ? 18 : 5),
+                                          bottomRight:
+                                              Radius.circular(mine ? 5 : 18),
+                                        ),
+                                        border: Border.all(
+                                          color: mine
+                                              ? const Color(0xFF4338CA)
+                                              : const Color(0xFFD9DFEA),
+                                        ),
+                                      ),
+                                      child: DefaultTextStyle.merge(
+                                        style: TextStyle(
+                                          color: mine
+                                              ? Colors.white
+                                              : const Color(0xFF253047),
+                                        ),
+                                        child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              // A reply keeps only the original message ID in storage.
+                                              // Resolve it against the current conversation so deleted,
+                                              // expired, or unavailable originals never break rendering.
+                                              if (message['replyTo'] != null)
+                                                Builder(builder: (context) {
+                                                  final original =
+                                                      findReplyTarget(messages,
+                                                          message['replyTo']);
+                                                  // A non-null empty map keeps preview rendering null-safe
+                                                  // while the unavailable flag preserves deleted-message semantics.
+                                                  final originalMap =
+                                                      original ??
+                                                          <String, dynamic>{};
+                                                  final unavailable =
+                                                      original == null ||
+                                                          originalMap[
+                                                                  'deletedAt'] !=
+                                                              null ||
+                                                          originalMap[
+                                                                  'expiredAt'] !=
+                                                              null;
+                                                  final originalSender =
+                                                      originalMap['senderId']
+                                                                  ?.toString() ==
+                                                              app.user?['id']
+                                                                  ?.toString()
+                                                          ? 'You'
+                                                          : 'Message';
+                                                  final preview = unavailable
+                                                      ? 'Original message unavailable'
+                                                      : (originalMap['text'] ??
+                                                              '[media]')
+                                                          .toString();
+                                                  return Container(
+                                                    width: double.infinity,
+                                                    margin:
+                                                        const EdgeInsets.only(
+                                                            bottom: 7),
+                                                    padding:
+                                                        const EdgeInsets.all(8),
+                                                    decoration: BoxDecoration(
+                                                      color: mine
+                                                          ? const Color(
+                                                              0x33404040)
+                                                          : const Color(
+                                                              0xFFF0EFFF),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              8),
+                                                      border: Border(
+                                                          left: BorderSide(
+                                                        color: mine
+                                                            ? Colors.white70
+                                                            : const Color(
+                                                                0xFF4F46E5),
+                                                        width: 3,
+                                                      )),
+                                                    ),
+                                                    child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      children: [
+                                                        Text(
+                                                            'Replying to $originalSender',
+                                                            style: TextStyle(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w700,
+                                                                fontSize: 11,
+                                                                color: mine
+                                                                    ? Colors
+                                                                        .white
+                                                                    : const Color(
+                                                                        0xFF4F46E5))),
+                                                        Text(preview,
+                                                            maxLines: 2,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: TextStyle(
+                                                                fontSize: 12,
+                                                                color: mine
+                                                                    ? Colors
+                                                                        .white
+                                                                    : const Color(
+                                                                        0xFF39445A))),
+                                                      ],
+                                                    ),
+                                                  );
+                                                }),
+                                              if (mine &&
+                                                  message['deletedAt'] ==
+                                                      null &&
+                                                  message['expiredAt'] == null)
+                                                Align(
+                                                  widthFactor: 1,
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  child:
+                                                      PopupMenuButton<String>(
+                                                    tooltip: 'Message options',
+                                                    padding: EdgeInsets.zero,
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                      minWidth: 44,
+                                                      minHeight: 44,
+                                                    ),
+                                                    iconSize: 20,
+                                                    icon: Icon(
+                                                      Icons.more_horiz,
+                                                      color: mine
+                                                          ? Colors.white
+                                                          : const Color(
+                                                              0xFF536078),
+                                                    ),
+                                                    onSelected: (action) {
+                                                      if (action == 'delete') {
+                                                        deleteMessage(message);
+                                                      }
+                                                    },
+                                                    itemBuilder: (_) => const [
+                                                      PopupMenuItem<String>(
+                                                        value: 'delete',
+                                                        child: Row(
+                                                          children: [
+                                                            Icon(
+                                                              Icons
+                                                                  .delete_outline,
+                                                              color: Color(
+                                                                  0xFFDC2626),
+                                                              size: 20,
+                                                            ),
+                                                            SizedBox(width: 10),
+                                                            Text(
+                                                                'Delete for everyone'),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              if (message['deletedAt'] == null &&
+                                                  message['expiredAt'] ==
+                                                      null &&
+                                                  message['messageType'] ==
+                                                      'image' &&
+                                                  message['mediaUrl'] != null)
+                                                renderImage(message['mediaUrl']
+                                                    .toString())
+                                              else
+                                                Text(text),
+                                              if (message[
+                                                          'deletedAt'] ==
+                                                      null &&
+                                                  message['reactions']
+                                                      is List &&
+                                                  (message['reactions'] as List)
+                                                      .isNotEmpty)
+                                                Text((message['reactions']
+                                                        as List)
+                                                    .map((r) => r['emoji'])
+                                                    .join(' ')),
+                                              if (mine &&
+                                                  message['deliveredTo']
+                                                      is List &&
+                                                  (message['deliveredTo']
+                                                              as List)
+                                                          .length >
+                                                      1)
+                                                Text(
+                                                    message['readBy'] is List &&
+                                                            (message['readBy']
+                                                                        as List)
+                                                                    .length >
+                                                                1
+                                                        ? 'Read'
+                                                        : 'Delivered',
+                                                    style: const TextStyle(
+                                                        fontSize: 10))
+                                            ]),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+        ),
+        if (memorySuggestions.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+            child: Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.auto_awesome, size: 18),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Chatify noticed something worth remembering',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Not now',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: savingMemorySuggestion
+                              ? null
+                              : _dismissMemorySuggestions,
+                          icon: const Icon(Icons.close, size: 18),
+                        ),
+                      ],
+                    ),
+                    for (final suggestion in memorySuggestions)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                      suggestion['title']?.toString() ??
+                                          'Memory',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600)),
+                                  if ((suggestion['personName']?.toString() ?? '')
+                                  .trim().isNotEmpty)
+                                Text(
+                                  'About ${suggestion['personName']}',
+                                  style: const TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                              Text(suggestion['description']?.toString() ??
+                                  ''),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: savingMemorySuggestion
+                                  ? null
+                                  : () => _saveMemorySuggestion(suggestion),
+                              child: savingMemorySuggestion
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
+                                  : const Text('Save'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: savingMemorySuggestion
+                            ? null
+                            : _dismissMemorySuggestions,
+                        child: const Text('Not now'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        // Keep the selected original visible while composing so users can verify
+        // exactly which message their reply will reference, and allow cancellation.
+        if (reply != null)
+          Builder(builder: (context) {
+            final original = findReplyTarget(messages, reply);
+            // The fallback map lets the composer preview safely handle a missing or expired target.
+            final originalMap = original ?? <String, dynamic>{};
+            final originalDeleted = original == null ||
+                originalMap['deletedAt'] != null ||
+                originalMap['expiredAt'] != null;
+            final originalSender = originalMap['senderId']?.toString() ==
+                    app.user?['id']?.toString()
+                ? 'You'
+                : 'Message';
+            final originalText = originalDeleted
+                ? 'Original message unavailable'
+                : (originalMap['text'] ?? '[media]').toString();
+            return Container(
+              margin: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+              padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0EFFF),
+                border: const Border(
+                    left: BorderSide(color: Color(0xFF4F46E5), width: 3)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(children: [
+                const Icon(Icons.reply, color: Color(0xFF4F46E5), size: 19),
+                const SizedBox(width: 8),
+                Expanded(
+                    child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Replying to $originalSender',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: Color(0xFF4F46E5))),
+                    Text(originalText,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 12, color: Color(0xFF39445A))),
+                  ],
+                )),
+                IconButton(
+                  tooltip: 'Cancel reply',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() => reply = null),
+                  icon: const Icon(Icons.close, size: 18),
+                ),
+              ]),
+            );
+          }),
+        SafeArea(
+            child: Row(children: [
+          IconButton(
+              onPressed: sendImageLink,
+              tooltip: 'Share image URL',
+              icon: const Icon(Icons.image_outlined)),
+          PopupMenuButton<String>(
+            onSelected: (value) => setState(() => expiry = value),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'NONE', child: Text('Permanent')),
+              PopupMenuItem(value: 'AFTER_READ', child: Text('After read')),
+              PopupMenuItem(value: 'AFTER_TIME', child: Text('After 1 hour')),
+              PopupMenuItem(value: 'AFTER_REPLY', child: Text('After reply')),
+            ],
+          ),
+          Expanded(
+              child: Focus(
+            onKeyEvent: (_, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+              final key = event.logicalKey;
+              if (key == LogicalKeyboardKey.enter &&
+                  !HardwareKeyboard.instance.isShiftPressed) {
+                if (!sending) send();
+                return KeyEventResult.handled;
+              }
+
+              // When the composer is empty, use the arrow keys to browse
+              // the conversation instead of moving an invisible caret.
+              if (input.text.isEmpty &&
+                  _messagesScrollController.hasClients &&
+                  (key == LogicalKeyboardKey.arrowUp ||
+                      key == LogicalKeyboardKey.arrowDown)) {
+                final position = _messagesScrollController.position;
+                final distance = position.viewportDimension * 0.7;
+                final target = (position.pixels +
+                        (key == LogicalKeyboardKey.arrowUp
+                            ? -distance
+                            : distance))
+                    .clamp(
+                      position.minScrollExtent,
+                      position.maxScrollExtent,
+                    )
+                    .toDouble();
+                _messagesScrollController.animateTo(
+                  target,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                );
+                return KeyEventResult.handled;
+              }
+
+              return KeyEventResult.ignored;
+            },
+            child: TextField(
+              controller: input,
+              minLines: 1,
+              maxLines: 5,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) {
+                if (!sending) send();
+              },
+              onChanged: _handleTyping,
+              decoration: const InputDecoration(
+                hintText: 'Write a message…',
+                border: InputBorder.none,
+              ),
+            ),
+          )),
+          IconButton(
+              onPressed: sending ? null : send,
+              icon: sending
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.send)),
+        ])),
+      ]),
+    );
+  }
+}
+
+// Screen for viewing and editing the signed-in user's profile and preferences.
+class Profile extends StatefulWidget {
+  const Profile({super.key});
+  @override
+  State<Profile> createState() => _ProfileState();
+}
+
+// Loads profile data and submits profile/privacy/notification preference changes.
+class _ProfileState extends State<Profile> {
+  late TextEditingController name, phone;
+  bool lastSeen = true,
+      receipts = true,
+      messages = true,
+      mentions = true,
+      memories = true;
+  @override
+  void initState() {
+    super.initState();
+    final u = context.read<AppState>().user ?? {};
+    name = TextEditingController(text: u['name']?.toString() ?? '');
+    phone = TextEditingController(text: u['phone']?.toString() ?? '');
+    final p = Map<String, dynamic>.from(u['privacy'] ?? {}),
+        n = Map<String, dynamic>.from(u['notificationPreferences'] ?? {});
+    lastSeen = p['lastSeen'] ?? true;
+    receipts = p['readReceipts'] ?? true;
+    messages = n['messages'] ?? true;
+    mentions = n['mentions'] ?? true;
+    memories = n['memories'] ?? true;
+  }
+
+  @override
+  void dispose() {
+    name.dispose();
+    phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> save() async {
+    final api = context.read<AppState>().api;
+    try {
+      final d = await api.call('PATCH', '/api/users/me', {
+        'name': name.text.trim(),
+        'phone': phone.text.trim(),
+        'privacy': {'lastSeen': lastSeen, 'readReceipts': receipts},
+        'notificationPreferences': {
+          'messages': messages,
+          'mentions': mentions,
+          'memories': memories
+        },
+      });
+      if (!mounted) return;
+      context.read<AppState>().user = Map<String, dynamic>.from(d['user']);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Profile saved')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> chooseProfilePicture() async {
+    final api = context.read<AppState>().api;
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 82,
+        maxWidth: 1200,
+        maxHeight: 1200,
+      );
+      if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      if (bytes.length > 10 * 1024 * 1024) {
+        throw Exception('Choose an image smaller than 10 MB.');
+      }
+      final path = picked.path.toLowerCase();
+      final mimeType = path.endsWith('.png')
+          ? 'image/png'
+          : path.endsWith('.webp')
+              ? 'image/webp'
+              : 'image/jpeg';
+      if (!mounted) return;
+      final upload = await api.call('POST', '/api/media', {
+        'data': base64Encode(bytes),
+        'mimeType': mimeType,
+      });
+      final mediaUrl = upload['mediaUrl']?.toString();
+      if (mediaUrl == null || !mediaUrl.startsWith('https://')) {
+        throw Exception('Image upload did not return a secure image URL.');
+      }
+      final saved = await api.call(
+          'PATCH', '/api/users/me', {'profileImage': mediaUrl});
+      if (!mounted) return;
+      context.read<AppState>().updateCurrentUser(
+            Map<String, dynamic>.from(saved['user']),
+          );
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile picture updated.')));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not update picture: $error')));
+      }
+    }
+  }
+
+  Future<void> saveDefaultPhone() async {
+    final normalized = normalizeKenyanPhone(phone.text);
+    if (normalized == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('Enter a valid Kenyan M-Pesa number, e.g. 0712345678')));
+      return;
+    }
+    try {
+      final d = await context
+          .read<AppState>()
+          .api
+          .call('PATCH', '/api/users/me', {'phone': normalized});
+      if (!mounted) return;
+      final app = context.read<AppState>();
+      app.user = Map<String, dynamic>.from(d['user']);
+      phone.text = normalized;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Default M-Pesa number saved. Payment requests will use it automatically.')));
+      setState(() {});
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> changePassword() async {
+    final current = TextEditingController();
+    final next = TextEditingController();
+    try {
+      await showDialog<void>(
+          context: context,
+          builder: (d) => AlertDialog(
+                  title: const Text('Change password'),
+                  content: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: current,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                            labelText: 'Current password')),
+                    TextField(
+                        controller: next,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                            labelText: 'New password (8+ characters)'))
+                  ]),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(d),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () async {
+                          try {
+                            final appState = context.read<AppState>();
+                            final passwordResult = await appState.api.call(
+                                'POST', '/api/auth/change-password', {
+                              'currentPassword': current.text,
+                              'newPassword': next.text
+                            });
+                            if (passwordResult['token'] is String) {
+                              await appState.api.saveToken(passwordResult['token'] as String);
+                              appState.refreshRealtimeAuthentication();
+                            }
+                            if (d.mounted) Navigator.pop(d);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text('Password changed')));
+                            }
+                          } catch (error) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(error.toString())));
+                            }
+                          }
+                        },
+                        child: const Text('Update'))
+                  ]));
+    } finally {
+      current.dispose();
+      next.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final profileImage = app.user?['profileImage']?.toString();
+    return ListView(padding: const EdgeInsets.all(18), children: [
+        Center(
+          child: Column(children: [
+            CircleAvatar(
+              radius: 42,
+              foregroundImage: profileImage != null &&
+                      profileImage.startsWith('https://')
+                  ? NetworkImage(profileImage)
+                  : null,
+              // Keep the placeholder beneath the foreground image so it remains
+              // visible when a stored URL is expired, blocked, or unreachable.
+              child: const Icon(Icons.person_outline, size: 42),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: chooseProfilePicture,
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Change profile picture'),
+            ),
+          ]),
+        ),
+        SwitchListTile(
+          value: app.themeMode == ThemeMode.dark,
+          onChanged: app.setDarkMode,
+          secondary: Icon(app.themeMode == ThemeMode.dark
+              ? Icons.dark_mode_outlined
+              : Icons.light_mode_outlined),
+          title: const Text('Dark mode'),
+          subtitle: const Text('Use a darker, low-glare appearance'),
+        ),
+        TextField(
+            controller: name,
+            decoration: const InputDecoration(
+                labelText: 'Name', border: OutlineInputBorder())),
+        const SizedBox(height: 12),
+        const Text('Default M-Pesa number',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        const Text(
+            'Set this for your existing account. Chatify will prefill it when you send or receive payment requests. You can still change either number on an individual request.'),
+        const SizedBox(height: 10),
+        TextField(
+            controller: phone,
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+                labelText: 'M-Pesa phone number',
+                hintText: '0712345678 or 254712345678',
+                helperText: (context
+                            .watch<AppState>()
+                            .user?['phone']
+                            ?.toString()
+                            .isNotEmpty ??
+                        false)
+                    ? 'Saved default: ${context.watch<AppState>().user?['phone']}'
+                    : 'No default saved yet — add your number below.',
+                border: const OutlineInputBorder())),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+            onPressed: saveDefaultPhone,
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            label: const Text('Save default M-Pesa number')),
+        const SizedBox(height: 18),
+        const Text('Privacy',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        SwitchListTile(
+            value: lastSeen,
+            onChanged: (v) => setState(() => lastSeen = v),
+            title: const Text('Show last seen')),
+        SwitchListTile(
+            value: receipts,
+            onChanged: (v) => setState(() => receipts = v),
+            title: const Text('Read receipts')),
+        const Text('Notifications',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        SwitchListTile(
+            value: messages,
+            onChanged: (v) => setState(() => messages = v),
+            title: const Text('New messages')),
+        SwitchListTile(
+            value: mentions,
+            onChanged: (v) => setState(() => mentions = v),
+            title: const Text('Mentions')),
+        SwitchListTile(
+            value: memories,
+            onChanged: (v) => setState(() => memories = v),
+            title: const Text('Memory suggestions')),
+        FilledButton(onPressed: save, child: const Text('Save changes')),
+        TextButton(
+            onPressed: changePassword, child: const Text('Change password')),
+        TextButton(
+            onPressed: () => context.read<AppState>().logout(),
+            child: const Text('Sign out'))
+      ]);
+  }
+}
+
+/// Customer-facing public marketplace for discovering businesses and their published catalogue.
+class StoreDirectoryPage extends StatefulWidget {
+  const StoreDirectoryPage({super.key});
+  @override
+  State<StoreDirectoryPage> createState() => _StoreDirectoryPageState();
+}
+
+class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
+  final search = TextEditingController();
+  final location = TextEditingController();
+  final category = TextEditingController();
+  List<dynamic> stores = [], products = [];
+  bool loading = true, showingProducts = false;
+  String country = 'KE';
+  String? error;
+  AppState get app => context.read<AppState>();
+
+  @override
+  void initState() {
+    super.initState();
+    loadResults();
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    location.dispose();
+    category.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadResults() async {
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
+    try {
+      final parameters = <String, String>{
+        if (search.text.trim().isNotEmpty) 'q': search.text.trim(),
+        if (category.text.trim().isNotEmpty) 'category': category.text.trim(),
+        if (country.isNotEmpty) 'country': country,
+        if (location.text.trim().isNotEmpty) 'location': location.text.trim(),
+        'page': '1',
+        'pageSize': '50',
+      };
+      final endpoint =
+          showingProducts ? '/api/marketplace/products' : '/api/marketplace';
+      final result = await app.api
+          .call('GET', '$endpoint?${Uri(queryParameters: parameters).query}');
+      if (!mounted) return;
+      setState(() {
+        if (showingProducts) {
+          products = List<dynamic>.from(result['products'] ?? []);
+        } else {
+          stores = List<dynamic>.from(result['businesses'] ?? []);
+        }
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = showingProducts ? products : stores;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Explore marketplace'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PaymentHistory()),
+            ),
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            label: const Text('Payments'),
+          ),
+          IconButton(
+              tooltip: 'Refresh marketplace',
+              onPressed: loadResults,
+              icon: const Icon(Icons.refresh)),
+        ],
+      ),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment<bool>(
+                  value: false,
+                  icon: Icon(Icons.storefront_outlined),
+                  label: Text('Businesses')),
+              ButtonSegment<bool>(
+                  value: true,
+                  icon: Icon(Icons.shopping_bag_outlined),
+                  label: Text('Products')),
+            ],
+            selected: {showingProducts},
+            onSelectionChanged: (selection) {
+              setState(() => showingProducts = selection.first);
+              loadResults();
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: TextField(
+            controller: search,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => loadResults(),
+            decoration: InputDecoration(
+              hintText: showingProducts
+                  ? 'Search products and services'
+                  : 'Business name or @handle (e.g. @prime-cafe)',
+              prefixIcon: const Icon(Icons.search),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                controller: category,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => loadResults(),
+                decoration: InputDecoration(
+                  labelText: 'Category',
+                  hintText: 'e.g. retail',
+                  prefixIcon: const Icon(Icons.category_outlined),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 105,
+              child: DropdownButtonFormField<String>(
+                initialValue: country,
+                decoration: InputDecoration(
+                  labelText: 'Country',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'KE', child: Text('Kenya')),
+                  DropdownMenuItem(value: 'UG', child: Text('Uganda')),
+                  DropdownMenuItem(value: 'TZ', child: Text('Tanzania')),
+                  DropdownMenuItem(value: 'RW', child: Text('Rwanda')),
+                  DropdownMenuItem(value: 'US', child: Text('USA')),
+                  DropdownMenuItem(value: 'GB', child: Text('UK')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => country = value);
+                  loadResults();
+                },
+              ),
+            ),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                controller: location,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => loadResults(),
+                decoration: InputDecoration(
+                  labelText: 'Town or branch',
+                  hintText: 'e.g. Nairobi',
+                  prefixIcon: const Icon(Icons.location_on_outlined),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+                onPressed: loadResults,
+                icon: const Icon(Icons.tune),
+                label: const Text('Filter')),
+          ]),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: loadResults,
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : error != null
+                    ? ListView(children: [
+                        const SizedBox(height: 90),
+                        const Icon(Icons.cloud_off_outlined, size: 48),
+                        Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text(error!, textAlign: TextAlign.center)),
+                        Center(
+                            child: FilledButton(
+                                onPressed: loadResults,
+                                child: const Text('Try again'))),
+                      ])
+                    : entries.isEmpty
+                        ? ListView(children: [
+                            const SizedBox(height: 80),
+                            const Icon(Icons.storefront_outlined,
+                                size: 56, color: Color(0xFF77758B)),
+                            const SizedBox(height: 12),
+                            Center(
+                                child: Text(
+                              showingProducts
+                                  ? 'No products match these filters.'
+                                  : 'No businesses match these filters.',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700),
+                            )),
+                            const SizedBox(height: 6),
+                            const Center(
+                                child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 28),
+                              child: Text(
+                                  'Published businesses and active catalogue items appear here. Clear a filter or try another search.',
+                                  textAlign: TextAlign.center),
+                            )),
+                          ])
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            itemCount: entries.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              final entry = Map<String, dynamic>.from(
+                                  entries[index] as Map);
+                              if (showingProducts) {
+                                final business = entry['business'] is Map
+                                    ? Map<String, dynamic>.from(
+                                        entry['business'] as Map)
+                                    : <String, dynamic>{};
+                                final images = entry['images'] is List
+                                    ? List<dynamic>.from(entry['images'])
+                                    : <dynamic>[];
+                                final image = images.isNotEmpty
+                                    ? images.first.toString()
+                                    : '';
+                                final currency =
+                                    entry['currency']?.toString() ?? 'KES';
+                                final price = entry['price']?.toString() ?? '—';
+                                return Card(
+                                  clipBehavior: Clip.antiAlias,
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.all(12),
+                                    leading: CircleAvatar(
+                                      radius: 28,
+                                      backgroundColor: const Color(0xFFEDEBFF),
+                                      backgroundImage:
+                                          image.startsWith('https://')
+                                              ? NetworkImage(image)
+                                              : null,
+                                      child: image.startsWith('https://')
+                                          ? null
+                                          : const Icon(
+                                              Icons.inventory_2_outlined,
+                                              color: Color(0xFF5548E8)),
+                                    ),
+                                    title: Text(
+                                        entry['name']?.toString() ??
+                                            'Product or service',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w800)),
+                                    subtitle: Text(
+                                        '${business['name'] ?? 'Chatify business'} · ${entry['category'] ?? 'General'}',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis),
+                                    trailing: Text('$currency $price',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w800)),
+                                    onTap: business['slug'] == null
+                                        ? null
+                                        : () => Navigator.of(context).push(
+                                              MaterialPageRoute<void>(
+                                                  builder: (_) =>
+                                                      StorefrontPage(
+                                                          slug: business['slug']
+                                                              .toString())),
+                                            ),
+                                  ),
+                                );
+                              }
+                              final name = entry['name']?.toString() ??
+                                  'Chatify business';
+                              final logo = entry['logo']?.toString() ?? '';
+                              final count =
+                                  entry['itemCount']?.toString() ?? '0';
+                              final industry = entry['industry']
+                                      ?.toString()
+                                      .replaceAll('_', ' ') ??
+                                  '';
+                              return Card(
+                                clipBehavior: Clip.antiAlias,
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.all(12),
+                                  leading: CircleAvatar(
+                                    radius: 28,
+                                    backgroundColor: const Color(0xFFEDEBFF),
+                                    backgroundImage: logo.startsWith('https://')
+                                        ? NetworkImage(logo)
+                                        : null,
+                                    child: logo.startsWith('https://')
+                                        ? null
+                                        : const Icon(Icons.storefront_rounded,
+                                            color: Color(0xFF5548E8)),
+                                  ),
+                                  title: Text(name,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w800)),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 5),
+                                    child: Text(
+                                        [
+                                          if (industry.isNotEmpty)
+                                            industry[0].toUpperCase() +
+                                                industry.substring(1),
+                                          '$count product/service(s)',
+                                          if ((entry['country']?.toString() ??
+                                                  '')
+                                              .isNotEmpty)
+                                            entry['country'].toString(),
+                                          if ((entry['description']
+                                                      ?.toString() ??
+                                                  '')
+                                              .isNotEmpty)
+                                            entry['description'].toString(),
+                                        ].join(' · '),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis),
+                                  ),
+                                  trailing: const Icon(
+                                      Icons.arrow_forward_ios_rounded,
+                                      size: 16),
+                                  onTap: () => Navigator.of(context)
+                                      .push(MaterialPageRoute<void>(
+                                    builder: (_) => StorefrontPage(
+                                        slug: entry['slug'].toString()),
+                                  )),
+                                ),
+                              );
+                            },
+                          ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Customer-facing storefront. Product prices are display-only until the server creates
+/// an order from its own catalogue records; successful payment is confirmed by Daraja callback.
+class StorefrontPage extends StatefulWidget {
+  final String slug;
+  const StorefrontPage({super.key, required this.slug});
+  @override
+  State<StorefrontPage> createState() => _StorefrontPageState();
+}
+
+class _StorefrontPageState extends State<StorefrontPage> {
+  Map<String, dynamic> storefront = {};
+  List<dynamic> products = [];
+  final Map<String, int> cart = {};
+  final phone = TextEditingController();
+  bool loading = true, checkingOut = false;
+  String? error, paymentId, notice;
+  AppState get app => context.read<AppState>();
+
+  @override
+  void initState() {
+    super.initState();
+    phone.text = app.user?['phone']?.toString() ?? '';
+    loadStore();
+  }
+
+  @override
+  void dispose() {
+    phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadStore() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final result = await app.api
+          .call('GET', '/api/storefront/${Uri.encodeComponent(widget.slug)}');
+      if (!mounted) return;
+      setState(() {
+        storefront = Map<String, dynamic>.from(result['storefront'] ?? {});
+        products = List<dynamic>.from(result['items'] ?? []);
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  double get total => products.whereType<Map>().fold<double>(0, (sum, raw) {
+        final item = Map<String, dynamic>.from(raw);
+        return sum +
+            (double.tryParse(item['price']?.toString() ?? '') ?? 0) *
+                (cart[item['_id']?.toString()] ?? 0);
+      });
+
+  void addProduct(Map<String, dynamic> item) {
+    final id = item['_id']?.toString();
+    if (id == null) return;
+    final current = cart[id] ?? 0;
+    final stock = int.tryParse(item['stock']?.toString() ?? '') ?? 0;
+    if (stock > 0 && current >= stock) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('You have selected all available stock for this product.')));
+      return;
+    }
+    setState(() => cart[id] = current + 1);
+  }
+
+  // Open a private customer/seller conversation without exposing the seller's contact details.
+  // The normal Chat screen retains end-to-end encryption and existing payment tools.
+  Future<void> chatWithSeller({Map<String, dynamic>? item}) async {
+    final sellerId = storefront['sellerUserId']?.toString() ?? '';
+    if (sellerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This seller has not enabled direct Chatify messaging yet.')));
+      return;
+    }
+    if (app.user == null) {
+      final shouldSignIn = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Chat with seller'),
+          content: const Text('Sign in to discuss products, delivery and payment securely with this seller.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not now')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Sign in')),
+          ],
+        ),
+      );
+      if (shouldSignIn == true && mounted) app.openAuth();
+      return;
+    }
+    final currentUserId = app.user?['_id']?.toString() ?? app.user?['id']?.toString() ?? '';
+    if (sellerId == currentUserId) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Open this store using a customer account to contact the seller.')));
+      return;
+    }
+    try {
+      final result = await app.api.call('POST', '/api/conversations/direct', {'userId': sellerId});
+      final conversation = Map<String, dynamic>.from(result['conversation'] ?? {});
+      if (!mounted || conversation.isEmpty) return;
+      if (item != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Chat opened. Ask about ' + (item['name']?.toString() ?? 'this item') + '; secure M-Pesa checkout is available on this storefront.'),
+        ));
+      }
+      final draft = item == null
+          ? null
+          : 'Hi, I am interested in ' +
+              (item['name']?.toString() ?? 'this item') +
+              ' from ' +
+              (storefront['name']?.toString() ?? 'your store') +
+              '. Could you share availability, delivery options and the best way to pay?';
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => Chat(conversation: conversation, initialMessage: draft),
+      ));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to open seller chat: $e')),
+      );
+    }
+  }
+
+  Future<void> showProduct(Map<String, dynamic> item) async {
+    final id = item['_id']?.toString() ?? '';
+    final image =
+        (item['images'] is List && (item['images'] as List).isNotEmpty)
+            ? (item['images'] as List).first.toString()
+            : '';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(item['name']?.toString() ?? 'Product'),
+        content: SingleChildScrollView(
+            child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (image.startsWith('https://'))
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(image,
+                    height: 170,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+              ),
+            const SizedBox(height: 8),
+            Text('KSh ${item['price'] ?? '—'}',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(item['description']?.toString() ??
+                'No product description yet.'),
+            if ((item['category']?.toString() ?? '').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Chip(label: Text(item['category'].toString())),
+              ),
+          ],
+        )),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close')),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              chatWithSeller(item: item);
+            },
+            icon: const Icon(Icons.chat_bubble_outline),
+            label: const Text('Ask seller'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              addProduct(item);
+            },
+            icon: const Icon(Icons.add_shopping_cart),
+            label: Text(cart[id] == null ? 'Add to cart' : 'Add another'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> checkout() async {
+    if (cart.isEmpty || checkingOut) return;
+    if (app.user == null) {
+      final signIn = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Sign in to pay'),
+          content: const Text(
+              'You can browse products without an account. Sign in or create an account to place an order and receive the secure M-Pesa payment prompt.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Not now')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Continue')),
+          ],
+        ),
+      );
+      if (signIn == true && mounted) app.openAuth(register: true);
+      return;
+    }
+    if (normalizeKenyanPhone(phone.text) == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Enter a valid Kenyan M-Pesa phone number.')));
+      return;
+    }
+    setState(() {
+      checkingOut = true;
+      notice = null;
+      error = null;
+    });
+    try {
+      final result = await app.api.call('POST',
+          '/api/storefront/${Uri.encodeComponent(widget.slug)}/checkout', {
+        'phone': phone.text.trim(),
+        'items': cart.entries
+            .map((entry) => {'itemId': entry.key, 'quantity': entry.value})
+            .toList(),
+      });
+      final payment = Map<String, dynamic>.from(result['payment'] ?? {});
+      final id = payment['paymentId']?.toString();
+      if (id == null || id.isEmpty) {
+        throw const FormatException(
+            'Order was created but no payment reference was returned.');
+      }
+      if (mounted) {
+        setState(() {
+          paymentId = id;
+          notice = 'Order created. Requesting M-Pesa payment prompt…';
+        });
+      }
+      final initiated = await app.api.call(
+          'POST',
+          '/api/payments/${Uri.encodeComponent(id)}/initiate',
+          {'phone': phone.text.trim()});
+      if (!mounted) return;
+      final isMock = initiated['mock'] == true;
+      setState(() {
+        notice = isMock
+            ? 'Order created, but the server is in demo M-Pesa mode. No real Safaricom prompt was sent.'
+            : 'Check your phone and enter your M-Pesa PIN to approve the payment. Then refresh payment status below.';
+        cart.clear();
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => checkingOut = false);
+    }
+  }
+
+  Future<void> refreshPayment() async {
+    final id = paymentId;
+    if (id == null) return;
+    try {
+      final result =
+          await app.api.call('GET', '/api/payments/${Uri.encodeComponent(id)}');
+      final payment = Map<String, dynamic>.from(result['payment'] ?? {});
+      final status = payment['status']?.toString() ?? 'PENDING';
+      if (mounted) {
+        setState(() => notice = status == 'SUCCESS'
+            ? 'Payment confirmed. Thank you for your order!'
+            : status == 'PENDING'
+                ? 'Payment is still pending. Complete the M-Pesa prompt on your phone, then refresh.'
+                : 'Payment status: $status. You can contact the store if you need help.');
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (error != null && storefront.isEmpty) {
+      return Scaffold(
+          appBar: AppBar(title: const Text('Storefront')),
+          body: Center(
+              child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.storefront_outlined, size: 48),
+              const SizedBox(height: 12),
+              Text(error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: loadStore, child: const Text('Retry')),
+            ]),
+          )));
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(storefront['name']?.toString() ?? 'Storefront'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => chatWithSeller(),
+            icon: const Icon(Icons.chat_bubble_outline),
+            label: const Text('Chat seller'),
+          ),
+          // Keep payment history visible from the customer storefront, not hidden behind an icon-only menu.
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PaymentHistory()),
+            ),
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            label: const Text('Payments'),
+          ),
+          IconButton(
+              tooltip: 'Refresh products',
+              onPressed: loadStore,
+              icon: const Icon(Icons.refresh)),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: loadStore,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: const LinearGradient(
+                    colors: [Color(0xFF292C57), Color(0xFF5548E8)]),
+              ),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.storefront_rounded,
+                        color: Colors.white, size: 30),
+                    const SizedBox(height: 10),
+                    Text(storefront['name']?.toString() ?? 'Shop',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 23,
+                            fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 5),
+                    Text(
+                        storefront['description']?.toString() ??
+                            'Browse products, add what you need to your cart, and pay securely with M-Pesa.',
+                        style: const TextStyle(color: Colors.white70)),
+                    const SizedBox(height: 10),
+                    const Text('Secure checkout · M-Pesa',
+                        style: TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w700)),
+                    if ((storefront['sellerMpesaPhone']?.toString() ?? '')
+                        .isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text('Seller M-Pesa: ${storefront['sellerMpesaPhone']}',
+                          style: const TextStyle(color: Colors.white70)),
+                    ],
+                  ]),
+            ),
+            const SizedBox(height: 16),
+            Text('Products',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            if (products.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('This store has no active products yet.',
+                    textAlign: TextAlign.center),
+              ),
+            ...products.whereType<Map>().map((raw) {
+              final item = Map<String, dynamic>.from(raw);
+              final id = item['_id']?.toString() ?? '';
+              final image = (item['images'] is List &&
+                      (item['images'] as List).isNotEmpty)
+                  ? (item['images'] as List).first.toString()
+                  : '';
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => showProduct(item),
+                  child: Row(children: [
+                    if (image.startsWith('https://'))
+                      SizedBox(
+                          width: 100,
+                          height: 110,
+                          child: Image.network(image,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.inventory_2_outlined)))
+                    else
+                      Container(
+                          width: 100,
+                          height: 110,
+                          color: const Color(0xFFF0F2F8),
+                          child:
+                              const Icon(Icons.inventory_2_outlined, size: 34)),
+                    Expanded(
+                        child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(item['name']?.toString() ?? 'Product',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 4),
+                            Text(item['description']?.toString() ?? '',
+                                maxLines: 2, overflow: TextOverflow.ellipsis),
+                            const SizedBox(height: 6),
+                            Text('KSh ${item['price'] ?? '—'}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF4F46E5))),
+                            const SizedBox(height: 5),
+                            Row(children: [
+                              Expanded(
+                                  child: Text(
+                                      (cart[id] ?? 0) > 0
+                                          ? 'In cart: ${cart[id]}'
+                                          : 'Tap to view details',
+                                      style: const TextStyle(fontSize: 11))),
+                              IconButton(
+                                  onPressed: () => addProduct(item),
+                                  icon: const Icon(Icons.add_circle_outline),
+                                  tooltip: 'Add to cart'),
+                            ]),
+                          ]),
+                    )),
+                  ]),
+                ),
+              );
+            }),
+            if (cart.isNotEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                            'Your cart · ${cart.values.fold<int>(0, (sum, value) => sum + value)} item(s)',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 8),
+                        ...cart.entries.map((entry) {
+                          final item = products.whereType<Map>().firstWhere(
+                              (p) => p['_id']?.toString() == entry.key,
+                              orElse: () => <String, dynamic>{});
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(item['name']?.toString() ?? 'Product'),
+                            subtitle: Text(
+                                '${entry.value} × KSh ${item['price'] ?? ''}'),
+                            trailing:
+                                Row(mainAxisSize: MainAxisSize.min, children: [
+                              IconButton(
+                                  onPressed: () => setState(() {
+                                        if (entry.value <= 1) {
+                                          cart.remove(entry.key);
+                                        } else {
+                                          cart[entry.key] = entry.value - 1;
+                                        }
+                                      }),
+                                  icon:
+                                      const Icon(Icons.remove_circle_outline)),
+                              IconButton(
+                                  onPressed: () {
+                                    final product = products
+                                        .whereType<Map>()
+                                        .firstWhere(
+                                            (p) =>
+                                                p['_id']?.toString() ==
+                                                entry.key,
+                                            orElse: () => <String, dynamic>{});
+                                    if (product.isNotEmpty) {
+                                      addProduct(
+                                          Map<String, dynamic>.from(product));
+                                    }
+                                  },
+                                  icon: const Icon(Icons.add_circle_outline)),
+                            ]),
+                          );
+                        }),
+                        const Divider(),
+                        Row(children: [
+                          const Expanded(
+                              child: Text('Total',
+                                  style:
+                                      TextStyle(fontWeight: FontWeight.w800))),
+                          Text('KSh ${total.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.w900)),
+                        ]),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: phone,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                            labelText: 'M-Pesa phone number',
+                            hintText: '0712345678',
+                            prefixIcon: Icon(Icons.phone_android),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: checkingOut ? null : checkout,
+                              icon: checkingOut
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2, color: Colors.white))
+                                  : const Icon(Icons.lock_outline),
+                              label: Text(checkingOut
+                                  ? 'Starting secure checkout…'
+                                  : 'Checkout with M-Pesa'),
+                            )),
+                      ]),
+                ),
+              ),
+            if (notice != null)
+              Card(
+                  color: const Color(0xFFE9F8F2),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(notice!,
+                              style: const TextStyle(color: Color(0xFF155E48))),
+                          if (paymentId != null) ...[
+                            const SizedBox(height: 8),
+                            SelectableText('Payment reference: $paymentId'),
+                            Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                    onPressed: refreshPayment,
+                                    icon: const Icon(Icons.refresh),
+                                    label:
+                                        const Text('Refresh payment status'))),
+                          ],
+                        ]),
+                  )),
+            if (error != null)
+              Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(error!,
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error))),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Business operations workspace: lightweight mobile entry points to the authenticated
+/// organization, catalogue, customer CRM, sales documents and follow-up task APIs.
+class BusinessHub extends StatefulWidget {
+  const BusinessHub({super.key});
+  @override
+  State<BusinessHub> createState() => _BusinessHubState();
+}
+
+class _BusinessHubState extends State<BusinessHub> {
+  Map<String, dynamic>? organization;
+  Map<String, dynamic> dashboard = {};
+  List<dynamic> organizations = [],
+      catalog = [],
+      customers = [],
+      documents = [],
+      tasks = [];
+  bool loading = true, saving = false;
+  int pendingOfflineCount = 0;
+  List<String> syncConflicts = [];
+  String? error;
+  AppState get app => context.read<AppState>();
+
+  @override
+  void initState() {
+    super.initState();
+    loadOrganizations();
+  }
+
+  Future<void> loadOrganizations() async {
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
+    try {
+      final result = await app.api.call('GET', '/api/business/organizations');
+      organizations = List<dynamic>.from(result['organizations'] ?? []);
+      if (organizations.isNotEmpty) {
+        final currentId = organization?['_id']?.toString();
+        organization = organizations.firstWhere(
+          (item) => item is Map && item['_id']?.toString() == currentId,
+          orElse: () => organizations.first,
+        ) as Map<String, dynamic>;
+        await loadWorkspaceData();
+      } else {
+        organization = null;
+        dashboard = {};
+        catalog = [];
+        customers = [];
+        documents = [];
+        tasks = [];
+      }
+    } catch (e) {
+      error = e.toString();
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> loadWorkspaceData({bool syncPending = true}) async {
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    try {
+      final encoded = Uri.encodeComponent(id);
+      final results = await Future.wait([
+        app.api.call('GET', '/api/business/organizations/$encoded/dashboard'),
+        app.api.call('GET', '/api/business/organizations/$encoded/catalog'),
+        app.api.call('GET', '/api/business/organizations/$encoded/customers'),
+        app.api.call('GET', '/api/business/organizations/$encoded/documents'),
+        app.api.call('GET', '/api/business/organizations/$encoded/tasks'),
+      ]);
+      dashboard = Map<String, dynamic>.from(results[0]['metrics'] ?? {});
+      catalog = List<dynamic>.from(results[1]['items'] ?? []);
+      customers = List<dynamic>.from(results[2]['customers'] ?? []);
+      documents = List<dynamic>.from(results[3]['documents'] ?? []);
+      tasks = List<dynamic>.from(results[4]['tasks'] ?? []);
+      error = null;
+    } catch (e) {
+      error = e.toString();
+    }
+    if (syncPending && error == null) {
+      final applied = await _flushOfflineQueue(id);
+      if (applied > 0) {
+        await loadWorkspaceData(syncPending: false);
+        return;
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> createOrganization() async {
+    final name = TextEditingController();
+    final industry = ValueNotifier<String>('retail');
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create a business workspace'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: name,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Business name')),
+          const SizedBox(height: 12),
+          ValueListenableBuilder<String>(
+            valueListenable: industry,
+            builder: (_, value, __) => DropdownButtonFormField<String>(
+              initialValue: value,
+              decoration: const InputDecoration(labelText: 'Industry'),
+              items: const [
+                DropdownMenuItem(
+                    value: 'retail', child: Text('Retail / wholesale')),
+                DropdownMenuItem(
+                    value: 'consulting', child: Text('Consultants / agencies')),
+                DropdownMenuItem(
+                    value: 'tourism', child: Text('Tourism / hospitality')),
+                DropdownMenuItem(
+                    value: 'logistics', child: Text('Transport / logistics')),
+                DropdownMenuItem(
+                    value: 'construction',
+                    child: Text('Construction / trades')),
+                DropdownMenuItem(
+                    value: 'salon', child: Text('Salon / personal services')),
+                DropdownMenuItem(
+                    value: 'education', child: Text('Schools / training')),
+                DropdownMenuItem(
+                    value: 'agriculture', child: Text('Agriculture / produce')),
+                DropdownMenuItem(
+                    value: 'real_estate',
+                    child: Text('Real estate / property')),
+                DropdownMenuItem(value: 'other', child: Text('Other')),
+              ],
+              onChanged: (next) {
+                if (next != null) industry.value = next;
+              },
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Create')),
+        ],
+      ),
+    );
+    if (accepted != true || name.text.trim().isEmpty) return;
+    try {
+      await app.api.call('POST', '/api/business/organizations',
+          {'name': name.text.trim(), 'industry': industry.value});
+      await loadOrganizations();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> createRecord(String kind) async {
+    final name = TextEditingController();
+    final detail = TextEditingController();
+    final amount = TextEditingController();
+    final quantity = TextEditingController(text: '1');
+    final docType = ValueNotifier<String>('quote');
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    final title = kind == 'catalog'
+        ? 'Add product or service'
+        : kind == 'customer'
+            ? 'Add customer'
+            : kind == 'document'
+                ? 'Create quotation'
+                : 'Create follow-up task';
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: name,
+              autofocus: true,
+              decoration: InputDecoration(
+                  labelText: kind == 'catalog'
+                      ? 'Product / service name'
+                      : kind == 'customer'
+                          ? 'Customer name'
+                          : kind == 'document'
+                              ? 'Quotation title / item'
+                              : 'Task title')),
+          if (kind == 'catalog') ...[
+            TextField(
+                controller: detail,
+                decoration: const InputDecoration(labelText: 'Description')),
+            TextField(
+                controller: amount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Price')),
+            TextField(
+                controller: quantity,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Stock quantity')),
+          ] else if (kind == 'customer') ...[
+            TextField(
+                controller: detail,
+                decoration: const InputDecoration(labelText: 'Email or phone')),
+          ] else if (kind == 'document') ...[
+            ValueListenableBuilder<String>(
+                valueListenable: docType,
+                builder: (_, value, __) => DropdownButtonFormField<String>(
+                    initialValue: value,
+                    decoration:
+                        const InputDecoration(labelText: 'Document type'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'quote', child: Text('Quotation')),
+                      DropdownMenuItem(
+                          value: 'invoice', child: Text('Invoice')),
+                      DropdownMenuItem(
+                          value: 'order', child: Text('Sales order'))
+                    ],
+                    onChanged: (next) {
+                      if (next != null) docType.value = next;
+                    })),
+            TextField(
+                controller: amount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Unit price')),
+            TextField(
+                controller: quantity,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Quantity')),
+          ] else ...[
+            TextField(
+                controller: detail,
+                decoration:
+                    const InputDecoration(labelText: 'Notes / description')),
+          ],
+        ])),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (accepted != true || name.text.trim().isEmpty) return;
+    setState(() => saving = true);
+    try {
+      final base = '/api/business/organizations/${Uri.encodeComponent(id)}';
+      if (kind == 'catalog') {
+        final price = double.tryParse(amount.text) ?? -1;
+        if (price < 0) {
+          throw const FormatException('Enter a valid non-negative price.');
+        }
+        await app.api.call('POST', '$base/catalog', {
+          'name': name.text.trim(),
+          'description': detail.text.trim(),
+          'price': price,
+          'stock': int.tryParse(quantity.text) ?? 0
+        });
+      } else if (kind == 'customer') {
+        final contact = detail.text.trim();
+        await app.api.call('POST', '$base/customers', {
+          'name': name.text.trim(),
+          if (contact.contains('@')) 'email': contact else 'phone': contact
+        });
+      } else if (kind == 'document') {
+        final price = double.tryParse(amount.text) ?? -1;
+        final count = int.tryParse(quantity.text) ?? 0;
+        if (price < 0 || count < 1) {
+          throw const FormatException('Enter a valid price and quantity.');
+        }
+        await app.api.call('POST', '$base/documents', {
+          'type': docType.value,
+          'items': [
+            {'name': name.text.trim(), 'quantity': count, 'unitPrice': price}
+          ]
+        });
+      } else {
+        await app.api.call('POST', '$base/tasks', {
+          'title': name.text.trim(),
+          'description': detail.text.trim(),
+          'type': 'follow_up'
+        });
+      }
+      await loadWorkspaceData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Business record saved.')));
+      }
+    } catch (e) {
+      if ((e is http.ClientException || e is TimeoutException) &&
+          kind != 'document') {
+        final entityType = kind == 'catalog'
+            ? 'catalog'
+            : kind == 'customer'
+                ? 'customer'
+                : 'task';
+        final changes = kind == 'catalog'
+            ? {
+                'name': name.text.trim(),
+                'description': detail.text.trim(),
+                'price': double.tryParse(amount.text) ?? 0,
+                'stock': int.tryParse(quantity.text) ?? 0
+              }
+            : kind == 'customer'
+                ? {
+                    'name': name.text.trim(),
+                    if (detail.text.trim().contains('@'))
+                      'email': detail.text.trim()
+                    else
+                      'phone': detail.text.trim()
+                  }
+                : {
+                    'title': name.text.trim(),
+                    'description': detail.text.trim(),
+                    'type': 'follow_up'
+                  };
+        await _enqueueOfflineCreate(id, entityType, changes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Saved to the device queue. It will sync when connectivity returns.')));
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  String _offlineQueueKey(String id) => 'chatify_business_offline_$id';
+  String _offlineIssuesKey(String id) => 'chatify_business_sync_issues_$id';
+
+  // Persist only offline record creates; each mutation ID makes retry safe if the response is lost.
+  Future<void> _enqueueOfflineCreate(
+      String id, String entityType, Map<String, dynamic> changes) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _offlineQueueKey(id);
+    final queue = prefs.getStringList(key) ?? <String>[];
+    queue.add(jsonEncode({
+      'mutationId':
+          'mobile:$entityType:${DateTime.now().microsecondsSinceEpoch}',
+      'operation': 'create',
+      'entityType': entityType,
+      'changes': changes
+    }));
+    await prefs.setStringList(key, queue);
+    if (mounted) setState(() => pendingOfflineCount = queue.length);
+  }
+
+  Future<int> _flushOfflineQueue(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _offlineQueueKey(id);
+    final queue = prefs.getStringList(key) ?? <String>[];
+    if (queue.isEmpty) {
+      if (mounted) setState(() => pendingOfflineCount = 0);
+      return 0;
+    }
+    try {
+      final mutations = queue
+          .map((entry) => Map<String, dynamic>.from(jsonDecode(entry) as Map))
+          .toList();
+      final response = await app.api.call(
+          'POST',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/sync',
+          {'mutations': mutations});
+      final results = List<dynamic>.from(response['results'] ?? []);
+      final byId = <String, Map<String, dynamic>>{
+        for (final result in results.whereType<Map>())
+          result['mutationId'].toString(): Map<String, dynamic>.from(result)
+      };
+      final remaining = <String>[];
+      final issues = prefs.getStringList(_offlineIssuesKey(id)) ?? <String>[];
+      var applied = 0;
+      for (final entry in queue) {
+        final mutation = Map<String, dynamic>.from(jsonDecode(entry) as Map);
+        final result = byId[mutation['mutationId'].toString()];
+        if (result == null) {
+          remaining.add(entry);
+        } else if (result['status'] == 'applied') {
+          applied++;
+        } else {
+          issues.add(jsonEncode({'mutation': mutation, 'result': result}));
+        }
+      }
+      await prefs.setStringList(key, remaining);
+      await prefs.setStringList(
+          _offlineIssuesKey(id), issues.take(100).toList());
+      if (mounted) {
+        setState(() {
+          pendingOfflineCount = remaining.length;
+          syncConflicts = issues.take(100).toList();
+        });
+      }
+      if (issues.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content:
+                Text('Some offline changes need review in Business Tools.')));
+      }
+      return applied;
+    } catch (_) {
+      if (mounted) setState(() => pendingOfflineCount = queue.length);
+      return 0;
+    }
+  }
+
+  // Publish or hide the customer-facing store without deleting the catalogue.
+  // The server applies this flag to public discovery, storefront, enquiry and checkout routes.
+  Future<void> _toggleStorefrontPublished() async {
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    final currentSettings = organization?['settings'] is Map
+        ? Map<String, dynamic>.from(organization!['settings'] as Map)
+        : <String, dynamic>{};
+    final currentlyPublished = currentSettings['storefrontPublished'] != false;
+    final next = !currentlyPublished;
+    setState(() => saving = true);
+    try {
+      await app.api.call(
+          'PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}', {
+        'settings': {'storefrontPublished': next},
+      });
+      await loadOrganizations();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(next
+              ? 'Storefront published. Customers can now discover your business.'
+              : 'Storefront hidden from public discovery. Your business records are unchanged.'),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  // Seller M-Pesa settings start with the registered account phone, but owners can
+  // save a different Kenyan number for customer-facing storefront payments.
+  Future<void> _configureMpesaNumbers() async {
+    var registeredPhone = app.user?['phone']?.toString() ?? '';
+    final slug = organization?['slug']?.toString() ?? '';
+    // The storefront API resolves the actual owner account default, even if a manager is editing settings.
+    if (slug.isNotEmpty) {
+      try {
+        final storefrontResponse = await app.api
+            .call('GET', '/api/storefront/${Uri.encodeComponent(slug)}');
+        final sellerDefault =
+            storefrontResponse['storefront']?['sellerMpesaPhone']?.toString() ??
+                '';
+        if (sellerDefault.isNotEmpty) registeredPhone = sellerDefault;
+      } catch (_) {
+        // Keep the signed-in user's registered number as a useful offline/fallback default.
+      }
+    }
+    // The storefront lookup above may yield after this screen is disposed; do not open a dialog using a stale context.
+    if (!mounted) return;
+    final currentSettings = organization?['settings'] is Map
+        ? Map<String, dynamic>.from(organization!['settings'] as Map)
+        : <String, dynamic>{};
+    final phone = TextEditingController(
+      text:
+          currentSettings['mpesaRecipientPhone']?.toString().isNotEmpty == true
+              ? currentSettings['mpesaRecipientPhone'].toString()
+              : registeredPhone,
+    );
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Seller M-Pesa number'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(
+              'Registered account number: ${registeredPhone.isEmpty ? 'Not set' : registeredPhone}'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: phone,
+            autofocus: true,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Customer payment number',
+              hintText: '0712345678',
+              helperText:
+                  'Starts with your registered number. Change it if you want customers to pay using another Kenyan M-Pesa number. Leave blank to use your registered account number.',
+              prefixIcon: Icon(Icons.phone_android),
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save number')),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final id = organization?['_id']?.toString();
+    if (id == null) return;
+    try {
+      await app.api.call(
+          'PATCH', '/api/business/organizations/${Uri.encodeComponent(id)}', {
+        'settings': {'mpesaRecipientPhone': phone.text.trim()},
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Seller M-Pesa number saved.')));
+      }
+      await loadOrganizations();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _configureTaxProfile() async {
+    final country = TextEditingController(
+        text: organization?['country']?.toString() ?? 'KE');
+    final currency = TextEditingController(
+        text: organization?['currency']?.toString() ?? 'KES');
+    final rate = TextEditingController(text: '0');
+    String mode = 'exclusive';
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Tax and currency profile'),
+                  content: SingleChildScrollView(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: country,
+                        maxLength: 2,
+                        decoration: const InputDecoration(
+                            labelText: 'Country code (e.g. KE)')),
+                    TextField(
+                        controller: currency,
+                        maxLength: 3,
+                        decoration: const InputDecoration(
+                            labelText: 'Currency (e.g. KES)')),
+                    TextField(
+                        controller: rate,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration:
+                            const InputDecoration(labelText: 'Tax rate (%)')),
+                    DropdownButtonFormField<String>(
+                        initialValue: mode,
+                        decoration:
+                            const InputDecoration(labelText: 'Tax treatment'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'exclusive',
+                              child: Text('Tax added on top')),
+                          DropdownMenuItem(
+                              value: 'inclusive', child: Text('Tax included')),
+                          DropdownMenuItem(value: 'none', child: Text('No tax'))
+                        ],
+                        onChanged: (value) {
+                          if (value != null) setDialogState(() => mode = value);
+                        }),
+                    const Text(
+                        'Confirm local rates with your accountant or tax authority.',
+                        style: TextStyle(fontSize: 12)),
+                  ])),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(dialogContext, true),
+                        child: const Text('Save'))
+                  ],
+                )));
+    if (accepted != true) return;
+    try {
+      final id = organization!['_id'].toString();
+      final response = await app.api.call(
+          'PATCH',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/tax-profile',
+          {
+            'country': country.text.trim().toUpperCase(),
+            'currency': currency.text.trim().toUpperCase(),
+            'rate': double.tryParse(rate.text) ?? -1,
+            'mode': mode
+          });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(response['notice']?.toString() ?? 'Tax profile saved.')));
+      }
+      await loadOrganizations();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _translateBusinessText() async {
+    final source = TextEditingController();
+    final target = TextEditingController(text: 'Kiswahili');
+    bool consent = false;
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Translate business text'),
+                  content: SingleChildScrollView(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: source,
+                        minLines: 3,
+                        maxLines: 6,
+                        decoration: const InputDecoration(
+                            labelText: 'Text to translate')),
+                    TextField(
+                        controller: target,
+                        decoration: const InputDecoration(
+                            labelText: 'Target language')),
+                    CheckboxListTile(
+                        value: consent,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                            'I consent to sending this text to the configured AI provider'),
+                        onChanged: (value) =>
+                            setDialogState(() => consent = value ?? false)),
+                  ])),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: consent
+                            ? () => Navigator.pop(dialogContext, true)
+                            : null,
+                        child: const Text('Translate'))
+                  ],
+                )));
+    if (accepted != true) return;
+    try {
+      final id = organization!['_id'].toString();
+      final response = await app.api.call('POST',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/translate', {
+        'text': source.text,
+        'targetLanguage': target.text.trim(),
+        'consent': true
+      });
+      if (!mounted) return;
+      await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                  title: const Text('Translation'),
+                  content: SelectableText(response['translated']?.toString() ??
+                      'No translation returned.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Close'))
+                  ]));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _translateVoice() async {
+    final target = TextEditingController(text: 'Kiswahili');
+    bool consent = false;
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Voice message translation'),
+                  content: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: target,
+                        decoration: const InputDecoration(
+                            labelText: 'Translate speech into')),
+                    CheckboxListTile(
+                        value: consent,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                            'I consent to sending this audio to the configured AI provider'),
+                        onChanged: (value) =>
+                            setDialogState(() => consent = value ?? false)),
+                  ]),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: consent
+                            ? () => Navigator.pop(dialogContext, true)
+                            : null,
+                        child: const Text('Choose audio'))
+                  ],
+                )));
+    if (accepted != true) return;
+    try {
+      final selected = await FilePicker.platform.pickFiles(
+          type: FileType.audio, withData: true, allowMultiple: false);
+      if (selected == null || selected.files.isEmpty) return;
+      final file = selected.files.first;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty || bytes.length > 11 * 1024 * 1024) {
+        throw const FormatException('Choose an audio file smaller than 11 MB.');
+      }
+      final extension = (file.extension ?? '').toLowerCase();
+      final mime = switch (extension) {
+        'mp3' || 'mpeg' => 'audio/mpeg',
+        'm4a' || 'mp4' => 'audio/mp4',
+        'wav' => 'audio/wav',
+        'ogg' => 'audio/ogg',
+        'webm' => 'audio/webm',
+        _ => throw const FormatException(
+            'Supported audio formats: MP3, M4A, WAV, OGG and WebM.'),
+      };
+      final id = organization!['_id'].toString();
+      final response = await app.api.call(
+          'POST',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/voice-translate',
+          {
+            'audioBase64': base64Encode(bytes),
+            'mimeType': mime,
+            'targetLanguage': target.text.trim(),
+            'consent': true
+          });
+      if (!mounted) return;
+      await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                title: const Text('Voice translation'),
+                content: SingleChildScrollView(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      const Text('Transcription',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      SelectableText(
+                          response['transcription']?.toString() ?? ''),
+                      const SizedBox(height: 12),
+                      const Text('Translation',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      SelectableText(response['translated']?.toString() ?? ''),
+                    ])),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Close'))
+                ],
+              ));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _memorySuggestions() async {
+    final source = TextEditingController();
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+                title: const Text('Business Memory suggestions'),
+                content: TextField(
+                    controller: source,
+                    autofocus: true,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: const InputDecoration(
+                        labelText: 'Paste a conversation or business note')),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Find suggestions'))
+                ]));
+    if (accepted != true || source.text.trim().isEmpty) return;
+    try {
+      final id = organization!['_id'].toString();
+      final response = await app.api.call(
+          'POST',
+          '/api/business/organizations/${Uri.encodeComponent(id)}/memory-candidates',
+          {'text': source.text});
+      final candidates = List<dynamic>.from(response['candidates'] ?? []);
+      if (!mounted) return;
+      await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                  title: const Text('Review suggestions'),
+                  content: SizedBox(
+                      width: 420,
+                      child: candidates.isEmpty
+                          ? const Text('No clear candidates found.')
+                          : ListView(
+                              shrinkWrap: true,
+                              children: candidates
+                                  .whereType<Map>()
+                                  .map((item) => ListTile(
+                                      title: Text(item['title']?.toString() ??
+                                          'Suggestion'),
+                                      subtitle: Text(
+                                          '${item['type']}: ${item['description']}')))
+                                  .toList())),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Close'))
+                  ]));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _sendCustomerMessage() async {
+    final eligible = customers.whereType<Map>().toList();
+    if (eligible.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Add a customer before sending a message.')));
+      return;
+    }
+    String? customerId = eligible.first['_id']?.toString();
+    String channel = 'whatsapp';
+    bool confirmedOptIn = false;
+    final message = TextEditingController();
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Message a customer'),
+                  content: SingleChildScrollView(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    DropdownButtonFormField<String>(
+                        initialValue: customerId,
+                        decoration:
+                            const InputDecoration(labelText: 'Customer'),
+                        items: eligible
+                            .map((item) => DropdownMenuItem<String>(
+                                value: item['_id']?.toString(),
+                                child: Text(
+                                    item['name']?.toString() ?? 'Customer',
+                                    overflow: TextOverflow.ellipsis)))
+                            .toList(),
+                        onChanged: (value) =>
+                            setDialogState(() => customerId = value)),
+                    DropdownButtonFormField<String>(
+                        initialValue: channel,
+                        decoration: const InputDecoration(labelText: 'Channel'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'whatsapp', child: Text('WhatsApp')),
+                          DropdownMenuItem(value: 'sms', child: Text('SMS'))
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => channel = value);
+                          }
+                        }),
+                    TextField(
+                        controller: message,
+                        minLines: 2,
+                        maxLines: 5,
+                        decoration:
+                            const InputDecoration(labelText: 'Message')),
+                    CheckboxListTile(
+                        value: confirmedOptIn,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Customer has explicitly opted in'),
+                        onChanged: (value) => setDialogState(
+                            () => confirmedOptIn = value ?? false)),
+                  ])),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed:
+                            confirmedOptIn && message.text.trim().isNotEmpty
+                                ? () => Navigator.pop(dialogContext, true)
+                                : null,
+                        child: const Text('Send'))
+                  ],
+                )));
+    if (accepted != true || customerId == null) return;
+    try {
+      final base =
+          '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
+      await app.api.call(
+          'PATCH',
+          '$base/customers/${Uri.encodeComponent(customerId!)}/messaging-consent',
+          {'consent': true});
+      final response = await app.api.call('POST', '$base/communications/send', {
+        'customerId': customerId,
+        'channel': channel,
+        'message': message.text.trim()
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(response['notice']?.toString() ?? 'Message submitted.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _createScheduledWorkflow() async {
+    final name = TextEditingController(text: 'Daily follow-up reminder');
+    final interval = TextEditingController(text: '60');
+    final actionText =
+        TextEditingController(text: 'Review open customer follow-ups');
+    String action = 'create_task';
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Scheduled workflow'),
+                  content: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                        controller: name,
+                        decoration:
+                            const InputDecoration(labelText: 'Workflow name')),
+                    TextField(
+                        controller: interval,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                            labelText: 'Repeat every minutes (5–10080)')),
+                    DropdownButtonFormField<String>(
+                        initialValue: action,
+                        decoration: const InputDecoration(labelText: 'Action'),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'create_task',
+                              child: Text('Create follow-up task')),
+                          DropdownMenuItem(
+                              value: 'notify_team',
+                              child: Text('Notify team in Chatify'))
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => action = value);
+                          }
+                        }),
+                    TextField(
+                        controller: actionText,
+                        decoration: InputDecoration(
+                            labelText: action == 'create_task'
+                                ? 'Task title'
+                                : 'Notification')),
+                  ]),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(dialogContext, true),
+                        child: const Text('Create and enable'))
+                  ],
+                )));
+    if (accepted != true) return;
+    try {
+      final base =
+          '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}';
+      final created = await app.api.call('POST', '$base/workflows', {
+        'name': name.text.trim(),
+        'trigger': 'schedule',
+        'scheduleEveryMinutes': int.tryParse(interval.text) ?? 60,
+        'actions': [
+          {
+            'actionType': action,
+            'config': action == 'create_task'
+                ? {'title': actionText.text.trim()}
+                : {'message': actionText.text.trim()}
+          }
+        ]
+      });
+      final workflowId = (created['workflow'] as Map?)?['_id']?.toString();
+      if (workflowId == null) {
+        throw const FormatException(
+            'Workflow was created but its ID was missing.');
+      }
+      await app.api.call(
+          'POST', '$base/workflows/${Uri.encodeComponent(workflowId)}/test', {
+        'sample': {'source': 'mobile setup'}
+      });
+      await app.api.call(
+          'PATCH',
+          '$base/workflows/${Uri.encodeComponent(workflowId)}',
+          {'enabled': true});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content:
+                Text('Workflow enabled. Keep the backend worker running.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _invoiceIntegration(String documentId, String action) async {
+    try {
+      final base =
+          '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(documentId)}';
+      Map<String, dynamic> response;
+      if (action == 'stripe' || action == 'paypal') {
+        final providerRoute =
+            action == 'stripe' ? 'stripe-checkout' : 'paypal-checkout';
+        response = await app.api.call('POST', '$base/$providerRoute', {});
+        final checkoutUrl = response['payment'] is Map
+            ? (response['payment'] as Map)['checkoutUrl']?.toString()
+            : null;
+        if (checkoutUrl == null ||
+            !await launchUrl(Uri.parse(checkoutUrl),
+                mode: LaunchMode.externalApplication)) {
+          if (mounted && checkoutUrl != null) {
+            await showDialog<void>(
+                context: context,
+                builder: (context) => AlertDialog(
+                        title: const Text('Hosted checkout'),
+                        content: SelectableText(checkoutUrl),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Close'))
+                        ]));
+          }
+        }
+      } else if (action == 'mpesa') {
+        final phone = TextEditingController();
+        final accepted = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+                    title: const Text('Request M-Pesa payment'),
+                    content: TextField(
+                        controller: phone,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                            labelText: 'Customer M-Pesa phone')),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Send STK prompt'))
+                    ]));
+        if (accepted != true) return;
+        response = await app.api
+            .call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
+      } else {
+        response = await app.api.call('POST', '$base/etims-submit', {});
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(response['notice']?.toString() ?? 'Request submitted.')));
+      }
+      await loadWorkspaceData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _showPaymentMatching(String documentId) async {
+    try {
+      final orgId = Uri.encodeComponent(organization!['_id'].toString());
+      final path =
+          '/api/business/organizations/$orgId/documents/${Uri.encodeComponent(documentId)}/payment-matching';
+      final result = await app.api.call('GET', path);
+      final matches = List<dynamic>.from(result['matches'] ?? []);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Payment matching · ${result['number'] ?? 'Invoice'}'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+                child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(
+                      'Confirmed paid: ${result['currency'] ?? 'KES'} ${result['confirmedPaidAmount'] ?? 0}'),
+                  Text(
+                      'Outstanding: ${result['currency'] ?? 'KES'} ${result['outstandingAmount'] ?? 0}'),
+                  const SizedBox(height: 8),
+                  const Text(
+                      'Confidence is a triage hint only. Unverified manual references are not proof of payment.'),
+                  const Divider(),
+                  if (matches.isEmpty)
+                    const Text('No payment records attached to this document.'),
+                  for (final match in matches.whereType<Map>())
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(match['verified'] == true
+                          ? Icons.verified_outlined
+                          : Icons.warning_amber_outlined),
+                      title: Text(
+                          '${match['status'] ?? 'unmatched'} · ${result['currency'] ?? 'KES'} ${match['amount'] ?? 0}'),
+                      subtitle: Text(
+                          'Confidence: ${match['confidence'] ?? 0}% · Reference: ${match['reference'] ?? 'none'}\n${match['notice'] ?? ''}'),
+                    ),
+                ])),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close'))
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> _shareBusinessDocument(String documentId) async {
+    try {
+      final orgId = Uri.encodeComponent(organization!['_id'].toString());
+      final result = await app.api.call(
+          'POST', '/api/business/organizations/$orgId/enterprise/shares', {
+        'entityType': 'document',
+        'entityId': documentId,
+        'expiresInHours': 72,
+      });
+      final path = result['path']?.toString() ?? '';
+      if (path.isEmpty || !mounted) return;
+      final link = Uri.parse(app.api.base).resolve(path).toString();
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Customer document link'),
+          content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                    'The customer can view this document without seeing internal notes. The link expires in 72 hours.'),
+                const SizedBox(height: 8),
+                SelectableText(link),
+              ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close')),
+            FilledButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: link));
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Customer document link copied.')));
+                }
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy link'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> _showDocumentActions(Map item) async {
+    final type = item['type']?.toString() ?? '';
+    final status = item['status']?.toString() ?? '';
+    final action = await showModalBottomSheet<String>(
+        context: context,
+        builder: (context) => SafeArea(
+                child: Wrap(children: [
+              ListTile(
+                  title: Text(item['number']?.toString() ?? 'Sales document'),
+                  subtitle: Text('Status: $status')),
+              if (!['draft', 'rejected', 'cancelled'].contains(status))
+                ListTile(
+                    leading: const Icon(Icons.link),
+                    title:
+                        const Text('Share customer link (expires in 72 hours)'),
+                    onTap: () => Navigator.pop(context, 'share')),
+              if (type == 'invoice' && status != 'draft')
+                ListTile(
+                    leading: const Icon(Icons.fact_check_outlined),
+                    title: const Text('Review payment matching'),
+                    onTap: () => Navigator.pop(context, 'matching')),
+              if (status == 'draft')
+                ListTile(
+                    leading: const Icon(Icons.send),
+                    title: const Text('Issue / send document'),
+                    onTap: () => Navigator.pop(context, 'issue')),
+              if (type == 'invoice' &&
+                  status != 'draft' &&
+                  !['paid', 'cancelled', 'rejected', 'fulfilled']
+                      .contains(status))
+                ListTile(
+                    leading: const Icon(Icons.credit_card),
+                    title: const Text('Pay online (Stripe)'),
+                    onTap: () => Navigator.pop(context, 'stripe')),
+              if (type == 'invoice' &&
+                  status != 'draft' &&
+                  !['paid', 'cancelled', 'rejected', 'fulfilled']
+                      .contains(status))
+                ListTile(
+                    leading: const Icon(Icons.account_balance_wallet_outlined),
+                    title: const Text('Pay with PayPal'),
+                    onTap: () => Navigator.pop(context, 'paypal')),
+              if (type == 'invoice' &&
+                  status != 'draft' &&
+                  !['paid', 'cancelled', 'rejected', 'fulfilled']
+                      .contains(status))
+                ListTile(
+                    leading: const Icon(Icons.payments),
+                    title: const Text('Request M-Pesa STK payment'),
+                    onTap: () => Navigator.pop(context, 'mpesa')),
+              if (type == 'invoice' &&
+                  status != 'draft' &&
+                  !['cancelled', 'rejected'].contains(status))
+                ListTile(
+                    leading: const Icon(Icons.receipt_long),
+                    title:
+                        const Text('Submit through configured eTIMS gateway'),
+                    onTap: () => Navigator.pop(context, 'etims')),
+            ])));
+    if (action == null) return;
+    final id = item['_id']?.toString();
+    if (id == null) return;
+    if (action == 'share') {
+      await _shareBusinessDocument(id);
+      return;
+    }
+    if (action == 'matching') {
+      await _showPaymentMatching(id);
+      return;
+    }
+    try {
+      if (action == 'issue') {
+        final path =
+            '/api/business/organizations/${Uri.encodeComponent(organization!['_id'].toString())}/documents/${Uri.encodeComponent(id)}/status';
+        await app.api.call('PATCH', path, {'status': 'sent'});
+        await loadWorkspaceData();
+      } else {
+        await _invoiceIntegration(id, action);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Widget toolsPanel() => ListView(padding: const EdgeInsets.all(12), children: [
+        // Keep the enterprise feature suite visible from the existing Business Tools panel.
+        Card(
+            child: ListTile(
+          leading: const Icon(Icons.dashboard_customize_outlined),
+          title: const Text('Enterprise workspace'),
+          subtitle: const Text(
+              'Handbook, approvals, customer promises, disputes, projects, incidents and global search'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => BusinessEnterprisePage(
+              organizationId: organization!['_id'].toString(),
+              organizationName: organization!['name']?.toString() ?? 'Business',
+            ),
+          )),
+        )),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.public),
+                title: const Text('Tax and currency profile'),
+                subtitle:
+                    const Text('Configure jurisdiction and tax treatment'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _configureTaxProfile)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.translate),
+                title: const Text('Translate business text'),
+                subtitle: const Text('Consent-gated AI translation'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _translateBusinessText)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.mic_none),
+                title: const Text('Translate voice message'),
+                subtitle: const Text(
+                    'Transcribe and translate an audio file with consent'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _translateVoice)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.psychology_alt),
+                title: const Text('Business Memory suggestions'),
+                subtitle: const Text(
+                    'Find possible tasks, dates and payment details'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _memorySuggestions)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.mark_chat_unread_outlined),
+                title: const Text('Message a customer'),
+                subtitle: const Text('WhatsApp / SMS; opt-in required'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _sendCustomerMessage)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.schedule),
+                title: const Text('Scheduled workflow'),
+                subtitle:
+                    const Text('Create, test and enable an allowed action'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _createScheduledWorkflow)),
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.sync),
+                title: Text('Sync offline records ($pendingOfflineCount)'),
+                subtitle: Text(syncConflicts.isEmpty
+                    ? 'Queued creates sync when connected'
+                    : '${syncConflicts.length} changes need review'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  final id = organization!['_id'].toString();
+                  final applied = await _flushOfflineQueue(id);
+                  if (applied > 0) await loadWorkspaceData(syncPending: false);
+                  if (syncConflicts.isNotEmpty && mounted) {
+                    await showDialog<void>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                                title: const Text('Sync conflicts'),
+                                content: SizedBox(
+                                    width: 420,
+                                    child: ListView(
+                                        shrinkWrap: true,
+                                        children: syncConflicts.map((entry) {
+                                          final item = jsonDecode(entry) as Map;
+                                          final result =
+                                              item['result'] as Map? ?? {};
+                                          return ListTile(
+                                              title: Text(result['status']
+                                                      ?.toString() ??
+                                                  'Needs review'),
+                                              subtitle: Text(result['error']
+                                                      ?.toString() ??
+                                                  result['reason']
+                                                      ?.toString() ??
+                                                  'Server record changed; compare versions before retrying.'));
+                                        }).toList())),
+                                actions: [
+                                  TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('Close'))
+                                ]));
+                  }
+                })),
+      ]);
+
+  Widget metric(String label, dynamic value, IconData icon) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            Icon(icon, size: 24),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(value?.toString() ?? '0',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  Text(label, style: Theme.of(context).textTheme.bodySmall),
+                ])),
+          ]),
+        ),
+      );
+
+  Widget recordList(List<dynamic> records, String kind, IconData icon) {
+    if (records.isEmpty) {
+      return Center(
+          child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text('No $kind yet. Use Add to create your first record.',
+                  textAlign: TextAlign.center)));
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.only(bottom: 24),
+      itemCount: records.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (_, index) {
+        final item = records[index];
+        if (item is! Map) return const SizedBox.shrink();
+        final title = item['name']?.toString() ??
+            item['title']?.toString() ??
+            item['number']?.toString() ??
+            kind;
+        final subtitle = item['description']?.toString() ??
+            item['company']?.toString() ??
+            item['status']?.toString() ??
+            '';
+        final amount = item['price'] ?? item['total'];
+        return ListTile(
+          leading: CircleAvatar(child: Icon(icon)),
+          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle:
+              Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+          trailing: amount == null
+              ? null
+              : Text('${item['currency'] ?? 'KES'} $amount'),
+          onTap: kind == 'sales documents'
+              ? () => _showDocumentActions(Map<String, dynamic>.from(item))
+              : null,
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const Center(child: CircularProgressIndicator());
+    if (error != null && organizations.isEmpty) {
+      return Center(
+          child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.business_outlined, size: 48),
+                const SizedBox(height: 12),
+                Text(error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                FilledButton(
+                    onPressed: loadOrganizations, child: const Text('Retry')),
+              ])));
+    }
+    if (organization == null) {
+      return Center(
+          child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.storefront_outlined, size: 56),
+                const SizedBox(height: 12),
+                Text('Turn conversations into business',
+                    style: Theme.of(context).textTheme.titleLarge,
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 8),
+                const Text(
+                    'Create a workspace to manage customers, products, quotations and follow-ups alongside your conversations.',
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                    onPressed: createOrganization,
+                    icon: const Icon(Icons.add_business),
+                    label: const Text('Create business workspace')),
+              ])));
+    }
+    final metrics = dashboard;
+    return DefaultTabController(
+      length: 5,
+      child: Column(children: [
+        // Keep workspace actions visible and labelled; icon-only actions were easy to miss,
+        // especially on touch screens and when this dashboard was used in a browser.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+              isExpanded: true,
+              value: organization!['_id']?.toString(),
+              items: organizations
+                  .whereType<Map>()
+                  .map((item) => DropdownMenuItem<String>(
+                      value: item['_id'].toString(),
+                      child: Text(item['name']?.toString() ?? 'Business',
+                          overflow: TextOverflow.ellipsis)))
+                  .toList(),
+              onChanged: (id) async {
+                if (id == null) return;
+                setState(() {
+                  organization = organizations
+                      .whereType<Map>()
+                      .firstWhere((item) => item['_id'].toString() == id)
+                      .cast<String, dynamic>();
+                  loading = true;
+                });
+                await loadWorkspaceData();
+                if (mounted) setState(() => loading = false);
+              },
+            )),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    final slug = organization?['slug']?.toString() ?? '';
+                    if (slug.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text(
+                              'This workspace has no storefront slug yet.')));
+                      return;
+                    }
+                    Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (_) => StorefrontPage(slug: slug)));
+                  },
+                  icon: const Icon(Icons.storefront_outlined),
+                  label: const Text('View storefront'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: saving ? null : _toggleStorefrontPublished,
+                  icon: Icon((organization?['settings'] is Map &&
+                          (organization!['settings']
+                                  as Map)['storefrontPublished'] ==
+                              false)
+                      ? Icons.publish_outlined
+                      : Icons.visibility_off_outlined),
+                  label: Text((organization?['settings'] is Map &&
+                          (organization!['settings']
+                                  as Map)['storefrontPublished'] ==
+                              false)
+                      ? 'Publish storefront'
+                      : 'Hide storefront'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _configureMpesaNumbers,
+                  icon: const Icon(Icons.phone_android),
+                  label: const Text('M-Pesa settings'),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    final id = organization?['_id']?.toString();
+                    if (id == null) return;
+                    Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => MerchantPosPage(
+                        organizationId: id,
+                        organizationName: organization?['name']?.toString() ?? 'Business',
+                      ),
+                    ));
+                  },
+                  icon: const Icon(Icons.point_of_sale_outlined),
+                  label: const Text('In-person POS payments'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: loadOrganizations,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: createOrganization,
+                  icon: const Icon(Icons.add_business),
+                  label: const Text('Add workspace'),
+                ),
+              ],
+            ),
+          ]),
+        ),
+        SizedBox(
+            height: 118,
+            child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                children: [
+                  SizedBox(
+                      width: 170,
+                      child: metric('Customers', metrics['customers'],
+                          Icons.people_outline)),
+                  SizedBox(
+                      width: 170,
+                      child: metric(
+                          'Products / services',
+                          metrics['activeCatalogItems'],
+                          Icons.inventory_2_outlined)),
+                  SizedBox(
+                      width: 170,
+                      child: metric(
+                          'Open tasks', metrics['openTasks'], Icons.task_alt)),
+                  SizedBox(
+                      width: 170,
+                      child: metric('Open cases', metrics['openCases'],
+                          Icons.support_agent_outlined)),
+                ])),
+        const TabBar(isScrollable: true, tabs: [
+          Tab(text: 'Catalogue'),
+          Tab(text: 'Customers'),
+          Tab(text: 'Sales'),
+          Tab(text: 'Tasks'),
+          Tab(text: 'Tools'),
+        ]),
+        Expanded(
+            child: TabBarView(children: [
+          Column(children: [
+            Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                    onPressed: saving ? null : () => createRecord('catalog'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add product / service'))),
+            Expanded(
+                child: recordList(catalog, 'products or services',
+                    Icons.inventory_2_outlined))
+          ]),
+          Column(children: [
+            Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                    onPressed: saving ? null : () => createRecord('customer'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add customer'))),
+            Expanded(
+                child: recordList(customers, 'customers', Icons.person_outline))
+          ]),
+          Column(children: [
+            Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                    onPressed: saving ? null : () => createRecord('document'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Create quotation'))),
+            Expanded(
+                child: recordList(
+                    documents, 'sales documents', Icons.receipt_long_outlined))
+          ]),
+          Column(children: [
+            Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                    onPressed: saving ? null : () => createRecord('task'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add task / follow-up'))),
+            Expanded(child: recordList(tasks, 'tasks', Icons.task_alt))
+          ]),
+          toolsPanel(),
+        ])),
+        if (saving) const LinearProgressIndicator(),
+        if (error != null)
+          Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(error!,
+                  style:
+                      TextStyle(color: Theme.of(context).colorScheme.error))),
+      ]),
+    );
+  }
+}
+
+// Merchant checkout for shops, supermarkets, malls, hotels and restaurants.
+class MerchantPosPage extends StatefulWidget {
+  const MerchantPosPage({super.key, required this.organizationId, required this.organizationName});
+  final String organizationId, organizationName;
+  @override
+  State<MerchantPosPage> createState() => _MerchantPosPageState();
+}
+class _MerchantPosPageState extends State<MerchantPosPage> {
+  AppState get app => context.read<AppState>();
+  final till = TextEditingController(), paybill = TextEditingController(),
+      amount = TextEditingController(),
+      description = TextEditingController(), reference = TextEditingController(),
+      darajaConsumerKey = TextEditingController(), darajaConsumerSecret = TextEditingController(),
+      darajaPasskey = TextEditingController();
+  String method = 'mpesa_till', darajaMode = 'production';
+  bool loading = true, saving = false, darajaConfigured = false;
+  Map<String, dynamic>? profile;
+  List<dynamic> charges = [];
+  String? error;
+  String get base => '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/pos';
+  @override
+  void initState() { super.initState(); load(); }
+  @override
+  void dispose() { till.dispose(); paybill.dispose(); amount.dispose(); description.dispose(); reference.dispose(); darajaConsumerKey.dispose(); darajaConsumerSecret.dispose(); darajaPasskey.dispose(); super.dispose(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = null; });
+    try {
+      final r = await Future.wait([app.api.call('GET', '$base/payment-profile'), app.api.call('GET', '$base/charges')]);
+      profile = r[0]['paymentProfile'] is Map ? Map<String,dynamic>.from(r[0]['paymentProfile']) : null;
+      darajaConfigured = r[0]['darajaConfigured'] == true;
+      charges = List<dynamic>.from(r[1]['charges'] ?? []);
+      if (profile != null) {
+        method = profile!['method']?.toString() ?? 'mpesa_till';
+        till.text = profile!['tillNumber']?.toString() ?? '';
+        paybill.text = profile!['paybillNumber']?.toString() ?? '';
+      }
+    } catch (e) { error = e.toString(); }
+    finally { if (mounted) setState(() => loading = false); }
+  }
+
+  Future<void> saveProfile() async {
+    setState(() => saving = true);
+    try {
+      final body = <String,dynamic>{'method': method};
+      if (method == 'mpesa_till') { body['tillNumber'] = till.text.trim(); }
+      else { body['paybillNumber'] = paybill.text.trim(); }
+      final hasAnyCredential = darajaConsumerKey.text.trim().isNotEmpty || darajaConsumerSecret.text.trim().isNotEmpty || darajaPasskey.text.trim().isNotEmpty;
+      if (hasAnyCredential) {
+        if (darajaConsumerKey.text.trim().isEmpty || darajaConsumerSecret.text.trim().isEmpty || darajaPasskey.text.trim().isEmpty) {
+          throw Exception('Enter the merchant consumer key, consumer secret and passkey together, or leave all three blank.');
+        }
+        body.addAll({'mode': darajaMode, 'shortcode': method == 'mpesa_till' ? till.text.trim() : paybill.text.trim(),
+          'consumerKey': darajaConsumerKey.text.trim(), 'consumerSecret': darajaConsumerSecret.text.trim(), 'passkey': darajaPasskey.text.trim()});
+      }
+      final r = await app.api.call('PUT', '$base/payment-profile', body);
+      profile = Map<String,dynamic>.from(r['paymentProfile'] ?? body);
+      darajaConfigured = r['darajaConfigured'] == true;
+      darajaConsumerKey.clear(); darajaConsumerSecret.clear(); darajaPasskey.clear();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merchant payment instructions saved.')));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+    finally { if (mounted) setState(() => saving = false); }
+  }
+
+  Future<void> createCharge() async {
+    final n = int.tryParse(amount.text.trim());
+    if (n == null || n < 1 || n > 150000 || description.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a description and whole-number amount from KSh 1 to KSh 150,000.')));
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      final r = await app.api.call('POST', '$base/charges', {
+        'amount': n, 'description': description.text.trim(),
+        if (reference.text.trim().isNotEmpty) 'reference': reference.text.trim(),
+      });
+      amount.clear(); description.clear(); reference.clear();
+      if (mounted) await showCharge(Map<String,dynamic>.from(r['charge'] ?? {}));
+      await load();
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+    finally { if (mounted) setState(() => saving = false); }
+  }
+
+  Future<void> initiateStk(Map<String,dynamic> item, String phone) async {
+    if (phone.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter the customer M-Pesa phone number first.')));
+      return;
+    }
+    try {
+      await app.api.call('POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/stk', {'phone': phone.trim()});
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('STK prompt sent. The sale remains pending until Safaricom confirms payment.')));
+      }
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> reconcileCharge(Map<String,dynamic> item) async {
+    final receipt = TextEditingController();
+    bool verified = false;
+    final accepted = await showDialog<bool>(context: context, builder: (d) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        title: const Text('Verify M-Pesa receipt'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Sale reference: ${item['reference'] ?? ''} · KSh ${item['amount'] ?? ''}'),
+          TextField(controller: receipt, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'M-Pesa receipt number')),
+          CheckboxListTile(value: verified, contentPadding: EdgeInsets.zero,
+            title: const Text('I checked the receipt in the official merchant M-Pesa account or statement'),
+            onChanged: (value) => setDialogState(() => verified = value ?? false)),
+          const Text('This records a manual finance reconciliation; it does not verify the receipt with Safaricom.', style: TextStyle(fontSize: 12)),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+          FilledButton(onPressed: verified && receipt.text.trim().isNotEmpty ? () => Navigator.pop(d, true) : null, child: const Text('Record as verified')),
+        ],
+      ),
+    ));
+    if (accepted == true) {
+      try {
+        await app.api.call('POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/reconcile', {
+          'receipt': receipt.text.trim().toUpperCase(), 'verified': verified,
+        });
+        await load();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt recorded as manually reconciled.')));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+    receipt.dispose();
+  }
+
+  Future<void> showCharge(Map<String,dynamic> item) async {
+    if (item['qrPayload'] == null && item['paymentId'] != null) {
+      try {
+        final details = await app.api.call('GET', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}');
+        item = Map<String,dynamic>.from(details['charge'] ?? item);
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load payment QR: $e')));
+        return;
+      }
+    }
+    if (!mounted) return;
+    final payload = item['qrPayload']?.toString() ?? '';
+    final dynamicQrImage = item['dynamicQrImage']?.toString() ?? '';
+    final stkPhone = TextEditingController();
+    final isSafaricomQr = item['qrProvider'] == 'safaricom_dynamic_qr' && dynamicQrImage.isNotEmpty;
+    await showDialog<void>(context: context, builder: (d) => AlertDialog(
+      title: const Text('Customer checkout'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (isSafaricomQr)
+          Image.memory(base64Decode(dynamicQrImage), width: 220, height: 220, fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const Text('Could not display the M-Pesa QR image. Refresh and try again.'))
+        else if (payload.isNotEmpty)
+          QrImageView(data: payload, version: QrVersions.auto, size: 220, backgroundColor: Colors.white),
+        Text(widget.organizationName, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
+        Text('KSh ${item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
+        Text(item['description']?.toString() ?? ''),
+        SelectableText('Reference: ${item['reference'] ?? ''}'),
+        Text('Status: ${item['status'] ?? 'PENDING'}'),
+        const SizedBox(height: 8),
+        Text(isSafaricomQr
+          ? 'Scan this Safaricom Dynamic QR with the M-Pesa app to pay the merchant. The sale remains pending until the provider callback confirms the matching transaction.'
+          : 'Demo/instruction QR only. Customer scans with Chatify to view the merchant details, then pays in M-Pesa. This does not confirm payment.',
+          textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+        if (!isSafaricomQr)
+          TextButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: payload)); }, icon: const Icon(Icons.copy), label: const Text('Copy QR payload')),
+        const Divider(height: 24),
+        TextField(controller: stkPhone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Customer M-Pesa phone', hintText: '0712345678 or 254712345678')),
+        const SizedBox(height: 6),
+        Text(darajaConfigured ? 'STK uses this merchant\'s own authorized Daraja shortcode.' : 'Configure authorized merchant Daraja credentials to enable direct STK Push.', style: const TextStyle(fontSize: 12)),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d), child: const Text('Close')),
+        FilledButton.icon(onPressed: saving || !darajaConfigured ? null : () => initiateStk(item, stkPhone.text), icon: const Icon(Icons.phone_android), label: const Text('Send STK Push')),
+      ],
+    ));
+    stkPhone.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return Scaffold(appBar: AppBar(title: const Text('In-person POS payments'), actions: [IconButton(onPressed: load, icon: const Icon(Icons.refresh))]),
+      body: RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.all(16), children: [
+        Text(widget.organizationName, style: Theme.of(context).textTheme.headlineSmall),
+        const Text('Create cashier checkout requests for retail purchases, restaurant bills, hotel stays and other sales.'),
+        if (error != null) Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Merchant payment destination', style: Theme.of(context).textTheme.titleLarge),
+          DropdownButtonFormField<String>(initialValue: method, decoration: const InputDecoration(labelText: 'Method'), items: const [
+            DropdownMenuItem(value: 'mpesa_till', child: Text('M-Pesa Buy Goods / Till')),
+            DropdownMenuItem(value: 'mpesa_paybill', child: Text('M-Pesa Paybill')),
+          ], onChanged: saving ? null : (v) { if (v != null) setState(() => method = v); }),
+          if (method == 'mpesa_till') TextField(controller: till, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Merchant Till number')),
+          if (method == 'mpesa_paybill') ...[
+            TextField(controller: paybill, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Merchant Paybill number')),
+          ],
+          const SizedBox(height: 8),
+          const SizedBox(height: 12),
+          Text('Merchant Daraja authorization', style: Theme.of(context).textTheme.titleMedium),
+          DropdownButtonFormField<String>(initialValue: darajaMode, decoration: const InputDecoration(labelText: 'Daraja environment'), items: const [
+            DropdownMenuItem(value: 'sandbox', child: Text('Sandbox / testing')),
+            DropdownMenuItem(value: 'production', child: Text('Production / live payments')),
+          ], onChanged: saving ? null : (v) { if (v != null) setState(() => darajaMode = v); }),
+          TextField(controller: darajaConsumerKey, obscureText: true, autocorrect: false, enableSuggestions: false, decoration: const InputDecoration(labelText: 'Merchant Daraja consumer key (optional)')),
+          TextField(controller: darajaConsumerSecret, obscureText: true, autocorrect: false, enableSuggestions: false, decoration: const InputDecoration(labelText: 'Merchant Daraja consumer secret (optional)')),
+          TextField(controller: darajaPasskey, obscureText: true, autocorrect: false, enableSuggestions: false, decoration: const InputDecoration(labelText: 'Merchant STK passkey (optional)')),
+          const SizedBox(height: 6),
+          Text(darajaConfigured ? 'Authorized merchant credentials are stored encrypted. Leave secret fields blank to keep the existing credentials.' : 'Enter all three secrets from the merchant\'s authorized Daraja app. The shortcode must match the Till or Paybill above.', style: const TextStyle(fontSize: 12)),
+          FilledButton.icon(onPressed: saving ? null : saveProfile, icon: const Icon(Icons.lock_outline), label: const Text('Save destination and secure credentials')),
+        ]))),
+        Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Create checkout', style: Theme.of(context).textTheme.titleLarge),
+          TextField(controller: description, decoration: const InputDecoration(labelText: 'Purchase / bill description', hintText: 'Groceries, dinner, room deposit…')),
+          TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount (KES)', prefixText: 'KSh ')),
+          TextField(controller: reference, decoration: const InputDecoration(labelText: 'Optional order / table / room reference')),
+          const SizedBox(height: 8),
+          FilledButton.icon(onPressed: saving || profile == null ? null : createCharge, icon: const Icon(Icons.qr_code_2), label: const Text('Create payment QR')),
+          if (profile == null) const Text('Save your payment destination before creating a checkout.', style: TextStyle(fontSize: 12)),
+        ]))),
+        Text('Recent payment requests', style: Theme.of(context).textTheme.titleLarge),
+        if (charges.isEmpty) const Text('No POS payment requests yet.'),
+        ...charges.map((raw) {
+          final item = Map<String,dynamic>.from(raw as Map);
+          final st = (item['status']?.toString() ?? 'PENDING').toUpperCase();
+          final source = item['confirmationSource']?.toString() ?? '';
+          final receipt = item['providerReceipt']?.toString() ?? '';
+          final subtitle = '${item['reference'] ?? ''} · $st\n${item['createdAt'] ?? ''}'
+            '${receipt.isNotEmpty ? '\\nReceipt: $receipt' : ''}'
+            '${source == 'manual_merchant_reconciliation' ? '\\nManually verified by merchant' : source == 'safaricom_c2b' ? '\\nConfirmed by Safaricom C2B' : ''}';
+          return Card(child: ListTile(
+            leading: Icon(st == 'SUCCESS' ? Icons.check_circle : st == 'FAILED' ? Icons.error_outline : Icons.hourglass_top),
+            title: Text('KSh ${item['amount'] ?? ''} · ${item['description'] ?? 'Sale'}'),
+            subtitle: Text(subtitle),
+            isThreeLine: true,
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(tooltip: 'Show payment QR', icon: const Icon(Icons.qr_code_2), onPressed: () => showCharge(item)),
+              if (st == 'PENDING') IconButton(tooltip: 'Record receipt after official verification', icon: const Icon(Icons.fact_check_outlined), onPressed: () => reconcileCharge(item)),
+            ]),
+          ));
+        }),
+        const Text('Do not release goods or close a bill based on a QR scan or screenshot. Wait for independently verified payment confirmation.', style: TextStyle(fontSize: 12)),
+      ])));
+  }
+}
+
+// Customer scans the Chatify checkout QR and reads the payment destination.
+class MerchantQrScannerPage extends StatefulWidget {
+  const MerchantQrScannerPage({super.key});
+  @override
+  State<MerchantQrScannerPage> createState() => _MerchantQrScannerPageState();
+}
+class _MerchantQrScannerPageState extends State<MerchantQrScannerPage> {
+  Map<String,dynamic>? charge;
+  String? error;
+  bool handled = false;
+  void onDetect(BarcodeCapture capture) {
+    if (handled) return;
+    for (final b in capture.barcodes) {
+      final raw = b.rawValue;
+      if (raw == null || raw.isEmpty) continue;
+      try {
+        final d = jsonDecode(raw);
+        if (d is! Map || d['type'] != 'chatify_pos_payment' || d['currency'] != 'KES' || d['paymentId'] == null || d['reference'] == null || d['amount'] is! num || d['amount'] < 1 || d['amount'] > 150000) {
+          throw const FormatException('Invalid Chatify merchant payment QR.');
+        }
+        handled = true; if (mounted) setState(() { charge = Map<String,dynamic>.from(d); error = null; }); return;
+      } catch (_) {
+        handled = true;
+        if (mounted) setState(() => error = 'This may be a Safaricom Dynamic QR. Scan that QR with the M-Pesa app; Chatify reads its own checkout-instruction QR only.');
+        return;
+      }
+    }
+  }
+  @override
+  Widget build(BuildContext context) {
+    final c = charge;
+    final dest = c == null ? '' : c['method'] == 'mpesa_till' ? 'M-Pesa Till: ${c['tillNumber'] ?? ''}' : 'M-Pesa Paybill: ${c['paybillNumber'] ?? ''}\nAccount/reference: ${c['accountNumber'] ?? ''}';
+    return Scaffold(appBar: AppBar(title: const Text('Pay a merchant')), body: ListView(padding: const EdgeInsets.all(16), children: [
+      if (c == null) ...[
+        const Text('Scan the cashier’s Chatify QR and verify the merchant and amount.'),
+        SizedBox(height: 320, child: ClipRRect(borderRadius: BorderRadius.circular(16), child: MobileScanner(onDetect: onDetect))),
+        if (error != null) Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        OutlinedButton.icon(onPressed: () => setState(() { handled = false; error = null; }), icon: const Icon(Icons.refresh), label: const Text('Scan again')),
+      ] else Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Icon(Icons.storefront, size: 48),
+        Text(c['merchantName']?.toString() ?? 'Merchant', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
+        Text('KSh ${c['amount']}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium),
+        Text(c['description']?.toString() ?? 'Purchase', textAlign: TextAlign.center),
+        const Divider(height: 24), SelectableText(dest), SelectableText('Reference: ${c['reference']}'),
+        const SizedBox(height: 12),
+        const Text('Open M-Pesa and use Buy Goods or Paybill. Enter the exact merchant details and verify the amount before confirming. Scanning this QR does not transfer money or prove payment.', style: TextStyle(fontSize: 13)),
+        FilledButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: dest)); }, icon: const Icon(Icons.copy), label: const Text('Copy payment details')),
+        OutlinedButton.icon(onPressed: () => setState(() { charge = null; handled = false; error = null; }), icon: const Icon(Icons.qr_code_scanner), label: const Text('Scan another payment')),
+      ]))),
+    ]));
+  }
+}
+
+// A single, permission-aware screen exposes the enterprise APIs without duplicating business data.
+// Every operation is scoped by the selected organization ID and re-authorized by the server.
+class BusinessEnterprisePage extends StatefulWidget {
+  const BusinessEnterprisePage(
+      {super.key,
+      required this.organizationId,
+      required this.organizationName});
+  final String organizationId;
+  final String organizationName;
+
+  @override
+  State<BusinessEnterprisePage> createState() => _BusinessEnterprisePageState();
+}
+
+class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
+  Map<String, dynamic> overview = {}, readiness = {}, usage = {}, settings = {};
+  List<dynamic> records = [], searchResults = [];
+  bool loading = true, saving = false, searching = false;
+  String typeFilter = 'all';
+  String query = '';
+  String? error;
+  AppState get app => context.read<AppState>();
+  String get base =>
+      '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/enterprise';
+
+  static const recordTypes = <String, String>{
+    'handbook': 'Company handbook / procedure',
+    'notification': 'Team notification',
+    'approval': 'Approval request',
+    'refund_case': 'Refund case',
+    'credit_profile': 'Customer credit profile',
+    'project_room': 'Customer project room',
+    'supplier_quote': 'Supplier quotation',
+    'service_policy': 'Service guarantee / policy',
+    'delivery_proof': 'Delivery / collection proof',
+    'dispute': 'Dispute resolution',
+    'consent_record': 'Consent record',
+    'support_case': 'Support / complaint case',
+    'incident': 'Incident report',
+    'integration': 'Integration record',
+    'migration_job': 'Data import / migration',
+    'recovery_plan': 'Recovery plan',
+    'promise': 'Customer / supplier promise',
+    'response_target': 'Response-time target',
+    'subscription_note': 'Subscription / billing note',
+    'financial_close': 'Financial period close',
+    'supplier_comparison': 'Supplier comparison',
+    'customer_portal': 'Customer self-service portal',
+    'reputation_review': 'Transaction-linked review',
+    'service_recovery': 'Service recovery plan',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
+    try {
+      final results = await Future.wait([
+        app.api.call('GET', '$base/overview'),
+        app.api.call('GET', '$base/records?limit=100'),
+        app.api.call('GET', '$base/readiness'),
+        app.api.call('GET', '$base/usage'),
+        app.api.call('GET', '$base/settings'),
+      ]);
+      overview = Map<String, dynamic>.from(results[0]);
+      records = List<dynamic>.from(results[1]['records'] ?? []);
+      readiness = Map<String, dynamic>.from(results[2]);
+      usage = Map<String, dynamic>.from(results[3]);
+      settings = Map<String, dynamic>.from(results[4]);
+      if (mounted) setState(() {});
+    } catch (e) {
+      error = e.toString();
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  List<dynamic> get visibleRecords {
+    final q = query.trim().toLowerCase();
+    return records.where((item) {
+      if (item is! Map) return false;
+      if (typeFilter != 'all' && item['type'] != typeFilter) return false;
+      if (q.isEmpty) return true;
+      return '${item['title'] ?? ''} ${item['description'] ?? ''} ${item['status'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
+  }
+
+  Future<void> searchAll() async {
+    final q = query.trim();
+    if (q.length < 2) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Enter at least two characters to search all business records.')));
+      }
+      return;
+    }
+    setState(() => searching = true);
+    try {
+      final response = await app.api.call('GET',
+          '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/search?q=${Uri.encodeQueryComponent(q)}');
+      searchResults = List<dynamic>.from(response['results'] ?? []);
+      if (mounted) setState(() {});
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Search results for "$q"'),
+          content: SizedBox(
+            width: 480,
+            child: searchResults.isEmpty
+                ? const Text(
+                    'No matching customers, products, invoices, tasks or enterprise records found in this workspace.')
+                : ListView(
+                    shrinkWrap: true,
+                    children: searchResults
+                        .map((item) => ListTile(
+                              leading: const Icon(Icons.search),
+                              title: Text(item['title']?.toString() ??
+                                  'Business record'),
+                              subtitle: Text(
+                                  '${item['type'] ?? 'record'} · ${item['status'] ?? item['subtitle'] ?? ''}'),
+                            ))
+                        .toList(),
+                  ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close'))
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => searching = false);
+    }
+  }
+
+  Future<void> configureEnterpriseSettings() async {
+    final targets = settings['serviceTargets'] is Map
+        ? Map<String, dynamic>.from(settings['serviceTargets'])
+        : <String, dynamic>{};
+    final credit = settings['creditPolicy'] is Map
+        ? Map<String, dynamic>.from(settings['creditPolicy'])
+        : <String, dynamic>{};
+    final firstResponse = TextEditingController(
+        text: (targets['firstResponseMinutes'] ?? 15).toString());
+    final escalation = TextEditingController(
+        text: (targets['escalationMinutes'] ?? 60).toString());
+    final terms = TextEditingController(
+        text: (credit['defaultTermsDays'] ?? 0).toString());
+    final threshold = TextEditingController(
+        text: (credit['approvalRequiredAbove'] ?? 0).toString());
+    final creditEnabled = ValueNotifier<bool>(credit['enabled'] == true);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Service and credit controls'),
+        content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: firstResponse,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'First response target (minutes)')),
+          TextField(
+              controller: escalation,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'Escalation target (minutes)')),
+          const Divider(height: 24),
+          ValueListenableBuilder<bool>(
+              valueListenable: creditEnabled,
+              builder: (_, value, __) => SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Enable customer credit policy'),
+                    value: value,
+                    onChanged: (next) => creditEnabled.value = next,
+                  )),
+          TextField(
+              controller: terms,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'Default payment terms (days, 0–365)')),
+          TextField(
+              controller: threshold,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                  labelText:
+                      'Require approval above (amount, 0 disables threshold)')),
+        ])),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save controls')),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final first = int.tryParse(firstResponse.text) ?? 0;
+    final escalate = int.tryParse(escalation.text) ?? 0;
+    final termsDays = int.tryParse(terms.text) ?? -1;
+    final approvalAmount = double.tryParse(threshold.text) ?? -1;
+    if (first < 1 ||
+        escalate < first ||
+        termsDays < 0 ||
+        termsDays > 365 ||
+        approvalAmount < 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Check the response targets, credit terms and approval threshold.')));
+      }
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      await app.api.call('PATCH', '$base/settings', {
+        'serviceTargets': {
+          'firstResponseMinutes': first,
+          'escalationMinutes': escalate
+        },
+        'creditPolicy': {
+          'enabled': creditEnabled.value,
+          'defaultTermsDays': termsDays,
+          'approvalRequiredAbove': approvalAmount
+        },
+      });
+      await load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Service and credit settings saved.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> downloadBusinessArchive() async {
+    setState(() => saving = true);
+    try {
+      final token = app.api.token;
+      if (token == null || token.isEmpty) {
+        throw Exception('Sign in again before exporting business records.');
+      }
+      final orgId = Uri.encodeComponent(widget.organizationId);
+      final uri =
+          Uri.parse('${app.api.base}/api/business/organizations/$orgId/export');
+      final response = await app.api.client.get(uri, headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json'
+      });
+      if (response.statusCode != 200) {
+        throw Exception(
+            'Business archive export failed with status ${response.statusCode}. Manager permissions may be required.');
+      }
+      await FileSaver.instance.saveFile(
+        name: 'chatify-business-archive',
+        bytes: response.bodyBytes,
+        fileExtension: 'json',
+        mimeType: MimeType.json,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Full business archive exported. Keep it in a secure location.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> downloadEnterpriseExport() async {
+    setState(() => saving = true);
+    try {
+      final token = app.api.token;
+      if (token == null || token.isEmpty) {
+        throw Exception('Sign in again before exporting business records.');
+      }
+      final uri = Uri.parse('${app.api.base}$base/export');
+      final response = await app.api.client.get(uri,
+          headers: {'Authorization': 'Bearer $token', 'Accept': 'text/csv'});
+      if (response.statusCode != 200) {
+        throw Exception(
+            'Export failed with status ${response.statusCode}. Check your finance or manager permissions.');
+      }
+      await FileSaver.instance.saveFile(
+        name: 'chatify-business-records',
+        bytes: response.bodyBytes,
+        fileExtension: 'csv',
+        mimeType: MimeType.csv,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Business records CSV exported.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> closeFinancialPeriod() async {
+    final now = DateTime.now();
+    final startDate = TextEditingController(
+        text: DateTime(now.year, now.month, 1)
+            .toIso8601String()
+            .substring(0, 10));
+    final endDate = TextEditingController(
+        text: now
+            .add(const Duration(days: 1))
+            .toIso8601String()
+            .substring(0, 10));
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Close financial period'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text(
+              'Creates an immutable snapshot of invoices created between the start date and the exclusive end date.'),
+          TextField(
+              controller: startDate,
+              decoration:
+                  const InputDecoration(labelText: 'Start date (YYYY-MM-DD)')),
+          TextField(
+              controller: endDate,
+              decoration: const InputDecoration(
+                  labelText: 'End date, exclusive (YYYY-MM-DD)')),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Close period')),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final start = DateTime.tryParse(startDate.text.trim());
+    final end = DateTime.tryParse(endDate.text.trim());
+    if (start == null || end == null || !start.isBefore(end)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Enter valid dates; the end date must be after the start date.')));
+      }
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      final result =
+          await app.api.call('POST', '$base/financial-periods/close', {
+        'periodStart': '${startDate.text.trim()}T00:00:00.000Z',
+        'periodEnd': '${endDate.text.trim()}T00:00:00.000Z',
+      });
+      await load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(result['notice']?.toString() ??
+                'Financial period snapshot created.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> createRecord() async {
+    final title = TextEditingController();
+    final description = TextEditingController();
+    final type = ValueNotifier<String>('handbook');
+    final priority = ValueNotifier<String>('normal');
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create enterprise record'),
+        content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ValueListenableBuilder<String>(
+              valueListenable: type,
+              builder: (_, value, __) => DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    initialValue: value,
+                    decoration: const InputDecoration(labelText: 'Record type'),
+                    items: recordTypes.entries
+                        .where((entry) => entry.key != 'financial_close')
+                        .map((entry) => DropdownMenuItem(
+                            value: entry.key, child: Text(entry.value)))
+                        .toList(),
+                    onChanged: (next) {
+                      if (next != null) type.value = next;
+                    },
+                  )),
+          const SizedBox(height: 8),
+          TextField(
+              controller: title,
+              autofocus: true,
+              maxLength: 200,
+              decoration: const InputDecoration(labelText: 'Title')),
+          TextField(
+              controller: description,
+              maxLines: 3,
+              maxLength: 6000,
+              decoration: const InputDecoration(labelText: 'Details / reason')),
+          ValueListenableBuilder<String>(
+              valueListenable: priority,
+              builder: (_, value, __) => DropdownButtonFormField<String>(
+                    initialValue: value,
+                    decoration: const InputDecoration(labelText: 'Priority'),
+                    items: const [
+                      DropdownMenuItem(value: 'low', child: Text('Low')),
+                      DropdownMenuItem(value: 'normal', child: Text('Normal')),
+                      DropdownMenuItem(value: 'high', child: Text('High')),
+                      DropdownMenuItem(value: 'urgent', child: Text('Urgent')),
+                    ],
+                    onChanged: (next) {
+                      if (next != null) priority.value = next;
+                    },
+                  )),
+        ])),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Create')),
+        ],
+      ),
+    );
+    if (accepted != true || title.text.trim().isEmpty) return;
+    setState(() => saving = true);
+    try {
+      await app.api.call('POST', '$base/records', {
+        'type': type.value,
+        'title': title.text.trim(),
+        'description': description.text.trim(),
+        'priority': priority.value,
+      });
+      await load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Enterprise record created.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> createCustomerShare(Map<String, dynamic> item) async {
+    try {
+      final result = await app.api.call('POST', '$base/shares', {
+        'entityType': 'enterprise_record',
+        'entityId': item['_id']?.toString() ?? '',
+        'expiresInHours': 72,
+      });
+      final path = result['path']?.toString() ?? '';
+      if (path.isEmpty || !mounted) return;
+      final link = Uri.parse(app.api.base).resolve(path).toString();
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Secure customer link'),
+          content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                    'This link expires in 72 hours. Share it only with the intended customer.'),
+                const SizedBox(height: 8),
+                SelectableText(link),
+              ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Close')),
+            FilledButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: link));
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Customer link copied.')));
+                }
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy link'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  Future<void> runAction(Map<String, dynamic> item, String action) async {
+    final id = Uri.encodeComponent(item['_id']?.toString() ?? '');
+    if (id.isEmpty) return;
+    try {
+      if (action == 'acknowledge') {
+        await app.api.call('POST', '$base/records/$id/acknowledge', {});
+      } else if (action == 'approve' || action == 'reject') {
+        final reason = TextEditingController();
+        if (action == 'reject') {
+          final accepted = await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                    title: const Text('Reason for rejection'),
+                    content: TextField(
+                        controller: reason,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                            labelText: 'Required reason')),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Reject request')),
+                    ],
+                  ));
+          if (accepted != true || reason.text.trim().isEmpty) return;
+        }
+        await app.api.call('POST', '$base/records/$id/decision', {
+          'decision': action == 'approve' ? 'approved' : 'rejected',
+          'reason': reason.text.trim()
+        });
+      } else {
+        await app.api.call('POST', '$base/records/$id/resolve',
+            {'resolution': 'Resolved from Chatify Business'});
+      }
+      await load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final counts = overview['counts'] is Map
+        ? Map<String, dynamic>.from(overview['counts'])
+        : <String, dynamic>{};
+    final business = overview['business'] is Map
+        ? Map<String, dynamic>.from(overview['business'])
+        : <String, dynamic>{};
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.organizationName,
+            maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(
+              tooltip: 'Refresh enterprise workspace',
+              onPressed: load,
+              icon: const Icon(Icons.refresh)),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: saving ? null : createRecord,
+        icon: const Icon(Icons.add),
+        label: const Text('Add record'),
+      ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null
+              ? Center(
+                  child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Text(error!, textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                            onPressed: load, child: const Text('Retry')),
+                      ])))
+              : RefreshIndicator(
+                  onRefresh: load,
+                  child: ListView(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+                      children: [
+                        Text('Business command centre',
+                            style: Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 4),
+                        Text(
+                            'Overview, accountability and follow-up records for this workspace. Sensitive actions are checked by the server.'),
+                        const SizedBox(height: 12),
+                        Wrap(spacing: 8, runSpacing: 8, children: [
+                          _enterpriseMetric('Customers',
+                              business['customers'] ?? 0, Icons.people_outline),
+                          _enterpriseMetric(
+                              'Active products',
+                              business['activeCatalogItems'] ?? 0,
+                              Icons.inventory_2_outlined),
+                          _enterpriseMetric('Open tasks',
+                              business['openTasks'] ?? 0, Icons.task_alt),
+                          _enterpriseMetric(
+                              'Open cases',
+                              business['openCases'] ?? 0,
+                              Icons.support_agent_outlined),
+                          _enterpriseMetric(
+                              'Overdue records',
+                              overview['overdueEnterpriseRecords'] ?? 0,
+                              Icons.warning_amber_outlined),
+                        ]),
+                        const SizedBox(height: 16),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                      'Setup readiness: ${readiness['complete'] ?? 0}/${readiness['total'] ?? 0}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium),
+                                  const SizedBox(height: 8),
+                                  for (final check
+                                      in (readiness['checks'] as List? ??
+                                              const [])
+                                          .whereType<Map>())
+                                    ListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: Icon(check['complete'] == true
+                                          ? Icons.check_circle_outline
+                                          : Icons.radio_button_unchecked),
+                                      title: Text(check['label']?.toString() ??
+                                          'Setup step'),
+                                      trailing: Text(check['complete'] == true
+                                          ? 'Ready'
+                                          : 'Incomplete'),
+                                    ),
+                                ]),
+                          ),
+                        ),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Plan and usage',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium),
+                                  Text(
+                                      'Plan: ${usage['plan'] ?? settings['plan'] ?? 'free'}'),
+                                  Text(
+                                      'Staff: ${(usage['usage'] as Map?)?['members'] ?? 1} · Customers: ${(usage['usage'] as Map?)?['customers'] ?? 0} · Catalogue items: ${(usage['usage'] as Map?)?['catalogItems'] ?? 0}'),
+                                  Text(
+                                      'Response target: ${(settings['serviceTargets'] as Map?)?['firstResponseMinutes'] ?? 15} minutes · Escalation: ${(settings['serviceTargets'] as Map?)?['escalationMinutes'] ?? 60} minutes'),
+                                  Text(
+                                      'Credit policy: ${(settings['creditPolicy'] as Map?)?['enabled'] == true ? 'Enabled' : 'Disabled'}'),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed: saving
+                                          ? null
+                                          : configureEnterpriseSettings,
+                                      icon: const Icon(Icons.tune),
+                                      label: const Text(
+                                          'Configure response and credit controls'),
+                                    ),
+                                  ),
+                                ]),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text('Enterprise modules',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        Wrap(spacing: 8, runSpacing: 8, children: [
+                          for (final entry in recordTypes.entries)
+                            Chip(
+                                avatar: const Icon(Icons.checklist, size: 16),
+                                label: Text(
+                                    '${entry.value}: ${counts[entry.key] ?? 0}')),
+                        ]),
+                        const SizedBox(height: 16),
+                        TextField(
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.search),
+                            labelText: 'Search business records',
+                            helperText:
+                                'Type to filter this list, or use the search icon for customers, products, invoices, tasks and cases.',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              tooltip: 'Search all business data',
+                              onPressed: searching ? null : searchAll,
+                              icon: searching
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
+                                  : const Icon(Icons.manage_search),
+                            ),
+                          ),
+                          onChanged: (value) => setState(() => query = value),
+                          onSubmitted: (_) => searchAll(),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          initialValue: typeFilter,
+                          decoration: const InputDecoration(
+                              labelText: 'Filter by module',
+                              border: OutlineInputBorder()),
+                          items: [
+                            const DropdownMenuItem(
+                                value: 'all',
+                                child: Text('All enterprise records')),
+                            ...recordTypes.entries.map((entry) =>
+                                DropdownMenuItem(
+                                    value: entry.key,
+                                    child: Text(entry.value))),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => typeFilter = value ?? 'all'),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(children: [
+                          Expanded(
+                              child: Text('Records (${visibleRecords.length})',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium)),
+                          TextButton.icon(
+                            onPressed: saving ? null : downloadEnterpriseExport,
+                            icon: const Icon(Icons.file_download_outlined),
+                            label: const Text('Export CSV'),
+                          ),
+                        ]),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: saving ? null : closeFinancialPeriod,
+                            icon: const Icon(Icons.lock_clock_outlined),
+                            label: const Text('Close financial period'),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: saving ? null : downloadBusinessArchive,
+                            icon: const Icon(Icons.backup_outlined),
+                            label: const Text(
+                                'Export full business archive (JSON)'),
+                          ),
+                        ),
+                        if (visibleRecords.isEmpty)
+                          const Padding(
+                              padding: EdgeInsets.all(24),
+                              child: Text(
+                                  'No matching records yet. Add a handbook, approval request, project room, promise, support case or other enterprise record.',
+                                  textAlign: TextAlign.center)),
+                        for (final item in visibleRecords.whereType<Map>())
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: CircleAvatar(
+                                          child: Icon(item['priority'] ==
+                                                  'urgent'
+                                              ? Icons.priority_high
+                                              : Icons
+                                                  .business_center_outlined)),
+                                      title: Text(item['title']?.toString() ??
+                                          'Business record'),
+                                      subtitle: Text(
+                                          _enterpriseRecordSubtitle(
+                                              Map<String, dynamic>.from(item)),
+                                          maxLines: 4,
+                                          overflow: TextOverflow.ellipsis),
+                                    ),
+                                    Wrap(spacing: 8, children: [
+                                      if (item['type'] == 'handbook' ||
+                                          item['type'] == 'service_policy')
+                                        OutlinedButton.icon(
+                                            onPressed: () => runAction(
+                                                Map<String, dynamic>.from(item),
+                                                'acknowledge'),
+                                            icon: const Icon(
+                                                Icons.fact_check_outlined),
+                                            label: const Text('Acknowledge')),
+                                      if ([
+                                        'project_room',
+                                        'customer_portal',
+                                        'service_policy',
+                                        'delivery_proof'
+                                      ].contains(item['type']))
+                                        OutlinedButton.icon(
+                                          onPressed: () => createCustomerShare(
+                                              Map<String, dynamic>.from(item)),
+                                          icon: const Icon(Icons.link),
+                                          label:
+                                              const Text('Share with customer'),
+                                        ),
+                                      if (item['status'] == 'pending' &&
+                                          [
+                                            'approval',
+                                            'refund_case',
+                                            'credit_profile',
+                                            'dispute'
+                                          ].contains(item['type'])) ...[
+                                        OutlinedButton.icon(
+                                            onPressed: () => runAction(
+                                                Map<String, dynamic>.from(item),
+                                                'reject'),
+                                            icon: const Icon(Icons.close),
+                                            label: const Text('Reject')),
+                                        FilledButton.tonalIcon(
+                                            onPressed: () => runAction(
+                                                Map<String, dynamic>.from(item),
+                                                'approve'),
+                                            icon: const Icon(Icons.check),
+                                            label: const Text('Approve')),
+                                      ],
+                                      if (![
+                                        'closed',
+                                        'cancelled',
+                                        'resolved',
+                                        'approved',
+                                        'rejected'
+                                      ].contains(item['status']))
+                                        TextButton.icon(
+                                            onPressed: () => runAction(
+                                                Map<String, dynamic>.from(item),
+                                                'resolve'),
+                                            icon: const Icon(Icons.done_all),
+                                            label: const Text('Resolve')),
+                                    ]),
+                                  ]),
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                        Text('Payment and security reminder',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const Text(
+                            'A payment screenshot, manually typed reference or accepted checkout request is not proof of receipt. Only verified provider callbacks or authorized reconciliation can confirm money received.'),
+                      ]),
+                ),
+    );
+  }
+
+  String _enterpriseRecordSubtitle(Map<String, dynamic> item) {
+    final type = item['type']?.toString() ?? '';
+    final status = item['status']?.toString() ?? 'open';
+    final priority = item['priority']?.toString() ?? 'normal';
+    final description = item['description']?.toString() ?? '';
+    if (type == 'financial_close' && item['payload'] is Map) {
+      final payload = Map<String, dynamic>.from(item['payload'] as Map);
+      final org = overview['organization'] is Map
+          ? Map<String, dynamic>.from(overview['organization'])
+          : <String, dynamic>{};
+      final currency = org['currency']?.toString() ?? 'KES';
+      return 'Closed snapshot · ${payload['invoiceCount'] ?? 0} invoices\n'
+          'Invoiced: $currency ${payload['invoicedTotal'] ?? 0} · Verified receipts in period: $currency ${payload['confirmedPaidTotal'] ?? 0}\n'
+          'Outstanding at period end: $currency ${payload['outstandingTotal'] ?? 0}';
+    }
+    return '${recordTypes[type] ?? type} · $status · $priority\n$description';
+  }
+
+  Widget _enterpriseMetric(String label, dynamic value, IconData icon) =>
+      SizedBox(
+        width: 150,
+        child: Card(
+            child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(children: [
+                  Icon(icon, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(value.toString(),
+                            style: Theme.of(context).textTheme.titleLarge),
+                        Text(label,
+                            style: Theme.of(context).textTheme.bodySmall),
+                      ])),
+                ]))),
+      );
+}
+).hasMatch(number)
+                          ? null
+                          : 'Enter a valid 5–10 digit number';
+                    },
+                  ),
+                  if (!isTill)
+                    TextFormField(
+                      controller: accountNumber,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(labelText: 'Account number'),
+                      validator: (value) => (value ?? '').trim().isEmpty
+                          ? 'Enter the Paybill account number'
+                          : null,
+                    ),
+                  TextFormField(
+                    controller: paymentAmount,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Amount (KSh)'),
+                    validator: (value) {
+                      final amount = int.tryParse((value ?? '').trim());
+                      return amount == null || amount < 1 || amount > 150000
+                          ? 'Enter KSh 1–150,000'
+                          : null;
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Chatify will copy the payment details. In M-Pesa, choose Lipa na M-Pesa and verify the recipient and amount before entering your PIN.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (paymentForm.currentState?.validate() ?? false) {
+                  Navigator.pop(dialog, true);
+                }
+              },
+              child: const Text('Copy payment details'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) {
+        final details = isTill
+            ? 'M-Pesa Buy Goods / Till\\nTill number: ${businessNumber.text.trim()}\\nAmount: KSh ${paymentAmount.text.trim()}'
+            : 'M-Pesa Paybill\\nBusiness number: ${businessNumber.text.trim()}\\nAccount number: ${accountNumber.text.trim()}\\nAmount: KSh ${paymentAmount.text.trim()}';
+        await Clipboard.setData(ClipboardData(text: details));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(isTill
+                ? 'Till payment details copied. Open M-Pesa > Lipa na M-Pesa > Buy Goods.'
+                : 'Paybill details copied. Open M-Pesa > Lipa na M-Pesa > Paybill.'),
+            duration: const Duration(seconds: 5),
+          ));
+        }
+      }
+      businessNumber.dispose();
+      accountNumber.dispose();
+      paymentAmount.dispose();
+      return;
+    }
 
     final participants =
         List<dynamic>.from(widget.conversation['participants'] ?? []);
