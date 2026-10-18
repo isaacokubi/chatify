@@ -198,8 +198,8 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
 
   // Safaricom C2B callbacks are not cryptographically signed. Protect this endpoint
   // with a long random URL token and optionally enforce a network allowlist at the proxy.
-  // Only Paybill transactions with exact shortcode, reference, amount and unique receipt
-  // are auto-confirmed. Buy Goods callbacks may omit BillRefNumber, so those stay pending
+  // Exact-reference Paybill transactions are auto-confirmed. Buy Goods/Till callbacks are
+  // also supported only if Safaricom supplies the matching reference; otherwise stay pending
   // until a merchant performs provider-side reconciliation rather than guessing by amount.
   app.post('/api/business/pos/c2b/confirmation/:token', async (req, res) => {
     const expected = process.env.POS_C2B_CALLBACK_TOKEN || '';
@@ -218,11 +218,13 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     }
     try {
       const charge = await Charge.findOneAndUpdate({
-        method: 'mpesa_paybill',
+        $or: [
+          {method: 'mpesa_paybill', 'destination.paybillNumber': shortcode},
+          {method: 'mpesa_till', 'destination.tillNumber': shortcode},
+        ],
         status: 'PENDING',
         amount,
         reference,
-        'destination.paybillNumber': shortcode,
         providerReceipt: {$in: [null, '']},
       }, {$set: {
         status: 'SUCCESS',
