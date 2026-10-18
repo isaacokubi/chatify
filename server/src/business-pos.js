@@ -299,7 +299,13 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     const cb = req.body?.Body?.stkCallback;
     if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string' || !/^-?\d+$/.test(String(cb.ResultCode))) return res.status(400).json({error: 'Malformed callback'});
     const charge = await Charge.findOne({checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, status: 'PENDING', confirmationSource: 'daraja_stk_pending'});
-    if (!charge) return res.json({ok: true, duplicate: true});
+    if (!charge) {
+      // A previous callback may have marked the charge successful before a ledger write
+      // failed. Rebuild the idempotent fee entry on duplicate delivery rather than losing it.
+      const completed = await Charge.findOne({checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, status: 'SUCCESS', providerReceipt: {$type: 'string'}});
+      if (completed) await recordPosPlatformFee(completed, completed.providerReceipt);
+      return res.json({ok: true, duplicate: true});
+    }
     const outcome = resolvePosStkCallbackOutcome(cb, charge);
     if (outcome.error === 'malformed') return res.status(400).json({error: 'Malformed result code'});
     if (outcome.error === 'mismatch') return res.status(400).json({error: 'Callback amount, phone or receipt did not match the initiated merchant payment'});
