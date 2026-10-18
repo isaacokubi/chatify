@@ -33,7 +33,7 @@ export function canUsePosRole(role) {
   return ['owner', 'admin', 'manager', 'sales', 'finance'].includes(String(role));
 }
 
-export function registerBusinessPosRoutes({app, auth, mongoose}) {
+export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) {
   const O = mongoose.Schema.Types.ObjectId;
   const Organization = mongoose.models.BusinessOrganization;
   if (!Organization) throw new Error('BusinessOrganization model must be registered before POS routes');
@@ -48,9 +48,12 @@ export function registerBusinessPosRoutes({app, auth, mongoose}) {
     method: {type: String, enum: POS_METHODS, required: true},
     destination: {type: mongoose.Schema.Types.Mixed, required: true},
     qrPayload: {type: String, required: true},
+    qrProvider: {type: String, enum: ['chatify_instructions', 'safaricom_dynamic_qr'], default: 'chatify_instructions'},
+    dynamicQrImage: {type: String, default: null},
+    dynamicQrRequestId: {type: String, default: null},
     status: {type: String, enum: ['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED'], default: 'PENDING', index: true},
     confirmationSource: {type: String, default: null},
-    providerReceipt: {type: String, default: null},
+    providerReceipt: {type: String, default: null, unique: true, sparse: true, index: true},
     confirmedAt: Date,
   }, {timestamps: true}));
   Charge.schema.index({organizationId: 1, reference: 1}, {unique: true});
@@ -102,10 +105,37 @@ export function registerBusinessPosRoutes({app, auth, mongoose}) {
       const charge = buildPosCharge({organization: org, amount: req.body?.amount, description: req.body?.description, reference: req.body?.reference, profile});
       charge.organizationId = org._id;
       charge.createdBy = req.user._id;
+      // Use Safaricom's actual M-Pesa-readable Dynamic QR when live/sandbox Daraja
+      // credentials are configured. Mock mode remains clearly labelled instructions.
+      if (mpesaProvider && !mpesaProvider.isMock) {
+        if (typeof mpesaProvider.generateDynamicQr !== 'function') {
+          return res.status(503).json({error: 'Dynamic QR is not available from the configured payment provider'});
+        }
+        const qr = await mpesaProvider.generateDynamicQr({
+          merchantName: org.name,
+          reference: charge.reference,
+          amount: charge.amount,
+          shortcode: profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber,
+          transactionCode: profile.method === 'mpesa_till' ? 'BG' : 'PB',
+        });
+        charge.qrProvider = 'safaricom_dynamic_qr';
+        charge.dynamicQrImage = qr.qrCode;
+        charge.dynamicQrRequestId = qr.requestId;
+      }
       const saved = await Charge.create(charge);
-      return res.status(201).json({charge: {paymentId: saved.paymentId, reference: saved.reference, amount: saved.amount, currency: saved.currency, description: saved.description, method: saved.method, destination: saved.destination, qrPayload: saved.qrPayload, status: saved.status, createdAt: saved.createdAt}, notice: 'Customer pays this merchant using the displayed Till/Paybill instructions. Status remains PENDING until a trusted provider confirmation is connected.'});
+      return res.status(201).json({charge: {
+        paymentId: saved.paymentId, reference: saved.reference, amount: saved.amount,
+        currency: saved.currency, description: saved.description, method: saved.method,
+        destination: saved.destination, qrPayload: saved.qrPayload, qrProvider: saved.qrProvider,
+        dynamicQrImage: saved.dynamicQrImage, status: saved.status, createdAt: saved.createdAt,
+      }, notice: saved.qrProvider === 'safaricom_dynamic_qr'
+        ? 'Scan the Dynamic QR with the M-Pesa app. Status remains pending until the merchant payment confirmation is matched.'
+        : 'Demo/instruction QR only: customer must pay the merchant manually. Status remains pending until trusted provider confirmation is connected.'});
     } catch (error) {
       if (error?.code === 11000) return res.status(409).json({error: 'That payment reference already exists. Create a new reference.'});
+      if (String(error?.stage || '').startsWith('qr_') && error.stage !== 'qr_validation') {
+        return res.status(502).json({error: error.message || 'Safaricom Dynamic QR request failed. No payment request was saved.'});
+      }
       return res.status(400).json({error: error.message || 'Could not create POS charge'});
     }
   });
@@ -117,5 +147,54 @@ export function registerBusinessPosRoutes({app, auth, mongoose}) {
     const filter = {organizationId: org._id, ...(status ? {status} : {})};
     const charges = await Charge.find(filter).sort({createdAt: -1}).limit(100).lean();
     return res.json({charges});
+  });
+
+  // Safaricom C2B callbacks are not cryptographically signed. Protect this endpoint
+  // with a long random URL token and optionally enforce a network allowlist at the proxy.
+  // Only Paybill transactions with exact shortcode, reference, amount and unique receipt
+  // are auto-confirmed. Buy Goods callbacks may omit BillRefNumber, so those stay pending
+  // until a merchant performs provider-side reconciliation rather than guessing by amount.
+  app.post('/api/business/pos/c2b/confirmation/:token', async (req, res) => {
+    const expected = process.env.POS_C2B_CALLBACK_TOKEN || '';
+    if (expected.length < 32 || req.params.token !== expected) return res.status(404).json({error: 'Not found'});
+    const allowed = String(process.env.POS_C2B_ALLOWED_IPS || '').split(',').map(value => value.trim()).filter(Boolean);
+    if (process.env.NODE_ENV === 'production' && allowed.length === 0) {
+      return res.status(503).json({error: 'POS C2B callback IP allowlist is not configured'});
+    }
+    if (allowed.length && !allowed.includes(String(req.ip || '').replace(/^::ffff:/, ''))) {
+      return res.status(403).json({error: 'Callback source is not allowed'});
+    }
+    const body = req.body || {};
+    const receipt = String(body.TransID || '').trim().slice(0, 40);
+    const shortcode = String(body.BusinessShortCode || '').trim();
+    const reference = String(body.BillRefNumber || '').trim().slice(0, 32);
+    const amount = Number(body.TransAmount);
+    if (!receipt || !/^\d{5,10}$/.test(shortcode) || !Number.isSafeInteger(amount) || amount < 1 || !reference) {
+      return res.status(200).json({ResultCode: 0, ResultDesc: 'Received; no matching Paybill sale was confirmed'});
+    }
+    try {
+      const charge = await Charge.findOneAndUpdate({
+        method: 'mpesa_paybill',
+        status: 'PENDING',
+        amount,
+        reference,
+        'destination.paybillNumber': shortcode,
+        providerReceipt: {$in: [null, '']},
+      }, {$set: {
+        status: 'SUCCESS',
+        providerReceipt: receipt,
+        confirmationSource: 'safaricom_c2b',
+        confirmedAt: new Date(),
+      }}, {new: true});
+      // Unique providerReceipt prevents a single M-Pesa receipt paying multiple sales.
+      if (!charge && await Charge.exists({providerReceipt: receipt})) {
+        return res.status(200).json({ResultCode: 0, ResultDesc: 'Duplicate receipt ignored'});
+      }
+      return res.status(200).json({ResultCode: 0, ResultDesc: charge ? 'Payment confirmed' : 'Received; no exact matching Paybill sale'});
+    } catch (error) {
+      if (error?.code === 11000) return res.status(200).json({ResultCode: 0, ResultDesc: 'Duplicate receipt ignored'});
+      console.error('POS C2B confirmation could not be processed');
+      return res.status(500).json({ResultCode: 1, ResultDesc: 'Confirmation could not be processed'});
+    }
   });
 }
