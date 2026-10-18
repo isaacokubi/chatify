@@ -40,6 +40,8 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- Allow Chatify to detect and launch Safaricom My OneApp (M-PESA). -->
+        <package android:name="com.safaricom.mpesa.lifestyle"/>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
