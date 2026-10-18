@@ -9061,9 +9061,13 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     }
     final fee = (n * 0.005).ceil();
     final total = n + fee;
+    if (total > 150000) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sale amount plus the platform fee must not exceed KSh 150,000.')));
+      return;
+    }
     final accepted = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
       title: const Text('Confirm POS checkout fee'),
-      content: Text('Sale amount: KSh $n\nChatify platform fee (0.5%): KSh $fee\nBuyer total: KSh $total\n\nShow this breakdown to the buyer before they scan/pay. If payment succeeds, the fee is accrued as pending settlement; it is not automatically transferred to Chatify.'),
+      content: Text('Sale amount: KSh $n\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $fee\nBuyer total: KSh $total\n\nShow this breakdown to the buyer before they scan/pay. If payment succeeds, the fee is accrued as pending settlement; it is not automatically transferred to Chatify.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
         FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Create payment QR')),
