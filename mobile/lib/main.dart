@@ -8476,7 +8476,7 @@ class MerchantPosPage extends StatefulWidget {
 class _MerchantPosPageState extends State<MerchantPosPage> {
   AppState get app => context.read<AppState>();
   final till = TextEditingController(), paybill = TextEditingController(),
-      account = TextEditingController(), amount = TextEditingController(),
+      amount = TextEditingController(),
       description = TextEditingController(), reference = TextEditingController();
   String method = 'mpesa_till';
   bool loading = true, saving = false;
@@ -8487,7 +8487,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
   @override
   void initState() { super.initState(); load(); }
   @override
-  void dispose() { till.dispose(); paybill.dispose(); account.dispose(); amount.dispose(); description.dispose(); reference.dispose(); super.dispose(); }
+  void dispose() { till.dispose(); paybill.dispose(); amount.dispose(); description.dispose(); reference.dispose(); super.dispose(); }
 
   Future<void> load() async {
     if (mounted) setState(() { loading = true; error = null; });
@@ -8499,7 +8499,6 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         method = profile!['method']?.toString() ?? 'mpesa_till';
         till.text = profile!['tillNumber']?.toString() ?? '';
         paybill.text = profile!['paybillNumber']?.toString() ?? '';
-        account.text = profile!['accountNumber']?.toString() ?? '';
       }
     } catch (e) { error = e.toString(); }
     finally { if (mounted) setState(() => loading = false); }
@@ -8510,7 +8509,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     try {
       final body = <String,dynamic>{'method': method};
       if (method == 'mpesa_till') { body['tillNumber'] = till.text.trim(); }
-      else { body['paybillNumber'] = paybill.text.trim(); body['accountNumber'] = account.text.trim(); }
+      else { body['paybillNumber'] = paybill.text.trim(); }
       final r = await app.api.call('PUT', '\$base/payment-profile', body);
       profile = Map<String,dynamic>.from(r['paymentProfile'] ?? body);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merchant payment instructions saved.')));
@@ -8592,7 +8591,6 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
           if (method == 'mpesa_till') TextField(controller: till, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Merchant Till number')),
           if (method == 'mpesa_paybill') ...[
             TextField(controller: paybill, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Merchant Paybill number')),
-            TextField(controller: account, decoration: const InputDecoration(labelText: 'Account/reference number')),
           ],
           const SizedBox(height: 8),
           FilledButton.icon(onPressed: saving ? null : saveProfile, icon: const Icon(Icons.save_outlined), label: const Text('Save payment destination')),
