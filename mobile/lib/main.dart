@@ -8642,11 +8642,18 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         ]))),
         Text('Recent payment requests', style: Theme.of(context).textTheme.titleLarge),
         if (charges.isEmpty) const Text('No POS payment requests yet.'),
-        ...charges.map((raw) { final item = Map<String,dynamic>.from(raw as Map); final st = (item['status']?.toString() ?? 'PENDING').toUpperCase();
+        ...charges.map((raw) {
+          final item = Map<String,dynamic>.from(raw as Map);
+          final st = (item['status']?.toString() ?? 'PENDING').toUpperCase();
+          final source = item['confirmationSource']?.toString() ?? '';
+          final receipt = item['providerReceipt']?.toString() ?? '';
+          final subtitle = '${item['reference'] ?? ''} · $st\n${item['createdAt'] ?? ''}'
+            '${receipt.isNotEmpty ? '\\nReceipt: $receipt' : ''}'
+            '${source == 'manual_merchant_reconciliation' ? '\\nManually verified by merchant' : source == 'safaricom_c2b' ? '\\nConfirmed by Safaricom C2B' : ''}';
           return Card(child: ListTile(
             leading: Icon(st == 'SUCCESS' ? Icons.check_circle : st == 'FAILED' ? Icons.error_outline : Icons.hourglass_top),
             title: Text('KSh ${item['amount'] ?? ''} · ${item['description'] ?? 'Sale'}'),
-            subtitle: Text('${item['reference'] ?? ''} · $st\n${item['createdAt'] ?? ''}'),
+            subtitle: Text(subtitle),
             isThreeLine: true,
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               IconButton(tooltip: 'Show payment QR', icon: const Icon(Icons.qr_code_2), onPressed: () => showCharge(item)),
