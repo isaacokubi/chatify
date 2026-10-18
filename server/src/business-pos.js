@@ -23,7 +23,7 @@ export function buildPosCharge({organization, amount, description, reference, pr
   const paymentReference = cleanedReference || randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
   const destination = profile.method === 'mpesa_till'
     ? {method: 'mpesa_till', tillNumber: profile.tillNumber}
-    : {method: 'mpesa_paybill', paybillNumber: profile.paybillNumber, accountNumber: profile.accountNumber};
+    : {method: 'mpesa_paybill', paybillNumber: profile.paybillNumber, accountNumber: paymentReference};
   const paymentId = randomUUID();
   const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: total, description: title, currency: 'KES', ...destination};
   return {paymentId, organizationId: organization._id, reference: paymentReference, amount: total, currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
