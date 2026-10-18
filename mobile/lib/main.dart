@@ -3858,14 +3858,14 @@ class _ChatState extends State<Chat> {
   }
 
   Future<void> requestMpesa() async {
-    final participants =
+    final choiceParticipants =
         List<dynamic>.from(widget.conversation['participants'] ?? []);
-    final me = app.user?['id']?.toString();
-    final other = participants.whereType<Map>().firstWhere(
-        (p) => p['_id']?.toString() != me,
+    final choiceMe = app.user?['id']?.toString();
+    final choiceOther = choiceParticipants.whereType<Map>().firstWhere(
+        (p) => p['_id']?.toString() != choiceMe,
         orElse: () => <String, dynamic>{});
-    final otherId = other['_id']?.toString();
-    if (otherId == null || otherId.isEmpty) {
+    final choiceOtherId = other['_id']?.toString();
+    if (choiceOtherId == null || choiceOtherId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Conversation member details are unavailable.')));
       return;
