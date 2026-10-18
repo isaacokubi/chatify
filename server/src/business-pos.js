@@ -19,7 +19,7 @@ export function buildPosCharge({organization, amount, description, reference, pr
   if (!Number.isSafeInteger(total) || total < 1 || total > 150000) throw new Error('Amount must be a whole number between KSh 1 and KSh 150,000');
   const title = String(description || '').trim().replace(/\s+/g, ' ').slice(0, 120);
   if (!title) throw new Error('Enter a sale description');
-  const cleanedReference = String(reference || '').trim().replace(/\s+/g, '-').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20);
+  const cleanedReference = String(reference || '').trim().replace(/\s+/g, '-').replace(/[^A-Za-z0-9_-]/g, '').replace(/-+/g, '-').slice(0, 20);
   const paymentReference = cleanedReference || randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
   const destination = profile.method === 'mpesa_till'
     ? {method: 'mpesa_till', tillNumber: profile.tillNumber}
