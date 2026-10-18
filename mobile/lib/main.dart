@@ -3957,8 +3957,78 @@ class _ChatState extends State<Chat> {
                     ),
                     validator: (value) {
                       final number = (value ?? '').trim();
-                      return RegExp(r'^\\d{5,10}        List<dynamic>.from(widget.conversation['participants'] ?? []);
-    final me = app.user?['id']?.toString();
+                      return number.length >= 5 && number.length <= 10 && int.tryParse(number) != null
+                          ? null
+                          : 'Enter a valid 5–10 digit number';
+                    },
+                  ),
+                  if (!isTill)
+                    TextFormField(
+                      controller: accountNumber,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(labelText: 'Account number'),
+                      validator: (value) => (value ?? '').trim().isEmpty
+                          ? 'Enter the Paybill account number'
+                          : null,
+                    ),
+                  TextFormField(
+                    controller: paymentAmount,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Amount (KSh)'),
+                    validator: (value) {
+                      final amountValue = int.tryParse((value ?? '').trim());
+                      return amountValue == null || amountValue < 1 || amountValue > 150000
+                          ? 'Enter KSh 1–150,000'
+                          : null;
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Chatify copies the payment details for you. In the official M-Pesa app, choose Lipa na M-Pesa and verify the recipient and amount before entering your PIN.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (paymentForm.currentState?.validate() ?? false) {
+                  Navigator.pop(dialog, true);
+                }
+              },
+              child: const Text('Copy payment details'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) {
+        final details = isTill
+            ? 'M-Pesa Buy Goods / Till\nTill number: ${businessNumber.text.trim()}\nAmount: KSh ${paymentAmount.text.trim()}'
+            : 'M-Pesa Paybill\nBusiness number: ${businessNumber.text.trim()}\nAccount number: ${accountNumber.text.trim()}\nAmount: KSh ${paymentAmount.text.trim()}';
+        await Clipboard.setData(ClipboardData(text: details));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(isTill
+                ? 'Till payment details copied. Open M-Pesa > Lipa na M-Pesa > Buy Goods.'
+                : 'Paybill details copied. Open M-Pesa > Lipa na M-Pesa > Paybill.'),
+            duration: const Duration(seconds: 5),
+          ));
+        }
+      }
+      businessNumber.dispose();
+      accountNumber.dispose();
+      paymentAmount.dispose();
+      return;
+    }
+
+    final participants =
+        List<dynamic>.from(widget.conversation['participants'] ?? []);
     final other = participants.whereType<Map>().firstWhere(
         (p) => p['_id']?.toString() != me,
         orElse: () => <String, dynamic>{});
