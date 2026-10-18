@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildPosCharge, canUsePosRole, normalizeMerchantPaymentProfile, encryptMerchantCredentials, decryptMerchantCredentials, validateMerchantDarajaCredentials} from './business-pos.js';
+import {buildPosCharge, canUsePosRole, normalizeMerchantPaymentProfile, encryptMerchantCredentials, decryptMerchantCredentials, validateMerchantDarajaCredentials, resolvePosStkCallbackOutcome} from './business-pos.js';
 
 test('validates Till profile and creates a customer-readable payment QR payload', () => {
   const profile = normalizeMerchantPaymentProfile({method: 'mpesa_till', tillNumber: '1234567'});
@@ -61,4 +61,26 @@ test('merchant STK routing validates Paybill shortcode independently from Till n
   const paybill = normalizeMerchantPaymentProfile({method: 'mpesa_paybill', paybillNumber: '123456', accountNumber: 'INVOICE-1'});
   assert.equal(validateMerchantDarajaCredentials({mode: 'sandbox', consumerKey: 'key', consumerSecret: 'secret', passkey: 'passkey', shortcode: '123456'}, paybill).shortcode, '123456');
   assert.throws(() => validateMerchantDarajaCredentials({mode: 'sandbox', consumerKey: 'key', consumerSecret: 'secret', passkey: 'passkey', shortcode: '1234567'}, paybill), /exactly match/);
+});
+
+
+test('STK callback confirms only exact amount, normalized payer phone and receipt', () => {
+  const charge = {amount: 450, stkPhone: '254712345678'};
+  const callback = {ResultCode: 0, ResultDesc: 'Success', CallbackMetadata: {Item: [
+    {Name: 'Amount', Value: 450},
+    {Name: 'PhoneNumber', Value: 254712345678},
+    {Name: 'MpesaReceiptNumber', Value: 'QWERTY1234'},
+  ]}};
+  assert.deepEqual(resolvePosStkCallbackOutcome(callback, charge), {
+    status: 'SUCCESS', resultCode: 0, phone: '254712345678', receipt: 'QWERTY1234', description: 'Success',
+  });
+  assert.equal(resolvePosStkCallbackOutcome({...callback, CallbackMetadata: {Item: [{Name: 'Amount', Value: 449}, {Name: 'PhoneNumber', Value: 254712345678}, {Name: 'MpesaReceiptNumber', Value: 'QWERTY1234'}]}}, charge).error, 'mismatch');
+  assert.equal(resolvePosStkCallbackOutcome({...callback, CallbackMetadata: {Item: [{Name: 'Amount', Value: 450}, {Name: 'PhoneNumber', Value: 254700000000}, {Name: 'MpesaReceiptNumber', Value: 'QWERTY1234'}]}}, charge).error, 'mismatch');
+});
+
+test('STK callback maps user cancellation and provider failure without marking a sale paid', () => {
+  const charge = {amount: 200, stkPhone: '254712345678'};
+  assert.equal(resolvePosStkCallbackOutcome({ResultCode: 1032, ResultDesc: 'Request cancelled'}, charge).status, 'CANCELLED');
+  assert.equal(resolvePosStkCallbackOutcome({ResultCode: 1, ResultDesc: 'Failed'}, charge).status, 'FAILED');
+  assert.equal(resolvePosStkCallbackOutcome({ResultCode: 'invalid'}, charge).error, 'malformed');
 });
