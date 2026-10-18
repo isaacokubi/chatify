@@ -427,6 +427,9 @@ class AppState extends ChangeNotifier {
     return publicKey;
   }
 
+  /// Rebuilds the presence connection after credentials rotate.
+  void refreshRealtimeAuthentication() => _connectPresence();
+
   void _connectPresence() {
     final token = api.token;
     if (token == null || token.isEmpty) return;
@@ -5981,6 +5984,7 @@ class _ProfileState extends State<Profile> {
                             });
                             if (passwordResult['token'] is String) {
                               await appState.api.saveToken(passwordResult['token'] as String);
+                              appState.refreshRealtimeAuthentication();
                             }
                             if (d.mounted) Navigator.pop(d);
                             if (mounted) {
