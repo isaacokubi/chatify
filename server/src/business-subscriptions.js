@@ -53,7 +53,7 @@ export function registerBusinessSubscriptionRoutes({app,auth,mongoose}) {
   const O=mongoose.Schema.Types.ObjectId;
   const BillingEvent=mongoose.models.BusinessBillingEvent||mongoose.model('BusinessBillingEvent',new mongoose.Schema({
     providerEventId:{type:String,required:true,unique:true},organizationId:{type:O,required:true,index:true},
-    eventType:{type:String,required:true},processedAt:Date,
+    eventType:{type:String,required:true},processedAt:Date,processingAt:Date,
   },{timestamps:true}));
   const base='/api/business/organizations/:orgId/subscription';
   const owned=async(req,res)=>{
@@ -92,11 +92,23 @@ export function registerBusinessSubscriptionRoutes({app,auth,mongoose}) {
         {$setOnInsert:{providerEventId:event.eventId,organizationId:org._id,eventType:event.eventType}},
         {upsert:true,new:true,setDefaultsOnInsert:true});
     } catch(error) {
-      if(error?.code===11000)return res.json({received:true,duplicate:true});
-      throw error;
+      if(error?.code!==11000)throw error;
+      // A concurrent delivery may win the unique insert. Load it and validate
+      // its ownership/type instead of blindly acknowledging every duplicate key.
+      record=await BillingEvent.findOne({providerEventId:event.eventId});
+      if(!record)throw error;
     }
     if(String(record.organizationId)!==String(org._id)||record.eventType!==event.eventType)return res.status(409).json({error:'Billing event ID conflicts with a previously received event'});
     if(record.processedAt)return res.json({received:true,duplicate:true});
+    // Claim processing atomically so simultaneous provider retries cannot both
+    // mutate the subscription. A stale lease is reclaimable after a crash.
+    const processingAt=new Date();
+    const claim=await BillingEvent.findOneAndUpdate(
+      {_id:record._id,processedAt:{$exists:false},$or:[{processingAt:{$exists:false}},{processingAt:{$lt:new Date(Date.now()-60_000)}}]},
+      {$set:{processingAt}},
+      {new:true},
+    );
+    if(!claim)return res.json({received:true,duplicate:true,processing:true});
     const state=subscriptionStateForEvent(event);
     org.plan=state.plan||org.plan||'free';
     org.settings=org.settings||{};
@@ -104,7 +116,7 @@ export function registerBusinessSubscriptionRoutes({app,auth,mongoose}) {
     if(state.subscription.status==='active') delete org.settings.subscription.requestedPlan;
     org.markModified('settings');
     await org.save();
-    await BillingEvent.updateOne({_id:record._id,processedAt:{$exists:false}},{$set:{processedAt:new Date()}});
+    await BillingEvent.updateOne({_id:claim._id,processedAt:{$exists:false},processingAt},{$set:{processedAt:new Date()},$unset:{processingAt:1}});
     return res.json({received:true,applied:true,status:state.subscription.status});
   });
 }
