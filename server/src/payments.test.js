@@ -93,15 +93,17 @@ test('Daraja Dynamic QR requests a real M-Pesa QR for a merchant shortcode', asy
       : {ok: true, json: async () => ({ResponseCode: 'AG_OK', RequestID: 'request-1', QRCode: 'iVBORw0KGgoAAAAAAAAAAAAAAAAA'})};
   });
   const result = await provider.generateDynamicQr({
-    merchantName: 'Test Supermarket', reference: 'SALE-1', amount: 450,
+    merchantName: 'A Very Long Supermarket Name That Must Be Cut', reference: 'REFERENCE-123456789', amount: 450,
     shortcode: '1234567', transactionCode: 'BG',
   });
   assert.equal(result.qrCode, 'iVBORw0KGgoAAAAAAAAAAAAAAAAA');
   assert.equal(result.requestId, 'request-1');
   const body = JSON.parse(requests[1].options.body);
   assert.equal(requests[1].url, 'https://sandbox.safaricom.co.ke/mpesa/qrcode/v1/generate');
-  assert.equal(body.MerchantName, 'Test Supermarket');
-  assert.equal(body.RefNo, 'SALE-1');
+  assert.equal(body.MerchantName, 'A Very Long Supermark');
+  assert.equal(body.RefNo, 'REFERENCE-123');
+  assert.ok(body.MerchantName.length <= 20);
+  assert.ok(body.RefNo.length <= 12);
   assert.equal(body.Amount, 450);
   assert.equal(body.TrxCode, 'BG');
   assert.equal(body.CPI, '1234567');
@@ -118,4 +120,32 @@ test('Dynamic QR rejects invalid merchant shortcodes before calling Daraja', asy
     merchantName: 'Shop', reference: 'SALE-1', amount: 450,
     shortcode: 'not-a-till', transactionCode: 'BG',
   }), error => error.stage === 'qr_validation');
+});
+
+test('Daraja STK request respects AccountReference and TransactionDesc length limits', async () => {
+  const {createDarajaProvider} = await import('./payments.js');
+  const requests = [];
+  const provider = createDarajaProvider({
+    mode: 'sandbox', consumerKey: 'test-key', consumerSecret: 'test-secret',
+    shortcode: '123456', passkey: 'test-passkey',
+    callbackUrl: 'https://api.example.org/api/payments/daraja/callback',
+  }, async (url, options = {}) => {
+    requests.push({url, options});
+    return url.includes('/oauth/')
+      ? {ok: true, json: async () => ({access_token: 'test-token', expires_in: 3600})}
+      : {ok: true, json: async () => ({
+          ResponseCode: '0', CheckoutRequestID: 'checkout-1', MerchantRequestID: 'merchant-1',
+        })};
+  });
+  await provider.initiate({
+    paymentId: '12345678-1234-1234-1234-123456789abc',
+    amount: 250,
+    phone: '254712345678',
+    description: 'A payment description that is longer than allowed',
+  });
+  const body = JSON.parse(requests[1].options.body);
+  assert.equal(body.AccountReference, '123412345678');
+  assert.equal(body.TransactionDesc, 'A payment des');
+  assert.ok(body.AccountReference.length <= 12);
+  assert.ok(body.TransactionDesc.length <= 13);
 });
