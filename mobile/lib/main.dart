@@ -22,6 +22,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 // Represents a readable API failure so screens can show a useful message instead of raw transport errors.
 class ApiException implements Exception {
@@ -2300,6 +2302,8 @@ class _HomeState extends State<Home> {
               icon: const Icon(Icons.account_balance_wallet_outlined),
               onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const PaymentHistory()))),
+          IconButton(tooltip: 'Pay a merchant by QR', icon: const Icon(Icons.qr_code_scanner),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MerchantQrScannerPage()))),
           if (tab == 0 && selectingChats) ...[
             IconButton(
                 tooltip: 'Select all',
@@ -8345,6 +8349,20 @@ class _BusinessHubState extends State<BusinessHub> {
                   icon: const Icon(Icons.phone_android),
                   label: const Text('M-Pesa settings'),
                 ),
+                FilledButton.icon(
+                  onPressed: () {
+                    final id = organization?['_id']?.toString();
+                    if (id == null) return;
+                    Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => MerchantPosPage(
+                        organizationId: id,
+                        organizationName: organization?['name']?.toString() ?? 'Business',
+                      ),
+                    ));
+                  },
+                  icon: const Icon(Icons.point_of_sale_outlined),
+                  label: const Text('In-person POS payments'),
+                ),
                 OutlinedButton.icon(
                   onPressed: loadOrganizations,
                   icon: const Icon(Icons.refresh),
@@ -8445,6 +8463,187 @@ class _BusinessHubState extends State<BusinessHub> {
                       TextStyle(color: Theme.of(context).colorScheme.error))),
       ]),
     );
+  }
+}
+
+// Merchant checkout for shops, supermarkets, malls, hotels and restaurants.
+class MerchantPosPage extends StatefulWidget {
+  const MerchantPosPage({super.key, required this.organizationId, required this.organizationName});
+  final String organizationId, organizationName;
+  @override
+  State<MerchantPosPage> createState() => _MerchantPosPageState();
+}
+class _MerchantPosPageState extends State<MerchantPosPage> {
+  AppState get app => context.read<AppState>();
+  final till = TextEditingController(), paybill = TextEditingController(),
+      account = TextEditingController(), amount = TextEditingController(),
+      description = TextEditingController(), reference = TextEditingController();
+  String method = 'mpesa_till';
+  bool loading = true, saving = false;
+  Map<String, dynamic>? profile;
+  List<dynamic> charges = [];
+  String? error;
+  String get base => '/api/business/organizations/\${Uri.encodeComponent(widget.organizationId)}/pos';
+  @override
+  void initState() { super.initState(); load(); }
+  @override
+  void dispose() { till.dispose(); paybill.dispose(); account.dispose(); amount.dispose(); description.dispose(); reference.dispose(); super.dispose(); }
+
+  Future<void> load() async {
+    if (mounted) setState(() { loading = true; error = null; });
+    try {
+      final r = await Future.wait([app.api.call('GET', '\$base/payment-profile'), app.api.call('GET', '\$base/charges')]);
+      profile = r[0]['paymentProfile'] is Map ? Map<String,dynamic>.from(r[0]['paymentProfile']) : null;
+      charges = List<dynamic>.from(r[1]['charges'] ?? []);
+      if (profile != null) {
+        method = profile!['method']?.toString() ?? 'mpesa_till';
+        till.text = profile!['tillNumber']?.toString() ?? '';
+        paybill.text = profile!['paybillNumber']?.toString() ?? '';
+        account.text = profile!['accountNumber']?.toString() ?? '';
+      }
+    } catch (e) { error = e.toString(); }
+    finally { if (mounted) setState(() => loading = false); }
+  }
+
+  Future<void> saveProfile() async {
+    setState(() => saving = true);
+    try {
+      final body = <String,dynamic>{'method': method};
+      if (method == 'mpesa_till') { body['tillNumber'] = till.text.trim(); }
+      else { body['paybillNumber'] = paybill.text.trim(); body['accountNumber'] = account.text.trim(); }
+      final r = await app.api.call('PUT', '\$base/payment-profile', body);
+      profile = Map<String,dynamic>.from(r['paymentProfile'] ?? body);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merchant payment instructions saved.')));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+    finally { if (mounted) setState(() => saving = false); }
+  }
+
+  Future<void> createCharge() async {
+    final n = int.tryParse(amount.text.trim());
+    if (n == null || n < 1 || n > 150000 || description.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a description and whole-number amount from KSh 1 to KSh 150,000.')));
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      final r = await app.api.call('POST', '\$base/charges', {
+        'amount': n, 'description': description.text.trim(),
+        if (reference.text.trim().isNotEmpty) 'reference': reference.text.trim(),
+      });
+      amount.clear(); description.clear(); reference.clear();
+      if (mounted) await showCharge(Map<String,dynamic>.from(r['charge'] ?? {}));
+      await load();
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+    finally { if (mounted) setState(() => saving = false); }
+  }
+
+  Future<void> showCharge(Map<String,dynamic> item) async {
+    final payload = item['qrPayload']?.toString() ?? '';
+    await showDialog<void>(context: context, builder: (d) => AlertDialog(
+      title: const Text('Customer checkout'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (payload.isNotEmpty) QrImageView(data: payload, version: QrVersions.auto, size: 220, backgroundColor: Colors.white),
+        Text(widget.organizationName, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
+        Text('KSh \${item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
+        Text(item['description']?.toString() ?? ''),
+        SelectableText('Reference: \${item['reference'] ?? ''}'),
+        Text('Status: \${item['status'] ?? 'PENDING'}'),
+        const SizedBox(height: 8),
+        const Text('Scanning shows payment instructions only. The customer completes payment in M-Pesa; this request remains pending until trusted provider confirmation is connected.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+        TextButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: payload)); }, icon: const Icon(Icons.copy), label: const Text('Copy QR payload')),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('Close'))],
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return Scaffold(appBar: AppBar(title: const Text('In-person POS payments'), actions: [IconButton(onPressed: load, icon: const Icon(Icons.refresh))]),
+      body: RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.all(16), children: [
+        Text(widget.organizationName, style: Theme.of(context).textTheme.headlineSmall),
+        const Text('Create cashier checkout requests for retail purchases, restaurant bills, hotel stays and other sales.'),
+        if (error != null) Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Merchant payment destination', style: Theme.of(context).textTheme.titleLarge),
+          DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'Method'), items: const [
+            DropdownMenuItem(value: 'mpesa_till', child: Text('M-Pesa Buy Goods / Till')),
+            DropdownMenuItem(value: 'mpesa_paybill', child: Text('M-Pesa Paybill')),
+          ], onChanged: saving ? null : (v) { if (v != null) setState(() => method = v); }),
+          if (method == 'mpesa_till') TextField(controller: till, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Merchant Till number')),
+          if (method == 'mpesa_paybill') ...[
+            TextField(controller: paybill, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Merchant Paybill number')),
+            TextField(controller: account, decoration: const InputDecoration(labelText: 'Account/reference number')),
+          ],
+          const SizedBox(height: 8),
+          FilledButton.icon(onPressed: saving ? null : saveProfile, icon: const Icon(Icons.save_outlined), label: const Text('Save payment destination')),
+          const Text('Store payment instructions only; never enter Daraja secrets here.', style: TextStyle(fontSize: 12)),
+        ]))),
+        Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Create checkout', style: Theme.of(context).textTheme.titleLarge),
+          TextField(controller: description, decoration: const InputDecoration(labelText: 'Purchase / bill description', hintText: 'Groceries, dinner, room deposit…')),
+          TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Amount (KES)', prefixText: 'KSh ')),
+          TextField(controller: reference, decoration: const InputDecoration(labelText: 'Optional order / table / room reference')),
+          const SizedBox(height: 8),
+          FilledButton.icon(onPressed: saving || profile == null ? null : createCharge, icon: const Icon(Icons.qr_code_2), label: const Text('Create payment QR')),
+          if (profile == null) const Text('Save your payment destination before creating a checkout.', style: TextStyle(fontSize: 12)),
+        ]))),
+        Text('Recent payment requests', style: Theme.of(context).textTheme.titleLarge),
+        if (charges.isEmpty) const Text('No POS payment requests yet.'),
+        ...charges.map((raw) { final item = Map<String,dynamic>.from(raw as Map); final st = (item['status']?.toString() ?? 'PENDING').toUpperCase();
+          return Card(child: ListTile(leading: Icon(st == 'SUCCESS' ? Icons.check_circle : Icons.hourglass_top), title: Text('KSh \${item['amount'] ?? ''} · \${item['description'] ?? 'Sale'}'), subtitle: Text('\${item['reference'] ?? ''} · \$st\n\${item['createdAt'] ?? ''}'), trailing: IconButton(icon: const Icon(Icons.qr_code_2), onPressed: () => showCharge(item))));
+        }),
+        const Text('Do not release goods or close a bill based on a QR scan or screenshot. Wait for independently verified payment confirmation.', style: TextStyle(fontSize: 12)),
+      ])));
+  }
+}
+
+// Customer scans the Chatify checkout QR and reads the payment destination.
+class MerchantQrScannerPage extends StatefulWidget {
+  const MerchantQrScannerPage({super.key});
+  @override
+  State<MerchantQrScannerPage> createState() => _MerchantQrScannerPageState();
+}
+class _MerchantQrScannerPageState extends State<MerchantQrScannerPage> {
+  Map<String,dynamic>? charge;
+  String? error;
+  bool handled = false;
+  void onDetect(BarcodeCapture capture) {
+    if (handled) return;
+    for (final b in capture.barcodes) {
+      final raw = b.rawValue;
+      if (raw == null || raw.isEmpty) continue;
+      try {
+        final d = jsonDecode(raw);
+        if (d is! Map || d['type'] != 'chatify_pos_payment' || d['currency'] != 'KES' || d['paymentId'] == null || d['reference'] == null || d['amount'] is! num || d['amount'] < 1 || d['amount'] > 150000) {
+          throw const FormatException('Invalid Chatify merchant payment QR.');
+        }
+        handled = true; if (mounted) setState(() { charge = Map<String,dynamic>.from(d); error = null; }); return;
+      } catch (e) { handled = true; if (mounted) setState(() => error = e.toString()); return; }
+    }
+  }
+  @override
+  Widget build(BuildContext context) {
+    final c = charge;
+    final dest = c == null ? '' : c['method'] == 'mpesa_till' ? 'M-Pesa Till: \${c['tillNumber'] ?? ''}' : 'M-Pesa Paybill: \${c['paybillNumber'] ?? ''}\nAccount/reference: \${c['accountNumber'] ?? ''}';
+    return Scaffold(appBar: AppBar(title: const Text('Pay a merchant')), body: ListView(padding: const EdgeInsets.all(16), children: [
+      if (c == null) ...[
+        const Text('Scan the cashier’s Chatify QR and verify the merchant and amount.'),
+        SizedBox(height: 320, child: ClipRRect(borderRadius: BorderRadius.circular(16), child: MobileScanner(onDetect: onDetect))),
+        if (error != null) Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        OutlinedButton.icon(onPressed: () => setState(() { handled = false; error = null; }), icon: const Icon(Icons.refresh), label: const Text('Scan again')),
+      ] else Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Icon(Icons.storefront, size: 48),
+        Text(c['merchantName']?.toString() ?? 'Merchant', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
+        Text('KSh \${c['amount']}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium),
+        Text(c['description']?.toString() ?? 'Purchase', textAlign: TextAlign.center),
+        const Divider(height: 24), SelectableText(dest), SelectableText('Reference: \${c['reference']}'),
+        const SizedBox(height: 12),
+        const Text('Open M-Pesa and use Buy Goods or Paybill. Enter the exact merchant details and verify the amount before confirming. Scanning this QR does not transfer money or prove payment.', style: TextStyle(fontSize: 13)),
+        FilledButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: dest)); }, icon: const Icon(Icons.copy), label: const Text('Copy payment details')),
+        OutlinedButton.icon(onPressed: () => setState(() { charge = null; handled = false; error = null; }), icon: const Icon(Icons.qr_code_scanner), label: const Text('Scan another payment')),
+      ]))),
+    ]));
   }
 }
 
