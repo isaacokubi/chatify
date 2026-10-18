@@ -8356,27 +8356,30 @@ class _BusinessHubState extends State<BusinessHub> {
           }
         }
       } else if (action == 'mpesa') {
+        final preview = await app.api.call('GET', '$base/mpesa-fee-preview');
+        final baseAmount = (preview['baseAmount'] as num?)?.toInt() ?? 0;
+        final platformFee = (preview['platformFee'] as num?)?.toInt() ?? 0;
+        final totalAmount = (preview['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
         final phone = TextEditingController();
         final accepted = await showDialog<bool>(
             context: context,
             builder: (dialogContext) => AlertDialog(
-                    title: const Text('Request M-Pesa payment'),
-                    content: TextField(
-                        controller: phone,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                            labelText: 'Customer M-Pesa phone')),
+                    title: const Text('Review invoice M-Pesa total'),
+                    content: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text('Invoice balance: KSh $baseAmount\\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\\nBuyer total: KSh $totalAmount'),
+                      const SizedBox(height: 8),
+                      const Text('The platform fee remains pending settlement and is not automatically transferred to Chatify. Disclose this total to the customer before sending the prompt.', style: TextStyle(fontSize: 12)),
+                      const SizedBox(height: 8),
+                      TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Customer M-Pesa phone')),
+                    ]),
                     actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(dialogContext, false),
-                          child: const Text('Cancel')),
-                      FilledButton(
-                          onPressed: () => Navigator.pop(dialogContext, true),
-                          child: const Text('Send STK prompt'))
+                      TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+                      FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Confirm and send STK'))
                     ]));
-        if (accepted != true) return;
+        if (accepted != true) { phone.dispose(); return; }
         response = await app.api
             .call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
+        phone.dispose();
       } else {
         response = await app.api.call('POST', '$base/etims-submit', {});
       }
