@@ -244,8 +244,27 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       try {
         result = await provider.initiate({paymentId: charge.paymentId, amount: charge.amount, phone, description: charge.description});
       } catch (error) {
-        await Charge.updateOne({_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}}, {$set: {stkResultDescription: 'STK initiation failed; retry after checking Daraja status', confirmationSource: null, stkPhone: null}});
-        return res.status(502).json({error: error.message || 'Daraja could not initiate the STK prompt'});
+        // A transport timeout is ambiguous: Daraja may have accepted the request even if
+        // our server never received its response. Keep the claim locked in that case so a
+        // cashier cannot accidentally charge the customer twice. Explicit OAuth/provider
+        // rejections are safe to release because no successful STK request was acknowledged.
+        if (error?.stage !== 'stk_transport') {
+          await Charge.updateOne(
+            {_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}, confirmationSource: 'daraja_stk_pending'},
+            {$set: {stkResultDescription: 'STK initiation rejected; verify Daraja status before retrying', confirmationSource: null, stkPhone: null}}
+          );
+        } else {
+          await Charge.updateOne(
+            {_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}, confirmationSource: 'daraja_stk_pending'},
+            {$set: {stkResultDescription: 'STK outcome unknown after network timeout; do not retry until Daraja status is checked'}}
+          );
+        }
+        return res.status(502).json({
+          error: error?.stage === 'stk_transport'
+            ? 'Daraja response timed out. The payment outcome is unknown; check Daraja status before retrying.'
+            : (error.message || 'Daraja could not initiate the STK prompt'),
+          outcomeUnknown: error?.stage === 'stk_transport',
+        });
       }
       const saved = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}},
         {$set: {checkoutRequestId: result.checkoutRequestId, merchantRequestId: result.merchantRequestId, confirmationSource: 'daraja_stk_pending'}}, {new: true});
