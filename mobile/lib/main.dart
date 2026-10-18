@@ -428,7 +428,11 @@ class AppState extends ChangeNotifier {
   }
 
   /// Rebuilds the presence connection after credentials rotate.
-  void refreshRealtimeAuthentication() => _connectPresence();
+  void refreshRealtimeAuthentication() {
+    _connectPresence();
+    // Notify active conversation widgets so their sockets can rotate the same token.
+    notifyListeners();
+  }
 
   void _connectPresence() {
     final token = api.token;
@@ -3378,6 +3382,7 @@ class _ChatState extends State<Chat> {
   io.Socket? socket;
   bool loading = true;
   bool _socketConnectedOnce = false;
+  String? _socketToken;
   String? loadError;
   AppState get app => context.read<AppState>();
 
@@ -3478,6 +3483,10 @@ class _ChatState extends State<Chat> {
 
   void _syncPresence() {
     if (!mounted) return;
+    // Password changes rotate JWTs. Rebuild an active chat socket before it retries
+    // with the revoked token; initial connection is handled by initState below.
+    final currentToken = app.api.token;
+    if (_socketToken != null && currentToken != _socketToken) connect();
     final peerId = _directPeerId();
     final shouldBeOnline = peerId != null && app.onlineUserIds.contains(peerId);
     final isOnline = peerId != null && onlineIds.contains(peerId);
@@ -3668,11 +3677,15 @@ class _ChatState extends State<Chat> {
   }
 
   void connect() {
+    socket?.dispose();
+    final token = app.api.token;
+    _socketToken = token;
+    if (token == null || token.isEmpty) return;
     socket = io.io(
       app.api.base,
       io.OptionBuilder()
           .setTransports(['websocket'])
-          .setAuth({'token': app.api.token})
+          .setAuth({'token': token})
           .enableReconnection()
           .setReconnectionAttempts(999999)
           .setReconnectionDelay(1000)
