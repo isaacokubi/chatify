@@ -106,7 +106,8 @@ test('business checkout adds the 0.5% fee on top and rejects totals above the pr
   const charge = buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 1000, description: 'Checkout', profile});
   assert.equal(charge.baseAmount, 1000);
   assert.equal(charge.platformFee, 5);
-  assert.equal(charge.amount, 1005);
+  assert.equal(charge.amount, 1000);
+  assert.equal(charge.totalAmount, 1005);
   assert.equal(JSON.parse(charge.qrPayload).amount, 1005);
   assert.throws(() => buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 150000, description: 'Checkout', profile}), /0.5% platform fee/);
 });
