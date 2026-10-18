@@ -37,7 +37,7 @@ const emailProvider=createEmailProvider({smtpUrl:process.env.SMTP_URL,from:proce
 const storageProvider=createStorageProvider({cloudinaryUrl:process.env.CLOUDINARY_URL,production:process.env.NODE_ENV==='production'});
 const notificationProvider=createNotificationProvider({fcmProjectId:process.env.FCM_PROJECT_ID,serviceAccountJson:process.env.FIREBASE_SERVICE_ACCOUNT_JSON,production});
 const mpesaProvider=resolveMpesaProvider(process.env);
-const app=express(); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb',verify:(req,res,buffer)=>{if(req.originalUrl?.startsWith('/api/business/payments/stripe/webhook')||req.originalUrl?.startsWith('/api/business/billing/webhook'))req.rawBody=Buffer.from(buffer);}})); app.use(rateLimit({windowMs:900000,max:300}));
+const app=express(); app.set('trust proxy', 1); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb',verify:(req,res,buffer)=>{if(req.originalUrl?.startsWith('/api/business/payments/stripe/webhook')||req.originalUrl?.startsWith('/api/business/billing/webhook'))req.rawBody=Buffer.from(buffer);}})); app.use(rateLimit({windowMs:900000,max:300}));
 // MongoDB schemas below describe the durable records used by the app.
 const O=mongoose.Schema.Types.ObjectId;
 // User accounts include password hashes, profile/privacy settings, blocked users and push-notification tokens.
