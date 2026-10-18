@@ -15,9 +15,8 @@ test('validates Till profile and creates a customer-readable payment QR payload'
   assert.equal(qr.merchantName, 'Sample Supermarket');
 });
 
-test('Paybill requires account reference and validates amount', () => {
-  assert.throws(() => normalizeMerchantPaymentProfile({method: 'mpesa_paybill', paybillNumber: '123456'}), /account\/reference/);
-  const profile = normalizeMerchantPaymentProfile({method: 'mpesa_paybill', paybillNumber: '123456', accountNumber: 'INV-42'});
+test('Paybill profile can be configured without a fixed account number and validates amount', () => {
+  const profile = normalizeMerchantPaymentProfile({method: 'mpesa_paybill', paybillNumber: '123456'});
   assert.throws(() => buildPosCharge({organization: {_id: 'x', name: 'Hotel'}, amount: 1.5, description: 'Room', profile}), /whole number/);
 });
 
