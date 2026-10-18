@@ -93,14 +93,14 @@ test('Daraja Dynamic QR requests a real M-Pesa QR for a merchant shortcode', asy
       : {ok: true, json: async () => ({ResponseCode: 'AG_OK', RequestID: 'request-1', QRCode: 'iVBORw0KGgoAAAAAAAAAAAAAAAAA'})};
   });
   const result = await provider.generateDynamicQr({
-    merchantName: 'A Very Long Supermaret Name That Must Be Cut', reference: 'REFERENCE-123456789', amount: 450,
+    merchantName: 'A Very Long Supermarket Name That Must Be Cut', reference: 'REFERENCE-123456789', amount: 450,
     shortcode: '1234567', transactionCode: 'BG',
   });
   assert.equal(result.qrCode, 'iVBORw0KGgoAAAAAAAAAAAAAAAAA');
   assert.equal(result.requestId, 'request-1');
   const body = JSON.parse(requests[1].options.body);
   assert.equal(requests[1].url, 'https://sandbox.safaricom.co.ke/mpesa/qrcode/v1/generate');
-  assert.equal(body.MerchantName, 'A Very Long Supermark');
+  assert.equal(body.MerchantName, 'A Very Long Supermar');
   assert.equal(body.RefNo, 'REFERENCE-123');
   assert.ok(body.MerchantName.length <= 20);
   assert.ok(body.RefNo.length <= 12);
