@@ -11,6 +11,7 @@ test('validates Till profile and creates a customer-readable payment QR payload'
   assert.equal(qr.paymentId, charge.paymentId);
   assert.equal(qr.description, 'Groceries');
   assert.equal(qr.tillNumber, '1234567');
+  assert.equal(charge.reference, 'SALE-1');
   assert.equal(qr.merchantName, 'Sample Supermarket');
 });
 
@@ -24,4 +25,17 @@ test('POS permissions include sales and finance but exclude read-only viewers', 
   assert.equal(canUsePosRole('sales'), true);
   assert.equal(canUsePosRole('finance'), true);
   assert.equal(canUsePosRole('viewer'), false);
+});
+
+test('Paybill sale gets its own safe reference for provider reconciliation', () => {
+  const profile = normalizeMerchantPaymentProfile({method: 'mpesa_paybill', paybillNumber: '123456'});
+  const charge = buildPosCharge({
+    organization: {_id: 'org-2', name: 'City Hotel'},
+    amount: 1800, description: 'Room deposit', reference: 'Room 204 / Oct',
+    profile,
+  });
+  assert.equal(charge.reference, 'Room-204-Oct');
+  assert.equal(charge.destination.paybillNumber, '123456');
+  assert.equal(charge.destination.accountNumber, charge.reference);
+  assert.equal(JSON.parse(charge.qrPayload).accountNumber, charge.reference);
 });
