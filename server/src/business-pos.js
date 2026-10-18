@@ -20,7 +20,8 @@ export function buildPosCharge({organization, amount, description, reference, pr
   if (!Number.isSafeInteger(total) || total < 1 || total > 150000) throw new Error('Amount must be a whole number between KSh 1 and KSh 150,000');
   const title = String(description || '').trim().replace(/\s+/g, ' ').slice(0, 120);
   if (!title) throw new Error('Enter a sale description');
-  const paymentReference = String(reference || randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()).trim().slice(0, 32);
+  const cleanedReference = String(reference || '').trim().replace(/\\s+/g, '-').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20);
+  const paymentReference = cleanedReference || randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
   const destination = profile.method === 'mpesa_till'
     ? {method: 'mpesa_till', tillNumber: profile.tillNumber}
     : {method: 'mpesa_paybill', paybillNumber: profile.paybillNumber, accountNumber: profile.accountNumber};
@@ -147,8 +148,16 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     if (!org) return;
     const status = ['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED'].includes(String(req.query.status || '').toUpperCase()) ? String(req.query.status).toUpperCase() : null;
     const filter = {organizationId: org._id, ...(status ? {status} : {})};
-    const charges = await Charge.find(filter).sort({createdAt: -1}).limit(100).lean();
+    const charges = await Charge.find(filter).select('-qrPayload -dynamicQrImage').sort({createdAt: -1}).limit(100).lean();
     return res.json({charges});
+  });
+
+  app.get('/api/business/organizations/:orgId/pos/charges/:paymentId', auth, async (req, res) => {
+    const org = await authorize(req, res);
+    if (!org) return;
+    const charge = await Charge.findOne({organizationId: org._id, paymentId: String(req.params.paymentId || '')}).lean();
+    if (!charge) return res.status(404).json({error: 'POS payment request not found'});
+    return res.json({charge});
   });
 
   // Safaricom C2B callbacks are not cryptographically signed. Protect this endpoint
