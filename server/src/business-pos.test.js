@@ -8,6 +8,8 @@ test('validates Till profile and creates a customer-readable payment QR payload'
   const qr = JSON.parse(charge.qrPayload);
   assert.equal(charge.status, 'PENDING');
   assert.equal(qr.amount, 450);
+  assert.equal(qr.paymentId, charge.paymentId);
+  assert.equal(qr.description, 'Groceries');
   assert.equal(qr.tillNumber, '1234567');
   assert.equal(qr.merchantName, 'Sample Supermarket');
 });
