@@ -4055,16 +4055,18 @@ class _ChatState extends State<Chat> {
           try {
             if (defaultTargetPlatform == TargetPlatform.android) {
               const mpesaLauncher = MethodChannel('com.example.chatify/mpesa');
-              opened = (await mpesaLauncher.invokeMethod<bool>('openMpesa')) ?? false;
-              if (!opened) {
-                // If M-PESA is not installed, offer its official Google Play listing.
-                await launchUrl(
-                  Uri.parse('https://play.google.com/store/apps/details?id=com.safaricom.mpesa.lifestyle'),
-                  mode: LaunchMode.externalApplication,
-                );
-              }
+              // Never let an Android intent/package lookup keep this screen waiting.
+              // Return to Chatify after at most eight seconds if Android cannot launch it.
+              opened = (await mpesaLauncher
+                      .invokeMethod<bool>('openMpesa')
+                      .timeout(const Duration(seconds: 8), onTimeout: () => false)) ??
+                  false;
             } else {
-              opened = await launchUrl(Uri.parse('mpesa://'), mode: LaunchMode.externalApplication);
+              // Keep the same bounded wait on platforms without the native Android launcher.
+              opened = await launchUrl(
+                Uri.parse('mpesa://'),
+                mode: LaunchMode.externalApplication,
+              ).timeout(const Duration(seconds: 8), onTimeout: () => false);
             }
           } catch (_) {
             opened = false;
