@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeMpesaPhone,validPaymentAmount,createMockMpesaProvider,createDarajaProvider,resolveMpesaProvider,resolveCallbackOutcome,canTransitionPayment,canAccessPayment,canRetryPayment} from '../src/payments.js';
+import {normalizeMpesaPhone,validPaymentAmount,calculatePlatformFee,calculatePaymentTotal,createMockMpesaProvider,createDarajaProvider,resolveMpesaProvider,resolveCallbackOutcome,canTransitionPayment,canAccessPayment,canRetryPayment} from '../src/payments.js';
 
 test('validates whole KSh amounts and Kenyan Safaricom numbers', () => {
   assert.equal(validPaymentAmount(1), true);
@@ -79,4 +79,14 @@ test('payment reads require a requester or payer and current conversation member
   assert.equal(canRetryPayment({...payment,status:'FAILED'},'brian',true),true);
   assert.equal(canRetryPayment({...payment,status:'SUCCESS'},'brian',true),false);
   assert.equal(canRetryPayment({...payment,status:'FAILED'},'alice',true),false);
+});
+
+
+test('platform fee is disclosed, rounded to whole KSh, and total is capped', () => {
+  assert.equal(calculatePlatformFee(100), 1);
+  assert.equal(calculatePlatformFee(1000), 5);
+  assert.equal(calculatePlatformFee(150000), 750);
+  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_SETTLEMENT'});
+  assert.throws(() => calculatePaymentTotal(150000), /must not exceed KSh 150000/);
+  assert.throws(() => calculatePlatformFee(0), /positive whole KSh amount/);
 });
