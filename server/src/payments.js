@@ -72,6 +72,37 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
   return {
     name: `daraja-${mode}`,
     isMock: false,
+    // Dynamic QR creates a Safaricom-readable Buy Goods/Paybill QR for the actual
+    // merchant shortcode. Merchant numbers are data, never platform credentials.
+    async generateDynamicQr({merchantName, reference, amount, shortcode, transactionCode}) {
+      const merchant = String(merchantName || '').trim().slice(0, 80);
+      const ref = String(reference || '').trim().slice(0, 20);
+      const total = Number(amount);
+      const cpi = String(shortcode || '').trim();
+      if (!merchant || !ref || !Number.isSafeInteger(total) || total < 1 || total > MAX_PAYMENT_AMOUNT) {
+        throw Object.assign(new Error('Invalid Dynamic QR merchant, reference or amount'), {stage: 'qr_validation'});
+      }
+      if (!/^\\d{5,10}$/.test(cpi) || !['BG', 'PB'].includes(transactionCode)) {
+        throw Object.assign(new Error('Invalid Dynamic QR merchant shortcode or transaction type'), {stage: 'qr_validation'});
+      }
+      const accessToken = await token();
+      let response;
+      try {
+        response = await transport(`${host}/mpesa/qrcode/v1/generate`, {
+          method: 'POST',
+          headers: {Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json'},
+          body: JSON.stringify({MerchantName: merchant, RefNo: ref, Amount: total, TrxCode: transactionCode, CPI: cpi, Size: '300'}),
+          signal: AbortSignal.timeout(15000),
+        });
+      } catch {
+        throw Object.assign(new Error('Daraja Dynamic QR network request failed'), {stage: 'qr_transport'});
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || typeof data.QRCode !== 'string' || data.QRCode.length < 20) {
+        throw Object.assign(new Error('Daraja rejected the Dynamic QR request'), {stage: 'qr_rejected'});
+      }
+      return {qrCode: data.QRCode, requestId: String(data.RequestID || '').slice(0, 100)};
+    },
     async initiate({amount, phone, description, paymentId, now = new Date()}) {
       const timestamp = darajaTimestamp(now);
       const password = Buffer.from(`${config.shortcode}${config.passkey}${timestamp}`).toString('base64');
