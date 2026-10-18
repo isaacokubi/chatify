@@ -182,7 +182,7 @@ test('payment state transitions are one-time and reject already processed callba
 test('platform fee is 0.5%, rounded up to whole KSh, with the provider total capped', () => {
   assert.equal(calculatePlatformFee(1000), 5);
   assert.equal(calculatePlatformFee(450), 3);
-  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_SETTLEMENT'});
+  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_PAYMENT'});
   assert.throws(() => calculatePaymentTotal(150000), /must not exceed KSh 150000/);
 });
 
