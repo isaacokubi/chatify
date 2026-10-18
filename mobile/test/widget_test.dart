@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:chatify/main.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
   test('Business API reports HTML responses as a readable API error', () async {
     final api = Api(
       client: MockClient((_) async => http.Response(
@@ -96,6 +99,64 @@ void main() {
     expect(find.text('Forgot password?'), findsOneWidget);
     expect(find.text('Your people. Your conversations.'), findsNothing);
     expect(find.text('Create a new account'), findsOneWidget);
+  });
+
+  testWidgets('admin control center exposes overview, people, payments and health',
+      (tester) async {
+    final client = MockClient((request) async {
+      if (request.url.path == '/api/status') {
+        return http.Response(
+          '{"status":"operational","notice":"Observed service status.","components":[{"name":"Database","status":"operational"}]}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (request.url.path == '/api/admin/overview') {
+        return http.Response(
+          '{"stats":{"totalUsers":12,"activeUsers":10,"verifiedUsers":9,"totalBusinesses":3,"businessCustomers":20,"catalogItems":8,"totalConversations":14,"totalMessages":50,"totalMemories":6,"openCases":2,"pendingPayments":1,"failedPayments":0,"successfulPaymentAmount":1200,"newUsers24h":2,"newMessages24h":7,"newBusinesses24h":1},"recentUsers":[],"recentPayments":[]}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (request.url.path == '/api/admin/users') {
+        return http.Response(
+          '{"users":[{"_id":"u-1","name":"Amina","email":"amina@example.test","role":"user","status":"active","emailVerified":true}],"total":1}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (request.url.path == '/api/admin/payments') {
+        return http.Response(
+          '{"payments":[{"paymentId":"pay-1","amount":1200,"status":"PENDING","provider":"mock","description":"Order payment"}],"total":1}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{"error":"Unexpected request"}', 404);
+    });
+    final state = AppState(api: Api(client: client), autoInit: false)
+      ..api.token = 'admin-session'
+      ..user = {'id': 'admin-1', 'role': 'admin'};
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: state,
+      child: const MaterialApp(
+        home: Scaffold(body: AdminDashboard()),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Chatify Control Center'), findsOneWidget);
+    expect(find.text('Service health'), findsOneWidget);
+    expect(find.text('Businesses'), findsOneWidget);
+    await tester.tap(find.text('People').first);
+    await tester.pumpAndSettle();
+    expect(find.text('People and access'), findsOneWidget);
+    expect(find.text('Amina'), findsOneWidget);
+    await tester.tap(find.text('Payments').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Payment operations'), findsOneWidget);
+    expect(find.text('Order payment'), findsOneWidget);
+    client.close();
+    state.dispose();
   });
 
   testWidgets('Registration form exposes editable identity and password fields',

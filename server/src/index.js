@@ -7,7 +7,7 @@
 
 import 'dotenv/config';
 import {resolveMpesaProvider,normalizeMpesaPhone,validPaymentAmount,newPaymentId,PAYMENT_STATUSES,resolveCallbackOutcome,canAccessPayment,canRetryPayment,canTransitionPayment,canCancelPayment} from './payments.js';
-import {createAuthMiddleware} from './auth.js';
+import {createAuthMiddleware,createAdminMiddleware} from './auth.js';
 import {isValidEncryptedPayload} from './e2ee.js';
 import {randomBytes} from 'node:crypto';
 import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback,resolveNodeEnv,requireProductionMongoUri} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials,createShutdownHandler} from './lifecycle.js';
@@ -146,17 +146,26 @@ app.put('/api/users/me/encryption-key',auth,async(q,r)=>{const key=q.body?.publi
  * Platform administration endpoints. Every route requires a verified server-side admin role;
  * the client cannot grant itself privileges by changing a submitted JSON field.
  */
-const requireAdmin=(q,r,next)=>q.user?.role==='admin'?next():r.status(403).json({error:'Administrator access required'});
+const requireAdmin=createAdminMiddleware();
 app.get('/api/admin/overview',auth,requireAdmin,async(q,r)=>{
-  const [totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,recentUsers,recentPayments]=await Promise.all([
+  const since=new Date(Date.now()-24*60*60*1000);
+  const optionalCount=(model,filter={})=>model?model.countDocuments(filter):Promise.resolve(0);
+  const [totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,failedPayments,recentUsers,recentPayments,totalBusinesses,businessCustomers,catalogItems,openCases,newUsers24h,newMessages24h,newBusinesses24h]=await Promise.all([
     User.countDocuments({}),User.countDocuments({status:'active'}),User.countDocuments({emailVerified:true}),
     Conversation.countDocuments({}),Message.countDocuments({}),Memory.countDocuments({}),Payment.countDocuments({}),
-    Payment.countDocuments({status:'PENDING'}),Payment.countDocuments({status:'SUCCESS'}),
+    Payment.countDocuments({status:'PENDING'}),Payment.countDocuments({status:'SUCCESS'}),Payment.countDocuments({status:'FAILED'}),
     User.find({}).sort({createdAt:-1}).limit(8).select('name email role status emailVerified createdAt lastSeen'),
-    Payment.find({}).sort({createdAt:-1}).limit(8).select('paymentId amount status provider description createdAt requesterId payerId').lean()
+    Payment.find({}).sort({createdAt:-1}).limit(8).select('paymentId amount status provider description createdAt requesterId payerId').lean(),
+    optionalCount(mongoose.models.BusinessOrganization),
+    optionalCount(mongoose.models.BusinessCustomer),
+    optionalCount(mongoose.models.BusinessCatalogItem,{active:true}),
+    optionalCount(mongoose.models.BusinessCase,{status:{$nin:['resolved','closed']}}),
+    User.countDocuments({createdAt:{$gte:since}}),
+    Message.countDocuments({createdAt:{$gte:since}}),
+    optionalCount(mongoose.models.BusinessOrganization,{createdAt:{$gte:since}}),
   ]);
   const revenue=await Payment.aggregate([{$match:{status:'SUCCESS'}},{$group:{_id:null,total:{$sum:'$amount'},count:{$sum:1}}}]);
-  r.json({stats:{totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,successfulPaymentAmount:revenue[0]?.total||0},recentUsers,recentPayments});
+  r.json({stats:{totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,failedPayments,successfulPaymentAmount:revenue[0]?.total||0,totalBusinesses,businessCustomers,catalogItems,openCases,newUsers24h,newMessages24h,newBusinesses24h},recentUsers,recentPayments,generatedAt:new Date().toISOString()});
 });
 app.get('/api/admin/users',auth,requireAdmin,async(q,r)=>{
   const page=Math.max(1,Math.min(10000,Number.parseInt(q.query.page,10)||1));

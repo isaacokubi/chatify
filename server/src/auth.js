@@ -18,3 +18,12 @@ export function createAuthMiddleware({verifyToken, findUser}) {
     return next();
   };
 }
+
+// Platform administration is always checked against the authenticated server-side user.
+export function createAdminMiddleware() {
+  return function requireAdmin(req, res, next) {
+    return req.user?.role === 'admin'
+      ? next()
+      : res.status(403).json({error:'Administrator access required'});
+  };
+}

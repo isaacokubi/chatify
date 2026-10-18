@@ -26,7 +26,9 @@ if (buildingRelease && !hasReleaseSigning) {
 
 android {
     namespace = "com.example.chatify"
-    compileSdk = flutter.compileSdkVersion
+    // Current Flutter plugins require Android API 36 metadata at compile time.
+    // Keep targetSdk separate so this does not opt users into new runtime behavior.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
