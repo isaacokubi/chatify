@@ -18,7 +18,7 @@ export function calculatePaymentTotal(amount) {
   if (!Number.isSafeInteger(totalAmount) || totalAmount > MAX_PAYMENT_AMOUNT) {
     throw new Error(`Amount plus the 0.5% platform fee must not exceed KSh ${MAX_PAYMENT_AMOUNT}`);
   }
-  return {baseAmount: amount, platformFee, totalAmount, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_SETTLEMENT'};
+  return {baseAmount: amount, platformFee, totalAmount, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_PAYMENT'};
 }
 
 export function normalizeMpesaPhone(value) {
