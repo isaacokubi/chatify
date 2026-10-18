@@ -8734,7 +8734,6 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
             TextField(controller: paybill, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Merchant Paybill number')),
           ],
           const SizedBox(height: 8),
-          FilledButton.icon(onPressed: saving ? null : saveProfile, icon: const Icon(Icons.save_outlined), label: const Text('Save payment destination')),
           const SizedBox(height: 12),
           Text('Merchant Daraja authorization', style: Theme.of(context).textTheme.titleMedium),
           DropdownButtonFormField<String>(initialValue: darajaMode, decoration: const InputDecoration(labelText: 'Daraja environment'), items: const [
