@@ -78,3 +78,44 @@ test('Daraja provider distinguishes a rejected STK request from transport failur
     error => error.stage === 'stk_rejected' && /rejected the STK request/.test(error.message),
   );
 });
+
+test('Daraja Dynamic QR requests a real M-Pesa QR for a merchant shortcode', async () => {
+  const {createDarajaProvider} = await import('./payments.js');
+  const requests = [];
+  const provider = createDarajaProvider({
+    mode: 'sandbox', consumerKey: 'test-key', consumerSecret: 'test-secret',
+    shortcode: '123456', passkey: 'test-passkey',
+    callbackUrl: 'https://api.example.org/api/payments/daraja/callback',
+  }, async (url, options = {}) => {
+    requests.push({url, options});
+    return url.includes('/oauth/')
+      ? {ok: true, json: async () => ({access_token: 'test-token', expires_in: 3600})}
+      : {ok: true, json: async () => ({ResponseCode: 'AG_OK', RequestID: 'request-1', QRCode: 'iVBORw0KGgoAAAAAAAAAAAAAAAAA'})};
+  });
+  const result = await provider.generateDynamicQr({
+    merchantName: 'Test Supermarket', reference: 'SALE-1', amount: 450,
+    shortcode: '1234567', transactionCode: 'BG',
+  });
+  assert.equal(result.qrCode, 'iVBORw0KGgoAAAAAAAAAAAAAAAAA');
+  assert.equal(result.requestId, 'request-1');
+  const body = JSON.parse(requests[1].options.body);
+  assert.equal(requests[1].url, 'https://sandbox.safaricom.co.ke/mpesa/qrcode/v1/generate');
+  assert.equal(body.MerchantName, 'Test Supermarket');
+  assert.equal(body.RefNo, 'SALE-1');
+  assert.equal(body.Amount, 450);
+  assert.equal(body.TrxCode, 'BG');
+  assert.equal(body.CPI, '1234567');
+});
+
+test('Dynamic QR rejects invalid merchant shortcodes before calling Daraja', async () => {
+  const {createDarajaProvider} = await import('./payments.js');
+  const provider = createDarajaProvider({
+    mode: 'sandbox', consumerKey: 'test-key', consumerSecret: 'test-secret',
+    shortcode: '123456', passkey: 'test-passkey',
+    callbackUrl: 'https://api.example.org/api/payments/daraja/callback',
+  }, async () => { throw new Error('should not be called'); });
+  await assert.rejects(provider.generateDynamicQr({
+    merchantName: 'Shop', reference: 'SALE-1', amount: 450,
+    shortcode: 'not-a-till', transactionCode: 'BG',
+  }), error => error.stage === 'qr_validation');
+});
