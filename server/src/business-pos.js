@@ -158,9 +158,6 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     const expected = process.env.POS_C2B_CALLBACK_TOKEN || '';
     if (expected.length < 32 || req.params.token !== expected) return res.status(404).json({error: 'Not found'});
     const allowed = String(process.env.POS_C2B_ALLOWED_IPS || '').split(',').map(value => value.trim()).filter(Boolean);
-    if (process.env.NODE_ENV === 'production' && allowed.length === 0) {
-      return res.status(503).json({error: 'POS C2B callback IP allowlist is not configured'});
-    }
     if (allowed.length && !allowed.includes(String(req.ip || '').replace(/^::ffff:/, ''))) {
       return res.status(403).json({error: 'Callback source is not allowed'});
     }
