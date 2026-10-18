@@ -4049,10 +4049,23 @@ class _ChatState extends State<Chat> {
           ].join('\n');
           await Clipboard.setData(ClipboardData(text: details));
           var opened = false;
-          // Safaricom does not publish a universal prefilled P2P Send Money URI.
-          // Try the app URI, but always retain the copied details as a safe fallback.
+          // The M-PESA app does not expose a documented deep link for pre-filling
+          // personal Send Money recipient/amount fields. Copy details first, then
+          // launch the installed Safaricom app using Android's package manager.
           try {
-            opened = await launchUrl(Uri.parse('mpesa://'), mode: LaunchMode.externalApplication);
+            if (defaultTargetPlatform == TargetPlatform.android) {
+              const mpesaLauncher = MethodChannel('com.example.chatify/mpesa');
+              opened = (await mpesaLauncher.invokeMethod<bool>('openMpesa')) ?? false;
+              if (!opened) {
+                // If M-PESA is not installed, offer its official Google Play listing.
+                await launchUrl(
+                  Uri.parse('https://play.google.com/store/apps/details?id=com.safaricom.mpesa.lifestyle'),
+                  mode: LaunchMode.externalApplication,
+                );
+              }
+            } else {
+              opened = await launchUrl(Uri.parse('mpesa://'), mode: LaunchMode.externalApplication);
+            }
           } catch (_) {
             opened = false;
           }
@@ -4060,9 +4073,9 @@ class _ChatState extends State<Chat> {
             await showDialog<void>(
               context: context,
               builder: (dialog) => AlertDialog(
-                title: Text(opened ? 'M-Pesa opened' : 'Transfer details copied'),
+                title: Text(opened ? 'M-PESA opened' : 'Transfer details copied'),
                 content: SelectableText(
-                  '${opened ? 'Transfer details are copied. ' : 'M-Pesa could not be opened automatically. '}$details',
+                  '${opened ? 'The M-PESA app is open. ' : 'Could not open the M-PESA app. Details are copied. '}$details\\n\\nFor personal Send Money, enter the copied recipient and amount in M-PESA; the app does not expose a supported prefill link.',
                 ),
                 actions: [FilledButton(onPressed: () => Navigator.pop(dialog), child: const Text('Done'))],
               ),
