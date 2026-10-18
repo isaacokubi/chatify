@@ -33,7 +33,7 @@ export function validateMerchantDarajaCredentials(input, profile) {
   const expectedShortcode = profile?.method === 'mpesa_till' ? profile.tillNumber : profile?.paybillNumber;
   if (!['sandbox', 'production'].includes(mode)) throw new Error('Choose sandbox or production Daraja credentials');
   if (!consumerKey || !consumerSecret || !passkey) throw new Error('Merchant consumer key, consumer secret and passkey are required');
-  if (!/^\\d{5,10}$/.test(shortcode) || shortcode !== expectedShortcode) throw new Error('Daraja shortcode must exactly match this merchant\'s configured Till or Paybill');
+  if (!/^\d{5,10}$/.test(shortcode) || shortcode !== expectedShortcode) throw new Error('Daraja shortcode must exactly match this merchant\'s configured Till or Paybill');
   return {mode, consumerKey, consumerSecret, passkey, shortcode};
 }
 
@@ -247,7 +247,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     const expected = String(process.env.POS_STK_CALLBACK_TOKEN || '');
     if (expected.length < 32 || req.params.token !== expected) return res.status(404).json({error: 'Not found'});
     const cb = req.body?.Body?.stkCallback;
-    if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string' || !/^-?\\d+$/.test(String(cb.ResultCode))) return res.status(400).json({error: 'Malformed callback'});
+    if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string' || !/^-?\d+$/.test(String(cb.ResultCode))) return res.status(400).json({error: 'Malformed callback'});
     const charge = await Charge.findOne({checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, status: 'PENDING', confirmationSource: 'daraja_stk_pending'});
     if (!charge) return res.json({ok: true, duplicate: true});
     const items = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
