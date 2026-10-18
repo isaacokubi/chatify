@@ -3864,6 +3864,156 @@ class _ChatState extends State<Chat> {
     final other = participants.whereType<Map>().firstWhere(
         (p) => p['_id']?.toString() != me,
         orElse: () => <String, dynamic>{});
+    final otherId = other['_id']?.toString();
+    if (otherId == null || otherId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Conversation member details are unavailable.')));
+      return;
+    }
+
+    // Let the user choose the direction first: receiving creates the existing
+    // tracked payment request; sending is a person-to-person transfer made in
+    // the M-Pesa app, because Daraja STK Push cannot credit a personal number.
+    final mode = await showDialog<String>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('M-Pesa'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.call_made),
+              title: const Text('Send Money'),
+              subtitle: const Text('Send money to this contact using M-Pesa'),
+              onTap: () => Navigator.pop(dialog, 'send'),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.call_received),
+              title: const Text('Receive Money'),
+              subtitle: const Text('Request money from this contact'),
+              onTap: () => Navigator.pop(dialog, 'receive'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || mode == null) return;
+
+    if (mode == 'send') {
+      final amount = TextEditingController();
+      final recipientPhone =
+          TextEditingController(text: other['phone']?.toString() ?? '');
+      final description = TextEditingController();
+      final form = GlobalKey<FormState>();
+      final submit = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: const Text('Send Money'),
+          content: Form(
+            key: form,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: amount,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Amount (KSh)'),
+                    validator: (v) {
+                      final value = int.tryParse(v ?? '');
+                      return value == null || value < 1 || value > 150000
+                          ? 'Enter KSh 1–150,000'
+                          : null;
+                    },
+                  ),
+                  TextFormField(
+                    controller: recipientPhone,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Recipient M-Pesa Number',
+                      hintText: '0712345678 or 254712345678',
+                    ),
+                    validator: (v) => normalizeKenyanPhone(v ?? '') == null
+                        ? 'Enter a valid Kenyan M-Pesa number'
+                        : null,
+                  ),
+                  TextFormField(
+                    controller: description,
+                    maxLength: 80,
+                    decoration: const InputDecoration(
+                        labelText: 'Description (optional)'),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'This is a personal Send Money transfer. Chatify will show and copy the details, but you must complete it in the M-Pesa app. This screen does not initiate or verify the transfer.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (form.currentState!.validate()) {
+                  Navigator.pop(dialog, true);
+                }
+              },
+              child: const Text('Show details'),
+            ),
+          ],
+        ),
+      );
+      if (submit == true && mounted) {
+        final phone = normalizeKenyanPhone(recipientPhone.text)!;
+        final details = [
+          'Chatify M-Pesa Send Money',
+          'Recipient: $phone',
+          'Amount: KSh ${int.parse(amount.text)}',
+          if (description.text.trim().isNotEmpty)
+            'Description: ${description.text.trim()}',
+          'Complete and confirm the transfer in the M-Pesa app.',
+        ].join('\n');
+        await Clipboard.setData(ClipboardData(text: details));
+        if (mounted) {
+          await showDialog<void>(
+            context: context,
+            builder: (dialog) => AlertDialog(
+              title: const Text('Send Money details copied'),
+              content: SelectableText(details),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialog),
+                  child: const Text('Done'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+      amount.dispose();
+      recipientPhone.dispose();
+      description.dispose();
+      return;
+    }
+
+    final participants =
+        List<dynamic>.from(widget.conversation['participants'] ?? []);
+    final me = app.user?['id']?.toString();
+    final other = participants.whereType<Map>().firstWhere(
+        (p) => p['_id']?.toString() != me,
+        orElse: () => <String, dynamic>{});
     final payerId = other['_id']?.toString();
     if (payerId == null || payerId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
