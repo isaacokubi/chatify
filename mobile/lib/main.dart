@@ -3864,7 +3864,7 @@ class _ChatState extends State<Chat> {
     final choiceOther = choiceParticipants.whereType<Map>().firstWhere(
         (p) => p['_id']?.toString() != choiceMe,
         orElse: () => <String, dynamic>{});
-    final choiceOtherId = other['_id']?.toString();
+    final choiceOtherId = choiceOther['_id']?.toString();
     if (choiceOtherId == null || choiceOtherId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Conversation member details are unavailable.')));
@@ -3909,7 +3909,7 @@ class _ChatState extends State<Chat> {
     if (mode == 'send') {
       final amount = TextEditingController();
       final recipientPhone =
-          TextEditingController(text: other['phone']?.toString() ?? '');
+          TextEditingController(text: choiceOther['phone']?.toString() ?? '');
       final description = TextEditingController();
       final form = GlobalKey<FormState>();
       final submit = await showDialog<bool>(
