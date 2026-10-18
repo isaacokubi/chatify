@@ -159,6 +159,43 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     return res.json({charge});
   });
 
+  // Manual reconciliation is available only to finance/management staff after they
+  // independently verify the receipt in the merchant's official M-Pesa account/statement.
+  // It is explicitly labelled manual and is never triggered by a customer screenshot.
+  app.post('/api/business/organizations/:orgId/pos/charges/:paymentId/reconcile', auth, async (req, res) => {
+    const org = await authorize(req, res);
+    if (!org) return;
+    const isOwner = String(org.ownerId) === String(req.user._id);
+    const member = (org.members || []).find(item => String(item.userId) === String(req.user._id));
+    const role = isOwner ? 'owner' : String(member?.role || 'viewer');
+    if (!['owner', 'admin', 'manager', 'finance'].includes(role)) {
+      return res.status(403).json({error: 'Only management or finance staff can reconcile a merchant receipt'});
+    }
+    const receipt = String(req.body?.receipt || '').trim().toUpperCase();
+    if (req.body?.verified !== true || !/^[A-Z0-9]{6,40}$/.test(receipt)) {
+      return res.status(400).json({error: 'Confirm official statement verification and enter a valid M-Pesa receipt number'});
+    }
+    try {
+      const charge = await Charge.findOneAndUpdate({
+        organizationId: org._id,
+        paymentId: String(req.params.paymentId || ''),
+        status: 'PENDING',
+        providerReceipt: {$in: [null, '']},
+      }, {$set: {
+        status: 'SUCCESS',
+        providerReceipt: receipt,
+        confirmationSource: 'manual_merchant_reconciliation',
+        confirmedAt: new Date(),
+      }}, {new: true});
+      if (!charge) return res.status(409).json({error: 'Payment is not pending, does not exist, or has already been reconciled'});
+      return res.json({charge: {paymentId: charge.paymentId, reference: charge.reference, status: charge.status, providerReceipt: charge.providerReceipt, confirmationSource: charge.confirmationSource, confirmedAt: charge.confirmedAt}});
+    } catch (error) {
+      if (error?.code === 11000) return res.status(409).json({error: 'That M-Pesa receipt has already been used for another sale'});
+      console.error('Manual POS reconciliation failed');
+      return res.status(500).json({error: 'Could not reconcile the payment'});
+    }
+  });
+
   // Safaricom C2B callbacks are not cryptographically signed. Protect this endpoint
   // with a long random URL token and optionally enforce a network allowlist at the proxy.
   // Only Paybill transactions with exact shortcode, reference, amount and unique receipt
