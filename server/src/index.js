@@ -166,7 +166,7 @@ app.get('/api/admin/overview',auth,requireAdmin,async(q,r)=>{
     Message.countDocuments({createdAt:{$gte:since}}),
     optionalCount(mongoose.models.BusinessOrganization,{createdAt:{$gte:since}}),
   ]);
-  const revenue=await Payment.aggregate([{$match:{status:'SUCCESS'}},{$group:{_id:null,total:{$sum:'$amount'},count:{$sum:1}}}]);
+  const revenue=await Payment.aggregate([{$match:{status:'SUCCESS'}},{$group:{_id:null,total:{$sum:{$ifNull:['$totalAmount','$amount']}},count:{$sum:1}}}]);
   const feeSummary=await PlatformFeeLedger.aggregate([{$match:{status:'PENDING_SETTLEMENT'}},{$group:{_id:null,totalFee:{$sum:'$feeAmount'},count:{$sum:1}}}]);
   r.json({stats:{totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,failedPayments,successfulPaymentAmount:revenue[0]?.total||0,pendingPlatformFeeAmount:feeSummary[0]?.totalFee||0,pendingPlatformFeeCount:feeSummary[0]?.count||0,totalBusinesses,businessCustomers,catalogItems,openCases,newUsers24h,newMessages24h,newBusinesses24h},recentUsers,recentPayments,generatedAt:new Date().toISOString()});
 });
