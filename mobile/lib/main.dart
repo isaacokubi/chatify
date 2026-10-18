@@ -4514,6 +4514,7 @@ class _ChatState extends State<Chat> {
       final result = await app.api
           .call('POST', '/api/payments/${payment['paymentId']}/initiate', {
         'phone': normalizeKenyanPhone(payerPhone.text)!,
+        'feeAcknowledged': true,
       });
       final updated = Map<String, dynamic>.from(result['payment']);
       if (mounted) {
@@ -6975,7 +6976,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
       final initiated = await app.api.call(
           'POST',
           '/api/payments/${Uri.encodeComponent(id)}/initiate',
-          {'phone': phone.text.trim()});
+          {'phone': phone.text.trim(), 'feeAcknowledged': true});
       if (!mounted) return;
       final isMock = initiated['mock'] == true;
       setState(() {
@@ -8382,7 +8383,7 @@ class _BusinessHubState extends State<BusinessHub> {
                     ]));
         if (accepted != true) { phone.dispose(); return; }
         response = await app.api
-            .call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
+            .call('POST', '$base/mpesa-stk', {'phone': phone.text.trim(), 'feeAcknowledged': true});
         phone.dispose();
       } else {
         response = await app.api.call('POST', '$base/etims-submit', {});
@@ -9087,8 +9088,20 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter the customer M-Pesa phone number first.')));
       return;
     }
+    final baseAmount = (item['baseAmount'] as num?)?.toInt() ?? (item['amount'] as num?)?.toInt() ?? 0;
+    final platformFee = (item['platformFee'] as num?)?.toInt() ?? 0;
+    final totalAmount = (item['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
+    final feeConsent = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+      title: const Text('Confirm buyer fee disclosure'),
+      content: Text('Sale amount: KSh $baseAmount\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nBuyer total: KSh $totalAmount\n\nConfirm that you have shown the buyer this breakdown. The fee remains pending settlement and is not automatically transferred to Chatify.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Confirm and send STK')),
+      ],
+    ));
+    if (feeConsent != true) return;
     try {
-      await app.api.call('POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/stk', {'phone': phone.trim()});
+      await app.api.call('POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/stk', {'phone': phone.trim(), 'feeAcknowledged': true});
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('STK prompt sent. The sale remains pending until Safaricom confirms payment.')));
