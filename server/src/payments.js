@@ -3,6 +3,23 @@ import {isIP} from 'node:net';
 
 export const PAYMENT_STATUSES = Object.freeze(['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED']);
 export const MAX_PAYMENT_AMOUNT = 150000;
+export const PLATFORM_FEE_BASIS_POINTS = 50; // 0.50% of the pre-fee amount.
+
+// M-Pesa amounts are whole KSh. Round the disclosed fee up to the next shilling
+// so the platform never silently charges less than the configured 0.50% rate.
+export function calculatePlatformFee(amount) {
+  if (!Number.isSafeInteger(amount) || amount < 1) throw new Error('Fee base must be a positive whole KSh amount');
+  return Math.ceil((amount * PLATFORM_FEE_BASIS_POINTS) / 10000);
+}
+
+export function calculatePaymentTotal(amount) {
+  const platformFee = calculatePlatformFee(amount);
+  const totalAmount = amount + platformFee;
+  if (!Number.isSafeInteger(totalAmount) || totalAmount > MAX_PAYMENT_AMOUNT) {
+    throw new Error(`Amount plus the 0.5% platform fee must not exceed KSh ${MAX_PAYMENT_AMOUNT}`);
+  }
+  return {baseAmount: amount, platformFee, totalAmount, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_SETTLEMENT'};
+}
 
 export function normalizeMpesaPhone(value) {
   if (typeof value !== 'string') return null;
@@ -175,7 +192,7 @@ export function resolveCallbackOutcome(callback, payment) {
   const items = Array.isArray(callback.CallbackMetadata?.Item) ? callback.CallbackMetadata.Item : [];
   const value = name => items.find(item => item?.Name === name)?.Value;
   const code = Number(callback.ResultCode);
-  if (code === 0 && (Number(value('Amount')) !== payment.amount || String(value('PhoneNumber')) !== payment.phone)) return {error:'mismatch'};
+  if (code === 0 && (Number(value('Amount')) !== (payment.totalAmount ?? payment.amount) || String(value('PhoneNumber')) !== payment.phone)) return {error:'mismatch'};
   return {resultCode:code,status:code === 0 ? 'SUCCESS' : code === 1032 ? 'CANCELLED' : 'FAILED',description:String(callback.ResultDesc || '').slice(0,160)};
 }
 
