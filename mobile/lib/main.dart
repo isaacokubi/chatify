@@ -8543,9 +8543,11 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
   AppState get app => context.read<AppState>();
   final till = TextEditingController(), paybill = TextEditingController(),
       amount = TextEditingController(),
-      description = TextEditingController(), reference = TextEditingController();
-  String method = 'mpesa_till';
-  bool loading = true, saving = false;
+      description = TextEditingController(), reference = TextEditingController(),
+      darajaConsumerKey = TextEditingController(), darajaConsumerSecret = TextEditingController(),
+      darajaPasskey = TextEditingController();
+  String method = 'mpesa_till', darajaMode = 'production';
+  bool loading = true, saving = false, darajaConfigured = false;
   Map<String, dynamic>? profile;
   List<dynamic> charges = [];
   String? error;
@@ -8553,13 +8555,14 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
   @override
   void initState() { super.initState(); load(); }
   @override
-  void dispose() { till.dispose(); paybill.dispose(); amount.dispose(); description.dispose(); reference.dispose(); super.dispose(); }
+  void dispose() { till.dispose(); paybill.dispose(); amount.dispose(); description.dispose(); reference.dispose(); darajaConsumerKey.dispose(); darajaConsumerSecret.dispose(); darajaPasskey.dispose(); super.dispose(); }
 
   Future<void> load() async {
     if (mounted) setState(() { loading = true; error = null; });
     try {
       final r = await Future.wait([app.api.call('GET', '$base/payment-profile'), app.api.call('GET', '$base/charges')]);
       profile = r[0]['paymentProfile'] is Map ? Map<String,dynamic>.from(r[0]['paymentProfile']) : null;
+      darajaConfigured = r[0]['darajaConfigured'] == true;
       charges = List<dynamic>.from(r[1]['charges'] ?? []);
       if (profile != null) {
         method = profile!['method']?.toString() ?? 'mpesa_till';
@@ -8576,8 +8579,18 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       final body = <String,dynamic>{'method': method};
       if (method == 'mpesa_till') { body['tillNumber'] = till.text.trim(); }
       else { body['paybillNumber'] = paybill.text.trim(); }
+      final hasAnyCredential = darajaConsumerKey.text.trim().isNotEmpty || darajaConsumerSecret.text.trim().isNotEmpty || darajaPasskey.text.trim().isNotEmpty;
+      if (hasAnyCredential) {
+        if (darajaConsumerKey.text.trim().isEmpty || darajaConsumerSecret.text.trim().isEmpty || darajaPasskey.text.trim().isEmpty) {
+          throw Exception('Enter the merchant consumer key, consumer secret and passkey together, or leave all three blank.');
+        }
+        body.addAll({'mode': darajaMode, 'shortcode': method == 'mpesa_till' ? till.text.trim() : paybill.text.trim(),
+          'consumerKey': darajaConsumerKey.text.trim(), 'consumerSecret': darajaConsumerSecret.text.trim(), 'passkey': darajaPasskey.text.trim()});
+      }
       final r = await app.api.call('PUT', '$base/payment-profile', body);
       profile = Map<String,dynamic>.from(r['paymentProfile'] ?? body);
+      darajaConfigured = r['darajaConfigured'] == true;
+      darajaConsumerKey.clear(); darajaConsumerSecret.clear(); darajaPasskey.clear();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merchant payment instructions saved.')));
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
     finally { if (mounted) setState(() => saving = false); }
@@ -8600,6 +8613,23 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       await load();
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
     finally { if (mounted) setState(() => saving = false); }
+  }
+
+  Future<void> initiateStk(Map<String,dynamic> item, String phone) async {
+    if (phone.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter the customer M-Pesa phone number first.')));
+      return;
+    }
+    try {
+      await app.api.call('POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/stk', {'phone': phone.trim()});
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('STK prompt sent. The sale remains pending until Safaricom confirms payment.')));
+      }
+      await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
   }
 
   Future<void> reconcileCharge(Map<String,dynamic> item) async {
@@ -8650,6 +8680,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     if (!mounted) return;
     final payload = item['qrPayload']?.toString() ?? '';
     final dynamicQrImage = item['dynamicQrImage']?.toString() ?? '';
+    final stkPhone = TextEditingController();
     final isSafaricomQr = item['qrProvider'] == 'safaricom_dynamic_qr' && dynamicQrImage.isNotEmpty;
     await showDialog<void>(context: context, builder: (d) => AlertDialog(
       title: const Text('Customer checkout'),
@@ -8671,9 +8702,17 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
           textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
         if (!isSafaricomQr)
           TextButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: payload)); }, icon: const Icon(Icons.copy), label: const Text('Copy QR payload')),
+        const Divider(height: 24),
+        TextField(controller: stkPhone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Customer M-Pesa phone', hintText: '0712345678 or 254712345678')),
+        const SizedBox(height: 6),
+        Text(darajaConfigured ? 'STK uses this merchant\'s own authorized Daraja shortcode.' : 'Configure authorized merchant Daraja credentials to enable direct STK Push.', style: const TextStyle(fontSize: 12)),
       ])),
-      actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('Close'))],
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d), child: const Text('Close')),
+        FilledButton.icon(onPressed: saving || !darajaConfigured ? null : () => initiateStk(item, stkPhone.text), icon: const Icon(Icons.phone_android), label: const Text('Send STK Push')),
+      ],
     ));
+    stkPhone.dispose();
   }
 
   @override
@@ -8696,7 +8735,18 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
           ],
           const SizedBox(height: 8),
           FilledButton.icon(onPressed: saving ? null : saveProfile, icon: const Icon(Icons.save_outlined), label: const Text('Save payment destination')),
-          const Text('Store payment instructions only; never enter Daraja secrets here.', style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 12),
+          Text('Merchant Daraja authorization', style: Theme.of(context).textTheme.titleMedium),
+          DropdownButtonFormField<String>(initialValue: darajaMode, decoration: const InputDecoration(labelText: 'Daraja environment'), items: const [
+            DropdownMenuItem(value: 'sandbox', child: Text('Sandbox / testing')),
+            DropdownMenuItem(value: 'production', child: Text('Production / live payments')),
+          ], onChanged: saving ? null : (v) { if (v != null) setState(() => darajaMode = v); }),
+          TextField(controller: darajaConsumerKey, obscureText: true, autocorrect: false, enableSuggestions: false, decoration: const InputDecoration(labelText: 'Merchant Daraja consumer key (optional)')),
+          TextField(controller: darajaConsumerSecret, obscureText: true, autocorrect: false, enableSuggestions: false, decoration: const InputDecoration(labelText: 'Merchant Daraja consumer secret (optional)')),
+          TextField(controller: darajaPasskey, obscureText: true, autocorrect: false, enableSuggestions: false, decoration: const InputDecoration(labelText: 'Merchant STK passkey (optional)')),
+          const SizedBox(height: 6),
+          Text(darajaConfigured ? 'Authorized merchant credentials are stored encrypted. Leave secret fields blank to keep the existing credentials.' : 'Enter all three secrets from the merchant\'s authorized Daraja app. The shortcode must match the Till or Paybill above.', style: const TextStyle(fontSize: 12)),
+          FilledButton.icon(onPressed: saving ? null : saveProfile, icon: const Icon(Icons.lock_outline), label: const Text('Save destination and secure credentials')),
         ]))),
         Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('Create checkout', style: Theme.of(context).textTheme.titleLarge),
