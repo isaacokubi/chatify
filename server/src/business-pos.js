@@ -1,6 +1,6 @@
 // Chatify in-person POS payment intents for shops, supermarkets, malls and hospitality.
 import {randomUUID, createCipheriv, createDecipheriv, randomBytes} from 'node:crypto';
-import {createDarajaProvider, normalizeMpesaPhone} from './payments.js';
+import {createDarajaProvider, normalizeMpesaPhone, calculatePaymentTotal} from './payments.js';
 
 // Merchant Daraja secrets are encrypted at rest with a deployment-managed 32-byte key.
 function posEncryptionKey() {
@@ -67,8 +67,10 @@ export function normalizeMerchantPaymentProfile(input = {}) {
 }
 
 export function buildPosCharge({organization, amount, description, reference, profile}) {
-  const total = Number(amount);
-  if (!Number.isSafeInteger(total) || total < 1 || total > 150000) throw new Error('Amount must be a whole number between KSh 1 and KSh 150,000');
+  const baseAmount = Number(amount);
+  if (!Number.isSafeInteger(baseAmount) || baseAmount < 1 || baseAmount > 150000) throw new Error('Amount must be a whole number between KSh 1 and KSh 150,000 before the platform fee');
+  const fee = calculatePaymentTotal(baseAmount);
+  const total = fee.totalAmount;
   const title = String(description || '').trim().replace(/\s+/g, ' ').slice(0, 120);
   if (!title) throw new Error('Enter a sale description');
   // Safaricom Dynamic QR RefNo is limited to 12 characters. Keep the stored sale
@@ -79,8 +81,8 @@ export function buildPosCharge({organization, amount, description, reference, pr
     ? {method: 'mpesa_till', tillNumber: profile.tillNumber}
     : {method: 'mpesa_paybill', paybillNumber: profile.paybillNumber, accountNumber: paymentReference};
   const paymentId = randomUUID();
-  const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: total, description: title, currency: 'KES', ...destination};
-  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: total, currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
+  const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: total, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, description: title, currency: 'KES', ...destination};
+  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: total, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_SETTLEMENT', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
 }
 
 export function canUsePosRole(role) {
@@ -97,6 +99,11 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     createdBy: {type: O, required: true},
     reference: {type: String, required: true},
     amount: {type: Number, required: true, min: 1, max: 150000},
+    baseAmount: {type: Number, required: true, min: 1, max: 150000},
+    platformFee: {type: Number, required: true, min: 1, max: 750},
+    totalAmount: {type: Number, required: true, min: 1, max: 150000},
+    platformFeeRate: {type: Number, default: 0.5},
+    platformFeeStatus: {type: String, enum: ['PENDING_SETTLEMENT', 'SETTLED'], default: 'PENDING_SETTLEMENT', index: true},
     currency: {type: String, enum: ['KES'], default: 'KES'},
     description: {type: String, required: true, maxlength: 120},
     method: {type: String, enum: POS_METHODS, required: true},
@@ -194,7 +201,9 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       }
       const saved = await Charge.create(charge);
       return res.status(201).json({charge: {
-        paymentId: saved.paymentId, reference: saved.reference, amount: saved.amount,
+        paymentId: saved.paymentId, reference: saved.reference, amount: saved.amount, baseAmount: saved.baseAmount,
+        platformFee: saved.platformFee, totalAmount: saved.totalAmount, platformFeeRate: saved.platformFeeRate,
+        platformFeeStatus: saved.platformFeeStatus,
         currency: saved.currency, description: saved.description, method: saved.method,
         destination: saved.destination, qrPayload: saved.qrPayload, qrProvider: saved.qrProvider,
         dynamicQrImage: saved.dynamicQrImage, status: saved.status, createdAt: saved.createdAt,
@@ -277,6 +286,11 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     }
   });
 
+  const PlatformFeeLedger = mongoose.models.PlatformFeeLedger || mongoose.model('PlatformFeeLedger', new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},source:{type:String,enum:['personal_request','business_pos'],required:true},businessOrganizationId:{type:O,index:true},baseAmount:{type:Number,required:true,min:1},feeAmount:{type:Number,required:true,min:1},totalAmount:{type:Number,required:true,min:1},currency:{type:String,default:'KES'},status:{type:String,enum:['PENDING_SETTLEMENT','SETTLED','REVERSED'],default:'PENDING_SETTLEMENT',index:true},providerReceipt:{type:String,default:null},confirmedAt:{type:Date,required:true}},{timestamps:true}));
+  async function recordPosPlatformFee(charge, receipt) {
+    await PlatformFeeLedger.updateOne({paymentId:charge.paymentId},{$setOnInsert:{paymentId:charge.paymentId,source:'business_pos',businessOrganizationId:charge.organizationId,baseAmount:charge.baseAmount,feeAmount:charge.platformFee,totalAmount:charge.totalAmount??charge.amount,currency:charge.currency||'KES',status:'PENDING_SETTLEMENT',providerReceipt:receipt,confirmedAt:charge.confirmedAt||new Date()}},{upsert:true});
+  }
+
   // Only the merchant's own callback URL/token and exact provider request IDs can confirm a charge.
   // Amount, payer phone and result code are checked; duplicate callbacks cannot replay a receipt.
   app.post('/api/business/pos/stk/callback/:token', async (req, res) => {
@@ -293,7 +307,8 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       try {
         const updated = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, providerReceipt: {$in: [null, '']}},
           {$set: {status: 'SUCCESS', providerReceipt: outcome.receipt, stkResultCode: 0, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}}, {new: true});
-        if (!updated && await Charge.exists({providerReceipt: outcome.receipt})) return res.json({ok: true, duplicate: true});
+        if (!updated && await Charge.exists({providerReceipt: outcome.receipt})) { const existing=await Charge.findOne({providerReceipt:outcome.receipt}); if(existing) await recordPosPlatformFee(existing, outcome.receipt); return res.json({ok: true, duplicate: true}); }
+        if (updated) await recordPosPlatformFee(updated, outcome.receipt);
         return res.json({ok: true, confirmed: Boolean(updated)});
       } catch (error) {
         if (error?.code === 11000) return res.json({ok: true, duplicate: true});
