@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveMpesaProvider, canCancelPayment} from './payments.js';
+import {resolveMpesaProvider, canCancelPayment, resolveCallbackOutcome, canTransitionPayment} from './payments.js';
 
 test('production can explicitly use the clearly labelled mock provider for a demo', () => {
   const provider = resolveMpesaProvider({NODE_ENV: 'production', MPESA_ENV: 'mock'});
@@ -148,4 +148,32 @@ test('Daraja STK request respects AccountReference and TransactionDesc length li
   assert.equal(body.TransactionDesc, 'A payment des');
   assert.ok(body.AccountReference.length <= 12);
   assert.ok(body.TransactionDesc.length <= 13);
+});
+
+
+test('M-Pesa success callbacks must match the original amount and phone', () => {
+  const payment = {amount: 450, phone: '254712345678'};
+  const callback = {ResultCode: 0, ResultDesc: 'Success', CallbackMetadata: {Item: [
+    {Name: 'Amount', Value: 450}, {Name: 'PhoneNumber', Value: 254712345678},
+  ]}};
+  assert.equal(resolveCallbackOutcome(callback, payment).status, 'SUCCESS');
+  assert.equal(resolveCallbackOutcome({...callback, CallbackMetadata: {Item: [
+    {Name: 'Amount', Value: 451}, {Name: 'PhoneNumber', Value: 254712345678},
+  ]}}, payment).error, 'mismatch');
+  assert.equal(resolveCallbackOutcome({...callback, CallbackMetadata: {Item: [
+    {Name: 'Amount', Value: 450}, {Name: 'PhoneNumber', Value: 254700000000},
+  ]}}, payment).error, 'mismatch');
+});
+
+test('M-Pesa callbacks reject malformed results and classify cancellation/failure', () => {
+  const payment = {amount: 450, phone: '254712345678'};
+  assert.equal(resolveCallbackOutcome({ResultCode: 'bad'}, payment).error, 'malformed');
+  assert.equal(resolveCallbackOutcome({ResultCode: 1032}, payment).status, 'CANCELLED');
+  assert.equal(resolveCallbackOutcome({ResultCode: 1, ResultDesc: 'Failed'}, payment).status, 'FAILED');
+});
+
+test('payment state transitions are one-time and reject already processed callbacks', () => {
+  assert.equal(canTransitionPayment('PENDING', undefined), true);
+  assert.equal(canTransitionPayment('PENDING', new Date()), false);
+  assert.equal(canTransitionPayment('SUCCESS', undefined), false);
 });
