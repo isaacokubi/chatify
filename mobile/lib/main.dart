@@ -8538,6 +8538,15 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
   }
 
   Future<void> showCharge(Map<String,dynamic> item) async {
+    if (item['qrPayload'] == null && item['paymentId'] != null) {
+      try {
+        final details = await app.api.call('GET', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}');
+        item = Map<String,dynamic>.from(details['charge'] ?? item);
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load payment QR: $e')));
+        return;
+      }
+    }
     final payload = item['qrPayload']?.toString() ?? '';
     final dynamicQrImage = item['dynamicQrImage']?.toString() ?? '';
     final isSafaricomQr = item['qrProvider'] == 'safaricom_dynamic_qr' && dynamicQrImage.isNotEmpty;
