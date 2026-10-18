@@ -82,7 +82,7 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
       if (!merchant || !ref || !Number.isSafeInteger(total) || total < 1 || total > MAX_PAYMENT_AMOUNT) {
         throw Object.assign(new Error('Invalid Dynamic QR merchant, reference or amount'), {stage: 'qr_validation'});
       }
-      if (!/^\\d{5,10}$/.test(cpi) || !['BG', 'PB'].includes(transactionCode)) {
+      if (!/^\d{5,10}$/.test(cpi) || !['BG', 'PB'].includes(transactionCode)) {
         throw Object.assign(new Error('Invalid Dynamic QR merchant shortcode or transaction type'), {stage: 'qr_validation'});
       }
       const accessToken = await token();
