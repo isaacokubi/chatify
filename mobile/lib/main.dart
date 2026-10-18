@@ -3905,9 +3905,8 @@ class _ChatState extends State<Chat> {
       return;
     }
 
-    // Let the user choose the direction first: receiving creates the existing
-    // tracked payment request; sending is a person-to-person transfer made in
-    // the M-Pesa app, because Daraja STK Push cannot credit a personal number.
+    // This menu is for requesting money from the contact only.
+    // Person-to-person "Send Money" is intentionally not offered here.
     final mode = await showDialog<String>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -3915,13 +3914,6 @@ class _ChatState extends State<Chat> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.call_made),
-              title: const Text('Send Money'),
-              subtitle: const Text('Send money to this contact using M-Pesa'),
-              onTap: () => Navigator.pop(dialog, 'send'),
-            ),
-            const Divider(),
             ListTile(
               leading: const Icon(Icons.call_received),
               title: const Text('Receive Money'),
@@ -3939,194 +3931,6 @@ class _ChatState extends State<Chat> {
       ),
     );
     if (!mounted || mode == null) return;
-
-    if (mode == 'send') {
-      // Offer two distinct payment rails. Person-to-person transfers are completed
-      // inside Safaricom's M-Pesa app; STK Push pays the configured business shortcode.
-      final sendMethod = await showDialog<String>(
-        context: context,
-        builder: (dialog) => AlertDialog(
-          title: const Text('Send Money'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.phone_android),
-                title: const Text('Send to this contact'),
-                subtitle: const Text('Open M-Pesa to complete a person-to-person transfer'),
-                onTap: () => Navigator.pop(dialog, 'person'),
-              ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.bolt),
-                title: const Text('Pay with STK Push'),
-                subtitle: const Text('Prompt your phone to pay the configured business Paybill or Till'),
-                onTap: () => Navigator.pop(dialog, 'stk'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Cancel')),
-          ],
-        ),
-      );
-      if (!mounted || sendMethod == null) return;
-
-      final amount = TextEditingController();
-      final recipientPhone = TextEditingController(
-        text: sendMethod == 'stk'
-            ? (app.user?['phone']?.toString() ?? '')
-            : (choiceOther['phone']?.toString() ?? ''),
-      );
-      final description = TextEditingController();
-      final form = GlobalKey<FormState>();
-      final submit = await showDialog<bool>(
-        context: context,
-        builder: (dialog) => AlertDialog(
-          title: Text(sendMethod == 'stk' ? 'Pay with STK Push' : 'Send to Contact'),
-          content: Form(
-            key: form,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: amount,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Amount (KSh)'),
-                    validator: (v) {
-                      final value = int.tryParse(v ?? '');
-                      return value == null || value < 1 || value > 150000
-                          ? 'Enter KSh 1–150,000'
-                          : null;
-                    },
-                  ),
-                  TextFormField(
-                    controller: recipientPhone,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      labelText: sendMethod == 'stk'
-                          ? 'Your M-Pesa Number (receives the prompt)'
-                          : 'Contact M-Pesa Number',
-                      hintText: '0712345678 or 254712345678',
-                    ),
-                    validator: (v) => normalizeKenyanPhone(v ?? '') == null
-                        ? 'Enter a valid Kenyan M-Pesa number'
-                        : null,
-                  ),
-                  TextFormField(
-                    controller: description,
-                    maxLength: 80,
-                    decoration: const InputDecoration(labelText: 'Description (optional)'),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    sendMethod == 'stk'
-                        ? 'Safaricom will prompt your phone to pay Chatify’s configured business Paybill or Till. This does not transfer money directly to the contact. Enter your PIN only in Safaricom’s official prompt.'
-                        : 'Chatify will copy the transfer details and try to open M-Pesa. Confirm the recipient and amount inside M-Pesa. Safaricom does not provide a universal supported link for pre-filling personal Send Money transfers.',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
-            FilledButton(
-              onPressed: () {
-                if (form.currentState!.validate()) Navigator.pop(dialog, true);
-              },
-              child: Text(sendMethod == 'stk' ? 'Start STK Prompt' : 'Open M-Pesa'),
-            ),
-          ],
-        ),
-      );
-      if (submit == true && mounted) {
-        final value = int.parse(amount.text);
-        final phone = normalizeKenyanPhone(recipientPhone.text)!;
-        final memo = description.text.trim().isEmpty ? 'Chatify payment' : description.text.trim();
-        if (sendMethod == 'stk') {
-          try {
-            final response = await app.api.call('POST', '/api/payments/send-stk', {
-              'amount': value,
-              'phone': phone,
-              'description': memo,
-              'conversationId': widget.conversation['_id'],
-            });
-            final payment = Map<String, dynamic>.from(response['payment']);
-            if (mounted) {
-              setState(() => payments = mergePayment(payments, payment));
-              final mock = response['mock'] == true;
-              await showDialog<void>(
-                context: context,
-                builder: (dialog) => AlertDialog(
-                  title: Text(mock ? 'Demo mode — no prompt sent' : 'STK request accepted'),
-                  content: Text(
-                    mock
-                        ? 'Chatify is using the mock M-Pesa provider. No real Safaricom prompt was sent. Configure Daraja production credentials to send live prompts.'
-                        : 'Safaricom accepted the STK request. Check $phone for the official M-Pesa prompt. Payment remains pending until Safaricom confirms the callback. The payment goes to the configured business shortcode, not to your chat contact.',
-                  ),
-                  actions: [FilledButton(onPressed: () => Navigator.pop(dialog), child: const Text('Done'))],
-                ),
-              );
-            }
-          } catch (error) {
-            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
-          }
-        } else {
-          final details = [
-            'Chatify M-Pesa Send Money',
-            'Recipient: $phone',
-            'Amount: KSh $value',
-            'Description: $memo',
-            'Complete and confirm the transfer in the M-Pesa app.',
-          ].join('\n');
-          // Bound clipboard platform-channel delays too, so this action cannot wait
-          // indefinitely before attempting to open M-PESA.
-          await Clipboard.setData(ClipboardData(text: details))
-              .timeout(const Duration(seconds: 2), onTimeout: () {});
-          var opened = false;
-          // The M-PESA app does not expose a documented deep link for pre-filling
-          // personal Send Money recipient/amount fields. Copy details first, then
-          // launch the installed Safaricom app using Android's package manager.
-          try {
-            if (defaultTargetPlatform == TargetPlatform.android) {
-              const mpesaLauncher = MethodChannel('com.example.chatify/mpesa');
-              // Never let an Android intent/package lookup keep this screen waiting.
-              // Return to Chatify after at most eight seconds if Android cannot launch it.
-              opened = (await mpesaLauncher
-                      .invokeMethod<bool>('openMpesa')
-                      .timeout(const Duration(seconds: 8), onTimeout: () => false)) ??
-                  false;
-            } else {
-              // Keep the same bounded wait on platforms without the native Android launcher.
-              opened = await launchUrl(
-                Uri.parse('mpesa://'),
-                mode: LaunchMode.externalApplication,
-              ).timeout(const Duration(seconds: 8), onTimeout: () => false);
-            }
-          } catch (_) {
-            opened = false;
-          }
-          if (mounted) {
-            await showDialog<void>(
-              context: context,
-              builder: (dialog) => AlertDialog(
-                title: Text(opened ? 'M-PESA opened' : 'Transfer details copied'),
-                content: SelectableText(
-                  '${opened ? 'The M-PESA app is open. ' : 'Could not open the M-PESA app. Details are copied. '}$details\n\nFor personal Send Money, enter the copied recipient and amount in M-PESA; the app does not expose a supported prefill link.',
-                ),
-                actions: [FilledButton(onPressed: () => Navigator.pop(dialog), child: const Text('Done'))],
-              ),
-            );
-          }
-        }
-      }
-      amount.dispose();
-      recipientPhone.dispose();
-      description.dispose();
-      return;
-    }
 
     final participants =
         List<dynamic>.from(widget.conversation['participants'] ?? []);
