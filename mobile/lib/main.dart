@@ -4075,7 +4075,7 @@ class _ChatState extends State<Chat> {
               builder: (dialog) => AlertDialog(
                 title: Text(opened ? 'M-PESA opened' : 'Transfer details copied'),
                 content: SelectableText(
-                  '${opened ? 'The M-PESA app is open. ' : 'Could not open the M-PESA app. Details are copied. '}$details\\n\\nFor personal Send Money, enter the copied recipient and amount in M-PESA; the app does not expose a supported prefill link.',
+                  '${opened ? 'The M-PESA app is open. ' : 'Could not open the M-PESA app. Details are copied. '}$details\n\nFor personal Send Money, enter the copied recipient and amount in M-PESA; the app does not expose a supported prefill link.',
                 ),
                 actions: [FilledButton(onPressed: () => Navigator.pop(dialog), child: const Text('Done'))],
               ),
