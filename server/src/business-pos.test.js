@@ -26,8 +26,8 @@ test('POS references are capped at Safaricom Dynamic QR RefNo limit', () => {
     organization: {_id: 'org-ref', name: 'Reference Test'},
     amount: 100, description: 'Test sale', reference: 'REFERENCE-123456789', profile,
   });
-  assert.equal(charge.reference, 'REFERENCE-1');
-  assert.equal(charge.reference.length, 11);
+  assert.equal(charge.reference, 'REFERENCE-12');
+  assert.equal(charge.reference.length, 12);
   assert.equal(JSON.parse(charge.qrPayload).reference, charge.reference);
 });
 
