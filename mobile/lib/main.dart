@@ -8539,18 +8539,28 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
 
   Future<void> showCharge(Map<String,dynamic> item) async {
     final payload = item['qrPayload']?.toString() ?? '';
+    final dynamicQrImage = item['dynamicQrImage']?.toString() ?? '';
+    final isSafaricomQr = item['qrProvider'] == 'safaricom_dynamic_qr' && dynamicQrImage.isNotEmpty;
     await showDialog<void>(context: context, builder: (d) => AlertDialog(
       title: const Text('Customer checkout'),
       content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        if (payload.isNotEmpty) QrImageView(data: payload, version: QrVersions.auto, size: 220, backgroundColor: Colors.white),
+        if (isSafaricomQr)
+          Image.memory(base64Decode(dynamicQrImage), width: 220, height: 220, fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const Text('Could not display the M-Pesa QR image. Refresh and try again.'))
+        else if (payload.isNotEmpty)
+          QrImageView(data: payload, version: QrVersions.auto, size: 220, backgroundColor: Colors.white),
         Text(widget.organizationName, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
         Text('KSh \${item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
         Text(item['description']?.toString() ?? ''),
         SelectableText('Reference: \${item['reference'] ?? ''}'),
         Text('Status: \${item['status'] ?? 'PENDING'}'),
         const SizedBox(height: 8),
-        const Text('Scanning shows payment instructions only. The customer completes payment in M-Pesa; this request remains pending until trusted provider confirmation is connected.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
-        TextButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: payload)); }, icon: const Icon(Icons.copy), label: const Text('Copy QR payload')),
+        Text(isSafaricomQr
+          ? 'Scan this Safaricom Dynamic QR with the M-Pesa app to pay the merchant. The sale remains pending until the provider callback confirms the matching transaction.'
+          : 'Demo/instruction QR only. Customer scans with Chatify to view the merchant details, then pays in M-Pesa. This does not confirm payment.',
+          textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+        if (!isSafaricomQr)
+          TextButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: payload)); }, icon: const Icon(Icons.copy), label: const Text('Copy QR payload')),
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('Close'))],
     ));
