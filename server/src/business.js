@@ -1,4 +1,4 @@
-import {normalizeMpesaPhone, validPaymentAmount, newPaymentId} from './payments.js';
+import {normalizeMpesaPhone, validPaymentAmount, newPaymentId, calculatePaymentTotal} from './payments.js';
 import {planQuotaStatus} from './business-entitlements.js';
 import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMessagingProviders, createLanguageProvider, createEtimsProvider, createStripeProvider, createPayPalProvider, createIdempotencyKey, detectOfflineConflict, newIntegrationRequestId} from './business-integrations.js';
 // CHATIFY BUSINESS PLATFORM
@@ -357,13 +357,14 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
         createdBy: req.user._id,
       });
       try {
+        const fee = calculatePaymentTotal(totals.total);
         const payment = await Payment.create({
           paymentId: newPaymentId(), requesterId: org.ownerId, payerId: req.user._id,
-          amount: totals.total, recipientPhone: sellerMpesaPhone, payerPhone: phone, phone,
+          amount: totals.total, ...fee, recipientPhone: sellerMpesaPhone, payerPhone: phone, phone,
           businessOrganizationId: org._id, businessDocumentId: document._id,
           description: ('Order ' + number).slice(0, 80), provider: mpesaProvider.name, requestedAt: new Date(),
         });
-        res.status(201).json({order: document, payment: {paymentId: payment.paymentId, amount: payment.amount, status: payment.status, provider: payment.provider}, notice: 'Order created. Continue to M-Pesa to request the payment prompt.'});
+        res.status(201).json({order: document, payment: {paymentId: payment.paymentId, amount: payment.amount, baseAmount: payment.baseAmount, platformFee: payment.platformFee, totalAmount: payment.totalAmount, platformFeeRate: payment.platformFeeRate, platformFeeStatus: payment.platformFeeStatus, status: payment.status, provider: payment.provider}, notice: 'Order created. Review the 0.5% platform fee and total before authorizing the M-Pesa prompt.'});
       } catch (error) {
         await BusinessDocument.deleteOne({_id: document._id, organizationId: org._id});
         throw error;
@@ -619,11 +620,12 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     if(document.currency!=='KES')return res.status(400).json({error:'M-Pesa STK is currently supported for KES invoices only'});
     const outstanding=Math.round((document.total-document.paidAmount)*100)/100;
     if(!Number.isSafeInteger(outstanding)||!validPaymentAmount(outstanding))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
+    let fee;try{fee=calculatePaymentTotal(outstanding);}catch(error){return res.status(400).json({error:error.message});}
     const phone=normalizeMpesaPhone(req.body?.phone);if(!phone)return res.status(400).json({error:'Enter a valid Kenyan customer M-Pesa phone number'});
     const pending=await Payment.findOne({businessDocumentId:document._id,status:'PENDING',initiatedAt:{$exists:true}});
     if(pending)return res.status(409).json({error:'An M-Pesa request is already pending for this invoice',paymentId:pending.paymentId});
-    const payment=await Payment.create({paymentId:newPaymentId(),requesterId:req.user._id,payerId:req.user._id,businessOrganizationId:org._id,businessDocumentId:document._id,amount:outstanding,recipientPhone:normalizeMpesaPhone(org.phone)||phone,payerPhone:phone,phone,description:('Invoice '+document.number).slice(0,80),provider:mpesaProvider.name,requestedAt:new Date(),initiating:true});
-    try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.amount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
+    const payment=await Payment.create({paymentId:newPaymentId(),requesterId:req.user._id,payerId:req.user._id,businessOrganizationId:org._id,businessDocumentId:document._id,amount:outstanding,...fee,recipientPhone:normalizeMpesaPhone(org.phone)||phone,payerPhone:phone,phone,description:('Invoice '+document.number).slice(0,80),provider:mpesaProvider.name,requestedAt:new Date(),initiating:true});
+    try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.totalAmount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
     catch(error){payment.status='FAILED';payment.initiating=false;payment.completedAt=new Date();payment.callbackProcessedAt=new Date();payment.resultDescription='Provider initiation failed';await payment.save();console.error('Invoice M-Pesa initiation failed',{stage:error?.stage||'unknown'});res.status(503).json({error:'M-Pesa request could not be initiated. Check provider configuration and retry.'});}
   });
 
