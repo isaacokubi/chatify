@@ -291,6 +291,31 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     } catch (error) { safeError(res, error); }
   });
 
+  // Resolve payment instructions for a direct chat when it was not opened from a storefront.
+  // Only published stores are eligible; ambiguous sellers with multiple stores must use a storefront link.
+  app.get('/api/storefront/by-seller/:sellerUserId/payment-profile', async (req, res) => {
+    try {
+      const sellerUserId = String(req.params.sellerUserId || '');
+      if (!mongoose.isValidObjectId(sellerUserId)) return res.status(400).json({error: 'Invalid seller'});
+      const stores = await Organization.find({
+        ownerId: sellerUserId,
+        'settings.storefrontPublished': {$ne: false},
+      }).select('slug settings.posPaymentProfile').limit(2).lean();
+      if (!stores.length) return res.status(404).json({error: 'No published business storefront found'});
+      if (stores.length > 1) return res.status(409).json({error: 'This seller has multiple storefronts. Open the intended business storefront to load its payment details.'});
+      const profile = stores[0].settings?.posPaymentProfile || null;
+      const paymentProfile = profile && ['mpesa_till', 'mpesa_paybill'].includes(profile.method)
+        ? {
+            method: profile.method,
+            tillNumber: profile.method === 'mpesa_till' ? String(profile.tillNumber || '') : '',
+            paybillNumber: profile.method === 'mpesa_paybill' ? String(profile.paybillNumber || '') : '',
+            accountNumber: profile.method === 'mpesa_paybill' ? String(profile.accountNumber || '') : '',
+          }
+        : null;
+      return res.json({slug: stores[0].slug, paymentProfile});
+    } catch (error) { safeError(res, error); }
+  });
+
   // Authenticated customers can check out. The server reloads product prices and creates
   // an order linked to the normal verified M-Pesa callback flow; client totals are ignored.
   app.post('/api/storefront/:slug/checkout', auth, async (req, res) => {
