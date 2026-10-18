@@ -101,7 +101,7 @@ test('Daraja Dynamic QR requests a real M-Pesa QR for a merchant shortcode', asy
   const body = JSON.parse(requests[1].options.body);
   assert.equal(requests[1].url, 'https://sandbox.safaricom.co.ke/mpesa/qrcode/v1/generate');
   assert.equal(body.MerchantName, 'A Very Long Supermar');
-  assert.equal(body.RefNo, 'REFERENCE-123');
+  assert.equal(body.RefNo, 'REFERENCE-12'); // Safaricom RefNo is limited to 12 characters.
   assert.ok(body.MerchantName.length <= 20);
   assert.ok(body.RefNo.length <= 12);
   assert.equal(body.Amount, 450);
