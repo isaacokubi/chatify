@@ -14,6 +14,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'security/chatify_e2ee.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -36,13 +37,33 @@ class ApiException implements Exception {
 
 // Central HTTP client: adds the API base URL and authentication token, sends requests, and parses responses.
 class Api {
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
   final http.Client client;
   Api({http.Client? client}) : client = client ?? http.Client();
   String get base => const String.fromEnvironment('CHATIFY_API',
       defaultValue: 'https://chatify-api-c1eh.onrender.com');
   String? token;
   Future<void> restore() async {
-    token = (await SharedPreferences.getInstance()).getString('token');
+    token = await _secureStorage.read(key: 'token');
+    // Migrate the previous preferences-based token once, then remove the less-protected copy.
+    if (token == null) {
+      final preferences = await SharedPreferences.getInstance();
+      final legacyToken = preferences.getString('token');
+      if (legacyToken != null && legacyToken.isNotEmpty) {
+        token = legacyToken;
+        await _secureStorage.write(key: 'token', value: legacyToken);
+        await preferences.remove('token');
+      }
+    }
+  }
+  Future<void> saveToken(String value) async {
+    token = value;
+    await _secureStorage.write(key: 'token', value: value);
+  }
+  Future<void> clearToken() async {
+    token = null;
+    await _secureStorage.delete(key: 'token');
+    await (await SharedPreferences.getInstance()).remove('token');
   }
 
   Future<Map<String, dynamic>> call(String method, String path,
@@ -568,10 +589,8 @@ class AppState extends ChangeNotifier {
         return d['message']?.toString() ??
             'Check your email and confirm your address before signing in.';
       }
-      api.token = d['token'];
+      await api.saveToken(d['token'].toString());
       user = Map<String, dynamic>.from(d['user']);
-      await (await SharedPreferences.getInstance())
-          .setString('token', api.token!);
       try {
         await ensureEncryptionKey();
       } catch (error) {
@@ -624,12 +643,11 @@ class AppState extends ChangeNotifier {
     _messageOpenedSubscription = null;
     await _foregroundMessageSubscription?.cancel();
     _foregroundMessageSubscription = null;
-    api.token = null;
+    await api.clearToken();
     user = null;
     authRequested = false;
     startRegistration = false;
     restoreError = null;
-    await (await SharedPreferences.getInstance()).remove('token');
     notifyListeners();
   }
 }
@@ -5955,11 +5973,15 @@ class _ProfileState extends State<Profile> {
                     FilledButton(
                         onPressed: () async {
                           try {
-                            await context.read<AppState>().api.call(
+                            final appState = context.read<AppState>();
+                            final passwordResult = await appState.api.call(
                                 'POST', '/api/auth/change-password', {
                               'currentPassword': current.text,
                               'newPassword': next.text
                             });
+                            if (passwordResult['token'] is String) {
+                              await appState.api.saveToken(passwordResult['token'] as String);
+                            }
                             if (d.mounted) Navigator.pop(d);
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
