@@ -103,7 +103,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     platformFee: {type: Number, required: true, min: 1, max: 750},
     totalAmount: {type: Number, required: true, min: 1, max: 150000},
     platformFeeRate: {type: Number, default: 0.5},
-    platformFeeStatus: {type: String, enum: ['PENDING_PAYMENT', 'PENDING_SETTLEMENT', 'SETTLED'], default: 'PENDING_PAYMENT', index: true},
+    platformFeeStatus: {type: String, enum: ['PENDING_PAYMENT', 'PENDING_SETTLEMENT', 'SETTLED', 'FAILED'], default: 'PENDING_PAYMENT', index: true},
     currency: {type: String, enum: ['KES'], default: 'KES'},
     description: {type: String, required: true, maxlength: 120},
     method: {type: String, enum: POS_METHODS, required: true},
@@ -326,7 +326,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       }
     }
     await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID},
-      {$set: {status: outcome.status, stkResultCode: outcome.resultCode, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}});
+      {$set: {status: outcome.status, stkResultCode: outcome.resultCode, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date(), ...(charge.platformFee?{platformFeeStatus:'FAILED'}:{})}});
     return res.json({ok: true});
   });
 
