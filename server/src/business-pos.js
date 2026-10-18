@@ -11,7 +11,6 @@ export function normalizeMerchantPaymentProfile(input = {}) {
   if (!method) throw new Error('Choose M-Pesa Till or Paybill');
   if (method === 'mpesa_till' && !/^\d{5,10}$/.test(tillNumber)) throw new Error('Enter a valid 5–10 digit M-Pesa Till number');
   if (method === 'mpesa_paybill' && !/^\d{5,10}$/.test(paybillNumber)) throw new Error('Enter a valid 5–10 digit M-Pesa Paybill number');
-  if (method === 'mpesa_paybill' && !accountNumber) throw new Error('Enter the Paybill account/reference number');
   return {method, tillNumber: method === 'mpesa_till' ? tillNumber : '', paybillNumber: method === 'mpesa_paybill' ? paybillNumber : '', accountNumber: method === 'mpesa_paybill' ? accountNumber : ''};
 }
 
