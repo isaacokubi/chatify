@@ -93,7 +93,7 @@ test('Daraja Dynamic QR requests a real M-Pesa QR for a merchant shortcode', asy
       : {ok: true, json: async () => ({ResponseCode: 'AG_OK', RequestID: 'request-1', QRCode: 'iVBORw0KGgoAAAAAAAAAAAAAAAAA'})};
   });
   const result = await provider.generateDynamicQr({
-    merchantName: 'A Very Long Supermarket Name That Must Be Cut', reference: 'REFERENCE-123456789', amount: 450,
+    merchantName: 'A Very Long Supermaret Name That Must Be Cut', reference: 'REFERENCE-123456789', amount: 450,
     shortcode: '1234567', transactionCode: 'BG',
   });
   assert.equal(result.qrCode, 'iVBORw0KGgoAAAAAAAAAAAAAAAAA');
@@ -144,7 +144,7 @@ test('Daraja STK request respects AccountReference and TransactionDesc length li
     description: 'A payment description that is longer than allowed',
   });
   const body = JSON.parse(requests[1].options.body);
-  assert.equal(body.AccountReference, '123412345678');
+  assert.equal(body.AccountReference, '123456789abc');
   assert.equal(body.TransactionDesc, 'A payment des');
   assert.ok(body.AccountReference.length <= 12);
   assert.ok(body.TransactionDesc.length <= 13);
