@@ -38,6 +38,21 @@ export function validateMerchantDarajaCredentials(input, profile) {
 }
 
 
+export function resolvePosStkCallbackOutcome(callback, charge) {
+  if (!callback || !charge || !/^-?\\d+$/.test(String(callback.ResultCode))) return {error: 'malformed'};
+  const resultCode = Number(callback.ResultCode);
+  if (!Number.isSafeInteger(resultCode)) return {error: 'malformed'};
+  if (resultCode !== 0) return {status: resultCode === 1032 ? 'CANCELLED' : 'FAILED', resultCode, description: String(callback.ResultDesc || '').slice(0, 160)};
+  const items = Array.isArray(callback.CallbackMetadata?.Item) ? callback.CallbackMetadata.Item : [];
+  const value = name => items.find(item => item?.Name === name)?.Value;
+  const amount = Number(value('Amount'));
+  const phone = normalizeMpesaPhone(String(value('PhoneNumber') || ''));
+  const receipt = String(value('MpesaReceiptNumber') || '').trim().toUpperCase();
+  if (amount !== charge.amount || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return {error: 'mismatch'};
+  return {status: 'SUCCESS', resultCode: 0, phone, receipt, description: String(callback.ResultDesc || '').slice(0, 160)};
+}
+
+
 export const POS_METHODS = Object.freeze(['mpesa_till', 'mpesa_paybill']);
 
 export function normalizeMerchantPaymentProfile(input = {}) {
@@ -250,28 +265,22 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string' || !/^-?\d+$/.test(String(cb.ResultCode))) return res.status(400).json({error: 'Malformed callback'});
     const charge = await Charge.findOne({checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, status: 'PENDING', confirmationSource: 'daraja_stk_pending'});
     if (!charge) return res.json({ok: true, duplicate: true});
-    const items = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
-    const value = name => items.find(item => item?.Name === name)?.Value;
-    const resultCode = Number(cb.ResultCode);
-    if (!Number.isSafeInteger(resultCode)) return res.status(400).json({error: 'Malformed result code'});
-    if (resultCode === 0) {
-      const amount = Number(value('Amount'));
-      const phone = normalizeMpesaPhone(String(value('PhoneNumber') || ''));
-      const receipt = String(value('MpesaReceiptNumber') || '').trim().toUpperCase();
-      if (amount !== charge.amount || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return res.status(400).json({error: 'Callback amount, phone or receipt did not match the initiated merchant payment'});
+    const outcome = resolvePosStkCallbackOutcome(cb, charge);
+    if (outcome.error === 'malformed') return res.status(400).json({error: 'Malformed result code'});
+    if (outcome.error === 'mismatch') return res.status(400).json({error: 'Callback amount, phone or receipt did not match the initiated merchant payment'});
+    if (outcome.status === 'SUCCESS') {
       try {
         const updated = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, providerReceipt: {$in: [null, '']}},
-          {$set: {status: 'SUCCESS', providerReceipt: receipt, stkResultCode: 0, stkResultDescription: String(cb.ResultDesc || '').slice(0, 160), confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}}, {new: true});
-        if (!updated && await Charge.exists({providerReceipt: receipt})) return res.json({ok: true, duplicate: true});
+          {$set: {status: 'SUCCESS', providerReceipt: outcome.receipt, stkResultCode: 0, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}}, {new: true});
+        if (!updated && await Charge.exists({providerReceipt: outcome.receipt})) return res.json({ok: true, duplicate: true});
         return res.json({ok: true, confirmed: Boolean(updated)});
       } catch (error) {
         if (error?.code === 11000) return res.json({ok: true, duplicate: true});
         return res.status(500).json({error: 'Could not process payment confirmation'});
       }
     }
-    const status = resultCode === 1032 ? 'CANCELLED' : 'FAILED';
     await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID},
-      {$set: {status, stkResultCode: resultCode, stkResultDescription: String(cb.ResultDesc || '').slice(0, 160), confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}});
+      {$set: {status: outcome.status, stkResultCode: outcome.resultCode, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}});
     return res.json({ok: true});
   });
 
