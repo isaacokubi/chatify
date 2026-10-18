@@ -48,7 +48,7 @@ export function resolvePosStkCallbackOutcome(callback, charge) {
   const amount = Number(value('Amount'));
   const phone = normalizeMpesaPhone(String(value('PhoneNumber') || ''));
   const receipt = String(value('MpesaReceiptNumber') || '').trim().toUpperCase();
-  if (amount !== charge.amount || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return {error: 'mismatch'};
+  if (amount !== (charge.totalAmount ?? charge.amount) || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return {error: 'mismatch'};
   return {status: 'SUCCESS', resultCode: 0, phone, receipt, description: String(callback.ResultDesc || '').slice(0, 160)};
 }
 
@@ -82,7 +82,7 @@ export function buildPosCharge({organization, amount, description, reference, pr
     : {method: 'mpesa_paybill', paybillNumber: profile.paybillNumber, accountNumber: paymentReference};
   const paymentId = randomUUID();
   const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: total, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, description: title, currency: 'KES', ...destination};
-  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: total, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_SETTLEMENT', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
+  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_SETTLEMENT', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
 }
 
 export function canUsePosRole(role) {
@@ -191,7 +191,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
         const qr = await mpesaProvider.generateDynamicQr({
           merchantName: org.name,
           reference: charge.reference,
-          amount: charge.amount,
+          amount: charge.totalAmount ?? charge.amount,
           shortcode: profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber,
           transactionCode: profile.method === 'mpesa_till' ? 'BG' : 'PB',
         });
@@ -253,7 +253,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       if (!claimed) return res.status(409).json({error: 'Another STK request is already in progress'});
       let result;
       try {
-        result = await provider.initiate({paymentId: charge.paymentId, amount: charge.amount, phone, description: charge.description});
+        result = await provider.initiate({paymentId: charge.paymentId, amount: charge.totalAmount ?? charge.amount, phone, description: charge.description});
       } catch (error) {
         // A transport timeout is ambiguous: Daraja may have accepted the request even if
         // our server never received its response. Keep the claim locked in that case so a
@@ -408,7 +408,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
           {method: 'mpesa_till', 'destination.tillNumber': shortcode},
         ],
         status: 'PENDING',
-        amount,
+        $and: [{$or: [{totalAmount: amount}, {totalAmount: {$exists: false}, amount}]}],
         reference,
         providerReceipt: {$in: [null, '']},
       }, {$set: {
