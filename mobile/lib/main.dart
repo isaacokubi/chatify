@@ -3509,6 +3509,9 @@ class PaymentCard extends StatelessWidget {
     final status = (payment['status'] ?? 'PENDING').toString();
     final isPayer = payment['payerId']?.toString() == currentUserId;
     final isMock = payment['provider']?.toString() == 'mock';
+    final baseAmount = (payment['baseAmount'] as num?)?.toInt() ?? (payment['amount'] as num?)?.toInt() ?? 0;
+    final platformFee = (payment['platformFee'] as num?)?.toInt() ?? 0;
+    final totalAmount = (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
     final canReject = status == 'PENDING' &&
         payment['initiatedAt'] == null &&
         payment['initiating'] != true &&
@@ -3526,7 +3529,9 @@ class PaymentCard extends StatelessWidget {
               title:
                   Text(payment['description']?.toString() ?? 'M-Pesa payment'),
               subtitle: Text(
-                'KSh ${payment['amount'] ?? ''} · $status · To ${payment['recipientPhone'] ?? 'recipient'}${isMock ? ' · Local demo' : ''}',
+                platformFee > 0
+                    ? 'Base KSh $baseAmount + platform fee KSh $platformFee = total KSh $totalAmount · $status · Fee pending settlement${isMock ? ' · Local demo' : ''}'
+                    : 'KSh ${payment['amount'] ?? ''} · $status · To ${payment['recipientPhone'] ?? 'recipient'}${isMock ? ' · Local demo' : ''}',
               ),
             ),
             Wrap(
@@ -4455,13 +4460,21 @@ class _ChatState extends State<Chat> {
             app.user?['phone']?.toString() ??
             '');
     final form = GlobalKey<FormState>();
+    final baseAmount = (payment['baseAmount'] as num?)?.toInt() ?? (payment['amount'] as num?)?.toInt() ?? 0;
+    final platformFee = (payment['platformFee'] as num?)?.toInt() ?? 0;
+    final totalAmount = (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
     final accepted = await showDialog<bool>(
         context: context,
         builder: (dialog) => AlertDialog(
-              title: const Text('Pay with M-Pesa'),
+              title: const Text('Review M-Pesa payment'),
               content: Form(
                 key: form,
-                child: TextFormField(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text('Requested amount: KSh $baseAmount\\nPlatform fee (0.5%): KSh $platformFee\\nTotal charged: KSh $totalAmount', style: Theme.of(context).textTheme.bodyMedium),
+                  const SizedBox(height: 10),
+                  const Text('The fee is recorded as pending settlement. Chatify does not automatically receive or split the fee yet. This STK payment goes to the configured business shortcode, not directly to a personal recipient.', style: TextStyle(fontSize: 12)),
+                  const SizedBox(height: 10),
+                  TextFormField(
                   controller: payerPhone,
                   autofocus: true,
                   keyboardType: TextInputType.phone,
@@ -4473,7 +4486,8 @@ class _ChatState extends State<Chat> {
                   validator: (v) => normalizeKenyanPhone(v ?? '') == null
                       ? 'Enter a valid Kenyan M-Pesa number'
                       : null,
-                ),
+                  ),
+                ]),
               ),
               actions: [
                 TextButton(
@@ -6933,6 +6947,21 @@ class _StorefrontPageState extends State<StorefrontPage> {
         throw const FormatException(
             'Order was created but no payment reference was returned.');
       }
+      final baseAmount = (payment['baseAmount'] as num?)?.toInt() ?? (payment['amount'] as num?)?.toInt() ?? 0;
+      final platformFee = (payment['platformFee'] as num?)?.toInt() ?? 0;
+      final totalAmount = (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
+      final consent = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm checkout total'),
+        content: Text('Order subtotal: KSh $baseAmount\\nChatify platform fee (0.5%): KSh $platformFee\\nTotal M-Pesa charge: KSh $totalAmount\\n\\nThe platform fee is pending settlement and is not automatically transferred to Chatify yet.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Continue to M-Pesa')),
+        ],
+      ));
+      if (consent != true) {
+        if (mounted) setState(() { paymentId = id; notice = 'Order saved, but no M-Pesa prompt was sent. You can refresh this payment or contact the store.'; });
+        return;
+      }
       if (mounted) {
         setState(() {
           paymentId = id;
@@ -9022,6 +9051,17 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a description and whole-number amount from KSh 1 to KSh 150,000.')));
       return;
     }
+    final fee = (n * 0.005).ceil();
+    final total = n + fee;
+    final accepted = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+      title: const Text('Confirm POS checkout fee'),
+      content: Text('Sale amount: KSh $n\\nChatify platform fee (0.5%): KSh $fee\\nBuyer total: KSh $total\\n\\nShow this breakdown to the buyer before they scan/pay. The fee is accrued as pending settlement; it is not automatically transferred to Chatify.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Create payment QR')),
+      ],
+    ));
+    if (accepted != true) return;
     setState(() => saving = true);
     try {
       final r = await app.api.call('POST', '$base/charges', {
