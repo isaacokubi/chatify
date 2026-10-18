@@ -64,6 +64,17 @@ test('callback outcomes verify successful amount and phone and map failure/cance
   assert.equal(resolveCallbackOutcome({ResultCode:null},payment).error,'malformed');
 });
 
+test('callback validates the buyer-paid total including the platform fee', () => {
+  const payment = {amount: 1000, totalAmount: 1005, phone: '254712345678'};
+  const success = {ResultCode: 0, ResultDesc: 'Success', CallbackMetadata: {Item: [
+    {Name: 'Amount', Value: 1005}, {Name: 'PhoneNumber', Value: 254712345678},
+  ]}};
+  assert.equal(resolveCallbackOutcome(success, payment).status, 'SUCCESS');
+  assert.equal(resolveCallbackOutcome({...success, CallbackMetadata: {Item: [
+    {Name: 'Amount', Value: 1000}, {Name: 'PhoneNumber', Value: 254712345678},
+  ]}}, payment).error, 'mismatch');
+});
+
 test('callback transition is idempotent after a result is recorded', () => {
   assert.equal(canTransitionPayment('PENDING',undefined),true);
   assert.equal(canTransitionPayment('SUCCESS',new Date()),false);
