@@ -8687,7 +8687,11 @@ class _MerchantQrScannerPageState extends State<MerchantQrScannerPage> {
           throw const FormatException('Invalid Chatify merchant payment QR.');
         }
         handled = true; if (mounted) setState(() { charge = Map<String,dynamic>.from(d); error = null; }); return;
-      } catch (e) { handled = true; if (mounted) setState(() => error = e.toString()); return; }
+      } catch (_) {
+        handled = true;
+        if (mounted) setState(() => error = 'This may be a Safaricom Dynamic QR. Scan that QR with the M-Pesa app; Chatify reads its own checkout-instruction QR only.');
+        return;
+      }
     }
   }
   @override
