@@ -3939,20 +3939,57 @@ class _ChatState extends State<Chat> {
       // Payment numbers remain editable so a customer can correct an outdated instruction.
       Map<String, dynamic>? merchantPaymentProfile;
       final storefrontSlug = widget.conversation['businessStorefrontSlug']?.toString();
-      if (storefrontSlug != null && storefrontSlug.isNotEmpty) {
-        try {
+      try {
+        Map<String, dynamic>? profileResponse;
+        if (storefrontSlug != null && storefrontSlug.isNotEmpty) {
           final result = await app.api.call(
             'GET',
             '/api/storefront/${Uri.encodeComponent(storefrontSlug)}',
           );
           final store = result['storefront'];
           if (store is Map && store['paymentProfile'] is Map) {
-            merchantPaymentProfile =
-                Map<String, dynamic>.from(store['paymentProfile'] as Map);
+            profileResponse = Map<String, dynamic>.from(store['paymentProfile'] as Map);
           }
-        } catch (_) {
-          // Payment details can still be entered manually if the storefront is unavailable.
+        } else {
+          // For an ordinary direct chat, resolve the other participant's single published
+          // storefront. If the seller owns multiple stores, the API asks the customer to
+          // open the intended storefront instead of guessing the wrong payment destination.
+          final participants = List<dynamic>.from(widget.conversation['participants'] ?? []);
+          final currentIds = <String>{
+            app.user?['_id']?.toString() ?? '',
+            app.user?['id']?.toString() ?? '',
+          }..remove('');
+          Map? peer;
+          for (final raw in participants) {
+            if (raw is! Map) continue;
+            final id = (raw['_id'] ?? raw['id'] ?? raw['userId'])?.toString() ?? '';
+            final nested = raw['user'] is Map ? raw['user'] as Map : null;
+            final peerId = id.isNotEmpty ? id : (nested?['_id'] ?? nested?['id'])?.toString() ?? '';
+            if (peerId.isNotEmpty && !currentIds.contains(peerId)) {
+              peer = raw;
+              break;
+            }
+          }
+          final peerId = peer == null
+              ? ''
+              : ((peer['_id'] ?? peer['id'] ?? peer['userId'])?.toString() ??
+                  ((peer['user'] is Map)
+                      ? ((peer['user'] as Map)['_id'] ?? (peer['user'] as Map)['id'])?.toString() ?? ''
+                      : ''));
+          if (peerId.isNotEmpty) {
+            final result = await app.api.call(
+              'GET',
+              '/api/storefront/by-seller/${Uri.encodeComponent(peerId)}/payment-profile',
+            );
+            if (result['paymentProfile'] is Map) {
+              profileResponse = Map<String, dynamic>.from(result['paymentProfile'] as Map);
+            }
+          }
         }
+        merchantPaymentProfile = profileResponse;
+      } catch (_) {
+        // Payment details can still be entered manually if the storefront is unavailable,
+        // the seller has no published store, or multiple stores make the destination ambiguous.
       }
       final businessNumber = TextEditingController(
         text: isTill
