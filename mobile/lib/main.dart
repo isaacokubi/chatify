@@ -3892,19 +3892,6 @@ class _ChatState extends State<Chat> {
   }
 
   Future<void> requestMpesa() async {
-    final choiceParticipants =
-        List<dynamic>.from(widget.conversation['participants'] ?? []);
-    final choiceMe = app.user?['id']?.toString();
-    final choiceOther = choiceParticipants.whereType<Map>().firstWhere(
-        (p) => p['_id']?.toString() != choiceMe,
-        orElse: () => <String, dynamic>{});
-    final choiceOtherId = choiceOther['_id']?.toString();
-    if (choiceOtherId == null || choiceOtherId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Conversation member details are unavailable.')));
-      return;
-    }
-
     // This menu is for requesting money from the contact only.
     // Person-to-person "Send Money" is intentionally not offered here.
     final mode = await showDialog<String>(
