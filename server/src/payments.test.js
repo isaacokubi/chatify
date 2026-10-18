@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveMpesaProvider, canCancelPayment, resolveCallbackOutcome, canTransitionPayment} from './payments.js';
+import {resolveMpesaProvider, canCancelPayment, resolveCallbackOutcome, canTransitionPayment, calculatePlatformFee, calculatePaymentTotal} from './payments.js';
 
 test('production can explicitly use the clearly labelled mock provider for a demo', () => {
   const provider = resolveMpesaProvider({NODE_ENV: 'production', MPESA_ENV: 'mock'});
@@ -176,4 +176,23 @@ test('payment state transitions are one-time and reject already processed callba
   assert.equal(canTransitionPayment('PENDING', undefined), true);
   assert.equal(canTransitionPayment('PENDING', new Date()), false);
   assert.equal(canTransitionPayment('SUCCESS', undefined), false);
+});
+
+
+test('platform fee is 0.5%, rounded up to whole KSh, with the provider total capped', () => {
+  assert.equal(calculatePlatformFee(1000), 5);
+  assert.equal(calculatePlatformFee(450), 3);
+  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_SETTLEMENT'});
+  assert.throws(() => calculatePaymentTotal(150000), /must not exceed KSh 150000/);
+});
+
+test('M-Pesa callback matches the total including the disclosed platform fee', () => {
+  const payment = {amount:1000, totalAmount:1005, phone:'254712345678'};
+  const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
+    {Name:'Amount',Value:1005}, {Name:'PhoneNumber',Value:254712345678},
+  ]}};
+  assert.equal(resolveCallbackOutcome(callback,payment).status,'SUCCESS');
+  assert.equal(resolveCallbackOutcome({...callback,CallbackMetadata:{Item:[
+    {Name:'Amount',Value:1000}, {Name:'PhoneNumber',Value:254712345678},
+  ]}},payment).error,'mismatch');
 });
