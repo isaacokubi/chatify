@@ -82,7 +82,7 @@ export function buildPosCharge({organization, amount, description, reference, pr
     : {method: 'mpesa_paybill', paybillNumber: profile.paybillNumber, accountNumber: paymentReference};
   const paymentId = randomUUID();
   const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: total, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, description: title, currency: 'KES', ...destination};
-  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_SETTLEMENT', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
+  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_PAYMENT', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
 }
 
 export function canUsePosRole(role) {
@@ -103,7 +103,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     platformFee: {type: Number, required: true, min: 1, max: 750},
     totalAmount: {type: Number, required: true, min: 1, max: 150000},
     platformFeeRate: {type: Number, default: 0.5},
-    platformFeeStatus: {type: String, enum: ['PENDING_SETTLEMENT', 'SETTLED'], default: 'PENDING_SETTLEMENT', index: true},
+    platformFeeStatus: {type: String, enum: ['PENDING_PAYMENT', 'PENDING_SETTLEMENT', 'SETTLED'], default: 'PENDING_PAYMENT', index: true},
     currency: {type: String, enum: ['KES'], default: 'KES'},
     description: {type: String, required: true, maxlength: 120},
     method: {type: String, enum: POS_METHODS, required: true},
@@ -290,6 +290,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
   async function recordPosPlatformFee(charge, receipt) {
     // Pre-fee charges must remain untouched; only charges created with a recorded fee accrue one.
     if (!charge || !Number.isSafeInteger(charge.baseAmount) || !Number.isSafeInteger(charge.platformFee) || charge.platformFee < 1) return;
+    await Charge.updateOne({_id:charge._id,status:'SUCCESS'},{$set:{platformFeeStatus:'PENDING_SETTLEMENT'}});
     await PlatformFeeLedger.updateOne({paymentId:charge.paymentId},{$setOnInsert:{paymentId:charge.paymentId,source:'business_pos',businessOrganizationId:charge.organizationId,baseAmount:charge.baseAmount,feeAmount:charge.platformFee,totalAmount:charge.totalAmount??charge.amount,currency:charge.currency||'KES',status:'PENDING_SETTLEMENT',providerReceipt:receipt,confirmedAt:charge.confirmedAt||new Date()}},{upsert:true});
   }
 
