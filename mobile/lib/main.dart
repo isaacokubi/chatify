@@ -8581,6 +8581,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         return;
       }
     }
+    if (!mounted) return;
     final payload = item['qrPayload']?.toString() ?? '';
     final dynamicQrImage = item['dynamicQrImage']?.toString() ?? '';
     final isSafaricomQr = item['qrProvider'] == 'safaricom_dynamic_qr' && dynamicQrImage.isNotEmpty;
@@ -8619,7 +8620,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         if (error != null) Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
         Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('Merchant payment destination', style: Theme.of(context).textTheme.titleLarge),
-          DropdownButtonFormField<String>(value: method, decoration: const InputDecoration(labelText: 'Method'), items: const [
+          DropdownButtonFormField<String>(initialValue: method, decoration: const InputDecoration(labelText: 'Method'), items: const [
             DropdownMenuItem(value: 'mpesa_till', child: Text('M-Pesa Buy Goods / Till')),
             DropdownMenuItem(value: 'mpesa_paybill', child: Text('M-Pesa Paybill')),
           ], onChanged: saving ? null : (v) { if (v != null) setState(() => method = v); }),
