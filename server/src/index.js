@@ -72,7 +72,7 @@ const server=http.createServer(app); const io=new Server(server,{cors:{origin:co
 // JavaScript's temporal-dead-zone for these const bindings and prevents the API from booting.
 registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io,mpesaProvider});
 // In-person merchant checkout routes depend on the organization model created above.
-registerBusinessPosRoutes({app,auth,mongoose});
+registerBusinessPosRoutes({app,auth,mongoose,mpesaProvider});
 // Register additional enterprise tools only after the core Business models and auth are available.
 registerBusinessEnterpriseRoutes({app,auth,mongoose});
 registerBusinessSearchRoutes({app,auth,mongoose});
