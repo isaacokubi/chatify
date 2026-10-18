@@ -4047,7 +4047,10 @@ class _ChatState extends State<Chat> {
             'Description: $memo',
             'Complete and confirm the transfer in the M-Pesa app.',
           ].join('\n');
-          await Clipboard.setData(ClipboardData(text: details));
+          // Bound clipboard platform-channel delays too, so this action cannot wait
+          // indefinitely before attempting to open M-PESA.
+          await Clipboard.setData(ClipboardData(text: details))
+              .timeout(const Duration(seconds: 2), onTimeout: () {});
           var opened = false;
           // The M-PESA app does not expose a documented deep link for pre-filling
           // personal Send Money recipient/amount fields. Copy details first, then
