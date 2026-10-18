@@ -39,7 +39,7 @@ export function validateMerchantDarajaCredentials(input, profile) {
 
 
 export function resolvePosStkCallbackOutcome(callback, charge) {
-  if (!callback || !charge || !/^-?\\d+$/.test(String(callback.ResultCode))) return {error: 'malformed'};
+  if (!callback || !charge || !/^-?\d+$/.test(String(callback.ResultCode))) return {error: 'malformed'};
   const resultCode = Number(callback.ResultCode);
   if (!Number.isSafeInteger(resultCode)) return {error: 'malformed'};
   if (resultCode !== 0) return {status: resultCode === 1032 ? 'CANCELLED' : 'FAILED', resultCode, description: String(callback.ResultDesc || '').slice(0, 160)};
