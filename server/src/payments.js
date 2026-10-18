@@ -75,8 +75,9 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
     // Dynamic QR creates a Safaricom-readable Buy Goods/Paybill QR for the actual
     // merchant shortcode. Merchant numbers are data, never platform credentials.
     async generateDynamicQr({merchantName, reference, amount, shortcode, transactionCode}) {
-      const merchant = String(merchantName || '').trim().slice(0, 80);
-      const ref = String(reference || '').trim().slice(0, 20);
+      // Daraja Dynamic QR limits MerchantName to 20 characters and RefNo to 12.
+      const merchant = String(merchantName || '').trim().slice(0, 20);
+      const ref = String(reference || '').trim().slice(0, 12);
       const total = Number(amount);
       const cpi = String(shortcode || '').trim();
       if (!merchant || !ref || !Number.isSafeInteger(total) || total < 1 || total > MAX_PAYMENT_AMOUNT) {
@@ -110,8 +111,10 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
         BusinessShortCode: config.shortcode, Password: password, Timestamp: timestamp,
         TransactionType: type, Amount: amount, PartyA: phone, PartyB: config.shortcode,
         PhoneNumber: phone, CallBackURL: config.callbackUrl,
-        AccountReference: `Chatify-${paymentId.slice(-12)}`,
-        TransactionDesc: description.slice(0, 50),
+        // Daraja STK Push accepts at most 12 characters for AccountReference.
+        AccountReference: paymentId.replace(/-/g, '').slice(-12),
+        // Daraja STK Push limits TransactionDesc to 13 characters.
+        TransactionDesc: description.slice(0, 13),
       };
       const accessToken = await token();
       let response;
