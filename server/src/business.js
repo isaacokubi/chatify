@@ -633,6 +633,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const outstanding=Math.round((document.total-document.paidAmount)*100)/100;
     if(!Number.isSafeInteger(outstanding)||!validPaymentAmount(outstanding))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
     let fee;try{fee=calculatePaymentTotal(outstanding);}catch(error){return res.status(400).json({error:error.message});}
+    if(req.body?.feeAcknowledged!==true)return res.status(400).json({error:'Confirm the disclosed 0.5% platform fee before sending an invoice STK prompt',baseAmount:fee.baseAmount,platformFee:fee.platformFee,totalAmount:fee.totalAmount,platformFeeRate:fee.platformFeeRate});
     const phone=normalizeMpesaPhone(req.body?.phone);if(!phone)return res.status(400).json({error:'Enter a valid Kenyan customer M-Pesa phone number'});
     const pending=await Payment.findOne({businessDocumentId:document._id,status:'PENDING',initiatedAt:{$exists:true}});
     if(pending)return res.status(409).json({error:'An M-Pesa request is already pending for this invoice',paymentId:pending.paymentId});
