@@ -288,6 +288,8 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
 
   const PlatformFeeLedger = mongoose.models.PlatformFeeLedger || mongoose.model('PlatformFeeLedger', new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},source:{type:String,enum:['personal_request','business_pos'],required:true},businessOrganizationId:{type:O,index:true},baseAmount:{type:Number,required:true,min:1},feeAmount:{type:Number,required:true,min:1},totalAmount:{type:Number,required:true,min:1},currency:{type:String,default:'KES'},status:{type:String,enum:['PENDING_SETTLEMENT','SETTLED','REVERSED'],default:'PENDING_SETTLEMENT',index:true},providerReceipt:{type:String,default:null},confirmedAt:{type:Date,required:true}},{timestamps:true}));
   async function recordPosPlatformFee(charge, receipt) {
+    // Pre-fee charges must remain untouched; only charges created with a recorded fee accrue one.
+    if (!charge || !Number.isSafeInteger(charge.baseAmount) || !Number.isSafeInteger(charge.platformFee) || charge.platformFee < 1) return;
     await PlatformFeeLedger.updateOne({paymentId:charge.paymentId},{$setOnInsert:{paymentId:charge.paymentId,source:'business_pos',businessOrganizationId:charge.organizationId,baseAmount:charge.baseAmount,feeAmount:charge.platformFee,totalAmount:charge.totalAmount??charge.amount,currency:charge.currency||'KES',status:'PENDING_SETTLEMENT',providerReceipt:receipt,confirmedAt:charge.confirmedAt||new Date()}},{upsert:true});
   }
 
