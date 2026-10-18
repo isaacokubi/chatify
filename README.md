@@ -69,6 +69,19 @@ With the default MPESA_ENV=mock, request an amount from the other conversation m
 
 Payment requests move from PENDING to SUCCESS, FAILED, or CANCELLED. A real request stays pending until Daraja's callback confirms its result; an accepted STK request is not proof that money was received.
 
+## Merchant POS STK Push (Till and Paybill)
+
+POS STK Push is initiated with **each merchant's own Daraja app credentials, passkey, and shortcode**. A merchant must have Safaricom/Daraja authorization for that exact Till or Paybill; entering a public payment number alone cannot authorize STK Push. The server rejects credentials whose shortcode differs from the merchant's configured POS destination and never falls back to Chatify's platform shortcode.
+
+Configure these private server environment variables before enabling merchant STK:
+- `POS_DARAJA_ENCRYPTION_KEY`: a persistent 32-byte encryption key encoded as 64 hex characters. Generate once with `openssl rand -hex 32`; store it in the hosting provider's secret manager and back it up securely. Rotating it requires a deliberate credential re-encryption plan.
+- `POS_STK_CALLBACK_TOKEN`: at least 32 random characters, generated with `openssl rand -hex 32`.
+- `POS_STK_PUBLIC_BASE_URL`: the public HTTPS origin of this API, for example `https://your-api.example`.
+
+A business owner/authorized manager configures its payment profile through `PUT /api/business/organizations/:orgId/pos/payment-profile`, supplying `method`, the matching `tillNumber` or `paybillNumber`, and the merchant Daraja `mode` (`sandbox` or `production`), `shortcode`, `consumerKey`, `consumerSecret`, and `passkey`. The API stores these credentials encrypted with AES-256-GCM and never returns the secrets. Do not send real production secrets from a public storefront or commit them to source control.
+
+Create a POS charge, then call `POST /api/business/organizations/:orgId/pos/charges/:paymentId/stk` with the customer's Kenyan `phone`. The charge stays pending until the server receives the token-protected callback at `/api/business/pos/stk/callback/:token` and validates the exact checkout/merchant request IDs, amount, payer phone and unique M-Pesa receipt. A screenshot or successful STK initiation is not proof of payment. Test with Safaricom sandbox credentials first.
+
 ## Production providers
 MongoDB Atlas is supported directly through configuration. SMTP password-reset email, Cloudinary image storage, Firebase Admin/FCM message notifications, and Daraja STK Push use production adapters behind small provider boundaries. Set their environment variables before enabling those features. Development storage, email, notification and payment providers remain mocks; the development email mock never prints reset tokens, and mock payments are labeled and never contact Safaricom. The Flutter app registers its FCM token with the authenticated /api/devices endpoint when Firebase is configured, retries on token refresh, unregisters the active token on logout, and opens authorized conversations from notification taps. Add the platform-specific Firebase configuration before expecting device notifications; Firebase initialization failures are non-fatal so development chat remains usable without credentials.
 
