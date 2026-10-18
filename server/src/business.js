@@ -277,7 +277,17 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const sellerMpesaPhone = resolveSellerMpesaPhone(org.settings, owner?.phone, org.phone);
       const items = await CatalogItem.find({organizationId: org._id, active: true}).sort({category: 1, name: 1}).limit(500).select('name description price currency images category type stock');
       res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
-      res.json({storefront: {name: org.name, slug: org.slug, description: org.description, website: org.website, currency: org.currency, sellerMpesaPhone, sellerUserId: String(org.ownerId)}, items});
+      // Expose only the merchant's public payment instructions; never expose encrypted Daraja credentials.
+      const configuredPayment = org.settings?.posPaymentProfile || null;
+      const paymentProfile = configuredPayment && ['mpesa_till', 'mpesa_paybill'].includes(configuredPayment.method)
+        ? {
+            method: configuredPayment.method,
+            tillNumber: configuredPayment.method === 'mpesa_till' ? String(configuredPayment.tillNumber || '') : '',
+            paybillNumber: configuredPayment.method === 'mpesa_paybill' ? String(configuredPayment.paybillNumber || '') : '',
+            accountNumber: configuredPayment.method === 'mpesa_paybill' ? String(configuredPayment.accountNumber || '') : '',
+          }
+        : null;
+      res.json({storefront: {name: org.name, slug: org.slug, description: org.description, website: org.website, currency: org.currency, sellerMpesaPhone, sellerUserId: String(org.ownerId), paymentProfile}, items});
     } catch (error) { safeError(res, error); }
   });
 
