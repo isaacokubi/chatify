@@ -8536,6 +8536,41 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     finally { if (mounted) setState(() => saving = false); }
   }
 
+  Future<void> reconcileCharge(Map<String,dynamic> item) async {
+    final receipt = TextEditingController();
+    bool verified = false;
+    final accepted = await showDialog<bool>(context: context, builder: (d) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        title: const Text('Verify M-Pesa receipt'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Sale reference: ${item['reference'] ?? ''} · KSh ${item['amount'] ?? ''}'),
+          TextField(controller: receipt, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'M-Pesa receipt number')),
+          CheckboxListTile(value: verified, contentPadding: EdgeInsets.zero,
+            title: const Text('I checked the receipt in the official merchant M-Pesa account or statement'),
+            onChanged: (value) => setDialogState(() => verified = value ?? false)),
+          const Text('This records a manual finance reconciliation; it does not verify the receipt with Safaricom.', style: TextStyle(fontSize: 12)),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+          FilledButton(onPressed: verified && receipt.text.trim().isNotEmpty ? () => Navigator.pop(d, true) : null, child: const Text('Record as verified')),
+        ],
+      ),
+    ));
+    if (accepted == true) {
+      try {
+        await app.api.call('POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/reconcile', {
+          'receipt': receipt.text.trim().toUpperCase(), 'verified': verified,
+        });
+        await load();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt recorded as manually reconciled.')));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+    receipt.dispose();
+  }
+
   Future<void> showCharge(Map<String,dynamic> item) async {
     if (item['qrPayload'] == null && item['paymentId'] != null) {
       try {
@@ -8608,7 +8643,16 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         Text('Recent payment requests', style: Theme.of(context).textTheme.titleLarge),
         if (charges.isEmpty) const Text('No POS payment requests yet.'),
         ...charges.map((raw) { final item = Map<String,dynamic>.from(raw as Map); final st = (item['status']?.toString() ?? 'PENDING').toUpperCase();
-          return Card(child: ListTile(leading: Icon(st == 'SUCCESS' ? Icons.check_circle : Icons.hourglass_top), title: Text('KSh ${item['amount'] ?? ''} · ${item['description'] ?? 'Sale'}'), subtitle: Text('${item['reference'] ?? ''} · $st\n${item['createdAt'] ?? ''}'), trailing: IconButton(icon: const Icon(Icons.qr_code_2), onPressed: () => showCharge(item))));
+          return Card(child: ListTile(
+            leading: Icon(st == 'SUCCESS' ? Icons.check_circle : st == 'FAILED' ? Icons.error_outline : Icons.hourglass_top),
+            title: Text('KSh ${item['amount'] ?? ''} · ${item['description'] ?? 'Sale'}'),
+            subtitle: Text('${item['reference'] ?? ''} · $st\n${item['createdAt'] ?? ''}'),
+            isThreeLine: true,
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(tooltip: 'Show payment QR', icon: const Icon(Icons.qr_code_2), onPressed: () => showCharge(item)),
+              if (st == 'PENDING') IconButton(tooltip: 'Record receipt after official verification', icon: const Icon(Icons.fact_check_outlined), onPressed: () => reconcileCharge(item)),
+            ]),
+          ));
         }),
         const Text('Do not release goods or close a bill based on a QR scan or screenshot. Wait for independently verified payment confirmation.', style: TextStyle(fontSize: 12)),
       ])));
