@@ -2292,6 +2292,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 _metric('Saved memories', overview['totalMemories'], Icons.auto_awesome_outlined),
                 _metric('Open business cases', overview['openCases'], Icons.support_agent_outlined),
                 _metric('Pending payments', overview['pendingPayments'], Icons.hourglass_top),
+                _metric('Pending platform fees (KSh)', overview['pendingPlatformFeeAmount'], Icons.account_balance_wallet_outlined),
+                _metric('Fee entries awaiting settlement', overview['pendingPlatformFeeCount'], Icons.receipt_long_outlined),
                 _metric('Failed payments', overview['failedPayments'], Icons.error_outline),
               ],
             ),
