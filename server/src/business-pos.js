@@ -53,10 +53,12 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     dynamicQrRequestId: {type: String, default: null},
     status: {type: String, enum: ['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED'], default: 'PENDING', index: true},
     confirmationSource: {type: String, default: null},
-    providerReceipt: {type: String, default: null, unique: true, sparse: true, index: true},
+    providerReceipt: {type: String, default: null},
     confirmedAt: Date,
   }, {timestamps: true}));
   Charge.schema.index({organizationId: 1, reference: 1}, {unique: true});
+  // Only actual receipt strings participate in uniqueness; many pending charges have no receipt.
+  Charge.schema.index({providerReceipt: 1}, {unique: true, partialFilterExpression: {providerReceipt: {$type: 'string'}}});
 
   async function authorize(req, res, write = false) {
     const org = await Organization.findById(req.params.orgId);
