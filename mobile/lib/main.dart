@@ -12451,6 +12451,12 @@ class _StorefrontPageState extends State<StorefrontPage> {
     try {
       final result = await app.api.call('POST', '/api/conversations/direct', {'userId': sellerId});
       final conversation = Map<String, dynamic>.from(result['conversation'] ?? {});
+      // Preserve the storefront context locally so chat payment forms can load this exact
+      // merchant's public Till/Paybill instructions instead of guessing by seller name.
+      final storefrontSlug = storefront['slug']?.toString();
+      if (storefrontSlug != null && storefrontSlug.isNotEmpty) {
+        conversation['businessStorefrontSlug'] = storefrontSlug;
+      }
       if (!mounted || conversation.isEmpty) return;
       if (item != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
