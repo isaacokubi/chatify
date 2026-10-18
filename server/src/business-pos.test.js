@@ -7,7 +7,11 @@ test('validates Till profile and creates a customer-readable payment QR payload'
   const charge = buildPosCharge({organization: {_id: 'org-1', name: 'Sample Supermarket'}, amount: 450, description: 'Groceries', reference: 'SALE-1', profile});
   const qr = JSON.parse(charge.qrPayload);
   assert.equal(charge.status, 'PENDING');
-  assert.equal(qr.amount, 450);
+  assert.equal(qr.amount, 453);
+  assert.equal(charge.baseAmount, 450);
+  assert.equal(charge.platformFee, 3);
+  assert.equal(charge.totalAmount, 453);
+  assert.equal(charge.platformFeeStatus, 'PENDING_SETTLEMENT');
   assert.equal(qr.paymentId, charge.paymentId);
   assert.equal(qr.description, 'Groceries');
   assert.equal(qr.tillNumber, '1234567');
@@ -94,4 +98,15 @@ test('STK callback maps user cancellation and provider failure without marking a
   assert.equal(resolvePosStkCallbackOutcome({ResultCode: 1032, ResultDesc: 'Request cancelled'}, charge).status, 'CANCELLED');
   assert.equal(resolvePosStkCallbackOutcome({ResultCode: 1, ResultDesc: 'Failed'}, charge).status, 'FAILED');
   assert.equal(resolvePosStkCallbackOutcome({ResultCode: 'invalid'}, charge).error, 'malformed');
+});
+
+
+test('business checkout adds the 0.5% fee on top and rejects totals above the provider cap', () => {
+  const profile = normalizeMerchantPaymentProfile({method: 'mpesa_till', tillNumber: '1234567'});
+  const charge = buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 1000, description: 'Checkout', profile});
+  assert.equal(charge.baseAmount, 1000);
+  assert.equal(charge.platformFee, 5);
+  assert.equal(charge.amount, 1005);
+  assert.equal(JSON.parse(charge.qrPayload).amount, 1005);
+  assert.throws(() => buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 150000, description: 'Checkout', profile}), /0.5% platform fee/);
 });
