@@ -157,7 +157,7 @@ app.get('/api/admin/overview',auth,requireAdmin,async(q,r)=>{
     Conversation.countDocuments({}),Message.countDocuments({}),Memory.countDocuments({}),Payment.countDocuments({}),
     Payment.countDocuments({status:'PENDING'}),Payment.countDocuments({status:'SUCCESS'}),Payment.countDocuments({status:'FAILED'}),
     User.find({}).sort({createdAt:-1}).limit(8).select('name email role status emailVerified createdAt lastSeen'),
-    Payment.find({}).sort({createdAt:-1}).limit(8).select('paymentId amount status provider description createdAt requesterId payerId').lean(),
+    Payment.find({}).sort({createdAt:-1}).limit(8).select('paymentId amount baseAmount platformFee totalAmount platformFeeStatus status provider description createdAt requesterId payerId').lean(),
     optionalCount(mongoose.models.BusinessOrganization),
     optionalCount(mongoose.models.BusinessCustomer),
     optionalCount(mongoose.models.BusinessCatalogItem,{active:true}),
@@ -167,7 +167,8 @@ app.get('/api/admin/overview',auth,requireAdmin,async(q,r)=>{
     optionalCount(mongoose.models.BusinessOrganization,{createdAt:{$gte:since}}),
   ]);
   const revenue=await Payment.aggregate([{$match:{status:'SUCCESS'}},{$group:{_id:null,total:{$sum:'$amount'},count:{$sum:1}}}]);
-  r.json({stats:{totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,failedPayments,successfulPaymentAmount:revenue[0]?.total||0,totalBusinesses,businessCustomers,catalogItems,openCases,newUsers24h,newMessages24h,newBusinesses24h},recentUsers,recentPayments,generatedAt:new Date().toISOString()});
+  const feeSummary=await PlatformFeeLedger.aggregate([{$match:{status:'PENDING_SETTLEMENT'}},{$group:{_id:null,totalFee:{$sum:'$feeAmount'},count:{$sum:1}}}]);
+  r.json({stats:{totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,failedPayments,successfulPaymentAmount:revenue[0]?.total||0,pendingPlatformFeeAmount:feeSummary[0]?.totalFee||0,pendingPlatformFeeCount:feeSummary[0]?.count||0,totalBusinesses,businessCustomers,catalogItems,openCases,newUsers24h,newMessages24h,newBusinesses24h},recentUsers,recentPayments,generatedAt:new Date().toISOString()});
 });
 app.get('/api/admin/users',auth,requireAdmin,async(q,r)=>{
   const page=Math.max(1,Math.min(10000,Number.parseInt(q.query.page,10)||1));
@@ -198,7 +199,7 @@ app.get('/api/admin/payments',auth,requireAdmin,async(q,r)=>{
   const limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||25));
   const status=typeof q.query.status==='string'?q.query.status:'';
   const filter=PAYMENT_STATUSES.includes(status)?{status}:{};
-  const [payments,total]=await Promise.all([Payment.find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit).select('paymentId amount status provider description createdAt requesterId payerId conversationId'),Payment.countDocuments(filter)]);
+  const [payments,total]=await Promise.all([Payment.find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit).select('paymentId amount baseAmount platformFee totalAmount platformFeeStatus status provider description createdAt requesterId payerId conversationId'),Payment.countDocuments(filter)]);
   r.json({payments,total,page,limit});
 });
 
