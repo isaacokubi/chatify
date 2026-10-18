@@ -4470,7 +4470,7 @@ class _ChatState extends State<Chat> {
               content: Form(
                 key: form,
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text('Requested amount: KSh $baseAmount\\nPlatform fee (0.5%): KSh $platformFee\\nTotal charged: KSh $totalAmount', style: Theme.of(context).textTheme.bodyMedium),
+                  Text('Requested amount: KSh $baseAmount\\nPlatform fee (0.5%, rounded up to whole KSh): KSh $platformFee\\nTotal charged: KSh $totalAmount', style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 10),
                   const Text('The fee is recorded as pending settlement. Chatify does not automatically receive or split the fee yet. This STK payment goes to the configured business shortcode, not directly to a personal recipient.', style: TextStyle(fontSize: 12)),
                   const SizedBox(height: 10),
@@ -6952,7 +6952,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
       final totalAmount = (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
       final consent = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
         title: const Text('Confirm checkout total'),
-        content: Text('Order subtotal: KSh $baseAmount\\nChatify platform fee (0.5%): KSh $platformFee\\nTotal M-Pesa charge: KSh $totalAmount\\n\\nThe platform fee is pending settlement and is not automatically transferred to Chatify yet.'),
+        content: Text('Order subtotal: KSh $baseAmount\\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\\nTotal M-Pesa charge: KSh $totalAmount\\n\\nThe platform fee is pending settlement and is not automatically transferred to Chatify yet.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Continue to M-Pesa')),
@@ -9151,7 +9151,9 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         else if (payload.isNotEmpty)
           QrImageView(data: payload, version: QrVersions.auto, size: 220, backgroundColor: Colors.white),
         Text(widget.organizationName, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
-        Text('KSh ${item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
+        Text('Buyer total: KSh ${item['totalAmount'] ?? item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
+        Text('Sale amount: KSh ${item['baseAmount'] ?? item['amount'] ?? ''}  +  Chatify fee: KSh ${item['platformFee'] ?? 0} (0.5%, rounded up to whole KSh)', textAlign: TextAlign.center),
+        const Text('Platform fee is pending settlement; this payment is not automatically split or transferred to Chatify.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
         Text(item['description']?.toString() ?? ''),
         SelectableText('Reference: ${item['reference'] ?? ''}'),
         Text('Status: ${item['status'] ?? 'PENDING'}'),
