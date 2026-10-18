@@ -20,6 +20,17 @@ test('Paybill profile can be configured without a fixed account number and valid
   assert.throws(() => buildPosCharge({organization: {_id: 'x', name: 'Hotel'}, amount: 1.5, description: 'Room', profile}), /whole number/);
 });
 
+test('POS references are capped at Safaricom Dynamic QR RefNo limit', () => {
+  const profile = normalizeMerchantPaymentProfile({method: 'mpesa_paybill', paybillNumber: '123456'});
+  const charge = buildPosCharge({
+    organization: {_id: 'org-ref', name: 'Reference Test'},
+    amount: 100, description: 'Test sale', reference: 'REFERENCE-123456789', profile,
+  });
+  assert.equal(charge.reference, 'REFERENCE-1');
+  assert.equal(charge.reference.length, 11);
+  assert.equal(JSON.parse(charge.qrPayload).reference, charge.reference);
+});
+
 test('POS permissions include sales and finance but exclude read-only viewers', () => {
   assert.equal(canUsePosRole('sales'), true);
   assert.equal(canUsePosRole('finance'), true);
