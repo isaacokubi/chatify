@@ -611,6 +611,18 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
 
   // Invoice-linked STK Push uses the existing provider-confirmed payment lifecycle. Mock mode is
   // clearly marked and cannot be represented as a real Safaricom payment.
+  // Fee preview lets staff disclose the exact buyer total before requesting an STK prompt.
+  app.get('/api/business/organizations/:orgId/documents/:documentId/mpesa-fee-preview', auth, async (req,res)=>{
+    const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;
+    const document=await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id});
+    if(!document)return res.status(404).json({error:'Invoice not found'});
+    if(document.type!=='invoice'||['draft','rejected','cancelled','fulfilled'].includes(document.status))return res.status(409).json({error:'Only a sent or accepted invoice can request payment'});
+    if(document.currency!=='KES')return res.status(400).json({error:'M-Pesa STK is currently supported for KES invoices only'});
+    const baseAmount=Math.round((document.total-document.paidAmount)*100)/100;
+    if(!Number.isSafeInteger(baseAmount)||!validPaymentAmount(baseAmount))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
+    try{return res.json({...calculatePaymentTotal(baseAmount),currency:'KES',feeNotice:'The 0.5% platform fee is pending settlement and is not automatically transferred to Chatify.'});}
+    catch(error){return res.status(400).json({error:error.message});}
+  });
   app.post('/api/business/organizations/:orgId/documents/:documentId/mpesa-stk', auth, async (req,res)=>{
     const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;
     if(!mpesaProvider)return res.status(503).json({error:'M-Pesa provider is unavailable'});
