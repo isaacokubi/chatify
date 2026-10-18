@@ -97,7 +97,7 @@ test('platform fee is disclosed, rounded to whole KSh, and total is capped', () 
   assert.equal(calculatePlatformFee(100), 1);
   assert.equal(calculatePlatformFee(1000), 5);
   assert.equal(calculatePlatformFee(150000), 750);
-  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_SETTLEMENT'});
+  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_PAYMENT'});
   assert.throws(() => calculatePaymentTotal(150000), /must not exceed KSh 150000/);
   assert.throws(() => calculatePlatformFee(0), /positive whole KSh amount/);
 });
