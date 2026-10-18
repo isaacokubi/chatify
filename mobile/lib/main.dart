@@ -8483,7 +8483,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
   Map<String, dynamic>? profile;
   List<dynamic> charges = [];
   String? error;
-  String get base => '/api/business/organizations/\${Uri.encodeComponent(widget.organizationId)}/pos';
+  String get base => '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/pos';
   @override
   void initState() { super.initState(); load(); }
   @override
@@ -8492,7 +8492,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
   Future<void> load() async {
     if (mounted) setState(() { loading = true; error = null; });
     try {
-      final r = await Future.wait([app.api.call('GET', '\$base/payment-profile'), app.api.call('GET', '\$base/charges')]);
+      final r = await Future.wait([app.api.call('GET', '$base/payment-profile'), app.api.call('GET', '$base/charges')]);
       profile = r[0]['paymentProfile'] is Map ? Map<String,dynamic>.from(r[0]['paymentProfile']) : null;
       charges = List<dynamic>.from(r[1]['charges'] ?? []);
       if (profile != null) {
@@ -8510,7 +8510,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       final body = <String,dynamic>{'method': method};
       if (method == 'mpesa_till') { body['tillNumber'] = till.text.trim(); }
       else { body['paybillNumber'] = paybill.text.trim(); }
-      final r = await app.api.call('PUT', '\$base/payment-profile', body);
+      final r = await app.api.call('PUT', '$base/payment-profile', body);
       profile = Map<String,dynamic>.from(r['paymentProfile'] ?? body);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merchant payment instructions saved.')));
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
@@ -8525,7 +8525,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     }
     setState(() => saving = true);
     try {
-      final r = await app.api.call('POST', '\$base/charges', {
+      final r = await app.api.call('POST', '$base/charges', {
         'amount': n, 'description': description.text.trim(),
         if (reference.text.trim().isNotEmpty) 'reference': reference.text.trim(),
       });
@@ -8558,10 +8558,10 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         else if (payload.isNotEmpty)
           QrImageView(data: payload, version: QrVersions.auto, size: 220, backgroundColor: Colors.white),
         Text(widget.organizationName, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
-        Text('KSh \${item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
+        Text('KSh ${item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
         Text(item['description']?.toString() ?? ''),
-        SelectableText('Reference: \${item['reference'] ?? ''}'),
-        Text('Status: \${item['status'] ?? 'PENDING'}'),
+        SelectableText('Reference: ${item['reference'] ?? ''}'),
+        Text('Status: ${item['status'] ?? 'PENDING'}'),
         const SizedBox(height: 8),
         Text(isSafaricomQr
           ? 'Scan this Safaricom Dynamic QR with the M-Pesa app to pay the merchant. The sale remains pending until the provider callback confirms the matching transaction.'
@@ -8608,7 +8608,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         Text('Recent payment requests', style: Theme.of(context).textTheme.titleLarge),
         if (charges.isEmpty) const Text('No POS payment requests yet.'),
         ...charges.map((raw) { final item = Map<String,dynamic>.from(raw as Map); final st = (item['status']?.toString() ?? 'PENDING').toUpperCase();
-          return Card(child: ListTile(leading: Icon(st == 'SUCCESS' ? Icons.check_circle : Icons.hourglass_top), title: Text('KSh \${item['amount'] ?? ''} · \${item['description'] ?? 'Sale'}'), subtitle: Text('\${item['reference'] ?? ''} · \$st\n\${item['createdAt'] ?? ''}'), trailing: IconButton(icon: const Icon(Icons.qr_code_2), onPressed: () => showCharge(item))));
+          return Card(child: ListTile(leading: Icon(st == 'SUCCESS' ? Icons.check_circle : Icons.hourglass_top), title: Text('KSh ${item['amount'] ?? ''} · ${item['description'] ?? 'Sale'}'), subtitle: Text('${item['reference'] ?? ''} · $st\n${item['createdAt'] ?? ''}'), trailing: IconButton(icon: const Icon(Icons.qr_code_2), onPressed: () => showCharge(item))));
         }),
         const Text('Do not release goods or close a bill based on a QR scan or screenshot. Wait for independently verified payment confirmation.', style: TextStyle(fontSize: 12)),
       ])));
@@ -8642,7 +8642,7 @@ class _MerchantQrScannerPageState extends State<MerchantQrScannerPage> {
   @override
   Widget build(BuildContext context) {
     final c = charge;
-    final dest = c == null ? '' : c['method'] == 'mpesa_till' ? 'M-Pesa Till: \${c['tillNumber'] ?? ''}' : 'M-Pesa Paybill: \${c['paybillNumber'] ?? ''}\nAccount/reference: \${c['accountNumber'] ?? ''}';
+    final dest = c == null ? '' : c['method'] == 'mpesa_till' ? 'M-Pesa Till: ${c['tillNumber'] ?? ''}' : 'M-Pesa Paybill: ${c['paybillNumber'] ?? ''}\nAccount/reference: ${c['accountNumber'] ?? ''}';
     return Scaffold(appBar: AppBar(title: const Text('Pay a merchant')), body: ListView(padding: const EdgeInsets.all(16), children: [
       if (c == null) ...[
         const Text('Scan the cashier’s Chatify QR and verify the merchant and amount.'),
@@ -8652,9 +8652,9 @@ class _MerchantQrScannerPageState extends State<MerchantQrScannerPage> {
       ] else Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const Icon(Icons.storefront, size: 48),
         Text(c['merchantName']?.toString() ?? 'Merchant', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
-        Text('KSh \${c['amount']}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium),
+        Text('KSh ${c['amount']}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium),
         Text(c['description']?.toString() ?? 'Purchase', textAlign: TextAlign.center),
-        const Divider(height: 24), SelectableText(dest), SelectableText('Reference: \${c['reference']}'),
+        const Divider(height: 24), SelectableText(dest), SelectableText('Reference: ${c['reference']}'),
         const SizedBox(height: 12),
         const Text('Open M-Pesa and use Buy Goods or Paybill. Enter the exact merchant details and verify the amount before confirming. Scanning this QR does not transfer money or prove payment.', style: TextStyle(fontSize: 13)),
         FilledButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: dest)); }, icon: const Icon(Icons.copy), label: const Text('Copy payment details')),
