@@ -222,7 +222,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
         transactionType: charge.method === 'mpesa_till' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline',
       });
       // Claim the charge before contacting Daraja to prevent concurrent duplicate prompts.
-      const claimed = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}},
+      const claimed = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}, confirmationSource: {$in: [null, '']}},
         {$set: {stkPhone: phone, confirmationSource: 'daraja_stk_pending'}}, {new: true});
       if (!claimed) return res.status(409).json({error: 'Another STK request is already in progress'});
       let result;
