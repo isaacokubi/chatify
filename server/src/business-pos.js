@@ -229,6 +229,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       if (!org) return;
       const charge = await Charge.findOne({organizationId: org._id, paymentId: String(req.params.paymentId || ''), status: 'PENDING'});
       if (!charge) return res.status(404).json({error: 'Pending POS payment not found'});
+      if (charge.platformFee > 0 && req.body?.feeAcknowledged !== true) return res.status(400).json({error: 'Confirm the disclosed 0.5% fee before sending the customer STK prompt', baseAmount: charge.baseAmount ?? charge.amount, platformFee: charge.platformFee, totalAmount: charge.totalAmount ?? charge.amount, platformFeeRate: charge.platformFeeRate ?? 0.5});
       const encrypted = org.settings?.posDarajaCredentialsEncrypted;
       if (!encrypted) return res.status(409).json({error: 'Configure authorized merchant-specific Daraja credentials before sending STK Push'});
       const callbackToken = String(process.env.POS_STK_CALLBACK_TOKEN || '').trim();
