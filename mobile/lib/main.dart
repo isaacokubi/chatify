@@ -3935,8 +3935,39 @@ class _ChatState extends State<Chat> {
     // Collect the merchant details and copy them for quick use in the official M-Pesa app.
     if (mode == 'till' || mode == 'paybill') {
       final isTill = mode == 'till';
-      final businessNumber = TextEditingController();
-      final accountNumber = TextEditingController();
+      // Load only the payment profile belonging to the storefront this chat was opened from.
+      // Payment numbers remain editable so a customer can correct an outdated instruction.
+      Map<String, dynamic>? merchantPaymentProfile;
+      final storefrontSlug = widget.conversation['businessStorefrontSlug']?.toString();
+      if (storefrontSlug != null && storefrontSlug.isNotEmpty) {
+        try {
+          final result = await app.api.call(
+            'GET',
+            '/api/storefront/${Uri.encodeComponent(storefrontSlug)}',
+          );
+          final store = result['storefront'];
+          if (store is Map && store['paymentProfile'] is Map) {
+            merchantPaymentProfile =
+                Map<String, dynamic>.from(store['paymentProfile'] as Map);
+          }
+        } catch (_) {
+          // Payment details can still be entered manually if the storefront is unavailable.
+        }
+      }
+      final businessNumber = TextEditingController(
+        text: isTill
+            ? (merchantPaymentProfile?['method'] == 'mpesa_till'
+                ? merchantPaymentProfile?['tillNumber']?.toString() ?? ''
+                : '')
+            : (merchantPaymentProfile?['method'] == 'mpesa_paybill'
+                ? merchantPaymentProfile?['paybillNumber']?.toString() ?? ''
+                : ''),
+      );
+      final accountNumber = TextEditingController(
+        text: !isTill && merchantPaymentProfile?['method'] == 'mpesa_paybill'
+            ? merchantPaymentProfile?['accountNumber']?.toString() ?? ''
+            : '',
+      );
       final paymentAmount = TextEditingController();
       final paymentForm = GlobalKey<FormState>();
       final confirmed = await showDialog<bool>(
@@ -3954,6 +3985,9 @@ class _ChatState extends State<Chat> {
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
                       labelText: isTill ? 'Buy Goods Till number' : 'Paybill business number',
+                      helperText: businessNumber.text.isNotEmpty
+                          ? 'Loaded from this business; you can edit it'
+                          : 'Enter the number provided by the business',
                     ),
                     validator: (value) {
                       final number = (value ?? '').trim();
@@ -6486,6 +6520,12 @@ class _StorefrontPageState extends State<StorefrontPage> {
     try {
       final result = await app.api.call('POST', '/api/conversations/direct', {'userId': sellerId});
       final conversation = Map<String, dynamic>.from(result['conversation'] ?? {});
+      // Preserve the storefront context locally so chat payment forms can load this exact
+      // merchant's public Till/Paybill instructions instead of guessing by seller name.
+      final storefrontSlug = storefront['slug']?.toString();
+      if (storefrontSlug != null && storefrontSlug.isNotEmpty) {
+        conversation['businessStorefrontSlug'] = storefrontSlug;
+      }
       if (!mounted || conversation.isEmpty) return;
       if (item != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
