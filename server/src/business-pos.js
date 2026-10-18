@@ -1,5 +1,42 @@
 // Chatify in-person POS payment intents for shops, supermarkets, malls and hospitality.
-import {randomUUID} from 'node:crypto';
+import {randomUUID, createCipheriv, createDecipheriv, randomBytes} from 'node:crypto';
+import {createDarajaProvider, normalizeMpesaPhone} from './payments.js';
+
+// Merchant Daraja secrets are encrypted at rest with a deployment-managed 32-byte key.
+function posEncryptionKey() {
+  const raw = String(process.env.POS_DARAJA_ENCRYPTION_KEY || '').trim();
+  let key;
+  if (/^[a-f0-9]{64}$/i.test(raw)) key = Buffer.from(raw, 'hex');
+  else { try { key = Buffer.from(raw, 'base64'); } catch { key = null; } }
+  if (!key || key.length !== 32) throw new Error('POS_DARAJA_ENCRYPTION_KEY must be a 32-byte key encoded as 64 hex characters or base64');
+  return key;
+}
+export function encryptMerchantCredentials(credentials, key = posEncryptionKey()) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(credentials), 'utf8'), cipher.final()]);
+  return `${iv.toString('base64')}.${cipher.getAuthTag().toString('base64')}.${ciphertext.toString('base64')}`;
+}
+export function decryptMerchantCredentials(value, key = posEncryptionKey()) {
+  const [ivText, tagText, ciphertextText] = String(value || '').split('.');
+  if (!ivText || !tagText || !ciphertextText) throw new Error('Merchant Daraja credentials are unavailable');
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivText, 'base64'));
+  decipher.setAuthTag(Buffer.from(tagText, 'base64'));
+  return JSON.parse(Buffer.concat([decipher.update(Buffer.from(ciphertextText, 'base64')), decipher.final()]).toString('utf8'));
+}
+export function validateMerchantDarajaCredentials(input, profile) {
+  const mode = String(input?.mode || '').trim();
+  const consumerKey = String(input?.consumerKey || '').trim();
+  const consumerSecret = String(input?.consumerSecret || '').trim();
+  const passkey = String(input?.passkey || '').trim();
+  const shortcode = String(input?.shortcode || '').trim();
+  const expectedShortcode = profile?.method === 'mpesa_till' ? profile.tillNumber : profile?.paybillNumber;
+  if (!['sandbox', 'production'].includes(mode)) throw new Error('Choose sandbox or production Daraja credentials');
+  if (!consumerKey || !consumerSecret || !passkey) throw new Error('Merchant consumer key, consumer secret and passkey are required');
+  if (!/^\\d{5,10}$/.test(shortcode) || shortcode !== expectedShortcode) throw new Error('Daraja shortcode must exactly match this merchant\'s configured Till or Paybill');
+  return {mode, consumerKey, consumerSecret, passkey, shortcode};
+}
+
 
 export const POS_METHODS = Object.freeze(['mpesa_till', 'mpesa_paybill']);
 
@@ -51,6 +88,11 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     qrProvider: {type: String, enum: ['chatify_instructions', 'safaricom_dynamic_qr'], default: 'chatify_instructions'},
     dynamicQrImage: {type: String, default: null},
     dynamicQrRequestId: {type: String, default: null},
+    stkPhone: {type: String, default: null},
+    checkoutRequestId: {type: String, default: null, index: true},
+    merchantRequestId: {type: String, default: null},
+    stkResultCode: {type: Number, default: null},
+    stkResultDescription: {type: String, default: null},
     status: {type: String, enum: ['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED'], default: 'PENDING', index: true},
     confirmationSource: {type: String, default: null},
     providerReceipt: {type: String, default: null},
@@ -83,16 +125,25 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
         if (!['admin', 'manager'].includes(String(member?.role || ''))) return res.status(403).json({error: 'Manager permission is required to configure payment details'});
       }
       const profile = normalizeMerchantPaymentProfile(req.body || {});
-      org.settings = {...(org.settings || {}), posPaymentProfile: profile};
+      let encryptedCredentials = org.settings?.posDarajaCredentialsEncrypted || null;
+      const credentialsProvided = ['consumerKey', 'consumerSecret', 'passkey', 'shortcode', 'mode'].some(key => Object.prototype.hasOwnProperty.call(req.body || {}, key));
+      if (credentialsProvided) {
+        const validated = validateMerchantDarajaCredentials(req.body, profile);
+        // Validate the encryption key before persisting anything; raw secrets never enter org settings.
+        encryptedCredentials = encryptMerchantCredentials(validated);
+      } else if (org.settings?.posPaymentProfile?.method && (org.settings.posPaymentProfile.method !== profile.method || (profile.method === 'mpesa_till' ? org.settings.posPaymentProfile.tillNumber !== profile.tillNumber : org.settings.posPaymentProfile.paybillNumber !== profile.paybillNumber))) {
+        encryptedCredentials = null; // Credentials are tied to the exact shortcode and cannot follow a destination change.
+      }
+      org.settings = {...(org.settings || {}), posPaymentProfile: profile, posDarajaCredentialsEncrypted: encryptedCredentials};
       await org.save();
-      return res.json({paymentProfile: profile});
+      return res.json({paymentProfile: profile, darajaConfigured: Boolean(encryptedCredentials)});
     } catch (error) { return res.status(400).json({error: error.message || 'Invalid merchant payment profile'}); }
   });
 
   app.get('/api/business/organizations/:orgId/pos/payment-profile', auth, async (req, res) => {
     const org = await authorize(req, res);
     if (!org) return;
-    return res.json({paymentProfile: org.settings?.posPaymentProfile || null});
+    return res.json({paymentProfile: org.settings?.posPaymentProfile || null, darajaConfigured: Boolean(org.settings?.posDarajaCredentialsEncrypted)});
   });
 
   // Create a cashier-generated charge and QR payload. The QR is an instruction to pay the
@@ -140,6 +191,88 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       }
       return res.status(400).json({error: error.message || 'Could not create POS charge'});
     }
+  });
+
+
+  // Initiate an STK prompt using the merchant's own shortcode and encrypted Daraja credentials.
+  // This is deliberately separate from the platform-wide provider: the prompt must debit into
+  // the merchant account selected in the POS profile, never Chatify's platform shortcode.
+  app.post('/api/business/organizations/:orgId/pos/charges/:paymentId/stk', auth, async (req, res) => {
+    try {
+      const org = await authorize(req, res, true);
+      if (!org) return;
+      const charge = await Charge.findOne({organizationId: org._id, paymentId: String(req.params.paymentId || ''), status: 'PENDING'});
+      if (!charge) return res.status(404).json({error: 'Pending POS payment not found'});
+      const encrypted = org.settings?.posDarajaCredentialsEncrypted;
+      if (!encrypted) return res.status(409).json({error: 'Configure authorized merchant-specific Daraja credentials before sending STK Push'});
+      const callbackToken = String(process.env.POS_STK_CALLBACK_TOKEN || '').trim();
+      if (callbackToken.length < 32) return res.status(503).json({error: 'POS_STK_CALLBACK_TOKEN must be configured with at least 32 random characters'});
+      const credentials = decryptMerchantCredentials(encrypted);
+      const expectedShortcode = charge.method === 'mpesa_till' ? charge.destination.tillNumber : charge.destination.paybillNumber;
+      if (credentials.shortcode !== expectedShortcode) return res.status(409).json({error: 'Merchant credentials no longer match this payment destination'});
+      const phone = normalizeMpesaPhone(String(req.body?.phone || ''));
+      if (!phone) return res.status(400).json({error: 'Enter a valid Kenyan M-Pesa phone number'});
+      if (charge.checkoutRequestId) return res.status(409).json({error: 'An STK prompt has already been initiated for this charge'});
+      const callbackUrl = `https://${new URL(process.env.POS_STK_PUBLIC_BASE_URL || '').host}/api/business/pos/stk/callback/${callbackToken}`;
+      const baseUrl = new URL(process.env.POS_STK_PUBLIC_BASE_URL || '');
+      if (baseUrl.protocol !== 'https:' || !baseUrl.hostname.includes('.') || baseUrl.username || baseUrl.password) return res.status(503).json({error: 'POS_STK_PUBLIC_BASE_URL must be a public HTTPS base URL'});
+      const provider = createDarajaProvider({
+        mode: credentials.mode, consumerKey: credentials.consumerKey, consumerSecret: credentials.consumerSecret,
+        shortcode: credentials.shortcode, passkey: credentials.passkey, callbackUrl,
+        transactionType: charge.method === 'mpesa_till' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline',
+      });
+      // Claim the charge before contacting Daraja to prevent concurrent duplicate prompts.
+      const claimed = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}},
+        {$set: {stkPhone: phone, confirmationSource: 'daraja_stk_pending'}}, {new: true});
+      if (!claimed) return res.status(409).json({error: 'Another STK request is already in progress'});
+      let result;
+      try {
+        result = await provider.initiate({paymentId: charge.paymentId, amount: charge.amount, phone, description: charge.description});
+      } catch (error) {
+        await Charge.updateOne({_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}}, {$set: {stkResultDescription: 'STK initiation failed; retry after checking Daraja status', confirmationSource: null, stkPhone: null}});
+        return res.status(502).json({error: error.message || 'Daraja could not initiate the STK prompt'});
+      }
+      const saved = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}},
+        {$set: {checkoutRequestId: result.checkoutRequestId, merchantRequestId: result.merchantRequestId, confirmationSource: 'daraja_stk_pending'}}, {new: true});
+      if (!saved) return res.status(409).json({error: 'Payment changed while Daraja was processing the request'});
+      return res.status(202).json({paymentId: saved.paymentId, status: saved.status, checkoutRequestId: saved.checkoutRequestId, message: 'STK prompt sent. Payment remains pending until the matching Safaricom callback confirms success.'});
+    } catch (error) {
+      return res.status(400).json({error: error.message || 'Could not initiate merchant STK Push'});
+    }
+  });
+
+  // Only the merchant's own callback URL/token and exact provider request IDs can confirm a charge.
+  // Amount, payer phone and result code are checked; duplicate callbacks cannot replay a receipt.
+  app.post('/api/business/pos/stk/callback/:token', async (req, res) => {
+    const expected = String(process.env.POS_STK_CALLBACK_TOKEN || '');
+    if (expected.length < 32 || req.params.token !== expected) return res.status(404).json({error: 'Not found'});
+    const cb = req.body?.Body?.stkCallback;
+    if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string' || !/^-?\\d+$/.test(String(cb.ResultCode))) return res.status(400).json({error: 'Malformed callback'});
+    const charge = await Charge.findOne({checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, status: 'PENDING', confirmationSource: 'daraja_stk_pending'});
+    if (!charge) return res.json({ok: true, duplicate: true});
+    const items = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
+    const value = name => items.find(item => item?.Name === name)?.Value;
+    const resultCode = Number(cb.ResultCode);
+    if (!Number.isSafeInteger(resultCode)) return res.status(400).json({error: 'Malformed result code'});
+    if (resultCode === 0) {
+      const amount = Number(value('Amount'));
+      const phone = normalizeMpesaPhone(String(value('PhoneNumber') || ''));
+      const receipt = String(value('MpesaReceiptNumber') || '').trim().toUpperCase();
+      if (amount !== charge.amount || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return res.status(400).json({error: 'Callback amount, phone or receipt did not match the initiated merchant payment'});
+      try {
+        const updated = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, providerReceipt: {$in: [null, '']}},
+          {$set: {status: 'SUCCESS', providerReceipt: receipt, stkResultCode: 0, stkResultDescription: String(cb.ResultDesc || '').slice(0, 160), confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}}, {new: true});
+        if (!updated && await Charge.exists({providerReceipt: receipt})) return res.json({ok: true, duplicate: true});
+        return res.json({ok: true, confirmed: Boolean(updated)});
+      } catch (error) {
+        if (error?.code === 11000) return res.json({ok: true, duplicate: true});
+        return res.status(500).json({error: 'Could not process payment confirmation'});
+      }
+    }
+    const status = resultCode === 1032 ? 'CANCELLED' : 'FAILED';
+    await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID},
+      {$set: {status, stkResultCode: resultCode, stkResultDescription: String(cb.ResultDesc || '').slice(0, 160), confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}});
+    return res.json({ok: true});
   });
 
   app.get('/api/business/organizations/:orgId/pos/charges', auth, async (req, res) => {
