@@ -87,8 +87,10 @@ class Api {
   Future<Map<String, dynamic>?> _readCachedResponse(String path) async {
     if (token == null || token!.isEmpty) return null;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final cached = prefs.getString(_cacheKey(path));
+      final key = _cacheKey(path);
+      final cached = path.contains('/messages')
+          ? await _secureStorage.read(key: key)
+          : (await SharedPreferences.getInstance()).getString(key);
       if (cached == null || cached.isEmpty) return null;
       final decoded = jsonDecode(cached);
       if (decoded is Map) {
@@ -108,10 +110,50 @@ class Api {
       // Keep individual entries bounded so large histories do not exhaust
       // browser local storage or make a small mobile device unresponsive.
       if (encoded.length > 700000) return;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_cacheKey(path), encoded);
+      final key = _cacheKey(path);
+      if (path.contains('/messages')) {
+        // Message history can contain private or legacy plaintext content;
+        // keep its offline cache in platform-protected secure storage.
+        await _secureStorage.write(key: key, value: encoded);
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(key, encoded);
+      }
     } catch (_) {
       // Caching is best-effort and must never break a successful API request.
+    }
+  }
+
+  String _conversationSnapshotKey(String conversationId) =>
+      'chatify_secure_messages_v1_${_cacheScope()}_${_stableCacheHash(conversationId)}';
+
+  Future<List<dynamic>?> readConversationSnapshot(String conversationId) async {
+    try {
+      final encoded = await _secureStorage.read(
+          key: _conversationSnapshotKey(conversationId));
+      if (encoded == null || encoded.isEmpty) return null;
+      final decoded = jsonDecode(encoded);
+      if (decoded is List) return List<dynamic>.from(decoded);
+    } catch (_) {
+      // A corrupt or unavailable local snapshot should not prevent online use.
+    }
+    return null;
+  }
+
+  Future<void> writeConversationSnapshot(
+      String conversationId, List<dynamic> messages) async {
+    try {
+      final encoded = jsonEncode(messages);
+      // Avoid storing an unbounded history in one secure-storage value.
+      final bounded = messages.length > 300
+          ? messages.sublist(messages.length - 300)
+          : messages;
+      final value = bounded == messages ? encoded : jsonEncode(bounded);
+      if (value.length > 900000) return;
+      await _secureStorage.write(
+          key: _conversationSnapshotKey(conversationId), value: value);
+    } catch (_) {
+      // Local persistence is best-effort and must not interrupt chat delivery.
     }
   }
 
