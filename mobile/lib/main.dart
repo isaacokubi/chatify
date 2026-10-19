@@ -8,7 +8,6 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -2304,7 +2303,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         userTotal = (result['total'] as num?)?.toInt() ?? users.length;
       });
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not load users: ' + e.toString())));
     } finally {
       if (mounted) setState(() => usersLoading = false);
@@ -3025,7 +3024,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           const Text('Join a school workspace',style:TextStyle(fontWeight:FontWeight.bold)),
           const SizedBox(height:8),
           field(joinSchoolCode,'School invite code',hint:'Ask the school administrator for its code'),
-          DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Join as',border:OutlineInputBorder()),items:const [DropdownMenuItem(value:'parent',child:Text('Parent / guardian')),DropdownMenuItem(value:'staff',child:Text('Teacher / staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),
+          DropdownButtonFormField<String>(initialValue:memberRole,decoration:const InputDecoration(labelText:'Join as',border:OutlineInputBorder()),items:const [DropdownMenuItem(value:'parent',child:Text('Parent / guardian')),DropdownMenuItem(value:'staff',child:Text('Teacher / staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),
           if(memberRole=='staff') field(joinStaffCode,'Staff invitation code',hint:'Separate code supplied by the school administrator'),
           if(memberRole=='parent') field(studentNames,'Linked student name(s)',hint:'Enter exact names, separated by commas'),
           actionButton('Join school',joinSchool,icon:Icons.group_add),
@@ -3076,7 +3075,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               if (fees.isNotEmpty) Padding(padding:const EdgeInsets.only(top:8),child:Text('Records on this page: ${fees.length} • Confirmed/paid: ${fees.where((p)=>p['status']=='CONFIRMED').length} • Pending: ${fees.where((p)=>p['status']!='CONFIRMED' && p['status']!='FAILED' && p['status']!='CANCELLED' && p['status']!='REJECTED').length}')),
             ]))),
             if (role=='parent') ...[field(feeStudent,'Student name'),field(amount,'Amount in KSh',keyboard:TextInputType.number),field(feeTerm,'Term / year'),if(paymentMethod!='bank')field(payerPhone,'M-Pesa phone receiving the STK prompt',hint:'07XXXXXXXX or 2547XXXXXXXX',keyboard:TextInputType.phone),actionButton(paymentMethod=='bank'?'Record bank transfer':'Pay school fees with M-Pesa',startFeePayment,icon:Icons.payment)],
-            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']=='PENDING_VERIFICATION'?IconButton(tooltip:'Verify actual bank payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:_buildSchoolFeeReceiptPdf(Map<String,dynamic>.from(p)),fileExtension:'pdf'); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('PDF receipt downloaded successfully.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
+            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']=='PENDING_VERIFICATION'?IconButton(tooltip:'Verify actual bank payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:_buildSchoolFeeReceiptPdf(Map<String,dynamic>.from(p)),fileExtension:'pdf'); if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('PDF receipt downloaded successfully.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
             if (role == 'admin') ...fees.where((p)=>p['status']=='CONFIRMED').map((p)=>actionButton('Retry receipt email • ${p['paymentReference']}',()=>resendSchoolReceipt(Map<String,dynamic>.from(p)),icon:Icons.forward_to_inbox)),
           ],
           if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))),
@@ -5287,7 +5286,7 @@ class _ChatState extends State<Chat> {
           ],
         ),
       );
-      if (accepted == true && mounted) {
+      if (accepted == true && context.mounted) {
         final normalizedSender = normalizeKenyanPhone(senderPhone.text);
         final amountValue = int.parse(amount.text.trim());
         await Clipboard.setData(ClipboardData(text: recipientPhone));
@@ -5296,10 +5295,10 @@ class _ChatState extends State<Chat> {
             Uri(scheme: 'tel', path: '*334#'),
             mode: LaunchMode.externalApplication,
           );
-          if (mounted) {
+          if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(opened
-                  ? 'M-Pesa menu opened. Recipient ${recipientPhone} copied. Choose Send Money, enter KSh ${amountValue}, and confirm the recipient before entering your PIN.'
+                  ? 'M-Pesa menu opened. Recipient $recipientPhone copied. Choose Send Money, enter KSh $amountValue, and confirm the recipient before entering your PIN.'
                   : 'Recipient ${recipientPhone} copied. Open M-Pesa on ${normalizedSender ?? senderPhone.text.trim()}, choose Send Money, and enter KSh ${amountValue}.'),
               duration: const Duration(seconds: 7),
             ));
