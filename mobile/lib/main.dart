@@ -43,6 +43,78 @@ class Api {
   String get base => const String.fromEnvironment('CHATIFY_API',
       defaultValue: 'https://chatify-api-c1eh.onrender.com');
   String? token;
+  // Cached GET responses let a previously signed-in user read the last synced
+  // conversations and account data while the API or internet is unavailable.
+  // The cache scope is derived from the authenticated account, never shared
+  // between different signed-in users on the same device.
+  bool lastResponseFromCache = false;
+  bool offlineDataMode = false;
+
+  String _stableCacheHash(String value) {
+    var hash = 2166136261;
+    for (final unit in value.codeUnits) {
+      hash = ((hash ^ unit) * 16777619) & 0xffffffff;
+    }
+    return hash.toRadixString(16);
+  }
+
+  String _cacheScope() {
+    final currentToken = token;
+    if (currentToken == null || currentToken.isEmpty) return 'anonymous';
+    final parts = currentToken.split('.');
+    if (parts.length == 3) {
+      try {
+        final payload = jsonDecode(
+          utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+        );
+        if (payload is Map) {
+          final accountId =
+              (payload['sub'] ?? payload['userId'] ?? payload['id'])?.toString();
+          if (accountId != null && accountId.isNotEmpty) {
+            return _stableCacheHash(accountId);
+          }
+        }
+      } catch (_) {
+        // Non-JWT tokens still get an isolated, stable cache namespace.
+      }
+    }
+    return _stableCacheHash(currentToken);
+  }
+
+  String _cacheKey(String path) =>
+      'chatify_offline_v1_${_cacheScope()}_${Uri.encodeComponent(path)}';
+
+  Future<Map<String, dynamic>?> _readCachedResponse(String path) async {
+    if (token == null || token!.isEmpty) return null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString(_cacheKey(path));
+      if (cached == null || cached.isEmpty) return null;
+      final decoded = jsonDecode(cached);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      // Storage can be unavailable (for example, in a restricted browser).
+    }
+    return null;
+  }
+
+  Future<void> _writeCachedResponse(
+      String path, Map<String, dynamic> response) async {
+    if (token == null || token!.isEmpty) return;
+    try {
+      final encoded = jsonEncode(response);
+      // Keep individual entries bounded so large histories do not exhaust
+      // browser local storage or make a small mobile device unresponsive.
+      if (encoded.length > 700000) return;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cacheKey(path), encoded);
+    } catch (_) {
+      // Caching is best-effort and must never break a successful API request.
+    }
+  }
+
   Future<void> restore() async {
     token = await _secureStorage.read(key: 'token');
     // Migrate the previous preferences-based token once, then remove the less-protected copy.
@@ -97,18 +169,50 @@ class Api {
     }
 
     late http.Response r;
+    lastResponseFromCache = false;
     try {
       r = await sendRequest().timeout(requestTimeout);
     } on TimeoutException {
-      // A sleeping free-tier API may need to wake after a long idle period.
-      // Retry only safe GET requests; never automatically repeat payment or write requests.
+      // Retry only safe GET requests. Writes and payments are never replayed.
       if (method != 'GET') rethrow;
       await Future<void>.delayed(const Duration(milliseconds: 500));
       try {
         r = await sendRequest().timeout(const Duration(seconds: 25));
-      } on TimeoutException {
-        throw ApiException(408,
-            'Chatify is taking longer than expected to respond. Check your connection and retry.');
+      } catch (retryError) {
+        final cached = await _readCachedResponse(path);
+        if (cached != null) {
+          lastResponseFromCache = true;
+          offlineDataMode = true;
+          return cached;
+        }
+        if (retryError is TimeoutException) {
+          throw ApiException(408,
+              'Chatify is taking longer than expected to respond. Check your connection and retry.');
+        }
+        rethrow;
+      }
+    } catch (networkError) {
+      // A failed read should fall back to the last account-scoped response.
+      // Never do this for POST/PATCH/PUT/DELETE, especially payment requests.
+      if (method == 'GET') {
+        final cached = await _readCachedResponse(path);
+        if (cached != null) {
+          lastResponseFromCache = true;
+          offlineDataMode = true;
+          return cached;
+        }
+      }
+      rethrow;
+    }
+
+    // A server outage can also arrive as HTTP 5xx rather than a socket error.
+    // Use cached data for reads only; authentication failures still surface.
+    if (method == 'GET' && r.statusCode >= 500) {
+      final cached = await _readCachedResponse(path);
+      if (cached != null) {
+        lastResponseFromCache = true;
+        offlineDataMode = true;
+        return cached;
       }
     }
     // API routes must return JSON. Render/Vercel error pages and stale deployments
@@ -150,9 +254,14 @@ class Api {
               ? decoded['error'].toString()
               : 'Request failed (HTTP ${r.statusCode})');
     }
-    return decoded is Map
+    final result = decoded is Map
         ? Map<String, dynamic>.from(decoded)
-        : {'data': decoded};
+        : <String, dynamic>{'data': decoded};
+    if (method == 'GET') {
+      offlineDataMode = false;
+      await _writeCachedResponse(path, result);
+    }
+    return result;
   }
 
   Future<Map<String, dynamic>> paymentStatus(String paymentId) =>
