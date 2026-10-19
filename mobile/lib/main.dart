@@ -187,11 +187,17 @@ class Api {
       if (token != null) 'Authorization': 'Bearer $token'
     };
     final u = Uri.parse('$base$path');
+    // Check whether a previous response is available before waiting on the
+    // network. A cached signed-in user should not wait through long API cold-start
+    // timeouts just to open their saved chats while offline.
+    final cachedBeforeRequest =
+        method == 'GET' ? await _readCachedResponse(path) : null;
     // Daraja may need one OAuth request followed by the STK request. Give
     // payment initiation enough time to finish so the UI doesn't report a
     // timeout while Safaricom may already be processing the prompt.
-    final requestTimeout =
-        ((path.contains('/api/payments/') && path.endsWith('/initiate')) ||
+    final requestTimeout = cachedBeforeRequest != null
+        ? const Duration(seconds: 5)
+        : ((path.contains('/api/payments/') && path.endsWith('/initiate')) ||
                 path.endsWith('/stk-push') ||
                 (path.contains('/pos/charges/') && path.endsWith('/stk')))
             ? const Duration(seconds: 35)
@@ -219,7 +225,10 @@ class Api {
       if (method != 'GET') rethrow;
       await Future<void>.delayed(const Duration(milliseconds: 500));
       try {
-        r = await sendRequest().timeout(const Duration(seconds: 25));
+        r = await sendRequest().timeout(
+            cachedBeforeRequest != null
+                ? const Duration(seconds: 5)
+                : const Duration(seconds: 25));
       } catch (retryError) {
         final cached = await _readCachedResponse(path);
         if (cached != null) {
