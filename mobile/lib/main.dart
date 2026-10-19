@@ -77,7 +77,9 @@ class Api {
     // payment initiation enough time to finish so the UI doesn't report a
     // timeout while Safaricom may already be processing the prompt.
     final requestTimeout =
-        path.contains('/api/payments/') && path.endsWith('/initiate')
+        ((path.contains('/api/payments/') && path.endsWith('/initiate')) ||
+                path.endsWith('/stk-push') ||
+                (path.contains('/pos/charges/') && path.endsWith('/stk')))
             ? const Duration(seconds: 35)
             : const Duration(seconds: 20);
     Future<http.Response> sendRequest() {
@@ -4157,6 +4159,12 @@ class _ChatState extends State<Chat> {
               onTap: () => Navigator.pop(dialog, 'paybill'),
             ),
             ListTile(
+              leading: const Icon(Icons.person_pin_circle_outlined),
+              title: const Text('Lipa to this contact'),
+              subtitle: const Text('Send an STK prompt using this contact’s merchant checkout'),
+              onTap: () => Navigator.pop(dialog, 'contact'),
+            ),
+            ListTile(
               leading: const Icon(Icons.call_received),
               title: const Text('Receive Money'),
               subtitle: const Text('Request money from this contact'),
@@ -4174,14 +4182,16 @@ class _ChatState extends State<Chat> {
     );
     if (!mounted || mode == null) return;
 
-    // Till and Paybill payments are merchant payments, not person-to-person requests.
-    // Collect the merchant details and copy them for quick use in the official M-Pesa app.
-    if (mode == 'till' || mode == 'paybill') {
+    // All three checkout choices use merchant-authorized STK Push. Never send a
+    // Till/Paybill payment through Chatify's own shortcode; the seller's Daraja
+    // credentials and exact shortcode are required so funds reach the right merchant.
+    if (mode == 'till' || mode == 'paybill' || mode == 'contact') {
       final isTill = mode == 'till';
-      // Load only the payment profile belonging to the storefront this chat was opened from.
-      // Payment numbers remain editable so a customer can correct an outdated instruction.
-      Map<String, dynamic>? merchantPaymentProfile;
+      final isPaybill = mode == 'paybill';
+      final isContact = mode == 'contact';
       final storefrontSlug = widget.conversation['businessStorefrontSlug']?.toString();
+      String sellerId = '';
+      Map<String, dynamic>? merchantPaymentProfile;
       try {
         Map<String, dynamic>? profileResponse;
         if (storefrontSlug != null && storefrontSlug.isNotEmpty) {
@@ -4194,9 +4204,6 @@ class _ChatState extends State<Chat> {
             profileResponse = Map<String, dynamic>.from(store['paymentProfile'] as Map);
           }
         } else {
-          // For an ordinary direct chat, resolve the other participant's single published
-          // storefront. If the seller owns multiple stores, the API asks the customer to
-          // open the intended storefront instead of guessing the wrong payment destination.
           final participants = List<dynamic>.from(widget.conversation['participants'] ?? []);
           final currentIds = <String>{
             app.user?['_id']?.toString() ?? '',
@@ -4205,24 +4212,19 @@ class _ChatState extends State<Chat> {
           Map? peer;
           for (final raw in participants) {
             if (raw is! Map) continue;
-            final id = (raw['_id'] ?? raw['id'] ?? raw['userId'])?.toString() ?? '';
             final nested = raw['user'] is Map ? raw['user'] as Map : null;
-            final peerId = id.isNotEmpty ? id : (nested?['_id'] ?? nested?['id'])?.toString() ?? '';
-            if (peerId.isNotEmpty && !currentIds.contains(peerId)) {
+            final id = (raw['_id'] ?? raw['id'] ?? raw['userId'])?.toString() ?? '';
+            final candidateId = id.isNotEmpty ? id : (nested?['_id'] ?? nested?['id'])?.toString() ?? '';
+            if (candidateId.isNotEmpty && !currentIds.contains(candidateId)) {
               peer = raw;
+              sellerId = candidateId;
               break;
             }
           }
-          final peerId = peer == null
-              ? ''
-              : ((peer['_id'] ?? peer['id'] ?? peer['userId'])?.toString() ??
-                  ((peer['user'] is Map)
-                      ? ((peer['user'] as Map)['_id'] ?? (peer['user'] as Map)['id'])?.toString() ?? ''
-                      : ''));
-          if (peerId.isNotEmpty) {
+          if (sellerId.isNotEmpty) {
             final result = await app.api.call(
               'GET',
-              '/api/storefront/by-seller/${Uri.encodeComponent(peerId)}/payment-profile',
+              '/api/storefront/by-seller/${Uri.encodeComponent(sellerId)}/payment-profile',
             );
             if (result['paymentProfile'] is Map) {
               profileResponse = Map<String, dynamic>.from(result['paymentProfile'] as Map);
@@ -4231,75 +4233,104 @@ class _ChatState extends State<Chat> {
         }
         merchantPaymentProfile = profileResponse;
       } catch (_) {
-        // Payment details can still be entered manually if the storefront is unavailable,
-        // the seller has no published store, or multiple stores make the destination ambiguous.
+        // Keep the failure actionable below; do not silently redirect payment to another shortcode.
       }
-      final businessNumber = TextEditingController(
+
+      final merchantMethod = merchantPaymentProfile?['method']?.toString();
+      if (merchantPaymentProfile == null ||
+          (isTill && merchantMethod != 'mpesa_till') ||
+          (isPaybill && merchantMethod != 'mpesa_paybill')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(isContact
+                ? 'This contact has no single configured business checkout. Open their storefront or ask them to configure merchant STK.'
+                : 'The selected Till/Paybill is not configured for this business. Open the correct storefront and verify its payment settings.'),
+            duration: const Duration(seconds: 5),
+          ));
+        }
+        return;
+      }
+
+      final merchantNumber = TextEditingController(
         text: isTill
-            ? (merchantPaymentProfile?['method'] == 'mpesa_till'
-                ? (merchantPaymentProfile?['tillNumber']?.toString() ?? '')
-                : '')
-            : (merchantPaymentProfile?['method'] == 'mpesa_paybill'
-                ? (merchantPaymentProfile?['paybillNumber']?.toString() ?? '')
-                : ''),
+            ? (merchantPaymentProfile['tillNumber']?.toString() ?? '')
+            : (merchantPaymentProfile['paybillNumber']?.toString() ?? ''),
       );
       final accountNumber = TextEditingController(
-        text: !isTill && merchantPaymentProfile?['method'] == 'mpesa_paybill'
-            ? (merchantPaymentProfile?['accountNumber']?.toString() ?? '')
-            : '',
+        text: merchantPaymentProfile['accountNumber']?.toString() ?? '',
       );
-      if (!mounted) return;
       final paymentAmount = TextEditingController();
-      final paymentForm = GlobalKey<FormState>();
+      final payerPhone = TextEditingController(
+        text: app.user?['mpesaPhone']?.toString() ??
+            app.user?['phone']?.toString() ?? '',
+      );
+      final description = TextEditingController(
+        text: isContact ? 'Payment to contact' : (isTill ? 'Buy Goods payment' : 'Paybill payment'),
+      );
+      final formKey = GlobalKey<FormState>();
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialog) => AlertDialog(
-          title: Text(isTill ? 'Send Money to Till' : 'Paybill'),
+          title: Text(isContact
+              ? 'Lipa to this contact'
+              : (isTill ? 'Lipa na Till' : 'Lipa na Paybill')),
           content: Form(
-            key: paymentForm,
+            key: formKey,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextFormField(
-                    controller: businessNumber,
+                  if (!isContact) TextFormField(
+                    controller: merchantNumber,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
                       labelText: isTill ? 'Buy Goods Till number' : 'Paybill business number',
-                      helperText: businessNumber.text.isNotEmpty
-                          ? 'Loaded from this business; you can edit it'
-                          : 'Enter the number provided by the business',
+                      helperText: 'Prefilled from this business. STK requires this number to match the merchant-authorized shortcode.',
                     ),
                     validator: (value) {
                       final number = (value ?? '').trim();
                       return number.length >= 5 && number.length <= 10 && int.tryParse(number) != null
-                          ? null
-                          : 'Enter a valid 5–10 digit number';
+                          ? null : 'Enter a valid 5–10 digit number';
                     },
                   ),
-                  if (!isTill)
-                    TextFormField(
-                      controller: accountNumber,
-                      textCapitalization: TextCapitalization.characters,
-                      decoration: const InputDecoration(labelText: 'Account number'),
-                      validator: (value) => (value ?? '').trim().isEmpty
-                          ? 'Enter the Paybill account number'
-                          : null,
+                  if (isPaybill) TextFormField(
+                    controller: accountNumber,
+                    decoration: const InputDecoration(
+                      labelText: 'Account/reference (optional)',
+                      helperText: 'The merchant checkout generates a payment reference for reconciliation.',
                     ),
+                  ),
                   TextFormField(
                     controller: paymentAmount,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(labelText: 'Amount (KSh)'),
                     validator: (value) {
                       final amountValue = int.tryParse((value ?? '').trim());
-                      return amountValue == null || amountValue < 1 || amountValue > 150000
-                          ? 'Enter KSh 1–150,000'
+                      return amountValue == null || amountValue < 1 || amountValue > 149253
+                          ? 'Enter KSh 1–149,253 before the 0.5% fee'
                           : null;
                     },
                   ),
+                  TextFormField(
+                    controller: payerPhone,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Your M-Pesa phone number',
+                      helperText: 'The STK prompt will be sent to this number.',
+                    ),
+                    validator: (value) => normalizeKenyanPhone(value ?? '') == null
+                        ? 'Enter a valid Kenyan M-Pesa number' : null,
+                  ),
+                  TextFormField(
+                    controller: description,
+                    maxLength: 80,
+                    decoration: const InputDecoration(labelText: 'Payment description'),
+                    validator: (value) => (value ?? '').trim().isEmpty
+                        ? 'Enter a payment description' : null,
+                  ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Chatify copies the payment details for you. In the official M-Pesa app, choose Lipa na M-Pesa and verify the recipient and amount before entering your PIN.',
+                    'Chatify will send an STK prompt to your phone using the merchant’s authorized Till/Paybill. Check the recipient and amount before entering your PIN. A prompt is not proof of payment.',
                     style: TextStyle(fontSize: 12),
                   ),
                 ],
@@ -4307,38 +4338,81 @@ class _ChatState extends State<Chat> {
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialog, false),
-              child: const Text('Cancel'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
             FilledButton(
               onPressed: () {
-                if (paymentForm.currentState?.validate() ?? false) {
+                if (formKey.currentState?.validate() ?? false) {
                   Navigator.pop(dialog, true);
                 }
               },
-              child: const Text('Copy payment details'),
+              child: const Text('Review STK payment'),
             ),
           ],
         ),
       );
-      if (confirmed == true) {
-        final details = isTill
-            ? 'M-Pesa Buy Goods / Till\nTill number: ${businessNumber.text.trim()}\nAmount: KSh ${paymentAmount.text.trim()}'
-            : 'M-Pesa Paybill\nBusiness number: ${businessNumber.text.trim()}\nAccount number: ${accountNumber.text.trim()}\nAmount: KSh ${paymentAmount.text.trim()}';
-        await Clipboard.setData(ClipboardData(text: details));
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(isTill
-                ? 'Till payment details copied. Open M-Pesa > Lipa na M-Pesa > Buy Goods.'
-                : 'Paybill details copied. Open M-Pesa > Lipa na M-Pesa > Paybill.'),
-            duration: const Duration(seconds: 5),
+
+      if (confirmed == true && mounted) {
+        final baseAmount = int.parse(paymentAmount.text.trim());
+        final fee = (baseAmount * 0.005).ceil();
+        final total = baseAmount + fee;
+        final acceptFee = await showDialog<bool>(
+          context: context,
+          builder: (dialog) => AlertDialog(
+            title: const Text('Confirm M-Pesa payment'),
+            content: Text(
+              'Merchant: ${isContact ? 'this contact' : (isTill ? 'Till' : 'Paybill')}\n'
+              '${isContact ? '' : 'Number: ${merchantNumber.text.trim()}\n'}'
+              'Amount: KSh $baseAmount\n'
+              'Chatify platform fee (0.5%, rounded up): KSh $fee\n'
+              'Total STK charge: KSh $total\n\n'
+              'The fee is recorded as pending settlement; Chatify does not automatically split or settle it. Continue?',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Send STK Push')),
+            ],
+          ),
+        );
+        if (acceptFee == true && mounted) {
+          final messenger = ScaffoldMessenger.of(context);
+          messenger.showSnackBar(const SnackBar(
+            content: Text('Requesting STK prompt…'),
+            duration: Duration(seconds: 2),
           ));
+          try {
+            final endpoint = storefrontSlug != null && storefrontSlug.isNotEmpty
+                ? '/api/storefront/${Uri.encodeComponent(storefrontSlug)}/stk-push'
+                : '/api/storefront/by-seller/${Uri.encodeComponent(sellerId)}/stk-push';
+            final result = await app.api.call('POST', endpoint, {
+              'phone': payerPhone.text.trim(),
+              'amount': baseAmount,
+              'description': description.text.trim(),
+              if (!isContact) 'merchantNumber': merchantNumber.text.trim(),
+              'feeAcknowledged': true,
+            });
+            if (mounted) {
+              final notice = result['notice']?.toString() ??
+                  'STK request accepted. The payment remains pending until Safaricom confirms it.';
+              messenger.showSnackBar(SnackBar(
+                content: Text('$notice\nTotal: KSh ${result['totalAmount'] ?? total}'),
+                duration: const Duration(seconds: 6),
+              ));
+            }
+          } catch (error) {
+            if (mounted) {
+              messenger.showSnackBar(SnackBar(
+                content: Text(error.toString()),
+                duration: const Duration(seconds: 6),
+              ));
+            }
+          }
         }
       }
-      businessNumber.dispose();
+      merchantNumber.dispose();
       accountNumber.dispose();
       paymentAmount.dispose();
+      payerPhone.dispose();
+      description.dispose();
       return;
     }
 
