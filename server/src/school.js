@@ -297,8 +297,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       if (!code || code.length > 40 || !['parent', 'staff'].includes(role)) {
         return res.status(400).json({ error: 'Enter the school invite code and choose Parent or Staff.' });
       }
-      if (role === 'parent' && studentNames.length === 0) {
-        return res.status(400).json({ error: 'Parents must enter at least one linked student name. Ask the school office to add the exact student name if unsure.' });
+      if (studentNames.length === 0) {
+        return res.status(400).json({ error: 'Parents and staff must enter at least one linked student name. Use the exact registered student name(s) supplied by the school office.' });
       }
       const school = await School.findOne({ code }).select('+staffInviteCode _id name code').lean();
       if (!school) return res.status(404).json({ error: 'No school was found for that code. Check the code with the school office.' });
@@ -343,8 +343,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     } catch (error) { return next(error); }
   });
 
-  // School admins can correct the pupil names a parent linked during workspace joining.
-  // This updates only that parent's school membership, not the parent's Chatify account.
+  // School owners can link or correct pupils for a parent or staff member.
+  // This affects only school membership visibility, never the user's global Chatify account.
   app.put('/api/schools/:schoolId/members/:memberId/student-info', auth, requireRole('admin'), async (req, res, next) => {
     try {
       const rawNames = req.body?.studentNames;
@@ -359,7 +359,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         return res.status(400).json({ error: 'Invalid school member.' });
       }
       const member = await Membership.findOneAndUpdate(
-        { _id: req.params.memberId, schoolId: req.params.schoolId, role: 'parent', active: true },
+        { _id: req.params.memberId, schoolId: req.params.schoolId, role: { $in: ['parent', 'staff'] }, active: true },
         { $set: { studentNames } },
         { new: true, runValidators: true }
       ).populate('userId', 'name email');
@@ -504,8 +504,10 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
 
   function schoolStudentFilter(req) {
     const filter = { schoolId: req.params.schoolId, active: true };
-    if (req.schoolMembership.role === 'parent') {
-      const names = (req.schoolMembership.studentNames || []).map(x => String(x).trim().toLowerCase());
+    if (['parent', 'staff'].includes(req.schoolMembership.role)) {
+      // Parents and staff see only pupils explicitly linked to their membership.
+      // An empty list intentionally matches no student records.
+      const names = (req.schoolMembership.studentNames || []).map(x => String(x).trim().toLowerCase()).filter(Boolean);
       filter.$expr = { $in: [{ $toLower: '$fullName' }, names] };
     }
     return filter;
@@ -733,6 +735,11 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
   app.get('/api/schools/:schoolId/fees', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
       const filter = { schoolId: req.params.schoolId };
+      if (['parent', 'staff'].includes(req.schoolMembership.role)) {
+        const linkedNames = (req.schoolMembership.studentNames || []).map(name => String(name).trim().toLowerCase()).filter(Boolean);
+        filter.$expr = { $in: [{ $toLower: '$studentName' }, linkedNames] };
+      }
+      // A parent sees only their own payments, and only for a linked child.
       if (req.schoolMembership.role === 'parent') filter.parentId = req.user._id;
       const page = pageOptions(req);
       const [payments, total] = await Promise.all([
@@ -850,6 +857,12 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference }).select('+receiptHtml').lean();
       if (!payment) return res.status(404).json({ error: 'Fee record not found' });
       if (req.schoolMembership.role === 'parent' && String(payment.parentId) !== String(req.user._id)) return res.status(403).json({ error: 'This receipt belongs to another parent' });
+      if (['parent', 'staff'].includes(req.schoolMembership.role)) {
+        const linkedNames = (req.schoolMembership.studentNames || []).map(name => String(name).trim().toLowerCase()).filter(Boolean);
+        if (!linkedNames.includes(String(payment.studentName || '').trim().toLowerCase())) {
+          return res.status(403).json({ error: 'This receipt is not for a student linked to your school membership.' });
+        }
+      }
       if (payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Receipt unavailable until the school verifies payment' });
       const receipt = payment.receiptHtml || renderSchoolReceipt(await School.findById(req.params.schoolId).select('name code').lean(), payment);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
