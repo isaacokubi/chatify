@@ -2705,7 +2705,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   bool loading = false;
   int section = 0, recordPage = 1, recordTotal = 0;
   static const int _recordPageSize = 20;
-  final schoolName = TextEditingController(), schoolCode = TextEditingController(), joinSchoolCode = TextEditingController();
+  final schoolName = TextEditingController(), schoolCode = TextEditingController(), joinSchoolCode = TextEditingController(), joinStaffCode = TextEditingController(), staffInviteCode = TextEditingController();
   final memberEmail = TextEditingController(), studentNames = TextEditingController(), recipientIdController = TextEditingController();
   final messageBody = TextEditingController(), messageSubject = TextEditingController();
   final amount = TextEditingController(), feeStudent = TextEditingController(), feeTerm = TextEditingController(), payerPhone = TextEditingController();
@@ -2723,7 +2723,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   @override
   void dispose() {
-    for (final c in [schoolName, schoolCode, joinSchoolCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, darajaConsumerKey, darajaConsumerSecret, darajaPasskey, conferenceTitle, conferenceAgenda, conferenceLocation, admissionNumber, registeredStudentName, studentClass, guardianName, guardianPhone, guardianEmail, attendanceDate, attendanceNote, subjectName, assessmentName, assessmentTerm, assessmentScore, assessmentOutOf, teacherNote]) { c.dispose(); }
+    for (final c in [schoolName, schoolCode, joinSchoolCode, joinStaffCode, staffInviteCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, darajaConsumerKey, darajaConsumerSecret, darajaPasskey, conferenceTitle, conferenceAgenda, conferenceLocation, admissionNumber, registeredStudentName, studentClass, guardianName, guardianPhone, guardianEmail, attendanceDate, attendanceNote, subjectName, assessmentName, assessmentTerm, assessmentScore, assessmentOutOf, teacherNote]) { c.dispose(); }
     super.dispose();
   }
 
@@ -2741,6 +2741,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   void _selectSchool(Map<String,dynamic> s) {
     schoolId = s['id']?.toString(); role = s['role']?.toString();
     schoolCode.text = (s['code'] ?? '').toString();
+    staffInviteCode.text = (s['staffInviteCode'] ?? '').toString();
     final p = s['paymentProfile'];
     if (p is Map) {
       paymentMethod = (p['method'] ?? 'mpesa_paybill').toString();
@@ -2887,9 +2888,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final joined = await app.api.call('POST', '/api/schools/join', {
         'code': code,
         'role': memberRole,
-        'studentNames': studentNames.text.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).toList(),
+        if (memberRole == 'staff') 'staffInviteCode': joinStaffCode.text.trim(),
+        'studentNames': studentNames.text.split(','.map((x) => x.trim()).where((x) => x.isNotEmpty).toList(),
       });
       joinSchoolCode.clear();
+      joinStaffCode.clear();
       studentNames.clear();
       await loadSchools();
       final joinedId = (joined['school'] is Map) ? joined['school']['id']?.toString() : null;
@@ -3023,11 +3026,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           const SizedBox(height:8),
           field(joinSchoolCode,'School invite code',hint:'Ask the school administrator for its code'),
           DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Join as',border:OutlineInputBorder()),items:const [DropdownMenuItem(value:'parent',child:Text('Parent / guardian')),DropdownMenuItem(value:'staff',child:Text('Teacher / staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),
+          if(memberRole=='staff') field(joinStaffCode,'Staff invitation code',hint:'Separate code supplied by the school administrator'),
           if(memberRole=='parent') field(studentNames,'Linked student name(s)',hint:'Enter exact names, separated by commas'),
           actionButton('Join school',joinSchool,icon:Icons.group_add),
         ]))),
         if (schools.isNotEmpty) DropdownButtonFormField<String>(value:schoolId,decoration:const InputDecoration(labelText:'Your school',border:OutlineInputBorder()),items:schools.map((s)=>DropdownMenuItem<String>(value:s['id'].toString(),child:Text(s['name'].toString(),overflow:TextOverflow.ellipsis))).toList(),onChanged:(id){final s=schools.cast<Map>().firstWhere((x)=>x['id']==id);setState(()=>_selectSchool(Map<String,dynamic>.from(s)));}),
         if (schoolId != null && schoolCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:6),child:Text('Share this school invitation code with parents and staff: ${schoolCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.w600))),
+        if (role == 'admin' && staffInviteCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:4),child:Text('Private staff invitation code (share with staff only): ${staffInviteCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.secondary,fontWeight:FontWeight.w600))),
         if (schools.isEmpty) ...[field(schoolName,'School name'),field(schoolCode,'Unique school code',hint:'e.g. NAIROBI-PRI'),actionButton('Create school workspace',createSchool,icon:Icons.school)],
         if (schoolId != null) ...[
           const SizedBox(height:12),
