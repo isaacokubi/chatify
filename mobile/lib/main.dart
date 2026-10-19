@@ -2889,7 +2889,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         'code': code,
         'role': memberRole,
         if (memberRole == 'staff') 'staffInviteCode': joinStaffCode.text.trim(),
-        'studentNames': studentNames.text.split(','.map((x) => x.trim()).where((x) => x.isNotEmpty).toList(),
+        'studentNames': studentNames.text.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).toList(),
       });
       joinSchoolCode.clear();
       joinStaffCode.clear();
