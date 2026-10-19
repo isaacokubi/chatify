@@ -2788,6 +2788,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Widget field(TextEditingController c, String label, {String? hint, TextInputType? keyboard}) => Padding(padding:const EdgeInsets.only(bottom:10),child:TextField(controller:c,keyboardType:keyboard,decoration:InputDecoration(labelText:label,hintText:hint,border:const OutlineInputBorder())));
+  Widget secretField(TextEditingController c, String label) => Padding(padding:const EdgeInsets.only(bottom:10),child:TextField(controller:c,obscureText:true,autocorrect:false,enableSuggestions:false,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder())));
   Widget actionButton(String label, VoidCallback onPressed, {IconData icon=Icons.check}) => Padding(padding:const EdgeInsets.only(bottom:10),child:SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:onPressed,icon:Icon(icon),label:Text(label))));
 
   @override
@@ -2837,9 +2838,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             if(paymentMethod=='bank')... [field(bank,'Bank name'),field(account,'Account number')],
             if(paymentMethod!='bank') ...[
               DropdownButtonFormField<String>(value:darajaMode,decoration:const InputDecoration(labelText:'Safaricom Daraja environment'),items:const [DropdownMenuItem(value:'production',child:Text('Live production')),DropdownMenuItem(value:'sandbox',child:Text('Sandbox testing only'))],onChanged:(v)=>setState(()=>darajaMode=v??'production')),
-              field(darajaConsumerKey,'School Daraja consumer key'),
-              field(darajaConsumerSecret,'School Daraja consumer secret'),
-              field(darajaPasskey,'School shortcode passkey'),
+              secretField(darajaConsumerKey,'School Daraja consumer key'),
+              secretField(darajaConsumerSecret,'School Daraja consumer secret'),
+              secretField(darajaPasskey,'School shortcode passkey'),
               const Text('Use the credentials issued for this school merchant and shortcode. Credentials are sent over HTTPS and encrypted on the API before storage; they are never displayed again.',style:TextStyle(fontSize:12)),
             ],
             actionButton('Save school payment setup',savePaymentProfile,icon:Icons.save),
