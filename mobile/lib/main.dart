@@ -2669,7 +2669,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     try {
       if (section == 0) {
         final r = await app.api.call('GET', '/api/schools/$id/messages');
-        messages = List<dynamic>.from(r['messages'] ?? []);
+        messages = List<dynamic>.from(r['messages'] ?? []);\n        final directory = await app.api.call('GET', '/api/schools/$id/members');\n        members = List<dynamic>.from(directory['members'] ?? []);
       } else if (section == 1) {
         final r = await app.api.call('GET', '/api/schools/$id/conferences');
         conferences = List<dynamic>.from(r['conferences'] ?? []);
@@ -2792,7 +2792,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           if (error != null) Text(error!,style:TextStyle(color:Theme.of(context).colorScheme.error)),
           if (section==0) ...[
             if (role!='parent') DropdownButtonFormField<String>(value:audience,decoration:const InputDecoration(labelText:'Send to'),items:const [DropdownMenuItem(value:'direct',child:Text('Direct message (select recipient in API)')),DropdownMenuItem(value:'all_parents',child:Text('All parents')),DropdownMenuItem(value:'all_staff',child:Text('All staff')),DropdownMenuItem(value:'all_school',child:Text('Whole school'))],onChanged:(v)=>setState(()=>audience=v??'direct')),
-            if (audience == 'direct') field(recipientIdController,'Recipient Chatify user ID'),\n            field(messageSubject,'Subject (optional)'),field(messageBody,'Message'),
+            if (audience == 'direct') DropdownButtonFormField<String>(value:members.any((m)=>m['userId']?.toString()==recipientIdController.text)?recipientIdController.text:null,decoration:const InputDecoration(labelText:'Message recipient',border:OutlineInputBorder()),items:members.map((m)=>DropdownMenuItem<String>(value:m['userId'].toString(),child:Text('${m['name'] ?? m['email'] ?? 'School contact'} • ${m['role']}',overflow:TextOverflow.ellipsis))).toList(),onChanged:(v)=>setState(()=>recipientIdController.text=v??'')),\n            field(messageSubject,'Subject (optional)'),field(messageBody,'Message'),
             actionButton('Send message / announcement',sendMessage,icon:Icons.send),
             ...messages.map((m)=>Card(child:ListTile(leading:const Icon(Icons.mark_chat_unread_outlined),title:Text((m['subject']??'School message').toString()),subtitle:Text((m['body']??'').toString()),isThreeLine:true))),
           ],
