@@ -4398,7 +4398,7 @@ class _ChatState extends State<Chat> {
             title: const Text('Confirm M-Pesa payment'),
             content: Text(
               'Merchant: ${isContact ? 'this contact' : (isTill ? 'Till' : 'Paybill')}\n'
-              'Payment destination: ${isTill ? 'Till' : 'Paybill'} ${merchantNumber.text.trim()}\\n'
+              'Payment destination: ${isTill ? 'Till' : 'Paybill'} ${merchantNumber.text.trim()}\n'
               'Amount: KSh $baseAmount\n'
               'Chatify platform fee (0.5%, rounded up): KSh $fee\n'
               'Total STK charge: KSh $total\n\n'
