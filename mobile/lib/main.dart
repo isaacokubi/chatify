@@ -4856,16 +4856,12 @@ class _ChatState extends State<Chat> {
                   ),
                   TextFormField(
                     controller: senderPhone,
-                    keyboardType: TextInputType.phone,
+                    readOnly: true,
                     decoration: const InputDecoration(
-                      labelText: 'Your M-Pesa number',
+                      labelText: 'Your registered M-Pesa number',
                       helperText:
-                          'Defaults to the number you registered. The M-Pesa menu opens on your phone/SIM.',
+                          'Loaded from account creation. The M-Pesa menu uses the active SIM on this device.',
                     ),
-                    validator: (value) =>
-                        normalizeKenyanPhone(value ?? '') == null
-                            ? 'Enter a valid Kenyan M-Pesa number'
-                            : null,
                   ),
                   const SizedBox(height: 8),
                   const Text(
