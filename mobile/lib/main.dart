@@ -86,17 +86,21 @@ class Api {
 
   Future<Map<String, dynamic>?> _readCachedResponse(String path) async {
     if (token == null || token!.isEmpty) return null;
-    try {
-      // All authenticated snapshots may contain private profile, payment,
-      // memory, or conversation details, so keep the cache platform-protected.
-      final cached = await _secureStorage.read(key: _cacheKey(path));
-      if (cached == null || cached.isEmpty) return null;
-      final decoded = jsonDecode(cached);
-      if (decoded is Map) {
-        return Map<String, dynamic>.from(decoded);
+    final key = _cacheKey(path);
+    // Secure storage is preferred; browser storage can be unavailable in some
+    // contexts, so try the persistent preferences store as a fallback.
+    for (final read in <Future<String?> Function()>[
+      () => _secureStorage.read(key: key),
+      () async => (await SharedPreferences.getInstance()).getString(key),
+    ]) {
+      try {
+        final cached = await read();
+        if (cached == null || cached.isEmpty) continue;
+        final decoded = jsonDecode(cached);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {
+        // Try the next store; a corrupt cache must never break the app.
       }
-    } catch (_) {
-      // Storage can be unavailable (for example, in a restricted browser).
     }
     return null;
   }
@@ -109,9 +113,19 @@ class Api {
       // Keep individual entries bounded so large histories do not exhaust
       // browser local storage or make a small mobile device unresponsive.
       if (encoded.length > 700000) return;
-      // Keep account-scoped API data in the same protected store as the
-      // session token instead of leaving private data in plain preferences.
-      await _secureStorage.write(key: _cacheKey(path), value: encoded);
+      final key = _cacheKey(path);
+      var secureWriteSucceeded = false;
+      try {
+        await _secureStorage.write(key: key, value: encoded);
+        secureWriteSucceeded = true;
+      } catch (_) {
+        // Some browser contexts do not expose working secure storage.
+      }
+      // Web needs a durable fallback so cached chats survive reloads and
+      // temporary loss of browser crypto storage. Native stays secure-first.
+      if (kIsWeb || !secureWriteSucceeded) {
+        await (await SharedPreferences.getInstance()).setString(key, encoded);
+      }
     } catch (_) {
       // Caching is best-effort and must never break a successful API request.
     }
@@ -125,14 +139,19 @@ class Api {
 
   Future<Map<String, dynamic>?> readConversationMetadata(
       String conversationId) async {
-    try {
-      final encoded = await _secureStorage.read(
-          key: _conversationMetadataKey(conversationId));
-      if (encoded == null || encoded.isEmpty) return null;
-      final decoded = jsonDecode(encoded);
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    } catch (_) {
-      // Metadata is optional; the server can refresh it when available.
+    final key = _conversationMetadataKey(conversationId);
+    for (final read in <Future<String?> Function()>[
+      () => _secureStorage.read(key: key),
+      () async => (await SharedPreferences.getInstance()).getString(key),
+    ]) {
+      try {
+        final encoded = await read();
+        if (encoded == null || encoded.isEmpty) continue;
+        final decoded = jsonDecode(encoded);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {
+        // Continue to the other store if one is unavailable or corrupt.
+      }
     }
     return null;
   }
@@ -142,8 +161,15 @@ class Api {
     try {
       final encoded = jsonEncode(conversation);
       if (encoded.length <= 200000) {
-        await _secureStorage.write(
-            key: _conversationMetadataKey(conversationId), value: encoded);
+        final key = _conversationMetadataKey(conversationId);
+        var secureWriteSucceeded = false;
+        try {
+          await _secureStorage.write(key: key, value: encoded);
+          secureWriteSucceeded = true;
+        } catch (_) {}
+        if (kIsWeb || !secureWriteSucceeded) {
+          await (await SharedPreferences.getInstance()).setString(key, encoded);
+        }
       }
     } catch (_) {
       // Do not let local cache failures affect normal messaging.
@@ -151,14 +177,19 @@ class Api {
   }
 
   Future<List<dynamic>?> readConversationSnapshot(String conversationId) async {
-    try {
-      final encoded = await _secureStorage.read(
-          key: _conversationSnapshotKey(conversationId));
-      if (encoded == null || encoded.isEmpty) return null;
-      final decoded = jsonDecode(encoded);
-      if (decoded is List) return List<dynamic>.from(decoded);
-    } catch (_) {
-      // A corrupt or unavailable local snapshot should not prevent online use.
+    final key = _conversationSnapshotKey(conversationId);
+    for (final read in <Future<String?> Function()>[
+      () => _secureStorage.read(key: key),
+      () async => (await SharedPreferences.getInstance()).getString(key),
+    ]) {
+      try {
+        final encoded = await read();
+        if (encoded == null || encoded.isEmpty) continue;
+        final decoded = jsonDecode(encoded);
+        if (decoded is List) return List<dynamic>.from(decoded);
+      } catch (_) {
+        // Try the fallback store; a corrupt cache must not block online use.
+      }
     }
     return null;
   }
@@ -173,33 +204,58 @@ class Api {
           : messages;
       final value = bounded == messages ? encoded : jsonEncode(bounded);
       if (value.length > 900000) return;
-      await _secureStorage.write(
-          key: _conversationSnapshotKey(conversationId), value: value);
+      final key = _conversationSnapshotKey(conversationId);
+      var secureWriteSucceeded = false;
+      try {
+        await _secureStorage.write(key: key, value: value);
+        secureWriteSucceeded = true;
+      } catch (_) {}
+      if (kIsWeb || !secureWriteSucceeded) {
+        await (await SharedPreferences.getInstance()).setString(key, value);
+      }
     } catch (_) {
       // Local persistence is best-effort and must not interrupt chat delivery.
     }
   }
 
   Future<void> restore() async {
-    token = await _secureStorage.read(key: 'token');
-    // Migrate the previous preferences-based token once, then remove the less-protected copy.
+    try {
+      token = await _secureStorage.read(key: 'token');
+    } catch (_) {
+      token = null;
+    }
+    final preferences = await SharedPreferences.getInstance();
+    // Restore browser sessions from persistent fallback storage if secure
+    // storage is unavailable; native still migrates its legacy token once.
     if (token == null) {
-      final preferences = await SharedPreferences.getInstance();
       final legacyToken = preferences.getString('token');
       if (legacyToken != null && legacyToken.isNotEmpty) {
         token = legacyToken;
-        await _secureStorage.write(key: 'token', value: legacyToken);
-        await preferences.remove('token');
+        try {
+          await _secureStorage.write(key: 'token', value: legacyToken);
+          if (!kIsWeb) await preferences.remove('token');
+        } catch (_) {
+          // Keep fallback token so the account can restore while offline.
+        }
       }
     }
   }
   Future<void> saveToken(String value) async {
     token = value;
-    await _secureStorage.write(key: 'token', value: value);
+    var secureWriteSucceeded = false;
+    try {
+      await _secureStorage.write(key: 'token', value: value);
+      secureWriteSucceeded = true;
+    } catch (_) {}
+    if (kIsWeb || !secureWriteSucceeded) {
+      await (await SharedPreferences.getInstance()).setString('token', value);
+    }
   }
   Future<void> clearToken() async {
     token = null;
-    await _secureStorage.delete(key: 'token');
+    try {
+      await _secureStorage.delete(key: 'token');
+    } catch (_) {}
     await (await SharedPreferences.getInstance()).remove('token');
   }
 
@@ -253,6 +309,7 @@ class Api {
                 ? const Duration(seconds: 5)
                 : const Duration(seconds: 25));
       } catch (retryError) {
+        if (method == 'GET') offlineDataMode = true;
         final cached = await _readCachedResponse(path);
         if (cached != null) {
           lastResponseFromCache = true;
@@ -269,6 +326,7 @@ class Api {
       // A failed read should fall back to the last account-scoped response.
       // Never do this for POST/PATCH/PUT/DELETE, especially payment requests.
       if (method == 'GET') {
+        offlineDataMode = true;
         final cached = await _readCachedResponse(path);
         if (cached != null) {
           lastResponseFromCache = true;
@@ -282,6 +340,7 @@ class Api {
     // A server outage can also arrive as HTTP 5xx rather than a socket error.
     // Use cached data for reads only; authentication failures still surface.
     if (method == 'GET' && r.statusCode >= 500) {
+      offlineDataMode = true;
       final cached = await _readCachedResponse(path);
       if (cached != null) {
         lastResponseFromCache = true;
