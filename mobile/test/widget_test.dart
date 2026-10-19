@@ -70,6 +70,26 @@ void main() {
     otherAccountClient.close();
   });
 
+  test('conversation snapshots are securely cached per account', () async {
+    SharedPreferences.setMockInitialValues({});
+    final first = Api()..token = 'snapshot-account-one';
+    await first.writeConversationSnapshot('conversation-1', [
+      {'_id': 'message-1', 'text': 'Saved encrypted history'}
+    ]);
+    expect(
+      (await first.readConversationSnapshot('conversation-1'))!.single['_id'],
+      'message-1',
+    );
+
+    final otherAccount = Api()..token = 'snapshot-account-two';
+    expect(
+      await otherAccount.readConversationSnapshot('conversation-1'),
+      isNull,
+    );
+    first.client.close();
+    otherAccount.client.close();
+  });
+
   test('temporary API failure preserves the stored login token', () async {
     SharedPreferences.setMockInitialValues({'token': 'existing-token'});
     final client = MockClient(
