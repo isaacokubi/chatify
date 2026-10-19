@@ -176,6 +176,20 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       const memberships = await Membership.find({ userId: req.user._id, active: true }).lean();
       const ids = memberships.map(m => m.schoolId);
       const schools = await School.find({ _id: { $in: ids } }).select('+staffInviteCode name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
+      // Older workspaces created before staff invitation codes existed receive one lazily
+      // when an administrator opens the workspace; only admins ever receive it in responses.
+      for (const school of schools) {
+        const member = memberships.find(m => String(m.schoolId) === String(school._id));
+        if (member?.role === 'admin' && !school.staffInviteCode) {
+          const generated = randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase();
+          const updated = await School.findOneAndUpdate(
+            { _id: school._id, $or: [{ staffInviteCode: { $exists: false } }, { staffInviteCode: null }] },
+            { $set: { staffInviteCode: generated } },
+            { new: true }
+          ).select('+staffInviteCode').lean();
+          school.staffInviteCode = updated?.staffInviteCode || generated;
+        }
+      }
       return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, staffInviteCode: memberships.find(m => String(m.schoolId) === String(s._id))?.role === 'admin' ? s.staffInviteCode : undefined, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
     } catch (error) { return next(error); }
   });
