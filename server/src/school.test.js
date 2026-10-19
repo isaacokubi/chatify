@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeSchoolPaymentProfile, encryptSchoolSecret, decryptSchoolSecret } from './school.js';
+import { createEmailProvider } from './providers.js';
 
 test('accepts a valid school Paybill profile and removes spaces', () => {
   assert.deepEqual(normalizeSchoolPaymentProfile({ method: 'mpesa_paybill', paybillNumber: ' 123 456 ', accountNumber: 'STUDENT-001' }), {
@@ -33,3 +34,20 @@ test('refuses to encrypt school payment credentials without a strong configured 
   assert.throws(() => encryptSchoolSecret('secret', 'short'), /encryption/i);
 });
 
+
+test('school receipt emails can be delivered through the configured email transport', async () => {
+  const sent = [];
+  const email = createEmailProvider({ from: 'receipts@example.test', production: true }, {
+    async sendSchoolFeeReceipt(payload) { sent.push(payload); return { sent: true }; },
+  });
+  assert.equal(email.available, true);
+  const result = await email.sendSchoolFeeReceipt({
+    email: 'parent@example.test', schoolName: 'Example School', paymentReference: 'SCH-123456789ABC',
+    receiptNumber: 'QAB123XYZ', amount: 25000, studentName: 'Student One', term: 'Term 1',
+    receiptHtml: '<html>official receipt</html>',
+  });
+  assert.deepEqual(result, { sent: true });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].email, 'parent@example.test');
+  assert.match(sent[0].receiptHtml, /official receipt/);
+});
