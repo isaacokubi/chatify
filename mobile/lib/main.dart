@@ -4160,8 +4160,8 @@ class _ChatState extends State<Chat> {
             ),
             ListTile(
               leading: const Icon(Icons.person_pin_circle_outlined),
-              title: const Text('Lipa to this contact'),
-              subtitle: const Text('Send an STK prompt using this contact’s merchant checkout'),
+              title: const Text('Send to this contact'),
+              subtitle: const Text('Use this contact’s configured Till/Paybill and send an STK prompt to your registered M-Pesa number'),
               onTap: () => Navigator.pop(dialog, 'contact'),
             ),
             ListTile(
@@ -4186,7 +4186,7 @@ class _ChatState extends State<Chat> {
     // Till/Paybill payment through Chatify's own shortcode; the seller's Daraja
     // credentials and exact shortcode are required so funds reach the right merchant.
     if (mode == 'till' || mode == 'paybill' || mode == 'contact') {
-      final isTill = mode == 'till';
+      final requestedTill = mode == 'till';
       final isPaybill = mode == 'paybill';
       final isContact = mode == 'contact';
       final storefrontSlug = widget.conversation['businessStorefrontSlug']?.toString();
@@ -4235,25 +4235,63 @@ class _ChatState extends State<Chat> {
       }
 
       final merchantMethod = merchantPaymentProfile?['method']?.toString();
+      final configuredMerchantNumber = merchantMethod == 'mpesa_till'
+          ? (merchantPaymentProfile?['tillNumber']?.toString() ?? '').trim()
+          : (merchantPaymentProfile?['paybillNumber']?.toString() ?? '').trim();
+      final isTill = requestedTill || (isContact && merchantMethod == 'mpesa_till');
       if (merchantPaymentProfile == null ||
-          (isTill && merchantMethod != 'mpesa_till') ||
+          configuredMerchantNumber.length < 5 ||
+          configuredMerchantNumber.length > 10 ||
+          int.tryParse(configuredMerchantNumber) == null ||
+          (requestedTill && merchantMethod != 'mpesa_till') ||
           (isPaybill && merchantMethod != 'mpesa_paybill')) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(isContact
-                ? 'This contact has no single configured business checkout. Open their storefront or ask them to configure merchant STK.'
-                : 'The selected Till/Paybill is not configured for this business. Open the correct storefront and verify its payment settings.'),
-            duration: const Duration(seconds: 5),
-          ));
+          await showDialog<void>(
+            context: context,
+            builder: (dialog) => AlertDialog(
+              title: const Text('M-Pesa checkout not configured'),
+              content: Text(
+                isContact
+                    ? 'This contact has not configured a merchant Paybill or Till number for Chatify checkout. Ask the business owner to add and authorize their Paybill/Till and Daraja credentials in business payment settings. No STK prompt can be sent until a valid merchant destination is configured.'
+                    : 'This merchant has no configured ${requestedTill ? 'Till' : 'Paybill'} checkout for this business, or the selected payment type does not match its settings. Ask the business owner to configure the correct Paybill/Till and authorize Daraja STK checkout. No STK prompt can be sent until this is done.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialog),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
         }
         return;
       }
 
-      final merchantNumber = TextEditingController(
-        text: isTill
-            ? (merchantPaymentProfile['tillNumber']?.toString() ?? '')
-            : (merchantPaymentProfile['paybillNumber']?.toString() ?? ''),
+      final registeredMpesaPhone = normalizeKenyanPhone(
+        (app.user?['mpesaPhone'] ?? app.user?['phone'] ?? '').toString(),
       );
+      if (registeredMpesaPhone == null) {
+        if (mounted) {
+          await showDialog<void>(
+            context: context,
+            builder: (dialog) => AlertDialog(
+              title: const Text('M-Pesa number required'),
+              content: const Text(
+                'Add a valid M-Pesa phone number to your Chatify account profile. Chatify uses this registered default number for STK prompts so you can enter your M-Pesa PIN on your phone.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialog),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
+      final merchantNumber = TextEditingController(text: configuredMerchantNumber);
       final accountNumber = TextEditingController(
         text: merchantPaymentProfile['accountNumber']?.toString() ?? '',
       );
@@ -4271,7 +4309,7 @@ class _ChatState extends State<Chat> {
         context: context,
         builder: (dialog) => AlertDialog(
           title: Text(isContact
-              ? 'Lipa to this contact'
+              ? 'Send to this contact'
               : (isTill ? 'Lipa na Till' : 'Lipa na Paybill')),
           content: Form(
             key: formKey,
@@ -4279,12 +4317,14 @@ class _ChatState extends State<Chat> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (!isContact) TextFormField(
+                  TextFormField(
                     controller: merchantNumber,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      labelText: isTill ? 'Buy Goods Till number' : 'Paybill business number',
-                      helperText: 'Prefilled from this business. STK requires this number to match the merchant-authorized shortcode.',
+                      labelText: isContact
+                          ? (isTill ? 'Contact’s configured Till number' : 'Contact’s configured Paybill number')
+                          : (isTill ? 'Buy Goods Till number' : 'Paybill business number'),
+                      helperText: 'Prefilled from the contact/business settings. You can edit it, but STK Push only works when it matches the merchant’s authorized Daraja shortcode.',
                     ),
                     validator: (value) {
                       final number = (value ?? '').trim();
@@ -4310,15 +4350,13 @@ class _ChatState extends State<Chat> {
                           : null;
                     },
                   ),
-                  TextFormField(
-                    controller: payerPhone,
-                    keyboardType: TextInputType.phone,
+                  InputDecorator(
                     decoration: const InputDecoration(
-                      labelText: 'Your M-Pesa phone number',
-                      helperText: 'The STK prompt will be sent to this number.',
+                      labelText: 'Registered default M-Pesa number',
+                      helperText: 'The STK prompt will be sent to this number. Update it in your account profile if it is incorrect.',
+                      prefixIcon: Icon(Icons.account_balance_wallet_outlined),
                     ),
-                    validator: (value) => normalizeKenyanPhone(value ?? '') == null
-                        ? 'Enter a valid Kenyan M-Pesa number' : null,
+                    child: Text(registeredMpesaPhone),
                   ),
                   TextFormField(
                     controller: description,
@@ -4360,7 +4398,7 @@ class _ChatState extends State<Chat> {
             title: const Text('Confirm M-Pesa payment'),
             content: Text(
               'Merchant: ${isContact ? 'this contact' : (isTill ? 'Till' : 'Paybill')}\n'
-              '${isContact ? '' : 'Number: ${merchantNumber.text.trim()}\n'}'
+              'Payment destination: ${isTill ? 'Till' : 'Paybill'} ${merchantNumber.text.trim()}\\n'
               'Amount: KSh $baseAmount\n'
               'Chatify platform fee (0.5%, rounded up): KSh $fee\n'
               'Total STK charge: KSh $total\n\n'
@@ -4383,10 +4421,10 @@ class _ChatState extends State<Chat> {
                 ? '/api/storefront/${Uri.encodeComponent(storefrontSlug)}/stk-push'
                 : '/api/storefront/by-seller/${Uri.encodeComponent(sellerId)}/stk-push';
             final result = await app.api.call('POST', endpoint, {
-              'phone': payerPhone.text.trim(),
+              'phone': registeredMpesaPhone,
               'amount': baseAmount,
               'description': description.text.trim(),
-              if (!isContact) 'merchantNumber': merchantNumber.text.trim(),
+              'merchantNumber': merchantNumber.text.trim(),
               'feeAcknowledged': true,
             });
             if (mounted) {
