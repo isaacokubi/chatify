@@ -38,7 +38,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User }) {
     schoolId: { type: O, required: true, index: true },
     senderId: { type: O, required: true },
     recipientId: { type: O, index: true },
-    audience: { type: String, enum: ['direct','all_parents','all_staff'], default: 'direct' },
+    audience: { type: String, enum: ['direct','all_parents','all_staff','all_school'], default: 'direct' },
     subject: { type: String, trim: true, maxlength: 160 },
     body: { type: String, required: true, trim: true, maxlength: 5000 },
   }, { timestamps: true }));
@@ -139,7 +139,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User }) {
       const recipientId = req.body?.recipientId;
       if (!body || body.length > 5000) return res.status(400).json({ error: 'Message must contain 1–5000 characters' });
       if (req.schoolMembership.role === 'parent' && audience !== 'direct') return res.status(403).json({ error: 'Parents can send direct messages only' });
-      if (!['direct','all_parents','all_staff'].includes(audience)) return res.status(400).json({ error: 'Unsupported message audience' });
+      if (!['direct','all_parents','all_staff','all_school'].includes(audience)) return res.status(400).json({ error: 'Unsupported message audience' });
       if (audience === 'direct') {
         if (!mongoose.isValidObjectId(recipientId)) return res.status(400).json({ error: 'Choose a recipient' });
         const target = await Membership.findOne({ schoolId: req.params.schoolId, userId: recipientId, active: true });
