@@ -2740,6 +2740,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   void _selectSchool(Map<String,dynamic> s) {
     schoolId = s['id']?.toString(); role = s['role']?.toString();
+    schoolCode.text = (s['code'] ?? '').toString();
     final p = s['paymentProfile'];
     if (p is Map) {
       paymentMethod = (p['method'] ?? 'mpesa_paybill').toString();
@@ -2883,7 +2884,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final code = joinSchoolCode.text.trim();
     if (code.isEmpty) { setState(() => error = 'Enter the school invite code.'); return; }
     await _action(() async {
-      await app.api.call('POST', '/api/schools/join', {
+      final joined = await app.api.call('POST', '/api/schools/join', {
         'code': code,
         'role': memberRole,
         'studentNames': studentNames.text.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).toList(),
@@ -2891,6 +2892,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       joinSchoolCode.clear();
       studentNames.clear();
       await loadSchools();
+      final joinedId = (joined['school'] is Map) ? joined['school']['id']?.toString() : null;
+      final joinedSchool = schools.where((x) => x is Map && x['id']?.toString() == joinedId).toList();
+      if (joinedSchool.isNotEmpty) setState(() => _selectSchool(Map<String, dynamic>.from(joinedSchool.first));
     });
   }
 
@@ -3023,6 +3027,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           actionButton('Join school',joinSchool,icon:Icons.group_add),
         ]))),
         if (schools.isNotEmpty) DropdownButtonFormField<String>(value:schoolId,decoration:const InputDecoration(labelText:'Your school',border:OutlineInputBorder()),items:schools.map((s)=>DropdownMenuItem<String>(value:s['id'].toString(),child:Text(s['name'].toString(),overflow:TextOverflow.ellipsis))).toList(),onChanged:(id){final s=schools.cast<Map>().firstWhere((x)=>x['id']==id);setState(()=>_selectSchool(Map<String,dynamic>.from(s)));}),
+        if (schoolId != null && schoolCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:6),child:Text('Share this school invitation code with parents and staff: ${schoolCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.w600))),
         if (schools.isEmpty) ...[field(schoolName,'School name'),field(schoolCode,'Unique school code',hint:'e.g. NAIROBI-PRI'),actionButton('Create school workspace',createSchool,icon:Icons.school)],
         if (schoolId != null) ...[
           const SizedBox(height:12),
