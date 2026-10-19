@@ -3780,6 +3780,7 @@ class _ChatState extends State<Chat> {
   bool _socketConnectedOnce = false;
   String? _socketToken;
   String? loadError;
+  bool showingOfflineData = false;
   AppState get app => context.read<AppState>();
 
   @override
@@ -4008,7 +4009,49 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> _persistConversationMessages() async {
+    final conversationId = widget.conversation['_id']?.toString();
+    if (conversationId == null || conversationId.isEmpty || messages.isEmpty) {
+      return;
+    }
+    // Keep the encrypted payload, not its decrypted plaintext, for E2EE messages.
+    // The snapshot itself is written through FlutterSecureStorage.
+    final snapshot = messages.whereType<Map>().map((message) {
+      final copy = Map<String, dynamic>.from(message);
+      if (copy['encryptionVersion'] == 1 &&
+          copy['encryptedPayload'] is String) {
+        copy.remove('text');
+        copy.remove('decryptionFailed');
+      }
+      return copy;
+    }).toList();
+    await app.api.writeConversationSnapshot(conversationId, snapshot);
+  }
+
   Future<void> load() async {
+    final conversationId = widget.conversation['_id']?.toString() ?? '';
+    // Hydrate the last saved history before attempting the network. This avoids
+    // an empty chat or spinner when a previously opened conversation is offline.
+    try {
+      final cached = await app.api.readConversationSnapshot(conversationId);
+      if (cached != null && cached.isNotEmpty && mounted && messages.isEmpty) {
+        final hydrated = await Future.wait(cached.map((raw) async {
+          if (raw is Map) return _decryptMessage(Map<String, dynamic>.from(raw));
+          return raw;
+        }));
+        if (mounted) {
+          setState(() {
+            messages = mergeMessages(messages, hydrated);
+            loading = false;
+            loadError = null;
+            showingOfflineData = true;
+          });
+          _scrollToLatestMessage();
+        }
+      }
+    } catch (_) {
+      // Fall through to API cache/network loading if local hydration fails.
+    }
     try {
       // Fetch conversation metadata and messages together: these are independent
       // requests, and serialising them adds a full network round-trip to every
@@ -4032,7 +4075,9 @@ class _ChatState extends State<Chat> {
           messages = mergeMessages(messages, decryptedFetched);
           loading = false;
           loadError = null;
+          showingOfflineData = app.api.offlineDataMode;
         });
+        unawaited(_persistConversationMessages());
         _scrollToLatestMessage();
         // Inspect recent text messages automatically; users do not need the manual-save menu.
         _scanRecentMessagesForMemory(fetched);
@@ -4064,7 +4109,13 @@ class _ChatState extends State<Chat> {
         }
       }
     } catch (error) {
-      loadError = error.toString();
+      if (messages.isEmpty) {
+        loadError = error.toString();
+      } else {
+        // Keep readable cached history visible if the refresh fails.
+        loadError = null;
+        showingOfflineData = true;
+      }
     }
     if (mounted && loading) {
       setState(() => loading = false);
@@ -4149,6 +4200,7 @@ class _ChatState extends State<Chat> {
             !messages
                 .any((item) => item is Map && item['_id']?.toString() == id)) {
           setState(() => messages = mergeMessages(messages, [incoming]));
+          unawaited(_persistConversationMessages());
           _scrollToLatestMessage();
           // Detect meaningful information in new live messages.
           _detectMemoryForMessage(incoming);
@@ -4193,6 +4245,7 @@ class _ChatState extends State<Chat> {
         copy['reactions'] = [];
         messages[index] = copy;
       });
+      unawaited(_persistConversationMessages());
     });
     socket!.on('message:expired', (data) {
       if (!mounted || data is! Map) return;
@@ -4208,6 +4261,7 @@ class _ChatState extends State<Chat> {
           copy['mediaUrl'] = null;
           messages[index] = copy;
         });
+        unawaited(_persistConversationMessages());
       }
     });
     socket!.on(
@@ -4233,6 +4287,7 @@ class _ChatState extends State<Chat> {
       updated[field] = ids;
       messages[index] = updated;
     });
+    unawaited(_persistConversationMessages());
   }
 
   Future<void> markReceived(String id) async {
@@ -4273,6 +4328,7 @@ class _ChatState extends State<Chat> {
         }
         reply = null;
       });
+      unawaited(_persistConversationMessages());
       input.clear();
       _scrollToLatestMessage();
       // Sent messages can contain useful reminders or personal details too.
