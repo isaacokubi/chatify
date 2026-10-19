@@ -4148,13 +4148,13 @@ class _ChatState extends State<Chat> {
           children: [
             ListTile(
               leading: const Icon(Icons.storefront_outlined),
-              title: const Text('Send Money to Till'),
+              title: const Text('Lipa na Till'),
               subtitle: const Text('Pay a shop using its Buy Goods Till number'),
               onTap: () => Navigator.pop(dialog, 'till'),
             ),
             ListTile(
               leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('Paybill'),
+              title: const Text('Lipa na Paybill'),
               subtitle: const Text('Pay a business using its Paybill and account number'),
               onTap: () => Navigator.pop(dialog, 'paybill'),
             ),
@@ -4209,14 +4209,12 @@ class _ChatState extends State<Chat> {
             app.user?['_id']?.toString() ?? '',
             app.user?['id']?.toString() ?? '',
           }..remove('');
-          Map? peer;
           for (final raw in participants) {
             if (raw is! Map) continue;
             final nested = raw['user'] is Map ? raw['user'] as Map : null;
             final id = (raw['_id'] ?? raw['id'] ?? raw['userId'])?.toString() ?? '';
             final candidateId = id.isNotEmpty ? id : (nested?['_id'] ?? nested?['id'])?.toString() ?? '';
             if (candidateId.isNotEmpty && !currentIds.contains(candidateId)) {
-              peer = raw;
               sellerId = candidateId;
               break;
             }
@@ -4268,6 +4266,7 @@ class _ChatState extends State<Chat> {
         text: isContact ? 'Payment to contact' : (isTill ? 'Buy Goods payment' : 'Paybill payment'),
       );
       final formKey = GlobalKey<FormState>();
+      if (!mounted) return;
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialog) => AlertDialog(
@@ -7029,6 +7028,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
       final baseAmount = (payment['baseAmount'] as num?)?.toInt() ?? (payment['amount'] as num?)?.toInt() ?? 0;
       final platformFee = (payment['platformFee'] as num?)?.toInt() ?? 0;
       final totalAmount = (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
+      if (!mounted) return;
       final consent = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
         title: const Text('Confirm checkout total'),
         content: Text('Order subtotal: KSh $baseAmount\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nTotal M-Pesa charge: KSh $totalAmount\n\nIf payment succeeds, the platform fee is accrued as pending settlement; it is not automatically transferred to Chatify.'),
@@ -8440,6 +8440,7 @@ class _BusinessHubState extends State<BusinessHub> {
         final platformFee = (preview['platformFee'] as num?)?.toInt() ?? 0;
         final totalAmount = (preview['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
         final phone = TextEditingController();
+        if (!mounted) return;
         final accepted = await showDialog<bool>(
             context: context,
             builder: (dialogContext) => AlertDialog(
