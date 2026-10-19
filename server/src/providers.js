@@ -111,14 +111,45 @@ export function createEmailProvider(config = {}, transport) {
   const from = config.from?.trim();
   const injectedReset = typeof transport?.sendPasswordReset === 'function';
   const injectedVerification = typeof transport?.sendEmailVerification === 'function';
+  const injectedSchoolReceipt = typeof transport?.sendSchoolFeeReceipt === 'function';
   const mailer = transport?.sendMail ? transport : (smtpUrl && from
     ? nodemailer.createTransport(smtpUrl)
     : null);
-  const available = injectedReset || injectedVerification || Boolean(mailer && from);
+  const available = injectedReset || injectedVerification || injectedSchoolReceipt || Boolean(mailer && from);
 
   return {
-    name: injectedReset || transport?.sendMail ? 'custom' : (available ? 'smtp' : 'unavailable'),
+    name: injectedReset || injectedSchoolReceipt || transport?.sendMail ? 'custom' : (available ? 'smtp' : 'unavailable'),
     available,
+    async sendSchoolFeeReceipt(payload) {
+      if (injectedSchoolReceipt) return transport.sendSchoolFeeReceipt(payload);
+      if (!mailer || !from) {
+        if (config.production) throw new Error('School fee receipt email is not configured');
+        return { sent: false, mock: true };
+      }
+      const subject = `Official school fee receipt ${payload.receiptNumber || payload.paymentReference}`;
+      const text = [
+        `School: ${payload.schoolName}`,
+        `Student: ${payload.studentName}`,
+        `Term: ${payload.term}`,
+        `Amount received: KSh ${Number(payload.amount).toLocaleString('en-KE')}`,
+        `M-Pesa receipt: ${payload.receiptNumber}`,
+        `Chatify reference: ${payload.paymentReference}`,
+        '',
+        'The official printable receipt is attached as an HTML file.',
+      ].join('\n');
+      await mailer.sendMail({
+        from,
+        to: payload.email,
+        subject,
+        text,
+        attachments: [{
+          filename: `school-fee-receipt-${String(payload.paymentReference).replace(/[^A-Z0-9-]/gi, '')}.html`,
+          content: payload.receiptHtml,
+          contentType: 'text/html; charset=utf-8',
+        }],
+      });
+      return { sent: true };
+    },
     async sendPasswordReset(payload) {
       if (injectedReset) return transport.sendPasswordReset(payload);
       if (!available) {
