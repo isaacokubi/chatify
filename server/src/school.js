@@ -179,6 +179,32 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     } catch (error) { return next(error); }
   });
 
+  // Authenticated parents and staff may join using the school's invite code. The role is
+  // restricted to parent/staff; school administrator privileges can never be self-assigned.
+  app.post('/api/schools/join', auth, async (req, res, next) => {
+    try {
+      const code = String(req.body?.code || '').trim().toUpperCase();
+      const role = String(req.body?.role || '');
+      const studentNames = Array.isArray(req.body?.studentNames)
+        ? [...new Set(req.body.studentNames.map(x => String(x).trim()).filter(Boolean))].slice(0, 10)
+        : [];
+      if (!code || code.length > 40 || !['parent', 'staff'].includes(role)) {
+        return res.status(400).json({ error: 'Enter the school invite code and choose Parent or Staff.' });
+      }
+      if (role === 'parent' && studentNames.length === 0) {
+        return res.status(400).json({ error: 'Parents must enter at least one linked student name. Ask the school office to add the exact student name if unsure.' });
+      }
+      const school = await School.findOne({ code }).select('_id name code').lean();
+      if (!school) return res.status(404).json({ error: 'No school was found for that code. Check the code with the school office.' });
+      const member = await Membership.findOneAndUpdate(
+        { schoolId: school._id, userId: req.user._id },
+        { $set: { role, studentNames, active: true } },
+        { upsert: true, new: true, runValidators: true }
+      );
+      return res.status(200).json({ school: { id: String(school._id), name: school.name, code: school.code }, member: { id: String(member._id), role: member.role, studentNames: member.studentNames } });
+    } catch (error) { return next(error); }
+  });
+
   app.post('/api/schools/:schoolId/members', auth, requireRole('admin'), async (req, res, next) => {
     try {
       const email = String(req.body?.email || '').trim().toLowerCase();
@@ -566,7 +592,19 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone -checkoutRequestId -merchantRequestId').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
         FeePayment.countDocuments(filter),
       ]);
-      return res.json({ payments, total, page: page.page, limit: page.limit });
+      const school = await School.findById(req.params.schoolId).select('name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
+      const profile = school?.paymentProfile;
+      const paymentOptions = {
+        schoolName: school?.name || 'School',
+        configured: Boolean(profile?.method),
+        method: profile?.method || null,
+        paybillNumber: profile?.method === 'mpesa_paybill' ? profile.paybillNumber : null,
+        tillNumber: profile?.method === 'mpesa_till' ? profile.tillNumber : null,
+        bankName: profile?.method === 'bank' ? profile.bankName : null,
+        accountNumber: profile?.method === 'bank' ? profile.accountNumber : null,
+        darajaConfigured: Boolean(profile?.darajaConfiguredAt),
+      };
+      return res.json({ payments, paymentOptions, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 
