@@ -2321,7 +2321,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         paymentTotal = (result['total'] as num?)?.toInt() ?? payments.length;
       });
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not load payments: ' + e.toString())));
     } finally {
       if (mounted) setState(() => paymentsLoading = false);
@@ -2350,10 +2350,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
       await api.call('PATCH', '/api/admin/users/' + id + '/status', {'status': next});
       await loadOverview();
       await loadUsers();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Account ' + (next == 'active' ? 'reactivated.' : 'suspended.'))));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Account status was not changed: ' + e.toString())));
     }
   }
@@ -2852,7 +2852,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           await loadSection();
         } catch (error) {
           await loadSection();
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete $label: $error')));
+          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete $label: $error')));
         }
       },
       child: child,
@@ -2860,8 +2860,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> _action(Future<void> Function() action) async {
-    try { await action(); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved successfully.'))); }
-    catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+    try { await action(); if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved successfully.'))); }
+    catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
   }
 
   Future<void> createSchool() async {
@@ -2950,9 +2950,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     try {
       final result = await app.api.call('POST','/api/schools/$id/fees/${payment['paymentReference']}/receipt/resend');
       final delivery = Map<String,dynamic>.from(result['emailDelivery'] ?? {});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(delivery['pending'] == true ? 'Receipt remains stored and downloadable; email delivery is still pending. Check SMTP configuration.' : 'Receipt email sent to the parent and school administrators.')));
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(delivery['pending'] == true ? 'Receipt remains stored and downloadable; email delivery is still pending. Check SMTP configuration.' : 'Receipt email sent to the parent and school administrators.')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString())));
     }
   }
 
@@ -3029,7 +3029,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           if(memberRole=='parent') field(studentNames,'Linked student name(s)',hint:'Enter exact names, separated by commas'),
           actionButton('Join school',joinSchool,icon:Icons.group_add),
         ]))),
-        if (schools.isNotEmpty) DropdownButtonFormField<String>(value:schoolId,decoration:const InputDecoration(labelText:'Your school',border:OutlineInputBorder()),items:schools.map((s)=>DropdownMenuItem<String>(value:s['id'].toString(),child:Text(s['name'].toString(),overflow:TextOverflow.ellipsis))).toList(),onChanged:(id){final s=schools.cast<Map>().firstWhere((x)=>x['id']==id);setState(()=>_selectSchool(Map<String,dynamic>.from(s)));}),
+        if (schools.isNotEmpty) DropdownButtonFormField<String>(initialValue:schoolId,decoration:const InputDecoration(labelText:'Your school',border:OutlineInputBorder()),items:schools.map((s)=>DropdownMenuItem<String>(value:s['id'].toString(),child:Text(s['name'].toString(),overflow:TextOverflow.ellipsis))).toList(),onChanged:(id){final s=schools.cast<Map>().firstWhere((x)=>x['id']==id);setState(()=>_selectSchool(Map<String,dynamic>.from(s)));}),
         if (schoolId != null && schoolCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:6),child:Text('Share this school invitation code with parents and staff: ${schoolCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.w600))),
         if (role == 'admin' && staffInviteCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:4),child:Text('Private staff invitation code (share with staff only): ${staffInviteCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.secondary,fontWeight:FontWeight.w600))),
         if (schools.isEmpty) ...[field(schoolName,'School name'),field(schoolCode,'Unique school code',hint:'e.g. NAIROBI-PRI'),actionButton('Create school workspace',createSchool,icon:Icons.school)],
@@ -3049,8 +3049,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           if (loading) const Center(child:Padding(padding:EdgeInsets.all(16),child:CircularProgressIndicator())),
           if (error != null) Text(error!,style:TextStyle(color:Theme.of(context).colorScheme.error)),
           if (section==0) ...[
-            if (role!='parent') DropdownButtonFormField<String>(value:audience,decoration:const InputDecoration(labelText:'Send to'),items:const [DropdownMenuItem(value:'direct',child:Text('One parent or staff member')),DropdownMenuItem(value:'all_parents',child:Text('All parents')),DropdownMenuItem(value:'all_staff',child:Text('All staff')),DropdownMenuItem(value:'all_school',child:Text('Whole school'))],onChanged:(v)=>setState(()=>audience=v??'direct')),
-            if (audience == 'direct') DropdownButtonFormField<String>(value:members.any((m)=>m['userId']?.toString()==recipientIdController.text)?recipientIdController.text:null,decoration:const InputDecoration(labelText:'Message recipient',border:OutlineInputBorder()),items:members.map((m)=>DropdownMenuItem<String>(value:m['userId'].toString(),child:Text('${m['name'] ?? m['email'] ?? 'School contact'} • ${m['role']}',overflow:TextOverflow.ellipsis))).toList(),onChanged:(v)=>setState(()=>recipientIdController.text=v??'')),
+            if (role!='parent') DropdownButtonFormField<String>(initialValue:audience,decoration:const InputDecoration(labelText:'Send to'),items:const [DropdownMenuItem(value:'direct',child:Text('One parent or staff member')),DropdownMenuItem(value:'all_parents',child:Text('All parents')),DropdownMenuItem(value:'all_staff',child:Text('All staff')),DropdownMenuItem(value:'all_school',child:Text('Whole school'))],onChanged:(v)=>setState(()=>audience=v??'direct')),
+            if (audience == 'direct') DropdownButtonFormField<String>(initialValue:members.any((m)=>m['userId']?.toString()==recipientIdController.text)?recipientIdController.text:null,decoration:const InputDecoration(labelText:'Message recipient',border:OutlineInputBorder()),items:members.map((m)=>DropdownMenuItem<String>(value:m['userId'].toString(),child:Text('${m['name'] ?? m['email'] ?? 'School contact'} • ${m['role']}',overflow:TextOverflow.ellipsis))).toList(),onChanged:(v)=>setState(()=>recipientIdController.text=v??'')),
             field(messageSubject,'Subject (optional)'),field(messageBody,'Message'),
             actionButton('Send message / announcement',sendMessage,icon:Icons.send),
             ...messages.map((m)=>_swipeSchoolRecord(id:m['_id'].toString(),label:'message',endpoint:'messages/${m['_id']}',child:Card(child:ListTile(leading:const Icon(Icons.mark_chat_unread_outlined),title:Text((m['subject']??'School message').toString()),subtitle:Text((m['body']??'').toString()),isThreeLine:true)))),
@@ -3075,10 +3075,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               if (fees.isNotEmpty) Padding(padding:const EdgeInsets.only(top:8),child:Text('Records on this page: ${fees.length} • Confirmed/paid: ${fees.where((p)=>p['status']=='CONFIRMED').length} • Pending: ${fees.where((p)=>p['status']!='CONFIRMED' && p['status']!='FAILED' && p['status']!='CANCELLED' && p['status']!='REJECTED').length}')),
             ]))),
             if (role=='parent') ...[field(feeStudent,'Student name'),field(amount,'Amount in KSh',keyboard:TextInputType.number),field(feeTerm,'Term / year'),if(paymentMethod!='bank')field(payerPhone,'M-Pesa phone receiving the STK prompt',hint:'07XXXXXXXX or 2547XXXXXXXX',keyboard:TextInputType.phone),actionButton(paymentMethod=='bank'?'Record bank transfer':'Pay school fees with M-Pesa',startFeePayment,icon:Icons.payment)],
-            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']=='PENDING_VERIFICATION'?IconButton(tooltip:'Verify actual bank payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:_buildSchoolFeeReceiptPdf(Map<String,dynamic>.from(p)),fileExtension:'pdf'); if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('PDF receipt downloaded successfully.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
+            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']=='PENDING_VERIFICATION'?IconButton(tooltip:'Verify actual bank payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:_buildSchoolFeeReceiptPdf(Map<String,dynamic>.from(p)),fileExtension:'pdf'); if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('PDF receipt downloaded successfully.'))); } catch(e) { if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
             if (role == 'admin') ...fees.where((p)=>p['status']=='CONFIRMED').map((p)=>actionButton('Retry receipt email • ${p['paymentReference']}',()=>resendSchoolReceipt(Map<String,dynamic>.from(p)),icon:Icons.forward_to_inbox)),
           ],
-          if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))),
+          if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(initialValue:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))),
             _schoolPager()],
           if (section==5) ...[
             if (role != 'parent') ...[
@@ -3095,8 +3095,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           if (section==6) ...[
             if (role != 'parent' && students.isNotEmpty) ...[
               const Text('Daily attendance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              DropdownButtonFormField<String>(value: students.any((s) => s['_id']?.toString() == attendanceStudentId) ? attendanceStudentId : students.first['_id']?.toString(), decoration: const InputDecoration(labelText: 'Student'), items: students.map((s) => DropdownMenuItem<String>(value: s['_id'].toString(), child: Text('${s['fullName']} • ${s['className']}'))).toList(), onChanged: (v) => setState(() => attendanceStudentId = v ?? '')),
-              field(attendanceDate, 'Attendance date (YYYY-MM-DD)'), DropdownButtonFormField<String>(value: attendanceStatus, decoration: const InputDecoration(labelText: 'Attendance status'), items: const [DropdownMenuItem(value: 'present', child: Text('Present')), DropdownMenuItem(value: 'absent', child: Text('Absent')), DropdownMenuItem(value: 'late', child: Text('Late')), DropdownMenuItem(value: 'excused', child: Text('Excused absence'))], onChanged: (v) => setState(() => attendanceStatus = v ?? 'present')),
+              DropdownButtonFormField<String>(initialValue: students.any((s) => s['_id']?.toString() == attendanceStudentId) ? attendanceStudentId : students.first['_id']?.toString(), decoration: const InputDecoration(labelText: 'Student'), items: students.map((s) => DropdownMenuItem<String>(value: s['_id'].toString(), child: Text('${s['fullName']} • ${s['className']}'))).toList(), onChanged: (v) => setState(() => attendanceStudentId = v ?? '')),
+              field(attendanceDate, 'Attendance date (YYYY-MM-DD)'), DropdownButtonFormField<String>(initialValue: attendanceStatus, decoration: const InputDecoration(labelText: 'Attendance status'), items: const [DropdownMenuItem(value: 'present', child: Text('Present')), DropdownMenuItem(value: 'absent', child: Text('Absent')), DropdownMenuItem(value: 'late', child: Text('Late')), DropdownMenuItem(value: 'excused', child: Text('Excused absence'))], onChanged: (v) => setState(() => attendanceStatus = v ?? 'present')),
               field(attendanceNote, 'Note (optional)'), actionButton('Save attendance', saveAttendance, icon: Icons.fact_check_outlined),
             ],
             Text('Attendance records: ${attendance.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -3107,7 +3107,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           if (section==7) ...[
             if (role != 'parent' && students.isNotEmpty) ...[
               const Text('Record academic assessment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              DropdownButtonFormField<String>(value: students.any((s) => s['_id']?.toString() == assessmentStudentId) ? assessmentStudentId : students.first['_id']?.toString(), decoration: const InputDecoration(labelText: 'Student'), items: students.map((s) => DropdownMenuItem<String>(value: s['_id'].toString(), child: Text('${s['fullName']} • ${s['className']}'))).toList(), onChanged: (v) => setState(() => assessmentStudentId = v ?? '')),
+              DropdownButtonFormField<String>(initialValue: students.any((s) => s['_id']?.toString() == assessmentStudentId) ? assessmentStudentId : students.first['_id']?.toString(), decoration: const InputDecoration(labelText: 'Student'), items: students.map((s) => DropdownMenuItem<String>(value: s['_id'].toString(), child: Text('${s['fullName']} • ${s['className']}'))).toList(), onChanged: (v) => setState(() => assessmentStudentId = v ?? '')),
               field(subjectName, 'Subject'), field(assessmentName, 'Assessment name (e.g. CAT 1)'), field(assessmentTerm, 'Term / academic year'), field(assessmentScore, 'Score', keyboard: TextInputType.number), field(assessmentOutOf, 'Total marks', keyboard: TextInputType.number), field(teacherNote, 'Teacher comment (optional)'),
               actionButton('Save assessment result', saveAssessment, icon: Icons.grading_outlined),
             ],
@@ -3117,12 +3117,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             _schoolPager(),
           ],
           if (section==4 && isAdmin) ...[
-            DropdownButtonFormField<String>(value:paymentMethod,decoration:const InputDecoration(labelText:'School payment method'),items:const [DropdownMenuItem(value:'mpesa_paybill',child:Text('M-Pesa Paybill')),DropdownMenuItem(value:'mpesa_till',child:Text('M-Pesa Till')),DropdownMenuItem(value:'bank',child:Text('Bank transfer'))],onChanged:(v)=>setState(()=>paymentMethod=v??'mpesa_paybill')),
+            DropdownButtonFormField<String>(initialValue:paymentMethod,decoration:const InputDecoration(labelText:'School payment method'),items:const [DropdownMenuItem(value:'mpesa_paybill',child:Text('M-Pesa Paybill')),DropdownMenuItem(value:'mpesa_till',child:Text('M-Pesa Till')),DropdownMenuItem(value:'bank',child:Text('Bank transfer'))],onChanged:(v)=>setState(()=>paymentMethod=v??'mpesa_paybill')),
             if(paymentMethod=='mpesa_paybill')field(paybill,'School Paybill number'),
             if(paymentMethod=='mpesa_till')field(till,'School Till number'),
             if(paymentMethod=='bank')... [field(bank,'Bank name'),field(account,'Account number')],
             if(paymentMethod!='bank') ...[
-              DropdownButtonFormField<String>(value:darajaMode,decoration:const InputDecoration(labelText:'Safaricom Daraja environment'),items:const [DropdownMenuItem(value:'production',child:Text('Live production')),DropdownMenuItem(value:'sandbox',child:Text('Sandbox testing only'))],onChanged:(v)=>setState(()=>darajaMode=v??'production')),
+              DropdownButtonFormField<String>(initialValue:darajaMode,decoration:const InputDecoration(labelText:'Safaricom Daraja environment'),items:const [DropdownMenuItem(value:'production',child:Text('Live production')),DropdownMenuItem(value:'sandbox',child:Text('Sandbox testing only'))],onChanged:(v)=>setState(()=>darajaMode=v??'production')),
               secretField(darajaConsumerKey,'School Daraja consumer key'),
               secretField(darajaConsumerSecret,'School Daraja consumer secret'),
               secretField(darajaPasskey,'School shortcode passkey'),
@@ -3524,7 +3524,7 @@ class _HomeState extends State<Home> {
                 await loadChats();
               } catch (error) {
                 await loadChats();
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not remove conversation: $error')));
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not remove conversation: $error')));
               }
             },
             child: ListTile(
@@ -3909,7 +3909,7 @@ class _HomeState extends State<Home> {
                             await loadSavedContacts();
                           } catch (error) {
                             await loadSavedContacts();
-                            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not remove contact: $error')));
+                            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not remove contact: $error')));
                           }
                         },
                         child: ListTile(
@@ -5307,7 +5307,7 @@ class _ChatState extends State<Chat> {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(
-                'Recipient ${recipientPhone} copied. Open M-Pesa, choose Send Money, and enter KSh ${amountValue}.',
+                'Recipient $recipientPhone copied. Open M-Pesa, choose Send Money, and enter KSh $amountValue.',
               ),
               duration: const Duration(seconds: 7),
             ));
@@ -6182,7 +6182,7 @@ class _ChatState extends State<Chat> {
             link: LinkDetails(link: downloadUri.toString()),
             name: 'chatify_image_$timestamp.$guessedExtension',
           );
-          if (mounted) {
+          if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text(
                   'Image download requested. Check your browser downloads.'),
@@ -8124,7 +8124,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
         builder: (_) => Chat(conversation: conversation, initialMessage: draft),
       ));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Unable to open seller chat: $e')),
       );
     }
@@ -10339,8 +10339,8 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       profile = Map<String,dynamic>.from(r['paymentProfile'] ?? body);
       darajaConfigured = r['darajaConfigured'] == true;
       darajaConsumerKey.clear(); darajaConsumerSecret.clear(); darajaPasskey.clear();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merchant payment instructions saved.')));
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merchant payment instructions saved.')));
+    } catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
     finally { if (mounted) setState(() => saving = false); }
   }
 
@@ -10374,7 +10374,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       amount.clear(); description.clear(); reference.clear();
       if (mounted) await showCharge(Map<String,dynamic>.from(r['charge'] ?? {}));
       await load();
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+    } catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
     finally { if (mounted) setState(() => saving = false); }
   }
 
@@ -10403,7 +10403,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       }
       await load();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -10434,9 +10434,9 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
           'receipt': receipt.text.trim().toUpperCase(), 'verified': verified,
         });
         await load();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt recorded as manually reconciled.')));
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt recorded as manually reconciled.')));
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
       }
     }
     receipt.dispose();
@@ -10448,7 +10448,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         final details = await app.api.call('GET', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}');
         item = Map<String,dynamic>.from(details['charge'] ?? item);
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load payment QR: $e')));
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load payment QR: $e')));
         return;
       }
     }
