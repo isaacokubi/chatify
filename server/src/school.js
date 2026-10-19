@@ -167,7 +167,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     try {
       const memberships = await Membership.find({ userId: req.user._id, active: true }).lean();
       const ids = memberships.map(m => m.schoolId);
-      const schools = await School.find({ _id: { $in: ids } }).select('name code paymentProfile').lean();
+      const schools = await School.find({ _id: { $in: ids } }).select('name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
       return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
     } catch (error) { return next(error); }
   });
