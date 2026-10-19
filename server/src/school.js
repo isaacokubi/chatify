@@ -182,7 +182,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     try {
       const memberships = await Membership.find({ userId: req.user._id, active: true }).lean();
       const ids = memberships.map(m => m.schoolId);
-      const schools = await School.find({ _id: { $in: ids } }).select('+staffInviteCode name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
+      const schools = await School.find({ _id: { $in: ids } }).select('+staffInviteCode name code createdBy paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
       // Older workspaces created before staff invitation codes existed receive one lazily
       // when an administrator opens the workspace; only admins ever receive it in responses.
       for (const school of schools) {
