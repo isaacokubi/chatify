@@ -4235,15 +4235,33 @@ class _ChatState extends State<Chat> {
       }
 
       final merchantMethod = merchantPaymentProfile?['method']?.toString();
-      if (merchantPaymentProfile == null ||
-          (isTill && merchantMethod != 'mpesa_till') ||
-          (isPaybill && merchantMethod != 'mpesa_paybill')) {
+      if (merchantPaymentProfile == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(isContact
-                ? 'This contact has no single configured business checkout. Open their storefront or ask them to configure merchant STK.'
-                : 'The selected Till/Paybill is not configured for this business. Open the correct storefront and verify its payment settings.'),
-            duration: const Duration(seconds: 5),
+                ? 'No Till or Paybill is configured for this contact’s business. No STK prompt was sent. A saved phone number alone cannot receive an STK checkout; ask the contact to configure a merchant Till/Paybill or use the app’s supported manual Send Money flow.'
+                : 'This business has no configured M-Pesa Till or Paybill. No STK prompt was sent. Ask the merchant to configure a payment method before trying again.'),
+            duration: const Duration(seconds: 7),
+          ));
+        }
+        return;
+      }
+      if ((isTill && merchantMethod != 'mpesa_till') ||
+          (isPaybill && merchantMethod != 'mpesa_paybill')) {
+        final configuredMethod = merchantMethod == 'mpesa_till'
+            ? 'Till only'
+            : merchantMethod == 'mpesa_paybill'
+                ? 'Paybill only'
+                : 'no supported checkout method';
+        final nextStep = merchantMethod == 'mpesa_till'
+            ? 'Choose Lipa na Till.'
+            : merchantMethod == 'mpesa_paybill'
+                ? 'Choose Lipa na Paybill.'
+                : 'Ask the merchant to configure a Till or Paybill.';
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('This merchant has $configuredMethod configured. $nextStep No STK prompt was sent.'),
+            duration: const Duration(seconds: 6),
           ));
         }
         return;
@@ -4329,7 +4347,7 @@ class _ChatState extends State<Chat> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Chatify will send an STK prompt to your phone using the merchant’s authorized Till/Paybill. Check the recipient and amount before entering your PIN. A prompt is not proof of payment.',
+                    'The STK prompt is sent to your saved default M-Pesa number (you can edit it above). The merchant receives payment through their configured Till/Paybill, not their personal phone number. A contact phone number alone cannot be used as an STK merchant destination. Check the amount and recipient before entering your PIN; a prompt is not proof of payment.',
                     style: TextStyle(fontSize: 12),
                   ),
                 ],
