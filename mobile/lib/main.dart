@@ -3393,6 +3393,7 @@ class Home extends StatefulWidget {
 // Coordinates the Home tabs and selections, and loads the data displayed in each section.
 class _HomeState extends State<Home> {
   int tab = 0;
+  bool showMemoriesInChats = false;
   static const int _homePageSize = 20;
   int chatPage = 1, chatTotal = 0, memoryPage = 1, memoryTotal = 0, contactsPage = 1, contactsTotal = 0;
   List<dynamic> chats = [], users = [], memories = [];
@@ -3560,10 +3561,8 @@ class _HomeState extends State<Home> {
     final titles = [
       'Chats',
       'Business',
-      'Memories',
       'Contacts',
       'Profile',
-      'Stores',
       'School',
       if (isAdmin) 'Admin'
     ];
@@ -3581,7 +3580,7 @@ class _HomeState extends State<Home> {
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       appBar: AppBar(
-        title: Text(titles[tab]),
+        title: Text(tab == 0 && showMemoriesInChats ? 'Memories' : titles[tab]),
         actions: [
           if (tab != 1)
             IconButton(
@@ -3596,7 +3595,7 @@ class _HomeState extends State<Home> {
                   MaterialPageRoute(builder: (_) => const PaymentHistory()))),
           IconButton(tooltip: 'Pay a merchant by QR', icon: const Icon(Icons.qr_code_scanner),
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MerchantQrScannerPage()))),
-          if (tab == 0 && selectingChats) ...[
+          if (tab == 0 && !showMemoriesInChats && selectingChats) ...[
             IconButton(
                 tooltip: 'Select all',
                 icon: const Icon(Icons.select_all),
@@ -3620,14 +3619,19 @@ class _HomeState extends State<Home> {
                       selectedConversationIds.clear();
                     }),
                 icon: const Icon(Icons.close)),
-          ] else if (tab == 0) ...[
+          ] else if (tab == 0 && !showMemoriesInChats) ...[
             IconButton(
                 tooltip: 'Select conversations',
                 onPressed: () => setState(() => selectingChats = true),
                 icon: const Icon(Icons.checklist)),
             IconButton(onPressed: loadChats, icon: const Icon(Icons.refresh)),
           ],
-          if (tab == 3)
+          if (tab == 0 && showMemoriesInChats)
+            IconButton(
+                tooltip: 'Refresh memories',
+                onPressed: loadMemories,
+                icon: const Icon(Icons.refresh)),
+          if (tab == 2)
             IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
         ],
       ),
@@ -3648,12 +3652,10 @@ class _HomeState extends State<Home> {
           ),
         Expanded(
           child: IndexedStack(index: tab, children: [
-            _chats(),
+            _chatHub(),
             const BusinessHub(),
-            _memories(),
             _contacts(),
             const Profile(),
-            const StoreDirectoryPage(),
             const SchoolWorkspacePage(),
             if (isAdmin) const AdminDashboard()
           ]),
@@ -3662,9 +3664,11 @@ class _HomeState extends State<Home> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (i) {
-          setState(() => tab = i);
+          setState(() {
+            tab = i;
+            if (i == 0) showMemoriesInChats = false;
+          });
           if (i == 0) loadChats();
-          if (i == 2) loadMemories();
         },
         destinations: [
           NavigationDestination(
@@ -3672,14 +3676,9 @@ class _HomeState extends State<Home> {
           NavigationDestination(
               icon: Icon(Icons.business_center_outlined), label: 'Business'),
           NavigationDestination(
-              icon: Icon(Icons.auto_awesome_outlined), label: 'Memories'),
-          NavigationDestination(
               icon: Icon(Icons.people_outline), label: 'Contacts'),
           NavigationDestination(
               icon: Icon(Icons.person_outline), label: 'Profile'),
-          // Keep the customer marketplace reachable after sign-in, not only from the welcome page.
-          NavigationDestination(
-              icon: Icon(Icons.storefront_outlined), label: 'Stores'),
           const NavigationDestination(icon: Icon(Icons.school_outlined), label: 'School'),
           if (isAdmin)
             const NavigationDestination(
@@ -3723,6 +3722,43 @@ class _HomeState extends State<Home> {
       await loadChats();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not remove conversation: $error')));
     }
+  }
+
+  Widget _chatHub() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment<bool>(
+                value: false,
+                icon: Icon(Icons.chat_bubble_outline),
+                label: Text('Chats'),
+              ),
+              ButtonSegment<bool>(
+                value: true,
+                icon: Icon(Icons.auto_awesome_outlined),
+                label: Text('Memories'),
+              ),
+            ],
+            selected: {showMemoriesInChats},
+            onSelectionChanged: (selection) {
+              final showMemories = selection.first;
+              setState(() => showMemoriesInChats = showMemories);
+              if (showMemories) {
+                loadMemories();
+              } else {
+                loadChats();
+              }
+            },
+          ),
+        ),
+        Expanded(
+          child: showMemoriesInChats ? _memories() : _chats(),
+        ),
+      ],
+    );
   }
 
   Widget _chats() {
@@ -10399,6 +10435,13 @@ class _BusinessHubState extends State<BusinessHub> {
                     onPressed: createOrganization,
                     icon: const Icon(Icons.add_business),
                     label: const Text('Create business workspace')),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const StoreDirectoryPage())),
+                    icon: const Icon(Icons.storefront_outlined),
+                    label: const Text('Browse stores and products')),
               ])));
     }
     final metrics = dashboard;
@@ -10440,6 +10483,13 @@ class _BusinessHubState extends State<BusinessHub> {
               spacing: 8,
               runSpacing: 4,
               children: [
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => const StoreDirectoryPage())),
+                  icon: const Icon(Icons.storefront_outlined),
+                  label: const Text('Browse stores and products'),
+                ),
                 OutlinedButton.icon(
                   onPressed: () {
                     final slug = organization?['slug']?.toString() ?? '';
