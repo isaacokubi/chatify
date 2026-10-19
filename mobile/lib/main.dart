@@ -6569,6 +6569,42 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> swipeDeleteMessage(Map<String, dynamic> message) async {
+    final id = message['_id']?.toString();
+    if (id == null || id.isEmpty) return;
+    final mine = message['senderId']?.toString() == app.user?['id']?.toString();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(mine ? 'Delete message for everyone?' : 'Remove message for you?'),
+        content: Text(mine
+            ? 'This removes the message content for everyone in the conversation.'
+            : 'This hides the message only from your own chat history. Other participants keep their copies.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final result = await app.api.call('DELETE', '/api/messages/$id' + (mine ? '' : '?scope=me'), {});
+      if (!mounted) return;
+      setState(() {
+        if (mine && result['message'] is Map) {
+          final at = messages.indexWhere((item) => item is Map && item['_id']?.toString() == id);
+          if (at >= 0) messages[at] = Map<String, dynamic>.from(result['message']);
+        } else {
+          messages.removeWhere((item) => item is Map && item['_id']?.toString() == id);
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete message: $error')));
+      await load();
+    }
+  }
+
   Future<void> showMessageActions(Map<String, dynamic> message) async {
     final mine = message['senderId']?.toString() == app.user?['id']?.toString();
     final deleted =
@@ -6786,7 +6822,36 @@ class _ChatState extends State<Chat> {
                                 : message['expiredAt'] != null
                                     ? 'This message has expired.'
                                     : (message['text'] ?? '[media]').toString();
-                            return GestureDetector(
+                            return Dismissible(
+                              key: ValueKey('message-swipe-${message['_id']}'),
+                              direction: (message['deletedAt'] != null || message['expiredAt'] != null)
+                                  ? DismissDirection.none
+                                  : DismissDirection.startToEnd,
+                              background: Container(
+                                alignment: Alignment.centerLeft,
+                                padding: const EdgeInsets.only(left: 20),
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.errorContainer,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.onErrorContainer),
+                              ),
+                              confirmDismiss: (_) async => await showDialog<bool>(
+                                context: context,
+                                builder: (dialog) => AlertDialog(
+                                  title: Text(mine ? 'Delete message for everyone?' : 'Remove message for you?'),
+                                  content: Text(mine
+                                      ? 'The message content will be removed for everyone.'
+                                      : 'The message will be hidden only from your own chat history.'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+                                    FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
+                                  ],
+                                ),
+                              ) ?? false,
+                              onDismissed: (_) => swipeDeleteMessage(message),
+                              child: GestureDetector(
                               onLongPress: () => showMessageActions(message),
                               child: Row(
                                 mainAxisAlignment: mine
@@ -7024,6 +7089,7 @@ class _ChatState extends State<Chat> {
                                     ),
                                   ),
                                 ],
+                              ),
                               ),
                             );
                           },
