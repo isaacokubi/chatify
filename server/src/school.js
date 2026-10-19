@@ -334,7 +334,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     try {
       const page = pageOptions(req);
       const filter = { schoolId: req.params.schoolId, active: true };
-      if (req.schoolMembership.role === 'parent') filter.role = { $in: ['admin','staff'] };
+      // Non-admin members must not browse the other families' directory entries.
+      if (['parent', 'staff'].includes(req.schoolMembership.role)) filter.role = { $in: ['admin','staff'] };
       const [rows, total] = await Promise.all([
         Membership.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).populate('userId', 'name email').lean(),
         Membership.countDocuments(filter),
