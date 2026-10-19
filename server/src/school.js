@@ -200,6 +200,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         return res.status(400).json({ error: 'Enter the school name, proposed code, county, official school email and phone number.' });
       }
       if (await School.exists({ code: proposedCode })) return res.status(409).json({ error: 'A workspace already uses that school code. Contact support if it belongs to your school.' });
+      const requesterPendingCount = await SchoolVerificationRequest.countDocuments({ requesterId: req.user._id, status: 'PENDING' });
+      if (requesterPendingCount >= 3) return res.status(429).json({ error: 'You already have three pending school verification requests. Wait for review before submitting another.' });
       const pending = await SchoolVerificationRequest.findOne({ proposedCode, status: 'PENDING' });
       if (pending) return res.status(409).json({ error: 'A verification request for that school code is already pending.' });
       const request = await SchoolVerificationRequest.create({
