@@ -2894,7 +2894,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       await loadSchools();
       final joinedId = (joined['school'] is Map) ? joined['school']['id']?.toString() : null;
       final joinedSchool = schools.where((x) => x is Map && x['id']?.toString() == joinedId).toList();
-      if (joinedSchool.isNotEmpty) setState(() => _selectSchool(Map<String, dynamic>.from(joinedSchool.first));
+      if (joinedSchool.isNotEmpty) setState(() => _selectSchool(Map<String, dynamic>.from(joinedSchool.first)));
     });
   }
 
