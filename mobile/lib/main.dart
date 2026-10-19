@@ -233,7 +233,7 @@ class Api {
         }
         rethrow;
       }
-    } catch (networkError) {
+    } catch (_) {
       // A failed read should fall back to the last account-scoped response.
       // Never do this for POST/PATCH/PUT/DELETE, especially payment requests.
       if (method == 'GET') {
