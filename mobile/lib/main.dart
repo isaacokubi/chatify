@@ -687,13 +687,13 @@ class ChatifyApp extends StatelessWidget {
         darkTheme: ThemeData(
           useMaterial3: true,
           colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF7772F6),
+            seedColor: const Color(0xFF087F8C),
             brightness: Brightness.dark,
           ).copyWith(
-            primary: const Color(0xFFAAA7FF),
-            onPrimary: const Color(0xFF191547),
-            secondary: const Color(0xFF63D6C1),
-            onSecondary: const Color(0xFF073B34),
+            primary: const Color(0xFF7EDBD0),
+            onPrimary: const Color(0xFF082F49),
+            secondary: const Color(0xFFB8A1FF),
+            onSecondary: const Color(0xFF2E1065),
             tertiary: const Color(0xFFF2C66D),
             surface: const Color(0xFF1C2433),
             onSurface: const Color(0xFFE9EDF7),
@@ -725,12 +725,12 @@ class ChatifyApp extends StatelessWidget {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFFAAA7FF), width: 1.6),
+              borderSide: const BorderSide(color: Color(0xFF7EDBD0), width: 1.6),
             ),
           ),
           navigationBarTheme: const NavigationBarThemeData(
             backgroundColor: Color(0xFF1C2433),
-            indicatorColor: Color(0xFF35325E),
+            indicatorColor: Color(0xFF263D5B),
             elevation: 0,
           ),
           snackBarTheme: SnackBarThemeData(
@@ -748,32 +748,32 @@ class ChatifyApp extends StatelessWidget {
           useMaterial3: true,
           visualDensity: VisualDensity.standard,
           colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF4F46E5),
+            seedColor: const Color(0xFF087F8C),
             brightness: Brightness.light,
           ).copyWith(
-            primary: const Color(0xFF4F46E5),
+            primary: const Color(0xFF087F8C),
             onPrimary: Colors.white,
-            secondary: const Color(0xFF0F9D8A),
+            secondary: const Color(0xFF7C4DFF),
             onSecondary: Colors.white,
-            tertiary: const Color(0xFFB7791F),
+            tertiary: const Color(0xFFD97706),
             onTertiary: Colors.white,
             surface: Colors.white,
-            onSurface: const Color(0xFF172033),
+            onSurface: const Color(0xFF123B67),
             error: const Color(0xFFDC2626),
-            outline: const Color(0xFFD9DFEA),
+            outline: const Color(0xFFDCE4EE),
           ),
-          scaffoldBackgroundColor: const Color(0xFFF5F7FB),
-          canvasColor: const Color(0xFFF5F7FB),
+          scaffoldBackgroundColor: const Color(0xFFF4F7FB),
+          canvasColor: const Color(0xFFF4F7FB),
           cardColor: Colors.white,
           appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFFF5F7FB),
-            foregroundColor: Color(0xFF172033),
+            backgroundColor: Color(0xFFF4F7FB),
+            foregroundColor: Color(0xFF123B67),
             elevation: 0,
             scrolledUnderElevation: 0,
             surfaceTintColor: Colors.transparent,
             centerTitle: false,
             titleTextStyle: TextStyle(
-              color: Color(0xFF172033),
+              color: Color(0xFF123B67),
               fontSize: 20,
               fontWeight: FontWeight.w700,
               letterSpacing: -0.35,
@@ -781,36 +781,36 @@ class ChatifyApp extends StatelessWidget {
           ),
           textTheme: const TextTheme(
             displayLarge: TextStyle(
-              color: Color(0xFF172033),
+              color: Color(0xFF123B67),
               fontWeight: FontWeight.w800,
               letterSpacing: -1.2,
             ),
             headlineMedium: TextStyle(
-              color: Color(0xFF172033),
+              color: Color(0xFF123B67),
               fontWeight: FontWeight.w700,
               letterSpacing: -0.65,
             ),
             titleLarge: TextStyle(
-              color: Color(0xFF172033),
+              color: Color(0xFF123B67),
               fontWeight: FontWeight.w700,
               letterSpacing: -0.3,
             ),
             titleMedium: TextStyle(
-              color: Color(0xFF253047),
+              color: Color(0xFF243B53),
               fontWeight: FontWeight.w600,
             ),
             bodyLarge: TextStyle(
-              color: Color(0xFF253047),
+              color: Color(0xFF243B53),
               fontSize: 16,
               height: 1.45,
             ),
             bodyMedium: TextStyle(
-              color: Color(0xFF536078),
+              color: Color(0xFF52627A),
               fontSize: 14,
               height: 1.45,
             ),
             bodySmall: TextStyle(
-              color: Color(0xFF69758B),
+              color: Color(0xFF68788D),
               fontSize: 12,
               height: 1.4,
             ),
@@ -831,11 +831,11 @@ class ChatifyApp extends StatelessWidget {
               fontSize: 14,
             ),
             labelStyle: const TextStyle(
-              color: Color(0xFF536078),
+              color: Color(0xFF52627A),
               fontSize: 14,
             ),
             helperStyle: const TextStyle(
-              color: Color(0xFF69758B),
+              color: Color(0xFF68788D),
               fontSize: 12,
             ),
             errorStyle: const TextStyle(
@@ -844,15 +844,15 @@ class ChatifyApp extends StatelessWidget {
             ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(14)),
-              borderSide: BorderSide(color: Color(0xFFD9DFEA)),
+              borderSide: BorderSide(color: Color(0xFFDCE4EE)),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(14)),
-              borderSide: BorderSide(color: Color(0xFFD9DFEA)),
+              borderSide: BorderSide(color: Color(0xFFDCE4EE)),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(14)),
-              borderSide: BorderSide(color: Color(0xFF4F46E5), width: 1.6),
+              borderSide: BorderSide(color: Color(0xFF087F8C), width: 1.6),
             ),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(14)),
@@ -865,7 +865,7 @@ class ChatifyApp extends StatelessWidget {
           ),
           filledButtonTheme: FilledButtonThemeData(
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF4F46E5),
+              backgroundColor: const Color(0xFF087F8C),
               foregroundColor: Colors.white,
               disabledBackgroundColor: const Color(0xFFE5E7EB),
               disabledForegroundColor: const Color(0xFF8A94A8),
@@ -886,7 +886,7 @@ class ChatifyApp extends StatelessWidget {
               foregroundColor: const Color(0xFF344054),
               minimumSize: const Size(44, 48),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              side: const BorderSide(color: Color(0xFFD9DFEA)),
+              side: const BorderSide(color: Color(0xFFDCE4EE)),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
@@ -898,7 +898,7 @@ class ChatifyApp extends StatelessWidget {
           ),
           textButtonTheme: TextButtonThemeData(
             style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFF4F46E5),
+              foregroundColor: const Color(0xFF087F8C),
               minimumSize: const Size(40, 44),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               shape: RoundedRectangleBorder(
@@ -909,7 +909,7 @@ class ChatifyApp extends StatelessWidget {
           ),
           iconButtonTheme: IconButtonThemeData(
             style: IconButton.styleFrom(
-              foregroundColor: const Color(0xFF536078),
+              foregroundColor: const Color(0xFF52627A),
               minimumSize: const Size(44, 44),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(13),
@@ -918,12 +918,12 @@ class ChatifyApp extends StatelessWidget {
           ),
           navigationBarTheme: NavigationBarThemeData(
             backgroundColor: Colors.white,
-            indicatorColor: const Color(0xFFE9E8FF),
+            indicatorColor: const Color(0xFFDDF5F2),
             elevation: 0,
             height: 70,
           ),
           floatingActionButtonTheme: FloatingActionButtonThemeData(
-            backgroundColor: const Color(0xFF4F46E5),
+            backgroundColor: const Color(0xFF087F8C),
             foregroundColor: Colors.white,
             elevation: 3,
             shape: RoundedRectangleBorder(
@@ -932,7 +932,7 @@ class ChatifyApp extends StatelessWidget {
           ),
           snackBarTheme: SnackBarThemeData(
             behavior: SnackBarBehavior.floating,
-            backgroundColor: const Color(0xFF172033),
+            backgroundColor: const Color(0xFF123B67),
             contentTextStyle: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w500,
@@ -942,23 +942,23 @@ class ChatifyApp extends StatelessWidget {
             ),
           ),
           chipTheme: ChipThemeData(
-            backgroundColor: const Color(0xFFF0F2F8),
-            selectedColor: const Color(0xFFE9E8FF),
-            secondarySelectedColor: const Color(0xFFDDF7F1),
-            disabledColor: const Color(0xFFF5F7FB),
+            backgroundColor: const Color(0xFFF0F5FA),
+            selectedColor: const Color(0xFFDDF5F2),
+            secondarySelectedColor: const Color(0xFFDDF5F2),
+            disabledColor: const Color(0xFFF4F7FB),
             labelStyle: const TextStyle(
               color: Color(0xFF344054),
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
-            side: const BorderSide(color: Color(0xFFE3E7EF)),
+            side: const BorderSide(color: Color(0xFFE2E8F0)),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           ),
           listTileTheme: ListTileThemeData(
-            iconColor: const Color(0xFF536078),
+            iconColor: const Color(0xFF52627A),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
               vertical: 4,
@@ -968,14 +968,14 @@ class ChatifyApp extends StatelessWidget {
             ),
           ),
           dividerTheme: const DividerThemeData(
-            color: Color(0xFFEAEDF3),
+            color: Color(0xFFE4EAF2),
             thickness: 1,
             space: 1,
           ),
           progressIndicatorTheme: const ProgressIndicatorThemeData(
-            color: Color(0xFF4F46E5),
-            linearTrackColor: Color(0xFFE9E8FF),
-            circularTrackColor: Color(0xFFE9E8FF),
+            color: Color(0xFF087F8C),
+            linearTrackColor: Color(0xFFDDF5F2),
+            circularTrackColor: Color(0xFFDDF5F2),
           ),
           dialogTheme: DialogThemeData(
             backgroundColor: Colors.white,
@@ -984,7 +984,7 @@ class ChatifyApp extends StatelessWidget {
               borderRadius: BorderRadius.circular(22),
             ),
             titleTextStyle: const TextStyle(
-              color: Color(0xFF172033),
+              color: Color(0xFF123B67),
               fontSize: 20,
               fontWeight: FontWeight.w700,
             ),
@@ -1040,7 +1040,7 @@ class Welcome extends StatelessWidget {
   final VoidCallback onSignIn;
   final VoidCallback onGetStarted;
 
-  static const ink = Color(0xFF172033);
+  static const ink = Color(0xFF123B67);
   static const muted = Color(0xFF68758B);
   static const violet = Color(0xFF5548E8);
   static const mint = Color(0xFF41D6B0);
@@ -1534,7 +1534,7 @@ class _PreviewBubble extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
             decoration: BoxDecoration(
-              color: mine ? const Color(0xFFE9E8FF) : const Color(0xFFF3F5FA),
+              color: mine ? const Color(0xFFDDF5F2) : const Color(0xFFF3F5FA),
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(15),
                 topRight: const Radius.circular(15),
@@ -1773,7 +1773,7 @@ class _AuthState extends State<Auth> {
                         'Chatify',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: Color(0xFF172033),
+                          color: Color(0xFF123B67),
                           fontSize: 30,
                           fontWeight: FontWeight.w800,
                           letterSpacing: -1.2,
@@ -1784,7 +1784,7 @@ class _AuthState extends State<Auth> {
                         'Chat. Remember. Let Go.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: Color(0xFF69758B),
+                          color: Color(0xFF68788D),
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1793,7 +1793,7 @@ class _AuthState extends State<Auth> {
                       Text(
                         reg ? 'Create your account' : 'Welcome back',
                         style: const TextStyle(
-                          color: Color(0xFF172033),
+                          color: Color(0xFF123B67),
                           fontSize: 21,
                           fontWeight: FontWeight.w700,
                           letterSpacing: -0.55,
@@ -1805,7 +1805,7 @@ class _AuthState extends State<Auth> {
                             ? 'Join the conversation and keep what matters.'
                             : 'Sign in to pick up where your conversations left off.',
                         style: const TextStyle(
-                          color: Color(0xFF69758B),
+                          color: Color(0xFF68788D),
                           fontSize: 14,
                           height: 1.45,
                         ),
@@ -3267,13 +3267,13 @@ class Empty extends StatelessWidget {
                 height: 84,
                 width: 84,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE9E8FF),
+                  color: const Color(0xFFDDF5F2),
                   borderRadius: BorderRadius.circular(28),
                 ),
                 child: Icon(
                   icon,
                   size: 38,
-                  color: const Color(0xFF4F46E5),
+                  color: const Color(0xFF087F8C),
                 ),
               ),
               const SizedBox(height: 22),
@@ -3290,7 +3290,7 @@ class Empty extends StatelessWidget {
                 subtitle,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xFF69758B),
+                      color: const Color(0xFF68788D),
                       height: 1.55,
                     ),
               ),
@@ -5684,7 +5684,7 @@ class _ChatState extends State<Chat> {
                                         // Strongly distinct, high-contrast colors make
                                         // sent and received messages easy to scan.
                                         color: mine
-                                            ? const Color(0xFF4F46E5)
+                                            ? const Color(0xFF087F8C)
                                             : const Color(0xFFFFFFFF),
                                         borderRadius: BorderRadius.only(
                                           topLeft: const Radius.circular(18),
@@ -5697,14 +5697,14 @@ class _ChatState extends State<Chat> {
                                         border: Border.all(
                                           color: mine
                                               ? const Color(0xFF4338CA)
-                                              : const Color(0xFFD9DFEA),
+                                              : const Color(0xFFDCE4EE),
                                         ),
                                       ),
                                       child: DefaultTextStyle.merge(
                                         style: TextStyle(
                                           color: mine
                                               ? Colors.white
-                                              : const Color(0xFF253047),
+                                              : const Color(0xFF243B53),
                                         ),
                                         child: Column(
                                             crossAxisAlignment:
@@ -5764,7 +5764,7 @@ class _ChatState extends State<Chat> {
                                                         color: mine
                                                             ? Colors.white70
                                                             : const Color(
-                                                                0xFF4F46E5),
+                                                                0xFF087F8C),
                                                         width: 3,
                                                       )),
                                                     ),
@@ -5784,7 +5784,7 @@ class _ChatState extends State<Chat> {
                                                                     ? Colors
                                                                         .white
                                                                     : const Color(
-                                                                        0xFF4F46E5))),
+                                                                        0xFF087F8C))),
                                                         Text(preview,
                                                             maxLines: 2,
                                                             overflow:
@@ -5824,7 +5824,7 @@ class _ChatState extends State<Chat> {
                                                       color: mine
                                                           ? Colors.white
                                                           : const Color(
-                                                              0xFF536078),
+                                                              0xFF52627A),
                                                     ),
                                                     onSelected: (action) {
                                                       if (action == 'delete') {
@@ -6010,11 +6010,11 @@ class _ChatState extends State<Chat> {
               decoration: BoxDecoration(
                 color: const Color(0xFFF0EFFF),
                 border: const Border(
-                    left: BorderSide(color: Color(0xFF4F46E5), width: 3)),
+                    left: BorderSide(color: Color(0xFF087F8C), width: 3)),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(children: [
-                const Icon(Icons.reply, color: Color(0xFF4F46E5), size: 19),
+                const Icon(Icons.reply, color: Color(0xFF087F8C), size: 19),
                 const SizedBox(width: 8),
                 Expanded(
                     child: Column(
@@ -6024,7 +6024,7 @@ class _ChatState extends State<Chat> {
                         style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 12,
-                            color: Color(0xFF4F46E5))),
+                            color: Color(0xFF087F8C))),
                     Text(originalText,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -7207,7 +7207,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
                       Container(
                           width: 100,
                           height: 110,
-                          color: const Color(0xFFF0F2F8),
+                          color: const Color(0xFFF0F5FA),
                           child:
                               const Icon(Icons.inventory_2_outlined, size: 34)),
                     Expanded(
@@ -7226,7 +7226,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
                             Text('KSh ${item['price'] ?? '—'}',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w800,
-                                    color: Color(0xFF4F46E5))),
+                                    color: Color(0xFF087F8C))),
                             const SizedBox(height: 5),
                             Row(children: [
                               Expanded(
