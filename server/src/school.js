@@ -74,6 +74,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
   const School = model('SchoolWorkspace', new mongoose.Schema({
     name: { type: String, required: true, trim: true, maxlength: 160 },
     code: { type: String, required: true, trim: true, uppercase: true, maxlength: 24 },
+    staffInviteCode: { type: String, default: () => randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase(), select: false },
     createdBy: { type: O, ref: 'User', required: true },
     paymentProfile: {
       method: { type: String, enum: ['mpesa_paybill','mpesa_till','bank'] },
@@ -163,7 +164,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       if (!name || name.length > 160 || !/^[A-Z0-9-]{3,24}$/.test(code)) return res.status(400).json({ error: 'Enter a school name and a unique 3–24 character code using letters, numbers or hyphens' });
       const school = await School.create({ name, code, createdBy: req.user._id });
       await Membership.create({ schoolId: school._id, userId: req.user._id, role: 'admin' });
-      return res.status(201).json({ school: { id: String(school._id), name: school.name, code: school.code }, role: 'admin' });
+      return res.status(201).json({ school: { id: String(school._id), name: school.name, code: school.code, staffInviteCode: school.staffInviteCode }, role: 'admin' });
     } catch (error) {
       if (error?.code === 11000) return res.status(409).json({ error: 'That school code is already in use' });
       return next(error);
@@ -174,8 +175,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     try {
       const memberships = await Membership.find({ userId: req.user._id, active: true }).lean();
       const ids = memberships.map(m => m.schoolId);
-      const schools = await School.find({ _id: { $in: ids } }).select('name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
-      return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
+      const schools = await School.find({ _id: { $in: ids } }).select('+staffInviteCode name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
+      return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, staffInviteCode: memberships.find(m => String(m.schoolId) === String(s._id))?.role === 'admin' ? s.staffInviteCode : undefined, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
     } catch (error) { return next(error); }
   });
 
@@ -194,8 +195,11 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       if (role === 'parent' && studentNames.length === 0) {
         return res.status(400).json({ error: 'Parents must enter at least one linked student name. Ask the school office to add the exact student name if unsure.' });
       }
-      const school = await School.findOne({ code }).select('_id name code').lean();
+      const school = await School.findOne({ code }).select('+staffInviteCode _id name code').lean();
       if (!school) return res.status(404).json({ error: 'No school was found for that code. Check the code with the school office.' });
+      if (role === 'staff' && (!school.staffInviteCode || String(req.body?.staffInviteCode || '').trim().toUpperCase() !== school.staffInviteCode)) {
+        return res.status(403).json({ error: 'A separate staff invitation code is required. Request it from the school administrator.' });
+      }
       const member = await Membership.findOneAndUpdate(
         { schoolId: school._id, userId: req.user._id },
         { $set: { role, studentNames, active: true } },
