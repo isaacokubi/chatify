@@ -2952,6 +2952,69 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
+  Future<void> editParentPupilInfo(Map<String, dynamic> member) async {
+    final id = schoolId;
+    if (id == null || role != 'admin' || member['role'] != 'parent') return;
+    final namesController = TextEditingController(
+      text: (member['studentNames'] is List
+          ? (member['studentNames'] as List).map((value) => value.toString()).join(', ')
+          : ''),
+    );
+    final correctedNames = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Correct linked pupil information'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Parent: ${member['name'] ?? member['email'] ?? 'Parent'}'),
+              const SizedBox(height: 8),
+              const Text('Correct the pupil name(s) supplied by this parent. Use the names on the school register and separate multiple pupils with commas.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: namesController,
+                autofocus: true,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Correct pupil name(s)',
+                  hintText: 'e.g. Brian Otieno, Mary Otieno',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, namesController.text), child: const Text('Save corrections')),
+        ],
+      ),
+    );
+    final input = correctedNames;
+    if (input == null) {
+      namesController.dispose();
+      return;
+    }
+    final names = input.split(',').map((value) => value.trim()).where((value) => value.isNotEmpty).toSet().toList();
+    namesController.dispose();
+    if (names.isEmpty || names.length > 10 || names.any((name) => name.length > 100)) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter 1–10 pupil names, each no longer than 100 characters.')),
+      );
+      return;
+    }
+    await _action(() async {
+      await app.api.call(
+        'PUT',
+        '/api/schools/$id/members/${member['id']}/student-info',
+        {'studentNames': names},
+      );
+      await loadSection();
+    });
+  }
+
   Future<void> savePaymentProfile() async {
     final id = schoolId; if (id == null) return;
     await _action(() async {
@@ -3122,7 +3185,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']=='PENDING_VERIFICATION'?IconButton(tooltip:'Verify actual bank payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:_buildSchoolFeeReceiptPdf(Map<String,dynamic>.from(p)),fileExtension:'pdf'); if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('PDF receipt downloaded successfully.'))); } catch(e) { if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
             if (role == 'admin') ...fees.where((p)=>p['status']=='CONFIRMED').map((p)=>actionButton('Retry receipt email • ${p['paymentReference']}',()=>resendSchoolReceipt(Map<String,dynamic>.from(p)),icon:Icons.forward_to_inbox)),
           ],
-          if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(initialValue:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))),
+          if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(initialValue:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'),trailing:role=='admin' && m['role']=='parent'?IconButton(tooltip:'Correct linked pupil information',icon:const Icon(Icons.edit_outlined),onPressed:()=>editParentPupilInfo(Map<String,dynamic>.from(m))):null)))),
             _schoolPager()],
           if (section==5) ...[
             if (role != 'parent') ...[
