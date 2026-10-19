@@ -1041,9 +1041,9 @@ class Welcome extends StatelessWidget {
   final VoidCallback onGetStarted;
 
   static const ink = Color(0xFF123B67);
-  static const muted = Color(0xFF68758B);
-  static const violet = Color(0xFF5548E8);
-  static const mint = Color(0xFF41D6B0);
+  static const muted = Color(0xFF68788D);
+  static const violet = Color(0xFF087F8C);
+  static const mint = Color(0xFF7EDBD0);
 
   // Let customers discover published stores instead of needing to know a store slug.
   void _browseStore(BuildContext context) {
@@ -1079,8 +1079,8 @@ class Welcome extends StatelessWidget {
                             width: 42,
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(colors: [
-                                Color(0xFF7167F8),
-                                Color(0xFF4938D2)
+                                Color(0xFF087F8C),
+                                Color(0xFF065F68)
                               ]),
                               borderRadius: BorderRadius.circular(14),
                             ),
@@ -1130,8 +1130,8 @@ class Welcome extends StatelessWidget {
                             width: 42,
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(colors: [
-                                Color(0xFF7167F8),
-                                Color(0xFF4938D2)
+                                Color(0xFF087F8C),
+                                Color(0xFF065F68)
                               ]),
                               borderRadius: BorderRadius.circular(14),
                             ),
@@ -1185,20 +1185,20 @@ class Welcome extends StatelessWidget {
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 10, vertical: 7),
                                           decoration: BoxDecoration(
-                                              color: const Color(0xFFE8E6FF),
+                                              color: const Color(0xFFDDF5F2),
                                               borderRadius:
                                                   BorderRadius.circular(30)),
                                           child: const Row(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
                                                 Icon(Icons.circle,
-                                                    color: Color(0xFF35C997),
+                                                    color: Color(0xFF7EDBD0),
                                                     size: 8),
                                                 SizedBox(width: 7),
                                                 Text('YOUR PEOPLE, RIGHT HERE',
                                                     style: TextStyle(
                                                         color:
-                                                            Color(0xFF4D42B8),
+                                                            Color(0xFF087F8C),
                                                         fontSize: 9,
                                                         fontWeight:
                                                             FontWeight.w800,
@@ -1315,7 +1315,7 @@ class _ConversationPreview extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(32),
         gradient: const LinearGradient(
-          colors: [Color(0xFF292C57), Color(0xFF151B30)],
+          colors: [Color(0xFF082F49), Color(0xFF151B30)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -1368,7 +1368,7 @@ class _ConversationPreview extends StatelessWidget {
                       height: 42,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                            colors: [Color(0xFF79D8C1), Color(0xFF6C85E8)]),
+                            colors: [Color(0xFF7EDBD0), Color(0xFFB8A1FF)]),
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: const Icon(Icons.people_alt_rounded,
@@ -1411,15 +1411,15 @@ class _ConversationPreview extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE5FBF4),
-                    border: Border.all(color: const Color(0xFFC8F1E6)),
+                    color: const Color(0xFFDDF5F2),
+                    border: Border.all(color: const Color(0xFFDDF5F2)),
                     borderRadius: BorderRadius.circular(15),
                   ),
                   child: const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Icon(Icons.auto_awesome_rounded,
-                          color: Color(0xFF087F6A), size: 19),
+                          color: Color(0xFF087F8C), size: 19),
                       SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -1427,21 +1427,21 @@ class _ConversationPreview extends StatelessWidget {
                           children: [
                             Text('MEMORY CARD',
                                 style: TextStyle(
-                                    color: Color(0xFF087F6A),
+                                    color: Color(0xFF087F8C),
                                     fontSize: 9,
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: 1.1)),
                             SizedBox(height: 5),
                             Text('Saturday · 10:00 AM',
                                 style: TextStyle(
-                                    color: Color(0xFF17483E),
+                                    color: Color(0xFF082F49),
                                     fontSize: 14,
                                     fontWeight: FontWeight.w800)),
                             SizedBox(height: 3),
                             Text(
                                 'A detail worth keeping, right when you need it.',
                                 style: TextStyle(
-                                    color: Color(0xFF4F766D),
+                                    color: Color(0xFF52627A),
                                     fontSize: 11,
                                     height: 1.45)),
                           ],
@@ -1462,7 +1462,7 @@ class _ConversationPreview extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         alignment: Alignment.centerLeft,
                         decoration: BoxDecoration(
-                            color: const Color(0xFFF4F6FA),
+                            color: const Color(0xFFF4F7FB),
                             borderRadius: BorderRadius.circular(13)),
                         child: const Text('Write a message…',
                             style: TextStyle(
@@ -1489,10 +1489,10 @@ class _ConversationPreview extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.lock_outline_rounded,
-                  color: Color(0xFFBAC3E5), size: 14),
+                  color: Color(0xFFDCE4EE), size: 14),
               SizedBox(width: 7),
               Text('Your conversations, with you in control',
-                  style: TextStyle(color: Color(0xFFBAC3E5), fontSize: 10)),
+                  style: TextStyle(color: Color(0xFFDCE4EE), fontSize: 10)),
             ],
           ),
         ],
@@ -1522,7 +1522,7 @@ class _PreviewBubble extends StatelessWidget {
         if (!mine) ...[
           CircleAvatar(
               radius: 15,
-              backgroundColor: const Color(0xFFE7E8FF),
+              backgroundColor: const Color(0xFFDDF5F2),
               child: Text(initials,
                   style: const TextStyle(
                       color: Welcome.violet,
@@ -1729,7 +1729,7 @@ class _AuthState extends State<Auth> {
                   decoration: BoxDecoration(
                     color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(28),
-                    border: Border.all(color: const Color(0xFFE8EBF3)),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                     boxShadow: const [
                       BoxShadow(
                         color: Color(0x0D172033),
@@ -1748,7 +1748,7 @@ class _AuthState extends State<Auth> {
                           width: 56,
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
-                              colors: [Color(0xFF6259F5), Color(0xFF4338CA)],
+                              colors: [Color(0xFF7C4DFF), Color(0xFF065F68)],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
@@ -5696,7 +5696,7 @@ class _ChatState extends State<Chat> {
                                         ),
                                         border: Border.all(
                                           color: mine
-                                              ? const Color(0xFF4338CA)
+                                              ? const Color(0xFF065F68)
                                               : const Color(0xFFDCE4EE),
                                         ),
                                       ),
@@ -5755,7 +5755,7 @@ class _ChatState extends State<Chat> {
                                                           ? const Color(
                                                               0x33404040)
                                                           : const Color(
-                                                              0xFFF0EFFF),
+                                                              0xFFDDF5F2),
                                                       borderRadius:
                                                           BorderRadius.circular(
                                                               8),
@@ -6008,7 +6008,7 @@ class _ChatState extends State<Chat> {
               margin: const EdgeInsets.fromLTRB(12, 6, 12, 2),
               padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFF0EFFF),
+                color: const Color(0xFFDDF5F2),
                 border: const Border(
                     left: BorderSide(color: Color(0xFF087F8C), width: 3)),
                 borderRadius: BorderRadius.circular(10),
@@ -6678,7 +6678,7 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                     contentPadding: const EdgeInsets.all(12),
                                     leading: CircleAvatar(
                                       radius: 28,
-                                      backgroundColor: const Color(0xFFEDEBFF),
+                                      backgroundColor: const Color(0xFFDDF5F2),
                                       backgroundImage:
                                           image.startsWith('https://')
                                               ? NetworkImage(image)
@@ -6687,7 +6687,7 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                           ? null
                                           : const Icon(
                                               Icons.inventory_2_outlined,
-                                              color: Color(0xFF5548E8)),
+                                              color: Color(0xFF087F8C)),
                                     ),
                                     title: Text(
                                         entry['name']?.toString() ??
@@ -6728,14 +6728,14 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                   contentPadding: const EdgeInsets.all(12),
                                   leading: CircleAvatar(
                                     radius: 28,
-                                    backgroundColor: const Color(0xFFEDEBFF),
+                                    backgroundColor: const Color(0xFFDDF5F2),
                                     backgroundImage: logo.startsWith('https://')
                                         ? NetworkImage(logo)
                                         : null,
                                     child: logo.startsWith('https://')
                                         ? null
                                         : const Icon(Icons.storefront_rounded,
-                                            color: Color(0xFF5548E8)),
+                                            color: Color(0xFF087F8C)),
                                   ),
                                   title: Text(name,
                                       style: const TextStyle(
@@ -7139,7 +7139,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
                 gradient: const LinearGradient(
-                    colors: [Color(0xFF292C57), Color(0xFF5548E8)]),
+                    colors: [Color(0xFF082F49), Color(0xFF087F8C)]),
               ),
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
