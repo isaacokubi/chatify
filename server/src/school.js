@@ -74,6 +74,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
   const School = model('SchoolWorkspace', new mongoose.Schema({
     name: { type: String, required: true, trim: true, maxlength: 160 },
     code: { type: String, required: true, trim: true, uppercase: true, maxlength: 24 },
+    staffInviteCode: { type: String, default: () => randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase(), select: false },
     createdBy: { type: O, ref: 'User', required: true },
     paymentProfile: {
       method: { type: String, enum: ['mpesa_paybill','mpesa_till','bank'] },
@@ -163,7 +164,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       if (!name || name.length > 160 || !/^[A-Z0-9-]{3,24}$/.test(code)) return res.status(400).json({ error: 'Enter a school name and a unique 3–24 character code using letters, numbers or hyphens' });
       const school = await School.create({ name, code, createdBy: req.user._id });
       await Membership.create({ schoolId: school._id, userId: req.user._id, role: 'admin' });
-      return res.status(201).json({ school: { id: String(school._id), name: school.name, code: school.code }, role: 'admin' });
+      return res.status(201).json({ school: { id: String(school._id), name: school.name, code: school.code, staffInviteCode: school.staffInviteCode }, role: 'admin' });
     } catch (error) {
       if (error?.code === 11000) return res.status(409).json({ error: 'That school code is already in use' });
       return next(error);
@@ -174,8 +175,51 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     try {
       const memberships = await Membership.find({ userId: req.user._id, active: true }).lean();
       const ids = memberships.map(m => m.schoolId);
-      const schools = await School.find({ _id: { $in: ids } }).select('name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
-      return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
+      const schools = await School.find({ _id: { $in: ids } }).select('+staffInviteCode name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
+      // Older workspaces created before staff invitation codes existed receive one lazily
+      // when an administrator opens the workspace; only admins ever receive it in responses.
+      for (const school of schools) {
+        const member = memberships.find(m => String(m.schoolId) === String(school._id));
+        if (member?.role === 'admin' && !school.staffInviteCode) {
+          const generated = randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase();
+          const updated = await School.findOneAndUpdate(
+            { _id: school._id, $or: [{ staffInviteCode: { $exists: false } }, { staffInviteCode: null }] },
+            { $set: { staffInviteCode: generated } },
+            { new: true }
+          ).select('+staffInviteCode').lean();
+          school.staffInviteCode = updated?.staffInviteCode || generated;
+        }
+      }
+      return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, staffInviteCode: memberships.find(m => String(m.schoolId) === String(s._id))?.role === 'admin' ? s.staffInviteCode : undefined, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
+    } catch (error) { return next(error); }
+  });
+
+  // Authenticated parents and staff may join using the school's invite code. The role is
+  // restricted to parent/staff; school administrator privileges can never be self-assigned.
+  app.post('/api/schools/join', auth, async (req, res, next) => {
+    try {
+      const code = String(req.body?.code || '').trim().toUpperCase();
+      const role = String(req.body?.role || '');
+      const studentNames = Array.isArray(req.body?.studentNames)
+        ? [...new Set(req.body.studentNames.map(x => String(x).trim()).filter(Boolean))].slice(0, 10)
+        : [];
+      if (!code || code.length > 40 || !['parent', 'staff'].includes(role)) {
+        return res.status(400).json({ error: 'Enter the school invite code and choose Parent or Staff.' });
+      }
+      if (role === 'parent' && studentNames.length === 0) {
+        return res.status(400).json({ error: 'Parents must enter at least one linked student name. Ask the school office to add the exact student name if unsure.' });
+      }
+      const school = await School.findOne({ code }).select('+staffInviteCode _id name code').lean();
+      if (!school) return res.status(404).json({ error: 'No school was found for that code. Check the code with the school office.' });
+      if (role === 'staff' && (!school.staffInviteCode || String(req.body?.staffInviteCode || '').trim().toUpperCase() !== school.staffInviteCode)) {
+        return res.status(403).json({ error: 'A separate staff invitation code is required. Request it from the school administrator.' });
+      }
+      const member = await Membership.findOneAndUpdate(
+        { schoolId: school._id, userId: req.user._id },
+        { $set: { role, studentNames, active: true } },
+        { upsert: true, new: true, runValidators: true }
+      );
+      return res.status(200).json({ school: { id: String(school._id), name: school.name, code: school.code }, member: { id: String(member._id), role: member.role, studentNames: member.studentNames } });
     } catch (error) { return next(error); }
   });
 
@@ -566,7 +610,19 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone -checkoutRequestId -merchantRequestId').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
         FeePayment.countDocuments(filter),
       ]);
-      return res.json({ payments, total, page: page.page, limit: page.limit });
+      const school = await School.findById(req.params.schoolId).select('name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
+      const profile = school?.paymentProfile;
+      const paymentOptions = {
+        schoolName: school?.name || 'School',
+        configured: Boolean(profile?.method),
+        method: profile?.method || null,
+        paybillNumber: profile?.method === 'mpesa_paybill' ? profile.paybillNumber : null,
+        tillNumber: profile?.method === 'mpesa_till' ? profile.tillNumber : null,
+        bankName: profile?.method === 'bank' ? profile.bankName : null,
+        accountNumber: profile?.method === 'bank' ? profile.accountNumber : null,
+        darajaConfigured: Boolean(profile?.darajaConfiguredAt),
+      };
+      return res.json({ payments, paymentOptions, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 
