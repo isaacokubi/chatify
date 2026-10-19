@@ -24,6 +24,7 @@ import {registerBusinessReviewRoutes} from './business-reviews.js';
 import {registerBusinessCustomerImportRoutes} from './business-customer-import.js';
 import {registerBusinessPublicApiRoutes} from './business-public-api.js';
 import {registerPublicStatusRoute} from './service-status.js';
+import {registerSchoolRoutes} from './school.js';
 import {unhideConversationForUser} from './conversation-visibility.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
@@ -96,6 +97,7 @@ registerBusinessReviewRoutes({app,auth,mongoose});
 registerBusinessCustomerImportRoutes({app,auth,mongoose});
 registerBusinessPublicApiRoutes({app,auth,mongoose});
 registerPublicStatusRoute({app,mongoose});
+registerSchoolRoutes({app,auth,mongoose,User});
 io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);const account=await User.findOne({_id:s.user.sub,status:'active'}).select('sessionVersion').lean();if(!account||Number(s.user.sv??0)!==Number(account.sessionVersion??0))throw new Error('Inactive or revoked session');n();}catch{n(new Error('Unauthorized'));}});
 const onlineUsers=new Set();
 const leaveUserConversation=(userId,conversationId)=>io.in('user:'+String(userId)).socketsLeave(String(conversationId));

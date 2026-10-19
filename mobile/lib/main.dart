@@ -25,6 +25,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+// School workspace uses the shared authenticated API and URL launcher.
 
 // Represents a readable API failure so screens can show a useful message instead of raw transport errors.
 class ApiException implements Exception {
@@ -2607,6 +2608,218 @@ String? _conversationGroupImage(dynamic conversation) {
 }
 
 // Main authenticated workspace containing chats, contacts and saved memories.
+
+/// School workspace UI for administrators, parents and staff.
+class SchoolWorkspacePage extends StatefulWidget {
+  const SchoolWorkspacePage({super.key});
+  @override
+  State<SchoolWorkspacePage> createState() => _SchoolWorkspacePageState();
+}
+
+class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
+  AppState get app => context.read<AppState>();
+  List<dynamic> schools = [], messages = [], conferences = [], fees = [], members = [];
+  String? schoolId, role, error;
+  bool loading = false;
+  int section = 0;
+  final schoolName = TextEditingController(), schoolCode = TextEditingController();
+  final memberEmail = TextEditingController(), studentNames = TextEditingController(), recipientIdController = TextEditingController();
+  final messageBody = TextEditingController(), messageSubject = TextEditingController();
+  final amount = TextEditingController(), feeStudent = TextEditingController(), feeTerm = TextEditingController(), payerPhone = TextEditingController();
+  final paybill = TextEditingController(), till = TextEditingController(), bank = TextEditingController(), account = TextEditingController();
+  final conferenceTitle = TextEditingController(), conferenceAgenda = TextEditingController(), conferenceLocation = TextEditingController();
+  String memberRole = 'parent', audience = 'direct', paymentMethod = 'mpesa_paybill';
+
+  @override
+  void initState() { super.initState(); loadSchools(); }
+
+  @override
+  void dispose() {
+    for (final c in [schoolName, schoolCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, conferenceTitle, conferenceAgenda, conferenceLocation]) { c.dispose(); }
+    super.dispose();
+  }
+
+  Future<void> loadSchools() async {
+    setState(() { loading = true; error = null; });
+    try {
+      final result = await app.api.call('GET', '/api/schools');
+      schools = List<dynamic>.from(result['schools'] ?? []);
+      if (schoolId == null && schools.isNotEmpty) _selectSchool(Map<String,dynamic>.from(schools.first));
+      if (mounted) setState(() {});
+    } catch (e) { error = e.toString(); }
+    if (mounted) setState(() => loading = false);
+  }
+
+  void _selectSchool(Map<String,dynamic> s) {
+    schoolId = s['id']?.toString(); role = s['role']?.toString();
+    final p = s['paymentProfile'];
+    if (p is Map) {
+      paymentMethod = (p['method'] ?? 'mpesa_paybill').toString();
+      paybill.text = (p['paybillNumber'] ?? '').toString();
+      till.text = (p['tillNumber'] ?? '').toString();
+      bank.text = (p['bankName'] ?? '').toString();
+      account.text = (p['accountNumber'] ?? '').toString();
+    }
+    loadSection();
+  }
+
+  Future<void> loadSection() async {
+    final id = schoolId; if (id == null) return;
+    setState(() { loading = true; error = null; });
+    try {
+      if (section == 0) {
+        final r = await app.api.call('GET', '/api/schools/$id/messages');
+        messages = List<dynamic>.from(r['messages'] ?? []);\n        final directory = await app.api.call('GET', '/api/schools/$id/members');\n        members = List<dynamic>.from(directory['members'] ?? []);
+      } else if (section == 1) {
+        final r = await app.api.call('GET', '/api/schools/$id/conferences');
+        conferences = List<dynamic>.from(r['conferences'] ?? []);
+      } else if (section == 2) {
+        final r = await app.api.call('GET', '/api/schools/$id/fees');
+        fees = List<dynamic>.from(r['payments'] ?? []);
+      } else if (section == 3 && role != 'parent') {
+        final r = await app.api.call('GET', '/api/schools/$id/members');
+        members = List<dynamic>.from(r['members'] ?? []);
+      }
+    } catch (e) { error = e.toString(); }
+    if (mounted) setState(() => loading = false);
+  }
+
+  Future<void> _action(Future<void> Function() action) async {
+    try { await action(); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved successfully.'))); }
+    catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()))); }
+  }
+
+  Future<void> createSchool() async {
+    if (schoolName.text.trim().isEmpty || schoolCode.text.trim().isEmpty) return;
+    await _action(() async {
+      await app.api.call('POST','/api/schools', {'name':schoolName.text.trim(),'code':schoolCode.text.trim()});
+      schoolName.clear(); schoolCode.clear(); await loadSchools();
+    });
+  }
+
+  Future<void> sendMessage() async {
+    final id = schoolId; if (id == null || messageBody.text.trim().isEmpty) return;
+    await _action(() async {
+      await app.api.call('POST','/api/schools/$id/messages', {'body':messageBody.text.trim(),'subject':messageSubject.text.trim(),'audience':audience, if (audience == 'direct') 'recipientId':recipientIdController.text.trim()});
+      messageBody.clear(); messageSubject.clear(); await loadSection();
+    });
+  }
+
+  Future<void> addMember() async {
+    final id = schoolId; if (id == null || memberEmail.text.trim().isEmpty) return;
+    await _action(() async {
+      await app.api.call('POST','/api/schools/$id/members', {'email':memberEmail.text.trim(),'role':memberRole,'studentNames':studentNames.text.split(',').map((x)=>x.trim()).where((x)=>x.isNotEmpty).toList()});
+      memberEmail.clear(); studentNames.clear(); await loadSection();
+    });
+  }
+
+  Future<void> savePaymentProfile() async {
+    final id = schoolId; if (id == null) return;
+    await _action(() async {
+      await app.api.call('PUT','/api/schools/$id/payment-profile', {'method':paymentMethod,'paybillNumber':paybill.text.trim(),'tillNumber':till.text.trim(),'bankName':bank.text.trim(),'accountNumber':account.text.trim()});
+      await loadSchools();
+    });
+  }
+
+  Future<void> verifyFee(Map<String,dynamic> payment) async {
+    final id = schoolId; if (id == null) return;
+    final receiptController = TextEditingController();
+    final receipt = await showDialog<String>(context:context,builder:(ctx)=>AlertDialog(
+      title:const Text('Verify school fee payment'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        Text('Confirm the real transaction in the school M-Pesa statement before entering its receipt number. Ref: ${payment['paymentReference'] ?? ''}'),
+        const SizedBox(height:12),
+        TextField(controller:receiptController,decoration:const InputDecoration(labelText:'Actual M-Pesa receipt number')),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(ctx,receiptController.text.trim()),child:const Text('Confirm payment'))],
+    ));
+    final value = receipt?.trim() ?? '';
+    if (value.isEmpty) { receiptController.dispose(); return; }
+    await _action(() async {
+      await app.api.call('POST','/api/schools/$id/fees/${payment['paymentReference']}/verify',{'mpesaReceipt':value});
+      await loadSection();
+    });
+    receiptController.dispose();
+  }
+
+  Future<void> startFeePayment() async {
+    final id = schoolId; if (id == null) return;
+    final n = int.tryParse(amount.text.trim());
+    if (n == null || n < 1 || feeStudent.text.trim().isEmpty || feeTerm.text.trim().isEmpty) return;
+    await _action(() async {
+      final r = await app.api.call('POST','/api/schools/$id/fees', {'studentName':feeStudent.text.trim(),'amount':n,'term':feeTerm.text.trim()});
+      final p = Map<String,dynamic>.from(r['paymentDestination'] ?? {});
+      final method = p['method'] == 'mpesa_paybill' ? 'Paybill: ${p['paybillNumber']}' : p['method'] == 'mpesa_till' ? 'Till: ${p['tillNumber']}' : 'Bank: ${p['bankName']} / ${p['accountNumber']}';
+      if (mounted) showDialog<void>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Fee payment recorded as pending'),content:Text('${r['note'] ?? ''}\n\nSchool destination: $method\nReference: ${r['payment']?['paymentReference'] ?? ''}'),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Close'))]));
+      amount.clear(); await loadSection();
+    });
+  }
+
+  Future<void> createConference() async {
+    final id = schoolId; if (id == null || conferenceTitle.text.trim().isEmpty || conferenceAgenda.text.trim().isEmpty) return;
+    final now = DateTime.now().add(const Duration(days:1));
+    await _action(() async {
+      await app.api.call('POST','/api/schools/$id/conferences', {'title':conferenceTitle.text.trim(),'agenda':conferenceAgenda.text.trim(),'startsAt':now.toIso8601String(),'endsAt':now.add(const Duration(hours:1)).toIso8601String(),'audience':'all_parents','location':conferenceLocation.text.trim()});
+      conferenceTitle.clear(); conferenceAgenda.clear(); conferenceLocation.clear(); await loadSection();
+    });
+  }
+
+  Widget field(TextEditingController c, String label, {String? hint, TextInputType? keyboard}) => Padding(padding:const EdgeInsets.only(bottom:10),child:TextField(controller:c,keyboardType:keyboard,decoration:InputDecoration(labelText:label,hintText:hint,border:const OutlineInputBorder())));
+  Widget actionButton(String label, VoidCallback onPressed, {IconData icon=Icons.check}) => Padding(padding:const EdgeInsets.only(bottom:10),child:SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:onPressed,icon:Icon(icon),label:Text(label))));
+
+  @override
+  Widget build(BuildContext context) {
+    final isAdmin = role == 'admin';
+    return Scaffold(
+      body: RefreshIndicator(onRefresh:loadSchools,child:ListView(padding:const EdgeInsets.all(16),children:[
+        const Text('School workspace',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),
+        const SizedBox(height:6),
+        const Text('School-parent messages, staff communication, conferences and fee records.'),
+        const SizedBox(height:14),
+        if (schools.isNotEmpty) DropdownButtonFormField<String>(value:schoolId,decoration:const InputDecoration(labelText:'Your school',border:OutlineInputBorder()),items:schools.map((s)=>DropdownMenuItem<String>(value:s['id'].toString(),child:Text(s['name'].toString(),overflow:TextOverflow.ellipsis))).toList(),onChanged:(id){final s=schools.cast<Map>().firstWhere((x)=>x['id']==id);setState(()=>_selectSchool(Map<String,dynamic>.from(s)));}),
+        if (schools.isEmpty) ...[field(schoolName,'School name'),field(schoolCode,'Unique school code',hint:'e.g. NAIROBI-PRI'),actionButton('Create school workspace',createSchool,icon:Icons.school)],
+        if (schoolId != null) ...[
+          const SizedBox(height:12),
+          Wrap(spacing:8,runSpacing:8,children:[
+            ChoiceChip(label:const Text('Messages'),selected:section==0,onSelected:(_){setState(()=>section=0);loadSection();}),
+            ChoiceChip(label:const Text('Conferences'),selected:section==1,onSelected:(_){setState(()=>section=1);loadSection();}),
+            ChoiceChip(label:const Text('Fees'),selected:section==2,onSelected:(_){setState(()=>section=2);loadSection();}),
+            if (role!='parent') ChoiceChip(label:const Text('Members'),selected:section==3,onSelected:(_){setState(()=>section=3);loadSection();}),
+            if (isAdmin) ChoiceChip(label:const Text('Payment setup'),selected:section==4,onSelected:(_){setState(()=>section=4);}),
+          ]),
+          const SizedBox(height:14),
+          if (loading) const Center(child:Padding(padding:EdgeInsets.all(16),child:CircularProgressIndicator())),
+          if (error != null) Text(error!,style:TextStyle(color:Theme.of(context).colorScheme.error)),
+          if (section==0) ...[
+            if (role!='parent') DropdownButtonFormField<String>(value:audience,decoration:const InputDecoration(labelText:'Send to'),items:const [DropdownMenuItem(value:'direct',child:Text('Direct message (select recipient in API)')),DropdownMenuItem(value:'all_parents',child:Text('All parents')),DropdownMenuItem(value:'all_staff',child:Text('All staff')),DropdownMenuItem(value:'all_school',child:Text('Whole school'))],onChanged:(v)=>setState(()=>audience=v??'direct')),
+            if (audience == 'direct') DropdownButtonFormField<String>(value:members.any((m)=>m['userId']?.toString()==recipientIdController.text)?recipientIdController.text:null,decoration:const InputDecoration(labelText:'Message recipient',border:OutlineInputBorder()),items:members.map((m)=>DropdownMenuItem<String>(value:m['userId'].toString(),child:Text('${m['name'] ?? m['email'] ?? 'School contact'} • ${m['role']}',overflow:TextOverflow.ellipsis))).toList(),onChanged:(v)=>setState(()=>recipientIdController.text=v??'')),\n            field(messageSubject,'Subject (optional)'),field(messageBody,'Message'),
+            actionButton('Send message / announcement',sendMessage,icon:Icons.send),
+            ...messages.map((m)=>Card(child:ListTile(leading:const Icon(Icons.mark_chat_unread_outlined),title:Text((m['subject']??'School message').toString()),subtitle:Text((m['body']??'').toString()),isThreeLine:true))),
+          ],
+          if (section==1) ...[
+            if (isAdmin) ...[field(conferenceTitle,'Conference title'),field(conferenceAgenda,'Important information / agenda'),field(conferenceLocation,'Location (optional)'),actionButton('Schedule parent conference (tomorrow, 1 hour)',createConference,icon:Icons.event)],
+            ...conferences.map((c)=>Card(child:ListTile(leading:const Icon(Icons.event),title:Text((c['title']??'Conference').toString()),subtitle:Text('${c['agenda']??''}\n${c['startsAt']??''}\n${c['location']??''}')))),
+          ],
+          if (section==2) ...[
+            if (role=='parent') ...[field(feeStudent,'Student name'),field(amount,'Amount in KSh',keyboard:TextInputType.number),field(feeTerm,'Term / year'),actionButton('Record fee payment',startFeePayment,icon:Icons.payment)],
+            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']!='CONFIRMED'?IconButton(tooltip:'Verify actual payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:response.bodyBytes,fileExtension:'html',mimeType:MimeType.html); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Receipt downloaded. Open it to print or save as PDF.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
+          ],
+          if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))],
+          if (section==4 && isAdmin) ...[
+            DropdownButtonFormField<String>(value:paymentMethod,decoration:const InputDecoration(labelText:'School payment method'),items:const [DropdownMenuItem(value:'mpesa_paybill',child:Text('M-Pesa Paybill')),DropdownMenuItem(value:'mpesa_till',child:Text('M-Pesa Till')),DropdownMenuItem(value:'bank',child:Text('Bank transfer'))],onChanged:(v)=>setState(()=>paymentMethod=v??'mpesa_paybill')),
+            if(paymentMethod=='mpesa_paybill')field(paybill,'School Paybill number'),
+            if(paymentMethod=='mpesa_till')field(till,'School Till number'),
+            if(paymentMethod=='bank')... [field(bank,'Bank name'),field(account,'Account number')],
+            actionButton('Save school payment details',savePaymentProfile,icon:Icons.save),
+            const Text('Payment details configure the destination only. Automated STK Push and instant receipt delivery are not active until the school merchant integration is completed.',style:TextStyle(color:Colors.deepOrange)),
+          ],
+        ],
+      ])),
+    );
+  }
+}
+
+
 class Home extends StatefulWidget {
   const Home({super.key});
   @override
@@ -2784,6 +2997,7 @@ class _HomeState extends State<Home> {
       'Contacts',
       'Profile',
       'Stores',
+      'School',
       if (isAdmin) 'Admin'
     ];
     return Scaffold(
@@ -2873,6 +3087,7 @@ class _HomeState extends State<Home> {
             _contacts(),
             const Profile(),
             const StoreDirectoryPage(),
+            const SchoolWorkspacePage(),
             if (isAdmin) const AdminDashboard()
           ]),
         ),
@@ -2898,6 +3113,7 @@ class _HomeState extends State<Home> {
           // Keep the customer marketplace reachable after sign-in, not only from the welcome page.
           NavigationDestination(
               icon: Icon(Icons.storefront_outlined), label: 'Stores'),
+          const NavigationDestination(icon: Icon(Icons.school_outlined), label: 'School'),
           if (isAdmin)
             const NavigationDestination(
                 icon: Icon(Icons.admin_panel_settings_outlined), label: 'Admin'),
