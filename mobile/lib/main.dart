@@ -2527,6 +2527,7 @@ class _HomeState extends State<Home> {
   int tab = 0;
   List<dynamic> chats = [], users = [], memories = [];
   bool loading = false;
+  bool offlineDataMode = false;
   bool selectingChats = false;
   final Set<String> selectedConversationIds = {};
   bool memoriesLoading = false, usersLoading = false;
@@ -2629,8 +2630,10 @@ class _HomeState extends State<Home> {
           (await app.api.call('GET', '/api/conversations'))['conversations'] ??
               []);
       chatsError = null;
+      offlineDataMode = app.api.offlineDataMode;
     } catch (error) {
       chatsError = error.toString();
+      offlineDataMode = app.api.offlineDataMode;
     }
     if (mounted) setState(() => loading = false);
   }
@@ -2670,6 +2673,7 @@ class _HomeState extends State<Home> {
       memories = List<dynamic>.from(
           (await app.api.call('GET', '/api/memories'))['memories'] ?? []);
       memoriesError = null;
+      offlineDataMode = app.api.offlineDataMode;
       if (mounted) setState(() {});
     } catch (error) {
       memoriesError = error.toString();
@@ -2755,14 +2759,32 @@ class _HomeState extends State<Home> {
             IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
         ],
       ),
-      body: IndexedStack(index: tab, children: [
-        _chats(),
-        const BusinessHub(),
-        _memories(),
-        _contacts(),
-        const Profile(),
-        const StoreDirectoryPage(),
-        if (isAdmin) const AdminDashboard()
+      body: Column(children: [
+        if (offlineDataMode || app.api.offlineDataMode)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: const Row(children: [
+              Icon(Icons.cloud_off_outlined, size: 18),
+              SizedBox(width: 8),
+              Expanded(child: Text(
+                'Offline mode — showing saved data. New changes need a connection to sync.',
+                style: TextStyle(fontSize: 12),
+              )),
+            ]),
+          ),
+        Expanded(
+          child: IndexedStack(index: tab, children: [
+            _chats(),
+            const BusinessHub(),
+            _memories(),
+            _contacts(),
+            const Profile(),
+            const StoreDirectoryPage(),
+            if (isAdmin) const AdminDashboard()
+          ]),
+        ),
       ]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
@@ -4144,7 +4166,11 @@ class _ChatState extends State<Chat> {
       socket!.emit('conversation:join', widget.conversation['_id']);
       // A long-idle socket can reconnect after messages were sent on another
       // device. Fetch the durable server history after reconnect to fill gaps.
-      if (_socketConnectedOnce) unawaited(load());
+      // Also refresh on the first successful connection after starting offline;
+      // that is when this device needs to catch up with messages sent elsewhere.
+      if (_socketConnectedOnce || showingOfflineData || app.api.offlineDataMode) {
+        unawaited(load());
+      }
       _socketConnectedOnce = true;
     });
     socket!.on('typing:start', (data) {
@@ -5775,6 +5801,20 @@ class _ChatState extends State<Chat> {
         ],
       ),
       body: Column(children: [
+        if (showingOfflineData || app.api.offlineDataMode)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: const Row(children: [
+              Icon(Icons.cloud_off_outlined, size: 18),
+              SizedBox(width: 8),
+              Expanded(child: Text(
+                'Offline mode — showing saved messages. Connect to send and sync new changes.',
+                style: TextStyle(fontSize: 12),
+              )),
+            ]),
+          ),
         if (closedPaymentCount > 0)
           Align(
             alignment: Alignment.centerLeft,
