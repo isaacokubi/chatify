@@ -27,7 +27,7 @@ test('encrypts school Daraja secrets and only decrypts with the correct key', ()
   const encrypted = encryptSchoolSecret('daraja-secret-value', key);
   assert.notEqual(encrypted, 'daraja-secret-value');
   assert.equal(decryptSchoolSecret(encrypted, key), 'daraja-secret-value');
-  assert.throws(() => decryptSchoolSecret(encrypted, 'another-test-encryption-key'), /Unsupported state|authenticate|tag/i);
+  assert.throws(() => decryptSchoolSecret(encrypted, 'another-test-encryption-key-that-is-long-enough'), /Unsupported state|authenticate|tag/i);
 });
 
 test('refuses to encrypt school payment credentials without a strong configured key', () => {
