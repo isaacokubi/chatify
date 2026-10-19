@@ -87,10 +87,9 @@ class Api {
   Future<Map<String, dynamic>?> _readCachedResponse(String path) async {
     if (token == null || token!.isEmpty) return null;
     try {
-      final key = _cacheKey(path);
-      final cached = path.contains('/messages')
-          ? await _secureStorage.read(key: key)
-          : (await SharedPreferences.getInstance()).getString(key);
+      // All authenticated snapshots may contain private profile, payment,
+      // memory, or conversation details, so keep the cache platform-protected.
+      final cached = await _secureStorage.read(key: _cacheKey(path));
       if (cached == null || cached.isEmpty) return null;
       final decoded = jsonDecode(cached);
       if (decoded is Map) {
@@ -110,15 +109,9 @@ class Api {
       // Keep individual entries bounded so large histories do not exhaust
       // browser local storage or make a small mobile device unresponsive.
       if (encoded.length > 700000) return;
-      final key = _cacheKey(path);
-      if (path.contains('/messages')) {
-        // Message history can contain private or legacy plaintext content;
-        // keep its offline cache in platform-protected secure storage.
-        await _secureStorage.write(key: key, value: encoded);
-      } else {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(key, encoded);
-      }
+      // Keep account-scoped API data in the same protected store as the
+      // session token instead of leaving private data in plain preferences.
+      await _secureStorage.write(key: _cacheKey(path), value: encoded);
     } catch (_) {
       // Caching is best-effort and must never break a successful API request.
     }
