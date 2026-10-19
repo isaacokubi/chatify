@@ -4055,11 +4055,6 @@ class _HomeState extends State<Home> {
                             }
                           }
                         },
-                        trailing: IconButton(
-                          tooltip: 'Remove contact',
-                          icon: const Icon(Icons.person_remove_outlined),
-                          onPressed: () => removeSavedContact(contact),
-                        ),
                         ),
                       );
                     },
