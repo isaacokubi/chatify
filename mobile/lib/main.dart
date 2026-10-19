@@ -2623,7 +2623,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   bool loading = false;
   int section = 0;
   final schoolName = TextEditingController(), schoolCode = TextEditingController();
-  final memberEmail = TextEditingController(), studentNames = TextEditingController();
+  final memberEmail = TextEditingController(), studentNames = TextEditingController(), recipientIdController = TextEditingController();
   final messageBody = TextEditingController(), messageSubject = TextEditingController();
   final amount = TextEditingController(), feeStudent = TextEditingController(), feeTerm = TextEditingController(), payerPhone = TextEditingController();
   final paybill = TextEditingController(), till = TextEditingController(), bank = TextEditingController(), account = TextEditingController();
@@ -2635,7 +2635,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   @override
   void dispose() {
-    for (final c in [schoolName, schoolCode, memberEmail, studentNames, messageBody, messageSubject, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, conferenceTitle, conferenceAgenda, conferenceLocation]) { c.dispose(); }
+    for (final c in [schoolName, schoolCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, conferenceTitle, conferenceAgenda, conferenceLocation]) { c.dispose(); }
     super.dispose();
   }
 
@@ -2700,7 +2700,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   Future<void> sendMessage() async {
     final id = schoolId; if (id == null || messageBody.text.trim().isEmpty) return;
     await _action(() async {
-      await app.api.call('POST','/api/schools/$id/messages', {'body':messageBody.text.trim(),'subject':messageSubject.text.trim(),'audience':audience});
+      await app.api.call('POST','/api/schools/$id/messages', {'body':messageBody.text.trim(),'subject':messageSubject.text.trim(),'audience':audience, if (audience == 'direct') 'recipientId':recipientIdController.text.trim()});
       messageBody.clear(); messageSubject.clear(); await loadSection();
     });
   }
@@ -2771,7 +2771,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           if (error != null) Text(error!,style:TextStyle(color:Theme.of(context).colorScheme.error)),
           if (section==0) ...[
             if (role!='parent') DropdownButtonFormField<String>(value:audience,decoration:const InputDecoration(labelText:'Send to'),items:const [DropdownMenuItem(value:'direct',child:Text('Direct message (select recipient in API)')),DropdownMenuItem(value:'all_parents',child:Text('All parents')),DropdownMenuItem(value:'all_staff',child:Text('All staff')),DropdownMenuItem(value:'all_school',child:Text('Whole school'))],onChanged:(v)=>setState(()=>audience=v??'direct')),
-            field(messageSubject,'Subject (optional)'),field(messageBody,'Message'),
+            if (audience == 'direct') field(recipientIdController,'Recipient Chatify user ID'),\n            field(messageSubject,'Subject (optional)'),field(messageBody,'Message'),
             actionButton('Send message / announcement',sendMessage,icon:Icons.send),
             ...messages.map((m)=>Card(child:ListTile(leading:const Icon(Icons.mark_chat_unread_outlined),title:Text((m['subject']??'School message').toString()),subtitle:Text((m['body']??'').toString()),isThreeLine:true))),
           ],
@@ -2781,7 +2781,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           ],
           if (section==2) ...[
             if (role=='parent') ...[field(feeStudent,'Student name'),field(amount,'Amount in KSh',keyboard:TextInputType.number),field(feeTerm,'Term / year'),actionButton('Record fee payment',startFeePayment,icon:Icons.payment)],
-            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:()=>launchUrl(Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'),mode:LaunchMode.externalApplication)):null))),
+            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:response.bodyBytes,fileExtension:'html',mimeType:MimeType.html); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Receipt downloaded. Open it to print or save as PDF.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
           ],
           if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))],
           if (section==4 && isAdmin) ...[
