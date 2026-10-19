@@ -149,9 +149,16 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
   }
   const requireRole = (...roles) => async (req, res, next) => {
     try {
-      const member = await membership(req, req.params.schoolId || req.params.id);
+      const schoolId = req.params.schoolId || req.params.id;
+      const member = await membership(req, schoolId);
       if (!member) return res.status(403).json({ error: 'You are not a member of this school' });
       if (!roles.includes(member.role)) return res.status(403).json({ error: 'Your school role cannot perform this action' });
+      // A role value alone must never grant control of another person's workspace.
+      // Only the account that created the school may use administrator-only actions.
+      if (member.role === 'admin' && roles.includes('admin')) {
+        const ownsSchool = await School.exists({ _id: schoolId, createdBy: req.user._id });
+        if (!ownsSchool) return res.status(403).json({ error: 'Only the school workspace owner can change school settings or administer this workspace.' });
+      }
       req.schoolMembership = member;
       return next();
     } catch (error) { return next(error); }
@@ -190,7 +197,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
           school.staffInviteCode = updated?.staffInviteCode || generated;
         }
       }
-      return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, staffInviteCode: memberships.find(m => String(m.schoolId) === String(s._id))?.role === 'admin' ? s.staffInviteCode : undefined, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
+      return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, isOwner: String(s.createdBy) === String(req.user._id), staffInviteCode: memberships.find(m => String(m.schoolId) === String(s._id))?.role === 'admin' ? s.staffInviteCode : undefined, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
     } catch (error) { return next(error); }
   });
 
@@ -211,6 +218,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       }
       const school = await School.findOne({ code }).select('+staffInviteCode _id name code').lean();
       if (!school) return res.status(404).json({ error: 'No school was found for that code. Check the code with the school office.' });
+      if (String(school.createdBy) === String(req.user._id)) {
+        return res.status(409).json({ error: 'You own this school workspace already. Select it from Your school instead of joining it again.' });
+      }
       if (role === 'staff' && (!school.staffInviteCode || String(req.body?.staffInviteCode || '').trim().toUpperCase() !== school.staffInviteCode)) {
         return res.status(403).json({ error: 'A separate staff invitation code is required. Request it from the school administrator.' });
       }
