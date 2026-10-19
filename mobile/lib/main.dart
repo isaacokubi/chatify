@@ -2710,6 +2710,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   List<dynamic> schools = [], messages = [], conferences = [], fees = [], members = [], students = [], attendance = [], assessments = [];
   Map<String, dynamic> feePaymentOptions = {};
   String? schoolId, role, error;
+  bool isOwner = false;
   bool loading = false;
   int section = 0, recordPage = 1, recordTotal = 0;
   static const int _recordPageSize = 20;
@@ -2748,6 +2749,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   void _selectSchool(Map<String,dynamic> s) {
     schoolId = s['id']?.toString(); role = s['role']?.toString();
+    isOwner = s['isOwner'] == true;
     schoolCode.text = (s['code'] ?? '').toString();
     staffInviteCode.text = (s['staffInviteCode'] ?? '').toString();
     final p = s['paymentProfile'];
@@ -2954,7 +2956,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   Future<void> editParentPupilInfo(Map<String, dynamic> member) async {
     final id = schoolId;
-    if (id == null || role != 'admin' || member['role'] != 'parent') return;
+    if (id == null || !isOwner || role != 'admin' || member['role'] != 'parent') return;
     final namesController = TextEditingController(
       text: (member['studentNames'] is List
           ? (member['studentNames'] as List).map((value) => value.toString()).join(', ')
@@ -3152,7 +3154,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   @override
   Widget build(BuildContext context) {
-    final isAdmin = role == 'admin';
+    final isAdmin = role == 'admin' && isOwner;
     return Scaffold(
       body: RefreshIndicator(onRefresh:loadSchools,child:ListView(padding:const EdgeInsets.all(16),children:[
         const Text('School workspace',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),
@@ -3169,8 +3171,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           actionButton('Join school',joinSchool,icon:Icons.group_add),
         ]))),
         if (schools.isNotEmpty) DropdownButtonFormField<String>(initialValue:schoolId,decoration:const InputDecoration(labelText:'Your school',border:OutlineInputBorder()),items:schools.map((s)=>DropdownMenuItem<String>(value:s['id'].toString(),child:Text(s['name'].toString(),overflow:TextOverflow.ellipsis))).toList(),onChanged:(id){final s=schools.cast<Map>().firstWhere((x)=>x['id']==id);setState(()=>_selectSchool(Map<String,dynamic>.from(s)));}),
-        if (schoolId != null && schoolCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:6),child:Text('Share this school invitation code with parents and staff: ${schoolCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.w600))),
-        if (role == 'admin' && staffInviteCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:4),child:Text('Private staff invitation code (share with staff only): ${staffInviteCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.secondary,fontWeight:FontWeight.w600))),
+        if (schoolId != null) Padding(padding:const EdgeInsets.only(top:6),child:Text(isOwner ? 'Owner verified: you created this school workspace. Only your account can change school settings and administer it.' : 'Access verified: you are a parent/staff member of this school. Owner-only settings and administration are locked.',style:TextStyle(color:isOwner ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.secondary,fontWeight:FontWeight.w600))),
+        if (isAdmin && schoolCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:6),child:Text('Share this school invitation code with parents and staff: ${schoolCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.w600))),
+        if (isAdmin && staffInviteCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:4),child:Text('Private staff invitation code (share with staff only): ${staffInviteCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.secondary,fontWeight:FontWeight.w600))),
         if (schools.isEmpty) ...[field(schoolName,'School name'),field(schoolCode,'Unique school code',hint:'e.g. NAIROBI-PRI'),actionButton('Create school workspace',createSchool,icon:Icons.school)],
         if (schoolId != null) ...[
           const SizedBox(height:12),
@@ -3215,8 +3218,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               if (fees.isNotEmpty) Padding(padding:const EdgeInsets.only(top:8),child:Text('Records on this page: ${fees.length} • Confirmed/paid: ${fees.where((p)=>p['status']=='CONFIRMED').length} • Pending: ${fees.where((p)=>p['status']!='CONFIRMED' && p['status']!='FAILED' && p['status']!='CANCELLED' && p['status']!='REJECTED').length}')),
             ]))),
             if (role=='parent') ...[field(feeStudent,'Student name'),field(amount,'Amount in KSh',keyboard:TextInputType.number),field(feeTerm,'Term / year'),if(paymentMethod!='bank')field(payerPhone,'M-Pesa phone receiving the STK prompt',hint:'07XXXXXXXX or 2547XXXXXXXX',keyboard:TextInputType.phone),actionButton(paymentMethod=='bank'?'Record bank transfer':'Pay school fees with M-Pesa',startFeePayment,icon:Icons.payment)],
-            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']=='PENDING_VERIFICATION'?IconButton(tooltip:'Verify actual bank payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:()=>downloadSchoolFeeReceipt(Map<String,dynamic>.from(p))):null))),
-            if (role == 'admin') ...fees.where((p)=>p['status']=='CONFIRMED').map((p)=>actionButton('Retry receipt email • ${p['paymentReference']}',()=>resendSchoolReceipt(Map<String,dynamic>.from(p)),icon:Icons.forward_to_inbox)),
+            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:isAdmin && p['status']=='PENDING_VERIFICATION'?IconButton(tooltip:'Verify actual bank payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:()=>downloadSchoolFeeReceipt(Map<String,dynamic>.from(p))):null))),
+            if (isAdmin) ...fees.where((p)=>p['status']=='CONFIRMED').map((p)=>actionButton('Retry receipt email • ${p['paymentReference']}',()=>resendSchoolReceipt(Map<String,dynamic>.from(p)),icon:Icons.forward_to_inbox)),
           ],
           if (section==8) ...[
             const Text('School fee receipts', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -3246,7 +3249,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         label: const Text('Download receipt (PDF)'),
                       ),
                     ),
-                    if (role == 'admin')
+                    if (isAdmin)
                       TextButton.icon(
                         onPressed: () => resendSchoolReceipt(Map<String, dynamic>.from(payment)),
                         icon: const Icon(Icons.forward_to_inbox),
@@ -3258,7 +3261,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             )),
             _schoolPager(),
           ],
-          if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(initialValue:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'),trailing:role=='admin' && m['role']=='parent'?IconButton(tooltip:'Correct linked pupil information',icon:const Icon(Icons.edit_outlined),onPressed:()=>editParentPupilInfo(Map<String,dynamic>.from(m))):null)))),
+          if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(initialValue:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'),trailing:isAdmin && m['role']=='parent'?IconButton(tooltip:'Correct linked pupil information',icon:const Icon(Icons.edit_outlined),onPressed:()=>editParentPupilInfo(Map<String,dynamic>.from(m))):null)))),
             _schoolPager()],
           if (section==5) ...[
             if (role != 'parent') ...[
