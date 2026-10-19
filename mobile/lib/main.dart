@@ -26,6 +26,15 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+
+// Swipe gestures are reserved for compact Android/iOS layouts. Laptop and desktop
+// users receive explicit delete buttons that work with a mouse or trackpad.
+bool _useSwipeToDelete(BuildContext context) {
+  final platform = Theme.of(context).platform;
+  return (platform == TargetPlatform.android || platform == TargetPlatform.iOS) &&
+      MediaQuery.sizeOf(context).shortestSide < 600;
+}
+
 // School workspace uses the shared authenticated API and URL launcher.
 
 // Represents a readable API failure so screens can show a useful message instead of raw transport errors.
@@ -2814,8 +2823,34 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     );
   }
 
+  Future<void> _removeSchoolRecord({required String label, required String endpoint}) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('Delete $label?'),
+        content: Text(label == 'student'
+            ? 'This archives the student and preserves historical school records.'
+            : 'This action cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await app.api.call('DELETE', '/api/schools/$schoolId/$endpoint');
+      await loadSection();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label removed.')));
+    } catch (error) {
+      if (!mounted) return;
+      await loadSection();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete $label: $error')));
+    }
+  }
+
   Widget _swipeSchoolRecord({required String id, required String label, required String endpoint, required Widget child}) {
-    return Dismissible(
+    final swipe = Dismissible(
       key: ValueKey('school-$section-$id'),
       direction: DismissDirection.startToEnd,
       background: Container(
@@ -2852,6 +2887,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       },
       child: child,
     );
+    if (_useSwipeToDelete(context)) return swipe;
+    return Row(children: [
+      Expanded(child: child),
+      IconButton(
+        tooltip: 'Delete $label',
+        icon: const Icon(Icons.delete_outline),
+        onPressed: () => _removeSchoolRecord(label: label, endpoint: endpoint),
+      ),
+    ]);
   }
 
   Future<void> _action(Future<void> Function() action) async {
@@ -3408,6 +3452,29 @@ class _HomeState extends State<Home> {
     );
   }
 
+  Future<void> _removeConversationFromDesktop(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Remove conversation?'),
+        content: const Text('This hides the conversation from your chat list only. Other participants keep their copies.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for me')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => chats.removeWhere((item) => item is Map && item['_id']?.toString() == id));
+    try {
+      await app.api.call('POST', '/api/conversations/delete', {'conversationIds': [id]});
+      await loadChats();
+    } catch (error) {
+      await loadChats();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not remove conversation: $error')));
+    }
+  }
+
   Widget _chats() {
     if (loading) return const Center(child: CircularProgressIndicator());
     if (chatsError != null) {
@@ -3451,7 +3518,7 @@ class _HomeState extends State<Home> {
           final selected = selectedConversationIds.contains(id);
           return Dismissible(
             key: ValueKey('conversation-swipe-$id'),
-            direction: id.isEmpty ? DismissDirection.none : DismissDirection.startToEnd,
+            direction: id.isEmpty || !_useSwipeToDelete(context) ? DismissDirection.none : DismissDirection.startToEnd,
             background: Container(
               alignment: Alignment.centerLeft,
               padding: const EdgeInsets.only(left: 20),
@@ -3496,6 +3563,13 @@ class _HomeState extends State<Home> {
                     child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
             title: Text(title),
             subtitle: Text(preview),
+            trailing: !_useSwipeToDelete(context) && id.isNotEmpty
+                ? IconButton(
+                    tooltip: 'Remove conversation',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => _removeConversationFromDesktop(id),
+                  )
+                : null,
             selected: selected,
             onLongPress: () {
               if (!selectingChats) setState(() => selectingChats = true);
@@ -3515,6 +3589,28 @@ class _HomeState extends State<Home> {
         },
       ),
     );
+  }
+
+  Future<void> _removeSavedContactFromDesktop(Map<String, dynamic> contact) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Remove saved contact?'),
+        content: Text('Remove ${contact['name'] ?? 'this contact'} from your saved contacts? Their account and messages will not be deleted.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await app.api.call('DELETE', '/api/contacts/${contact['id']}');
+      if (mounted) setState(() => savedContacts.removeWhere((item) => item is Map && item['id']?.toString() == contact['id']?.toString()));
+      await loadSavedContacts();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not remove contact: $error')));
+    }
   }
 
   Future<void> loadSavedContacts() async {
@@ -3836,7 +3932,7 @@ class _HomeState extends State<Home> {
                       final name = contact['name']?.toString() ?? 'Contact';
                       return Dismissible(
                         key: ValueKey('saved-contact-' + (contact['id']?.toString() ?? 'unknown')),
-                        direction: DismissDirection.startToEnd,
+                        direction: _useSwipeToDelete(context) ? DismissDirection.startToEnd : DismissDirection.none,
                         background: Container(
                           alignment: Alignment.centerLeft,
                           padding: const EdgeInsets.only(left: 20),
@@ -3873,6 +3969,13 @@ class _HomeState extends State<Home> {
                           child: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
                         ),
                         title: Text(name),
+                        trailing: !_useSwipeToDelete(context)
+                            ? IconButton(
+                                tooltip: 'Remove saved contact',
+                                icon: const Icon(Icons.person_remove_outlined),
+                                onPressed: () => _removeSavedContactFromDesktop(contact),
+                              )
+                            : null,
                         subtitle: Text(
                           contact['phone']?.toString() ??
                               contact['email']?.toString() ??
@@ -3949,7 +4052,7 @@ class _HomeState extends State<Home> {
         final memory = Map<String, dynamic>.from(memories[i]);
         return Dismissible(
           key: ValueKey(memory['_id']),
-          direction: DismissDirection.startToEnd,
+          direction: _useSwipeToDelete(context) ? DismissDirection.startToEnd : DismissDirection.none,
           background: Container(
               alignment: Alignment.centerLeft,
               padding: const EdgeInsets.only(left: 20),
@@ -3994,7 +4097,7 @@ class _HomeState extends State<Home> {
                       'About ${memory['personName']}',
                     memory['description']?.toString() ?? '',
                   ].where((part) => part.trim().isNotEmpty).join(' · ')),
-                  trailing: IconButton(
+                  trailing: !_useSwipeToDelete(context) ? IconButton(
                     tooltip: 'Delete saved memory',
                     icon: const Icon(Icons.delete_outline),
                     onPressed: () async {
@@ -4016,7 +4119,7 @@ class _HomeState extends State<Home> {
                         );
                       }
                     },
-                  )),
+                  ) : null),
         ));
       },
     );
@@ -6797,7 +6900,7 @@ class _ChatState extends State<Chat> {
                                     : (message['text'] ?? '[media]').toString();
                             return Dismissible(
                               key: ValueKey('message-swipe-${message['_id']}'),
-                              direction: (message['deletedAt'] != null || message['expiredAt'] != null)
+                              direction: (message['deletedAt'] != null || message['expiredAt'] != null || !_useSwipeToDelete(context))
                                   ? DismissDirection.none
                                   : DismissDirection.startToEnd,
                               background: Container(
@@ -6832,6 +6935,12 @@ class _ChatState extends State<Chat> {
                                     : MainAxisAlignment.start,
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
+                                  if (!_useSwipeToDelete(context) && !mine && message['deletedAt'] == null && message['expiredAt'] == null)
+                                    IconButton(
+                                      tooltip: 'Remove message for me',
+                                      icon: const Icon(Icons.delete_outline, size: 19),
+                                      onPressed: () => swipeDeleteMessage(message),
+                                    ),
                                   Flexible(
                                     child: Container(
                                       // Keep bubbles content-sized and aligned like a
@@ -7061,6 +7170,12 @@ class _ChatState extends State<Chat> {
                                       ),
                                     ),
                                   ),
+                                  if (!_useSwipeToDelete(context) && mine && message['deletedAt'] == null && message['expiredAt'] == null)
+                                    IconButton(
+                                      tooltip: 'Delete message for everyone',
+                                      icon: const Icon(Icons.delete_outline, size: 19),
+                                      onPressed: () => swipeDeleteMessage(message),
+                                    ),
                                 ],
                               ),
                               ),
