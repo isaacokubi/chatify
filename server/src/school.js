@@ -135,6 +135,13 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
   FeePayment.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
   FeePayment.schema.index({ checkoutRequestId: 1, merchantRequestId: 1 }, { unique: true, sparse: true });
 
+  // Bounded server-side pagination for every school register.
+  function pageOptions(req) {
+    const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
+    const limit = Math.max(1, Math.min(100, Number.parseInt(req.query.limit, 10) || 20));
+    return { page, limit, skip: (page - 1) * limit };
+  }
+
   async function membership(req, schoolId) {
     if (!mongoose.isValidObjectId(schoolId)) return null;
     return Membership.findOne({ schoolId, userId: req.user._id, active: true });
@@ -187,8 +194,14 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
 
   app.get('/api/schools/:schoolId/members', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
-      const rows = await Membership.find({ schoolId: req.params.schoolId, active: true }).populate('userId', 'name email').lean();
-      return res.json({ members: rows.filter(x => x.userId && (req.schoolMembership.role !== 'parent' || ['admin','staff'].includes(x.role))).map(x => ({ id: String(x._id), userId: String(x.userId._id), name: x.userId.name, email: x.userId.email, role: x.role, studentNames: x.studentNames })) });
+      const page = pageOptions(req);
+      const filter = { schoolId: req.params.schoolId, active: true };
+      if (req.schoolMembership.role === 'parent') filter.role = { $in: ['admin','staff'] };
+      const [rows, total] = await Promise.all([
+        Membership.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).populate('userId', 'name email').lean(),
+        Membership.countDocuments(filter),
+      ]);
+      return res.json({ members: rows.filter(x => x.userId).map(x => ({ id: String(x._id), userId: String(x.userId._id), name: x.userId.name, email: x.userId.email, role: x.role, studentNames: x.studentNames })), total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 
@@ -246,8 +259,13 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         : member.role === 'staff'
           ? { $or: [{ audience: 'all_staff' }, { audience: 'all_school' }, { senderId: req.user._id }, { recipientId: req.user._id }] }
           : { $or: [{ audience: { $in: ['all_parents','all_staff','all_school'] } }, { senderId: req.user._id }, { recipientId: req.user._id }] };
-      const messages = await SchoolMessage.find({ schoolId: req.params.schoolId, ...visibility }).sort({ createdAt: -1 }).limit(100).lean();
-      return res.json({ messages });
+      const page = pageOptions(req);
+      const filter = { schoolId: req.params.schoolId, ...visibility };
+      const [messages, total] = await Promise.all([
+        SchoolMessage.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolMessage.countDocuments(filter),
+      ]);
+      return res.json({ messages, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 
@@ -269,8 +287,12 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
   app.get('/api/schools/:schoolId/conferences', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
       const audience = req.schoolMembership.role === 'parent' ? ['all_parents','all_school'] : req.schoolMembership.role === 'staff' ? ['all_staff','all_school'] : ['all_parents','all_staff','all_school'];
-      const conferences = await SchoolConference.find({ schoolId: req.params.schoolId, audience: { $in: audience } }).sort({ startsAt: 1 }).limit(100).lean();
-      return res.json({ conferences });
+      const page = pageOptions(req), filter = { schoolId: req.params.schoolId, audience: { $in: audience } };
+      const [conferences, total] = await Promise.all([
+        SchoolConference.find(filter).sort({ startsAt: 1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolConference.countDocuments(filter),
+      ]);
+      return res.json({ conferences, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 
@@ -307,18 +329,23 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
   }, { timestamps: true }));
   SchoolAssessment.schema.index({ schoolId: 1, studentId: 1, subject: 1, assessment: 1, term: 1 }, { unique: true });
 
-  async function schoolVisibleStudents(req) {
+  function schoolStudentFilter(req) {
     const filter = { schoolId: req.params.schoolId, active: true };
     if (req.schoolMembership.role === 'parent') {
       const names = (req.schoolMembership.studentNames || []).map(x => String(x).trim().toLowerCase());
       filter.$expr = { $in: [{ $toLower: '$fullName' }, names] };
     }
-    return SchoolStudent.find(filter).sort({ className: 1, fullName: 1 }).limit(1000).lean();
+    return filter;
   }
-
+  async function schoolVisibleStudents(req, page = pageOptions(req)) {
+    return SchoolStudent.find(schoolStudentFilter(req)).sort({ className: 1, fullName: 1 }).skip(page.skip).limit(page.limit).lean();
+  }
   app.get('/api/schools/:schoolId/students', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
-    try { return res.json({ students: await schoolVisibleStudents(req) }); }
-    catch (error) { return next(error); }
+    try {
+      const page = pageOptions(req), filter = schoolStudentFilter(req);
+      const [students, total] = await Promise.all([schoolVisibleStudents(req, page), SchoolStudent.countDocuments(filter)]);
+      return res.json({ students, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
   });
 
   app.post('/api/schools/:schoolId/students', auth, requireRole('admin','staff'), async (req, res, next) => {
@@ -355,14 +382,20 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
 
   app.get('/api/schools/:schoolId/attendance', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
-      const students = await schoolVisibleStudents(req);
-      const filter = { schoolId: req.params.schoolId, studentId: { $in: students.map(s => s._id) } };
+      const page = pageOptions(req);
+      const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+      const filter = { schoolId: req.params.schoolId, studentId: { $in: visibleStudents.map(s => s._id) } };
       if (req.query.date) {
         const date = new Date(String(req.query.date) + 'T00:00:00.000Z');
         if (!Number.isFinite(date.getTime())) return res.status(400).json({ error: 'Use attendance date YYYY-MM-DD' });
         filter.date = date;
       }
-      return res.json({ attendance: await SchoolAttendance.find(filter).sort({ date: -1, className: 1, studentName: 1 }).limit(1000).lean(), students });
+      const [attendance, total, students] = await Promise.all([
+        SchoolAttendance.find(filter).sort({ date: -1, className: 1, studentName: 1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolAttendance.countDocuments(filter),
+        schoolVisibleStudents(req, page),
+      ]);
+      return res.json({ attendance, students, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 
@@ -384,9 +417,14 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
 
   app.get('/api/schools/:schoolId/academics', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
-      const students = await schoolVisibleStudents(req);
-      const assessments = await SchoolAssessment.find({ schoolId: req.params.schoolId, studentId: { $in: students.map(s => s._id) } }).sort({ term: -1, className: 1, studentName: 1, subject: 1 }).limit(2000).lean();
-      return res.json({ assessments });
+      const page = pageOptions(req);
+      const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+      const filter = { schoolId: req.params.schoolId, studentId: { $in: visibleStudents.map(s => s._id) } };
+      const [assessments, total] = await Promise.all([
+        SchoolAssessment.find(filter).sort({ term: -1, className: 1, studentName: 1, subject: 1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolAssessment.countDocuments(filter),
+      ]);
+      return res.json({ assessments, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 
@@ -438,6 +476,54 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     return { sent, pending: recipients.some(email => !delivered?.receiptEmailSentTo?.includes(email)) };
   }
 
+
+  // Financial fee records are intentionally not deletable; these routes cover
+  // operational records and enforce school membership and role permissions.
+  app.delete('/api/schools/:schoolId/messages/:messageId', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const message = await SchoolMessage.findOne({ _id: req.params.messageId, schoolId: req.params.schoolId });
+      if (!message) return res.status(404).json({ error: 'School message not found' });
+      if (req.schoolMembership.role !== 'admin' && String(message.senderId) !== String(req.user._id)) return res.status(403).json({ error: 'You may delete only messages you sent' });
+      await SchoolMessage.deleteOne({ _id: message._id, schoolId: req.params.schoolId });
+      return res.json({ deleted: true, id: String(message._id) });
+    } catch (error) { return next(error); }
+  });
+  app.delete('/api/schools/:schoolId/conferences/:conferenceId', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const result = await SchoolConference.deleteOne({ _id: req.params.conferenceId, schoolId: req.params.schoolId });
+      if (!result.deletedCount) return res.status(404).json({ error: 'Conference not found' });
+      return res.json({ deleted: true, id: req.params.conferenceId });
+    } catch (error) { return next(error); }
+  });
+  app.delete('/api/schools/:schoolId/students/:studentId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const student = await SchoolStudent.findOneAndUpdate({ _id: req.params.studentId, schoolId: req.params.schoolId, active: true }, { $set: { active: false } }, { new: true });
+      if (!student) return res.status(404).json({ error: 'Active student not found' });
+      return res.json({ deleted: true, archived: true, id: String(student._id) });
+    } catch (error) { return next(error); }
+  });
+  app.delete('/api/schools/:schoolId/attendance/:recordId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const result = await SchoolAttendance.deleteOne({ _id: req.params.recordId, schoolId: req.params.schoolId });
+      if (!result.deletedCount) return res.status(404).json({ error: 'Attendance record not found' });
+      return res.json({ deleted: true, id: req.params.recordId });
+    } catch (error) { return next(error); }
+  });
+  app.delete('/api/schools/:schoolId/academics/:recordId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const result = await SchoolAssessment.deleteOne({ _id: req.params.recordId, schoolId: req.params.schoolId });
+      if (!result.deletedCount) return res.status(404).json({ error: 'Assessment record not found' });
+      return res.json({ deleted: true, id: req.params.recordId });
+    } catch (error) { return next(error); }
+  });
+  app.delete('/api/schools/:schoolId/members/:memberId', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const member = await Membership.findOneAndUpdate({ _id: req.params.memberId, schoolId: req.params.schoolId, active: true }, { $set: { active: false } }, { new: true });
+      if (!member) return res.status(404).json({ error: 'Active school member not found' });
+      return res.json({ deleted: true, archived: true, id: String(member._id) });
+    } catch (error) { return next(error); }
+  });
+
   app.post('/api/schools/:schoolId/fees', auth, requireRole('parent'), async (req, res, next) => {
     try {
       const studentName = String(req.body?.studentName || '').trim();
@@ -475,8 +561,12 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     try {
       const filter = { schoolId: req.params.schoolId };
       if (req.schoolMembership.role === 'parent') filter.parentId = req.user._id;
-      const payments = await FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone -checkoutRequestId -merchantRequestId').sort({ createdAt: -1 }).limit(200).lean();
-      return res.json({ payments });
+      const page = pageOptions(req);
+      const [payments, total] = await Promise.all([
+        FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone -checkoutRequestId -merchantRequestId').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
+        FeePayment.countDocuments(filter),
+      ]);
+      return res.json({ payments, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 
