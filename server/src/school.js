@@ -355,6 +355,13 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       if (studentNames.length === 0 || studentNames.some(name => name.length > 100)) {
         return res.status(400).json({ error: 'Each linked student name must contain 1–100 characters.' });
       }
+      const registeredCount = await SchoolStudent.countDocuments({
+        schoolId: req.params.schoolId, active: true,
+        $expr: { $in: [{ $toLower: '$fullName' }, studentNames.map(name => name.toLowerCase())] },
+      });
+      if (registeredCount !== studentNames.length) {
+        return res.status(400).json({ error: 'Every linked pupil must exist in the active school register before access is granted.' });
+      }
       if (!mongoose.isValidObjectId(req.params.memberId)) {
         return res.status(400).json({ error: 'Invalid school member.' });
       }
@@ -363,7 +370,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         { $set: { studentNames } },
         { new: true, runValidators: true }
       ).populate('userId', 'name email');
-      if (!member) return res.status(404).json({ error: 'Active parent membership was not found in this school.' });
+      if (!member) return res.status(404).json({ error: 'Active parent/staff membership was not found in this school.' });
       return res.json({
         member: {
           id: String(member._id),
@@ -705,7 +712,13 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       const term = String(req.body?.term || '').trim();
       const amount = Number(req.body?.amount);
       const phone = normalizeMpesaPhone(String(req.body?.phone || req.user?.phone || ''));
-      if (!studentName || studentName.length > 100 || !req.schoolMembership.studentNames.includes(studentName)) return res.status(403).json({ error: 'Choose a student linked to your parent account' });
+      if (!studentName || studentName.length > 100 || !(req.schoolMembership.studentNames || []).some(name => String(name).trim().toLowerCase() === studentName.toLowerCase())) return res.status(403).json({ error: 'Choose a student linked to your parent account' });
+      // A membership name alone is not proof of enrolment: fees can be requested only for a pupil in this school's active register.
+      const registeredStudent = await SchoolStudent.findOne({
+        schoolId: req.params.schoolId, active: true,
+        $expr: { $eq: [{ $toLower: '$fullName' }, studentName.toLowerCase()] },
+      }).select('_id').lean();
+      if (!registeredStudent) return res.status(404).json({ error: 'This student is not in the school register yet. Contact the school office to link the correct registered pupil.' });
       if (!Number.isSafeInteger(amount) || amount < 1 || amount > 150000 || !term || term.length > 80) return res.status(400).json({ error: 'Enter a valid whole-KSh amount and school term' });
       const school = await School.findById(req.params.schoolId).select('+paymentProfile.darajaConsumerKeyEnc +paymentProfile.darajaConsumerSecretEnc +paymentProfile.darajaPasskeyEnc').lean();
       if (!school?.paymentProfile?.method) return res.status(409).json({ error: 'This school has not configured payment details. Contact the school office before paying.' });
