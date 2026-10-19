@@ -158,6 +158,11 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       }
       const phone = normalizeMpesaPhone(String(req.body?.phone || ''));
       if (!phone) return res.status(400).json({error: 'Enter a valid Kenyan M-Pesa phone number'});
+      const expectedMerchantNumber = profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber;
+      const submittedMerchantNumber = String(req.body?.merchantNumber || '').trim();
+      if (submittedMerchantNumber && submittedMerchantNumber !== expectedMerchantNumber) {
+        return res.status(409).json({error: 'The edited Till/Paybill number does not match the merchant shortcode authorized for STK. Ask the business owner to update its verified payment settings.'});
+      }
       const description = String(req.body?.description || ('Chatify ' + organization.name)).trim().slice(0, 120);
       const charge = buildPosCharge({organization, amount: req.body?.amount, description, reference: req.body?.reference, profile});
       charge.createdBy = req.user._id;
