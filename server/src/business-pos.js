@@ -55,6 +55,27 @@ export function resolvePosStkCallbackOutcome(callback, charge) {
 
 export const POS_METHODS = Object.freeze(['mpesa_till', 'mpesa_paybill']);
 
+// Reuse merchant Daraja providers across warm requests so OAuth tokens are cached
+// instead of paying an extra OAuth round-trip for every customer checkout.
+const merchantStkProviders = new Map();
+function getMerchantStkProvider({organizationId, encryptedCredentials, credentials, callbackUrl, method}) {
+  const key = String(organizationId) + ':' + encryptedCredentials + ':' + callbackUrl;
+  let provider = merchantStkProviders.get(key);
+  if (provider) {
+    merchantStkProviders.delete(key);
+    merchantStkProviders.set(key, provider);
+    return provider;
+  }
+  provider = createDarajaProvider({
+    mode: credentials.mode, consumerKey: credentials.consumerKey, consumerSecret: credentials.consumerSecret,
+    shortcode: credentials.shortcode, passkey: credentials.passkey, callbackUrl,
+    transactionType: method === 'mpesa_till' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline',
+  });
+  merchantStkProviders.set(key, provider);
+  while (merchantStkProviders.size > 100) merchantStkProviders.delete(merchantStkProviders.keys().next().value);
+  return provider;
+}
+
 export function normalizeMerchantPaymentProfile(input = {}) {
   const method = POS_METHODS.includes(input.method) ? input.method : null;
   const tillNumber = String(input.tillNumber || '').trim().replace(/\s+/g, '').slice(0, 32);
@@ -178,10 +199,9 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
         return res.status(503).json({error: 'Merchant STK callbacks are not configured. Contact the business owner.'});
       }
       const callbackUrl = 'https://' + baseUrl.host + '/api/business/pos/stk/callback/' + callbackToken;
-      const provider = createDarajaProvider({
-        mode: credentials.mode, consumerKey: credentials.consumerKey, consumerSecret: credentials.consumerSecret,
-        shortcode: credentials.shortcode, passkey: credentials.passkey, callbackUrl,
-        transactionType: profile.method === 'mpesa_till' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline',
+      const provider = getMerchantStkProvider({
+        organizationId: organization._id, encryptedCredentials: encrypted, credentials,
+        callbackUrl, method: profile.method,
       });
       charge.stkPhone = phone;
       charge.confirmationSource = 'daraja_stk_pending';
