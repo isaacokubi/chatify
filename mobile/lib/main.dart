@@ -2618,6 +2618,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 _metric('Pending platform fees (KSh)', overview['pendingPlatformFeeAmount'], Icons.account_balance_wallet_outlined),
                 _metric('Fee entries awaiting settlement', overview['pendingPlatformFeeCount'], Icons.receipt_long_outlined),
                 _metric('Failed payments', overview['failedPayments'], Icons.error_outline),
+                _metric('School workspaces', overview['totalSchools'], Icons.school_outlined),
+                _metric('Enrolled students', overview['totalStudents'], Icons.groups_outlined),
+                _metric('Attendance records', overview['totalAttendanceRecords'], Icons.fact_check_outlined),
+                _metric('Academic assessments', overview['totalAssessments'], Icons.grading_outlined),
+                _metric('School fee records', overview['totalSchoolFees'], Icons.receipt_long_outlined),
               ],
             ),
             const SizedBox(height: 12),
@@ -2697,7 +2702,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   List<dynamic> schools = [], messages = [], conferences = [], fees = [], members = [], students = [], attendance = [], assessments = [];
   String? schoolId, role, error;
   bool loading = false;
-  int section = 0;
+  int section = 0, recordPage = 1, recordTotal = 0;
+  static const int _recordPageSize = 20;
   final schoolName = TextEditingController(), schoolCode = TextEditingController();
   final memberEmail = TextEditingController(), studentNames = TextEditingController(), recipientIdController = TextEditingController();
   final messageBody = TextEditingController(), messageSubject = TextEditingController();
@@ -2748,35 +2754,131 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   Future<void> loadSection() async {
     final id = schoolId; if (id == null) return;
     setState(() { loading = true; error = null; });
+    final pageQuery = '?page=$recordPage&limit=$_recordPageSize';
     try {
       if (section == 0) {
-        final r = await app.api.call('GET', '/api/schools/$id/messages');
+        final r = await app.api.call('GET', '/api/schools/$id/messages$pageQuery');
+        recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         messages = List<dynamic>.from(r['messages'] ?? []);
         final directory = await app.api.call('GET', '/api/schools/$id/members');
         members = List<dynamic>.from(directory['members'] ?? []);
       } else if (section == 1) {
-        final r = await app.api.call('GET', '/api/schools/$id/conferences');
+        final r = await app.api.call('GET', '/api/schools/$id/conferences$pageQuery');
+        recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         conferences = List<dynamic>.from(r['conferences'] ?? []);
       } else if (section == 2) {
-        final r = await app.api.call('GET', '/api/schools/$id/fees');
+        final r = await app.api.call('GET', '/api/schools/$id/fees$pageQuery');
+        recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         fees = List<dynamic>.from(r['payments'] ?? []);
       } else if (section == 3 && role != 'parent') {
-        final r = await app.api.call('GET', '/api/schools/$id/members');
+        final r = await app.api.call('GET', '/api/schools/$id/members$pageQuery');
         members = List<dynamic>.from(r['members'] ?? []);
+        recordTotal = (r['total'] as num?)?.toInt() ?? 0;
       } else if (section == 5 || section == 6 || section == 7) {
         final results = await Future.wait([
-          app.api.call('GET', '/api/schools/$id/students'),
-          if (section == 6) app.api.call('GET', '/api/schools/$id/attendance'),
-          if (section == 7) app.api.call('GET', '/api/schools/$id/academics'),
+          app.api.call('GET', '/api/schools/$id/students$pageQuery'),
+          if (section == 6) app.api.call('GET', '/api/schools/$id/attendance$pageQuery'),
+          if (section == 7) app.api.call('GET', '/api/schools/$id/academics$pageQuery'),
         ]);
         students = List<dynamic>.from(results.first['students'] ?? []);
-        if (section == 6 && results.length > 1) attendance = List<dynamic>.from(results[1]['attendance'] ?? []);
-        if (section == 7 && results.length > 1) assessments = List<dynamic>.from(results[1]['assessments'] ?? []);
+        recordTotal = (results.first['total'] as num?)?.toInt() ?? 0;
+        if (section == 6 && results.length > 1) {
+          attendance = List<dynamic>.from(results[1]['attendance'] ?? []);
+          recordTotal = (results[1]['total'] as num?)?.toInt() ?? 0;
+        }
+        if (section == 7 && results.length > 1) {
+          assessments = List<dynamic>.from(results[1]['assessments'] ?? []);
+          recordTotal = (results[1]['total'] as num?)?.toInt() ?? 0;
+        }
         if (attendanceStudentId.isEmpty && students.isNotEmpty) attendanceStudentId = students.first['_id']?.toString() ?? '';
         if (assessmentStudentId.isEmpty && students.isNotEmpty) assessmentStudentId = students.first['_id']?.toString() ?? '';
       }
     } catch (e) { error = e.toString(); }
     if (mounted) setState(() => loading = false);
+  }
+
+  Widget _schoolPager() {
+    final pages = recordTotal == 0 ? 0 : (recordTotal / _recordPageSize).ceil();
+    if (pages <= 1) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(children: [
+        Expanded(child: Text('Page $recordPage of $pages · $recordTotal records')),
+        IconButton(tooltip: 'Previous page', onPressed: recordPage > 1 ? () {
+          setState(() => recordPage--); loadSection();
+        } : null, icon: const Icon(Icons.chevron_left)),
+        IconButton(tooltip: 'Next page', onPressed: recordPage < pages ? () {
+          setState(() => recordPage++); loadSection();
+        } : null, icon: const Icon(Icons.chevron_right)),
+      ]),
+    );
+  }
+
+  Future<void> _removeSchoolRecord({required String id, required String label, required String endpoint}) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('Delete $label?'),
+        content: Text(label == 'student'
+            ? 'The student will be archived so historical attendance and academic records remain intact.'
+            : 'This action cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await app.api.call('DELETE', '/api/schools/$schoolId/$endpoint');
+      await loadSection();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label removed.')));
+    } catch (error) {
+      if (mounted) {
+        await loadSection();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete $label: $error')));
+      }
+    }
+  }
+
+  Widget _swipeSchoolRecord({required String id, required String label, required String endpoint, required Widget child}) {
+    return Dismissible(
+      key: ValueKey('school-$section-$id'),
+      direction: DismissDirection.startToEnd,
+      background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 20),
+        margin: const EdgeInsets.symmetric(vertical: 3),
+        decoration: BoxDecoration(color: Theme.of(context).colorScheme.errorContainer, borderRadius: BorderRadius.circular(12)),
+        child: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.onErrorContainer),
+      ),
+      confirmDismiss: (_) async {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialog) => AlertDialog(
+            title: Text('Delete $label?'),
+            content: Text(label == 'student'
+                ? 'This archives the student and preserves historical school records.'
+                : 'This action cannot be undone.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
+            ],
+          ),
+        );
+        return confirmed == true;
+      },
+      onDismissed: (_) async {
+        try {
+          await app.api.call('DELETE', '/api/schools/$schoolId/$endpoint');
+          await loadSection();
+        } catch (error) {
+          await loadSection();
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete $label: $error')));
+        }
+      },
+      child: child,
+    );
   }
 
   Future<void> _action(Future<void> Function() action) async {
@@ -2925,14 +3027,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         if (schoolId != null) ...[
           const SizedBox(height:12),
           Wrap(spacing:8,runSpacing:8,children:[
-            ChoiceChip(label:const Text('Messages'),selected:section==0,onSelected:(_){setState(()=>section=0);loadSection();}),
-            ChoiceChip(label:const Text('Conferences'),selected:section==1,onSelected:(_){setState(()=>section=1);loadSection();}),
-            ChoiceChip(label:const Text('Fees'),selected:section==2,onSelected:(_){setState(()=>section=2);loadSection();}),
-            if (role!='parent') ChoiceChip(label:const Text('Members'),selected:section==3,onSelected:(_){setState(()=>section=3);loadSection();}),
+            ChoiceChip(label:const Text('Messages'),selected:section==0,onSelected:(_){setState(()=>{section=0;recordPage=1;});loadSection();}),
+            ChoiceChip(label:const Text('Conferences'),selected:section==1,onSelected:(_){setState(()=>{section=1;recordPage=1;});loadSection();}),
+            ChoiceChip(label:const Text('Fees'),selected:section==2,onSelected:(_){setState(()=>{section=2;recordPage=1;});loadSection();}),
+            if (role!='parent') ChoiceChip(label:const Text('Members'),selected:section==3,onSelected:(_){setState(()=>{section=3;recordPage=1;});loadSection();}),
             if (isAdmin) ChoiceChip(label:const Text('Payment setup'),selected:section==4,onSelected:(_){setState(()=>section=4);}),
-            ChoiceChip(label:const Text('Students'),selected:section==5,onSelected:(_){setState(()=>section=5);loadSection();}),
-            ChoiceChip(label:const Text('Attendance'),selected:section==6,onSelected:(_){setState(()=>section=6);loadSection();}),
-            ChoiceChip(label:const Text('Academics'),selected:section==7,onSelected:(_){setState(()=>section=7);loadSection();}),
+            ChoiceChip(label:const Text('Students'),selected:section==5,onSelected:(_){setState(()=>{section=5;recordPage=1;});loadSection();}),
+            ChoiceChip(label:const Text('Attendance'),selected:section==6,onSelected:(_){setState(()=>{section=6;recordPage=1;});loadSection();}),
+            ChoiceChip(label:const Text('Academics'),selected:section==7,onSelected:(_){setState(()=>{section=7;recordPage=1;});loadSection();}),
           ]),
           const SizedBox(height:14),
           if (loading) const Center(child:Padding(padding:EdgeInsets.all(16),child:CircularProgressIndicator())),
@@ -2942,18 +3044,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             if (audience == 'direct') DropdownButtonFormField<String>(value:members.any((m)=>m['userId']?.toString()==recipientIdController.text)?recipientIdController.text:null,decoration:const InputDecoration(labelText:'Message recipient',border:OutlineInputBorder()),items:members.map((m)=>DropdownMenuItem<String>(value:m['userId'].toString(),child:Text('${m['name'] ?? m['email'] ?? 'School contact'} • ${m['role']}',overflow:TextOverflow.ellipsis))).toList(),onChanged:(v)=>setState(()=>recipientIdController.text=v??'')),
             field(messageSubject,'Subject (optional)'),field(messageBody,'Message'),
             actionButton('Send message / announcement',sendMessage,icon:Icons.send),
-            ...messages.map((m)=>Card(child:ListTile(leading:const Icon(Icons.mark_chat_unread_outlined),title:Text((m['subject']??'School message').toString()),subtitle:Text((m['body']??'').toString()),isThreeLine:true))),
+            ...messages.map((m)=>_swipeSchoolRecord(id:m['_id'].toString(),label:'message',endpoint:'messages/${m['_id']}',child:Card(child:ListTile(leading:const Icon(Icons.mark_chat_unread_outlined),title:Text((m['subject']??'School message').toString()),subtitle:Text((m['body']??'').toString()),isThreeLine:true)))),
+            _schoolPager(),
           ],
           if (section==1) ...[
             if (isAdmin) ...[field(conferenceTitle,'Conference title'),field(conferenceAgenda,'Important information / agenda'),field(conferenceLocation,'Location (optional)'),actionButton('Schedule parent conference (tomorrow, 1 hour)',createConference,icon:Icons.event)],
-            ...conferences.map((c)=>Card(child:ListTile(leading:const Icon(Icons.event),title:Text((c['title']??'Conference').toString()),subtitle:Text('${c['agenda']??''}\n${c['startsAt']??''}\n${c['location']??''}')))),
+            ...conferences.map((c)=>_swipeSchoolRecord(id:c['_id'].toString(),label:'conference',endpoint:'conferences/${c['_id']}',child:Card(child:ListTile(leading:const Icon(Icons.event),title:Text((c['title']??'Conference').toString()),subtitle:Text('${c['agenda']??''}\n${c['startsAt']??''}\n${c['location']??''}'))))),
+            _schoolPager(),
           ],
           if (section==2) ...[
             if (role=='parent') ...[field(feeStudent,'Student name'),field(amount,'Amount in KSh',keyboard:TextInputType.number),field(feeTerm,'Term / year'),if(paymentMethod!='bank')field(payerPhone,'M-Pesa phone receiving the STK prompt',hint:'07XXXXXXXX or 2547XXXXXXXX',keyboard:TextInputType.phone),actionButton(paymentMethod=='bank'?'Record bank transfer':'Pay school fees with M-Pesa',startFeePayment,icon:Icons.payment)],
             ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']=='PENDING_VERIFICATION'?IconButton(tooltip:'Verify actual bank payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:_buildSchoolFeeReceiptPdf(Map<String,dynamic>.from(p)),fileExtension:'pdf'); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('PDF receipt downloaded successfully.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
             if (role == 'admin') ...fees.where((p)=>p['status']=='CONFIRMED').map((p)=>actionButton('Retry receipt email • ${p['paymentReference']}',()=>resendSchoolReceipt(Map<String,dynamic>.from(p)),icon:Icons.forward_to_inbox)),
           ],
-          if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))],
+          if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))),
+            _schoolPager()],
           if (section==5) ...[
             if (role != 'parent') ...[
               const Text('Student admission register', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -2963,7 +3068,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             ],
             Text('Enrolled students: ${students.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
             if (students.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('No student records yet. School staff can register students above.')),
-            ...students.map((s) => Card(child: ListTile(leading: const CircleAvatar(child: Icon(Icons.school_outlined)), title: Text((s['fullName'] ?? 'Student').toString()), subtitle: Text('${s['admissionNumber'] ?? ''} • ${s['className'] ?? ''}\n${s['guardianName'] ?? 'Guardian not recorded'} ${s['guardianPhone'] ?? ''}'), isThreeLine: true))),
+            ...students.map((s) => _swipeSchoolRecord(id:s['_id'].toString(),label:'student',endpoint:'students/${s['_id']}',child:Card(child: ListTile(leading: const CircleAvatar(child: Icon(Icons.school_outlined)), title: Text((s['fullName'] ?? 'Student').toString()), subtitle: Text('${s['admissionNumber'] ?? ''} • ${s['className'] ?? ''}\n${s['guardianName'] ?? 'Guardian not recorded'} ${s['guardianPhone'] ?? ''}'), isThreeLine: true)))),
+            _schoolPager(),
           ],
           if (section==6) ...[
             if (role != 'parent' && students.isNotEmpty) ...[
@@ -2974,7 +3080,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             ],
             Text('Attendance records: ${attendance.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
             if (attendance.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('No attendance records have been recorded yet.')),
-            ...attendance.map((a) => Card(child: ListTile(leading: Icon(a['status'] == 'present' ? Icons.check_circle : a['status'] == 'late' ? Icons.schedule : Icons.event_busy), title: Text('${a['studentName'] ?? 'Student'} • ${(a['status'] ?? '').toString().toUpperCase()}'), subtitle: Text('${a['className'] ?? ''} • ${a['date']?.toString().split('T').first ?? ''}${(a['note'] ?? '').toString().isEmpty ? '' : '\n${a['note']}'}')))),
+            ...attendance.map((a) => _swipeSchoolRecord(id:a['_id'].toString(),label:'attendance record',endpoint:'attendance/${a['_id']}',child:Card(child: ListTile(leading: Icon(a['status'] == 'present' ? Icons.check_circle : a['status'] == 'late' ? Icons.schedule : Icons.event_busy), title: Text('${a['studentName'] ?? 'Student'} • ${(a['status'] ?? '').toString().toUpperCase()}'), subtitle: Text('${a['className'] ?? ''} • ${a['date']?.toString().split('T').first ?? ''}${(a['note'] ?? '').toString().isEmpty ? '' : '\n${a['note']}'}'))))),
+            _schoolPager(),
           ],
           if (section==7) ...[
             if (role != 'parent' && students.isNotEmpty) ...[
@@ -2985,7 +3092,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             ],
             Text('Assessment results: ${assessments.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
             if (assessments.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('No assessment results have been recorded yet.')),
-            ...assessments.map((a) => Card(child: ListTile(leading: const Icon(Icons.assessment_outlined), title: Text('${a['studentName'] ?? 'Student'} • ${a['subject'] ?? ''}'), subtitle: Text('${a['assessment'] ?? ''} • ${a['term'] ?? ''}\nScore: ${a['score'] ?? 0} / ${a['outOf'] ?? 100}${(a['teacherNote'] ?? '').toString().isEmpty ? '' : '\n${a['teacherNote']}'}'), isThreeLine: true))),
+            ...assessments.map((a) => _swipeSchoolRecord(id:a['_id'].toString(),label:'assessment record',endpoint:'academics/${a['_id']}',child:Card(child: ListTile(leading: const Icon(Icons.assessment_outlined), title: Text('${a['studentName'] ?? 'Student'} • ${a['subject'] ?? ''}'), subtitle: Text('${a['assessment'] ?? ''} • ${a['term'] ?? ''}\nScore: ${a['score'] ?? 0} / ${a['outOf'] ?? 100}${(a['teacherNote'] ?? '').toString().isEmpty ? '' : '\n${a['teacherNote']}'}'), isThreeLine: true)))),
+            _schoolPager(),
           ],
           if (section==4 && isAdmin) ...[
             DropdownButtonFormField<String>(value:paymentMethod,decoration:const InputDecoration(labelText:'School payment method'),items:const [DropdownMenuItem(value:'mpesa_paybill',child:Text('M-Pesa Paybill')),DropdownMenuItem(value:'mpesa_till',child:Text('M-Pesa Till')),DropdownMenuItem(value:'bank',child:Text('Bank transfer'))],onChanged:(v)=>setState(()=>paymentMethod=v??'mpesa_paybill')),
