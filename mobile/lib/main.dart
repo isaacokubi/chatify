@@ -2672,7 +2672,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       if (section == 0) {
         final r = await app.api.call('GET', '/api/schools/$id/messages');
         messages = List<dynamic>.from(r['messages'] ?? []);
-        final directory = await app.api.call('GET', '/api/schools/$id/members');\n        members = List<dynamic>.from(directory['members'] ?? []);
+        final directory = await app.api.call('GET', '/api/schools/$id/members');
+        members = List<dynamic>.from(directory['members'] ?? []);
       } else if (section == 1) {
         final r = await app.api.call('GET', '/api/schools/$id/conferences');
         conferences = List<dynamic>.from(r['conferences'] ?? []);
