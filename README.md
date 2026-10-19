@@ -87,6 +87,18 @@ MongoDB Atlas is supported directly through configuration. SMTP password-reset e
 
 Set a persistent JWT_SECRET in the local environment if demo sessions must survive server restarts; production refuses to start without a 32-character secret. Production CORS requires exact HTTPS Flutter Web origins in CLIENT_ORIGIN; the Flutter Web host is not currently specified in this repository.
 
+## School communication and fee payments
+
+School administrators can configure a school-specific Daraja Paybill or Till, staff and parent membership, fee payments, conferences and official fee receipts. M-Pesa payments use that school's own shortcode and passkey; a pending STK request is not treated as paid. The API confirms a payment only after a Daraja callback matches the stored CheckoutRequestID and MerchantRequestID, the expected amount and payer phone, and a valid M-Pesa receipt number. Duplicate callbacks are idempotent. The generated receipt HTML is stored with the fee record in MongoDB and attached to emails sent to the parent and active school administrators.
+
+Before enabling this in the API deployment, configure these private environment variables:
+
+- `PUBLIC_API_URL`: the public HTTPS base URL of this API, used to construct `/api/schools/daraja/callback`.
+- `SCHOOL_PAYMENT_ENCRYPTION_KEY`: a unique random secret of at least 32 characters. School-specific Daraja consumer keys, consumer secrets and passkeys are encrypted at rest with AES-256-GCM. Keep this key backed up securely; do not commit it or send it in chat.
+- `SMTP_URL` and `SMTP_FROM`: required for receipt email delivery. If SMTP is unavailable, the receipt remains stored and downloadable, and an administrator can retry delivery using `POST /api/schools/:schoolId/fees/:paymentReference/receipt/resend`.
+
+A school administrator must enter that school's Daraja consumer key, consumer secret, passkey and matching Paybill/Till. Live deployments reject sandbox credentials. Keep all real credentials in the private API environment or the authenticated school setup form over HTTPS, never in source control. Bank transfer remains a manual-verification workflow; it does not trigger an M-Pesa prompt.
+
 ## Security
 Passwords are bcrypt-hashed. JWTs protect REST and Socket.IO. Server-side membership/admin checks protect conversations and groups. Helmet, CORS and rate limiting are enabled. Secrets are excluded by Git ignore rules. New text-message bodies are encrypted on the client, but legacy messages, attachments, Memory Cards, multi-device recovery and forward secrecy are not yet covered; do not claim the whole system is fully end-to-end encrypted. Message expiration is application-level removal/hiding and is not cryptographic secure deletion. See [docs/E2EE.md](docs/E2EE.md) for the threat model and production gates.
 
