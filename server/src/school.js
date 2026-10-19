@@ -117,10 +117,10 @@ export function registerSchoolRoutes({ app, auth, mongoose, User }) {
     } catch (error) { return next(error); }
   });
 
-  app.get('/api/schools/:schoolId/members', auth, requireRole('admin','staff'), async (req, res, next) => {
+  app.get('/api/schools/:schoolId/members', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
       const rows = await Membership.find({ schoolId: req.params.schoolId, active: true }).populate('userId', 'name email').lean();
-      return res.json({ members: rows.filter(x => x.userId).map(x => ({ id: String(x._id), userId: String(x.userId._id), name: x.userId.name, email: x.userId.email, role: x.role, studentNames: x.studentNames })) });
+      return res.json({ members: rows.filter(x => x.userId && (req.schoolMembership.role !== 'parent' || ['admin','staff'].includes(x.role))).map(x => ({ id: String(x._id), userId: String(x.userId._id), name: x.userId.name, email: x.userId.email, role: x.role, studentNames: x.studentNames })) });
     } catch (error) { return next(error); }
   });
 
