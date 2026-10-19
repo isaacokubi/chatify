@@ -2627,15 +2627,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   final messageBody = TextEditingController(), messageSubject = TextEditingController();
   final amount = TextEditingController(), feeStudent = TextEditingController(), feeTerm = TextEditingController(), payerPhone = TextEditingController();
   final paybill = TextEditingController(), till = TextEditingController(), bank = TextEditingController(), account = TextEditingController();
+  final darajaConsumerKey = TextEditingController(), darajaConsumerSecret = TextEditingController(), darajaPasskey = TextEditingController();
   final conferenceTitle = TextEditingController(), conferenceAgenda = TextEditingController(), conferenceLocation = TextEditingController();
-  String memberRole = 'parent', audience = 'direct', paymentMethod = 'mpesa_paybill';
+  String memberRole = 'parent', audience = 'direct', paymentMethod = 'mpesa_paybill', darajaMode = 'production';
 
   @override
   void initState() { super.initState(); loadSchools(); }
 
   @override
   void dispose() {
-    for (final c in [schoolName, schoolCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, conferenceTitle, conferenceAgenda, conferenceLocation]) { c.dispose(); }
+    for (final c in [schoolName, schoolCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, darajaConsumerKey, darajaConsumerSecret, darajaPasskey, conferenceTitle, conferenceAgenda, conferenceLocation]) { c.dispose(); }
     super.dispose();
   }
 
@@ -2659,6 +2660,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       till.text = (p['tillNumber'] ?? '').toString();
       bank.text = (p['bankName'] ?? '').toString();
       account.text = (p['accountNumber'] ?? '').toString();
+      darajaMode = (p['darajaMode'] ?? darajaMode).toString();
     }
     loadSection();
   }
@@ -2717,7 +2719,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   Future<void> savePaymentProfile() async {
     final id = schoolId; if (id == null) return;
     await _action(() async {
-      await app.api.call('PUT','/api/schools/$id/payment-profile', {'method':paymentMethod,'paybillNumber':paybill.text.trim(),'tillNumber':till.text.trim(),'bankName':bank.text.trim(),'accountNumber':account.text.trim()});
+      await app.api.call('PUT','/api/schools/$id/payment-profile', {
+        'method':paymentMethod,'paybillNumber':paybill.text.trim(),'tillNumber':till.text.trim(),
+        'bankName':bank.text.trim(),'accountNumber':account.text.trim(),
+        if (paymentMethod != 'bank') 'darajaMode':darajaMode,
+        if (paymentMethod != 'bank') 'darajaConsumerKey':darajaConsumerKey.text.trim(),
+        if (paymentMethod != 'bank') 'darajaConsumerSecret':darajaConsumerSecret.text.trim(),
+        if (paymentMethod != 'bank') 'darajaPasskey':darajaPasskey.text.trim(),
+      });
+      darajaConsumerKey.clear(); darajaConsumerSecret.clear(); darajaPasskey.clear();
       await loadSchools();
     });
   }
@@ -2748,10 +2758,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final n = int.tryParse(amount.text.trim());
     if (n == null || n < 1 || feeStudent.text.trim().isEmpty || feeTerm.text.trim().isEmpty) return;
     await _action(() async {
-      final r = await app.api.call('POST','/api/schools/$id/fees', {'studentName':feeStudent.text.trim(),'amount':n,'term':feeTerm.text.trim()});
+      final r = await app.api.call('POST','/api/schools/$id/fees', {'studentName':feeStudent.text.trim(),'amount':n,'term':feeTerm.text.trim(),'phone':payerPhone.text.trim()});
       final p = Map<String,dynamic>.from(r['paymentDestination'] ?? {});
       final method = p['method'] == 'mpesa_paybill' ? 'Paybill: ${p['paybillNumber']}' : p['method'] == 'mpesa_till' ? 'Till: ${p['tillNumber']}' : 'Bank: ${p['bankName']} / ${p['accountNumber']}';
-      if (mounted) showDialog<void>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Fee payment recorded as pending'),content:Text('${r['note'] ?? ''}\n\nSchool destination: $method\nReference: ${r['payment']?['paymentReference'] ?? ''}'),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Close'))]));
+      if (mounted) showDialog<void>(context:context,builder:(ctx)=>AlertDialog(title:Text((r['payment']?['status'] ?? '').toString() == 'PENDING_STK' ? 'M-Pesa prompt requested' : 'Fee payment recorded as pending'),content:Text('${r['note'] ?? ''}\n\nSchool destination: $method\nReference: ${r['payment']?['paymentReference'] ?? ''}'),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Close'))]));
       amount.clear(); await loadSection();
     });
   }
@@ -2803,8 +2813,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             ...conferences.map((c)=>Card(child:ListTile(leading:const Icon(Icons.event),title:Text((c['title']??'Conference').toString()),subtitle:Text('${c['agenda']??''}\n${c['startsAt']??''}\n${c['location']??''}')))),
           ],
           if (section==2) ...[
-            if (role=='parent') ...[field(feeStudent,'Student name'),field(amount,'Amount in KSh',keyboard:TextInputType.number),field(feeTerm,'Term / year'),actionButton('Record fee payment',startFeePayment,icon:Icons.payment)],
-            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']!='CONFIRMED'?IconButton(tooltip:'Verify actual payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:response.bodyBytes,fileExtension:'html',mimeType:MimeType.html); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Receipt downloaded. Open it to print or save as PDF.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
+            if (role=='parent') ...[field(feeStudent,'Student name'),field(amount,'Amount in KSh',keyboard:TextInputType.number),field(feeTerm,'Term / year'),field(payerPhone,'M-Pesa phone receiving the STK prompt',hint:'07XXXXXXXX or 2547XXXXXXXX',keyboard:TextInputType.phone),actionButton('Pay school fees with M-Pesa',startFeePayment,icon:Icons.payment)],
+            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']=='PENDING_VERIFICATION'?IconButton(tooltip:'Verify actual bank payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:response.bodyBytes,fileExtension:'html',mimeType:MimeType.html); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Receipt downloaded. Open it to print or save as PDF.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
           ],
           if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))],
           if (section==4 && isAdmin) ...[
@@ -2812,8 +2822,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             if(paymentMethod=='mpesa_paybill')field(paybill,'School Paybill number'),
             if(paymentMethod=='mpesa_till')field(till,'School Till number'),
             if(paymentMethod=='bank')... [field(bank,'Bank name'),field(account,'Account number')],
-            actionButton('Save school payment details',savePaymentProfile,icon:Icons.save),
-            const Text('Payment details configure the destination only. Automated STK Push and instant receipt delivery are not active until the school merchant integration is completed.',style:TextStyle(color:Colors.deepOrange)),
+            if(paymentMethod!='bank') ...[
+              DropdownButtonFormField<String>(value:darajaMode,decoration:const InputDecoration(labelText:'Safaricom Daraja environment'),items:const [DropdownMenuItem(value:'production',child:Text('Live production')),DropdownMenuItem(value:'sandbox',child:Text('Sandbox testing only'))],onChanged:(v)=>setState(()=>darajaMode=v??'production')),
+              field(darajaConsumerKey,'School Daraja consumer key'),
+              field(darajaConsumerSecret,'School Daraja consumer secret'),
+              field(darajaPasskey,'School shortcode passkey'),
+              const Text('Use the credentials issued for this school merchant and shortcode. Credentials are sent over HTTPS and encrypted on the API before storage; they are never displayed again.',style:TextStyle(fontSize:12)),
+            ],
+            actionButton('Save school payment setup',savePaymentProfile,icon:Icons.save),
+            const Text('Live STK Push requires the API server to have SCHOOL_PAYMENT_ENCRYPTION_KEY and PUBLIC_API_URL (or API_URL) configured, plus SMTP_URL and SMTP_FROM for automatic receipt emails. Never paste Daraja secrets into chat or GitHub.',style:TextStyle(color:Colors.deepOrange)),
           ],
         ],
       ])),
