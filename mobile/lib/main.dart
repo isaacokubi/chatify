@@ -43,6 +43,143 @@ class Api {
   String get base => const String.fromEnvironment('CHATIFY_API',
       defaultValue: 'https://chatify-api-c1eh.onrender.com');
   String? token;
+  // Cached GET responses let a previously signed-in user read the last synced
+  // conversations and account data while the API or internet is unavailable.
+  // The cache scope is derived from the authenticated account, never shared
+  // between different signed-in users on the same device.
+  bool lastResponseFromCache = false;
+  bool offlineDataMode = false;
+
+  String _stableCacheHash(String value) {
+    var hash = 2166136261;
+    for (final unit in value.codeUnits) {
+      hash = ((hash ^ unit) * 16777619) & 0xffffffff;
+    }
+    return hash.toRadixString(16);
+  }
+
+  String _cacheScope() {
+    final currentToken = token;
+    if (currentToken == null || currentToken.isEmpty) return 'anonymous';
+    final parts = currentToken.split('.');
+    if (parts.length == 3) {
+      try {
+        final payload = jsonDecode(
+          utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+        );
+        if (payload is Map) {
+          final accountId =
+              (payload['sub'] ?? payload['userId'] ?? payload['id'])?.toString();
+          if (accountId != null && accountId.isNotEmpty) {
+            return _stableCacheHash(accountId);
+          }
+        }
+      } catch (_) {
+        // Non-JWT tokens still get an isolated, stable cache namespace.
+      }
+    }
+    return _stableCacheHash(currentToken);
+  }
+
+  String _cacheKey(String path) =>
+      'chatify_offline_v1_${_cacheScope()}_${Uri.encodeComponent(path)}';
+
+  Future<Map<String, dynamic>?> _readCachedResponse(String path) async {
+    if (token == null || token!.isEmpty) return null;
+    try {
+      // All authenticated snapshots may contain private profile, payment,
+      // memory, or conversation details, so keep the cache platform-protected.
+      final cached = await _secureStorage.read(key: _cacheKey(path));
+      if (cached == null || cached.isEmpty) return null;
+      final decoded = jsonDecode(cached);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      // Storage can be unavailable (for example, in a restricted browser).
+    }
+    return null;
+  }
+
+  Future<void> _writeCachedResponse(
+      String path, Map<String, dynamic> response) async {
+    if (token == null || token!.isEmpty) return;
+    try {
+      final encoded = jsonEncode(response);
+      // Keep individual entries bounded so large histories do not exhaust
+      // browser local storage or make a small mobile device unresponsive.
+      if (encoded.length > 700000) return;
+      // Keep account-scoped API data in the same protected store as the
+      // session token instead of leaving private data in plain preferences.
+      await _secureStorage.write(key: _cacheKey(path), value: encoded);
+    } catch (_) {
+      // Caching is best-effort and must never break a successful API request.
+    }
+  }
+
+  String _conversationSnapshotKey(String conversationId) =>
+      'chatify_secure_messages_v1_${_cacheScope()}_${_stableCacheHash(conversationId)}';
+
+  String _conversationMetadataKey(String conversationId) =>
+      'chatify_secure_conversation_v1_${_cacheScope()}_${_stableCacheHash(conversationId)}';
+
+  Future<Map<String, dynamic>?> readConversationMetadata(
+      String conversationId) async {
+    try {
+      final encoded = await _secureStorage.read(
+          key: _conversationMetadataKey(conversationId));
+      if (encoded == null || encoded.isEmpty) return null;
+      final decoded = jsonDecode(encoded);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      // Metadata is optional; the server can refresh it when available.
+    }
+    return null;
+  }
+
+  Future<void> writeConversationMetadata(
+      String conversationId, Map<String, dynamic> conversation) async {
+    try {
+      final encoded = jsonEncode(conversation);
+      if (encoded.length <= 200000) {
+        await _secureStorage.write(
+            key: _conversationMetadataKey(conversationId), value: encoded);
+      }
+    } catch (_) {
+      // Do not let local cache failures affect normal messaging.
+    }
+  }
+
+  Future<List<dynamic>?> readConversationSnapshot(String conversationId) async {
+    try {
+      final encoded = await _secureStorage.read(
+          key: _conversationSnapshotKey(conversationId));
+      if (encoded == null || encoded.isEmpty) return null;
+      final decoded = jsonDecode(encoded);
+      if (decoded is List) return List<dynamic>.from(decoded);
+    } catch (_) {
+      // A corrupt or unavailable local snapshot should not prevent online use.
+    }
+    return null;
+  }
+
+  Future<void> writeConversationSnapshot(
+      String conversationId, List<dynamic> messages) async {
+    try {
+      final encoded = jsonEncode(messages);
+      // Avoid storing an unbounded history in one secure-storage value.
+      final bounded = messages.length > 300
+          ? messages.sublist(messages.length - 300)
+          : messages;
+      final value = bounded == messages ? encoded : jsonEncode(bounded);
+      if (value.length > 900000) return;
+      await _secureStorage.write(
+          key: _conversationSnapshotKey(conversationId), value: value);
+    } catch (_) {
+      // Local persistence is best-effort and must not interrupt chat delivery.
+    }
+  }
+
   Future<void> restore() async {
     token = await _secureStorage.read(key: 'token');
     // Migrate the previous preferences-based token once, then remove the less-protected copy.
@@ -73,11 +210,17 @@ class Api {
       if (token != null) 'Authorization': 'Bearer $token'
     };
     final u = Uri.parse('$base$path');
+    // Check whether a previous response is available before waiting on the
+    // network. A cached signed-in user should not wait through long API cold-start
+    // timeouts just to open their saved chats while offline.
+    final cachedBeforeRequest =
+        method == 'GET' ? await _readCachedResponse(path) : null;
     // Daraja may need one OAuth request followed by the STK request. Give
     // payment initiation enough time to finish so the UI doesn't report a
     // timeout while Safaricom may already be processing the prompt.
-    final requestTimeout =
-        ((path.contains('/api/payments/') && path.endsWith('/initiate')) ||
+    final requestTimeout = cachedBeforeRequest != null
+        ? const Duration(seconds: 5)
+        : ((path.contains('/api/payments/') && path.endsWith('/initiate')) ||
                 path.endsWith('/stk-push') ||
                 (path.contains('/pos/charges/') && path.endsWith('/stk')))
             ? const Duration(seconds: 35)
@@ -97,18 +240,53 @@ class Api {
     }
 
     late http.Response r;
+    lastResponseFromCache = false;
     try {
       r = await sendRequest().timeout(requestTimeout);
     } on TimeoutException {
-      // A sleeping free-tier API may need to wake after a long idle period.
-      // Retry only safe GET requests; never automatically repeat payment or write requests.
+      // Retry only safe GET requests. Writes and payments are never replayed.
       if (method != 'GET') rethrow;
       await Future<void>.delayed(const Duration(milliseconds: 500));
       try {
-        r = await sendRequest().timeout(const Duration(seconds: 25));
-      } on TimeoutException {
-        throw ApiException(408,
-            'Chatify is taking longer than expected to respond. Check your connection and retry.');
+        r = await sendRequest().timeout(
+            cachedBeforeRequest != null
+                ? const Duration(seconds: 5)
+                : const Duration(seconds: 25));
+      } catch (retryError) {
+        final cached = await _readCachedResponse(path);
+        if (cached != null) {
+          lastResponseFromCache = true;
+          offlineDataMode = true;
+          return cached;
+        }
+        if (retryError is TimeoutException) {
+          throw ApiException(408,
+              'Chatify is taking longer than expected to respond. Check your connection and retry.');
+        }
+        rethrow;
+      }
+    } catch (_) {
+      // A failed read should fall back to the last account-scoped response.
+      // Never do this for POST/PATCH/PUT/DELETE, especially payment requests.
+      if (method == 'GET') {
+        final cached = await _readCachedResponse(path);
+        if (cached != null) {
+          lastResponseFromCache = true;
+          offlineDataMode = true;
+          return cached;
+        }
+      }
+      rethrow;
+    }
+
+    // A server outage can also arrive as HTTP 5xx rather than a socket error.
+    // Use cached data for reads only; authentication failures still surface.
+    if (method == 'GET' && r.statusCode >= 500) {
+      final cached = await _readCachedResponse(path);
+      if (cached != null) {
+        lastResponseFromCache = true;
+        offlineDataMode = true;
+        return cached;
       }
     }
     // API routes must return JSON. Render/Vercel error pages and stale deployments
@@ -150,9 +328,14 @@ class Api {
               ? decoded['error'].toString()
               : 'Request failed (HTTP ${r.statusCode})');
     }
-    return decoded is Map
+    final result = decoded is Map
         ? Map<String, dynamic>.from(decoded)
-        : {'data': decoded};
+        : <String, dynamic>{'data': decoded};
+    if (method == 'GET') {
+      offlineDataMode = false;
+      await _writeCachedResponse(path, result);
+    }
+    return result;
   }
 
   Future<Map<String, dynamic>> paymentStatus(String paymentId) =>
@@ -2376,6 +2559,7 @@ class _HomeState extends State<Home> {
   int tab = 0;
   List<dynamic> chats = [], users = [], memories = [];
   bool loading = false;
+  bool offlineDataMode = false;
   bool selectingChats = false;
   final Set<String> selectedConversationIds = {};
   bool memoriesLoading = false, usersLoading = false;
@@ -2478,8 +2662,10 @@ class _HomeState extends State<Home> {
           (await app.api.call('GET', '/api/conversations'))['conversations'] ??
               []);
       chatsError = null;
+      offlineDataMode = app.api.offlineDataMode;
     } catch (error) {
       chatsError = error.toString();
+      offlineDataMode = app.api.offlineDataMode;
     }
     if (mounted) setState(() => loading = false);
   }
@@ -2519,6 +2705,7 @@ class _HomeState extends State<Home> {
       memories = List<dynamic>.from(
           (await app.api.call('GET', '/api/memories'))['memories'] ?? []);
       memoriesError = null;
+      offlineDataMode = app.api.offlineDataMode;
       if (mounted) setState(() {});
     } catch (error) {
       memoriesError = error.toString();
@@ -2604,14 +2791,32 @@ class _HomeState extends State<Home> {
             IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
         ],
       ),
-      body: IndexedStack(index: tab, children: [
-        _chats(),
-        const BusinessHub(),
-        _memories(),
-        _contacts(),
-        const Profile(),
-        const StoreDirectoryPage(),
-        if (isAdmin) const AdminDashboard()
+      body: Column(children: [
+        if (offlineDataMode || app.api.offlineDataMode)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: const Row(children: [
+              Icon(Icons.cloud_off_outlined, size: 18),
+              SizedBox(width: 8),
+              Expanded(child: Text(
+                'Offline mode — showing saved data. New changes need a connection to sync.',
+                style: TextStyle(fontSize: 12),
+              )),
+            ]),
+          ),
+        Expanded(
+          child: IndexedStack(index: tab, children: [
+            _chats(),
+            const BusinessHub(),
+            _memories(),
+            _contacts(),
+            const Profile(),
+            const StoreDirectoryPage(),
+            if (isAdmin) const AdminDashboard()
+          ]),
+        ),
       ]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
@@ -3629,6 +3834,7 @@ class _ChatState extends State<Chat> {
   bool _socketConnectedOnce = false;
   String? _socketToken;
   String? loadError;
+  bool showingOfflineData = false;
   AppState get app => context.read<AppState>();
 
   @override
@@ -3857,7 +4063,54 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> _persistConversationMessages() async {
+    final conversationId = widget.conversation['_id']?.toString();
+    if (conversationId == null || conversationId.isEmpty || messages.isEmpty) {
+      return;
+    }
+    // Keep the encrypted payload, not its decrypted plaintext, for E2EE messages.
+    // The snapshot itself is written through FlutterSecureStorage.
+    final snapshot = messages.whereType<Map>().map((message) {
+      final copy = Map<String, dynamic>.from(message);
+      if (copy['encryptionVersion'] == 1 &&
+          copy['encryptedPayload'] is String) {
+        copy.remove('text');
+        copy.remove('decryptionFailed');
+      }
+      return copy;
+    }).toList();
+    await app.api.writeConversationSnapshot(conversationId, snapshot);
+  }
+
   Future<void> load() async {
+    final conversationId = widget.conversation['_id']?.toString() ?? '';
+    // Hydrate the last saved history before attempting the network. This avoids
+    // an empty chat or spinner when a previously opened conversation is offline.
+    try {
+      final cachedConversation =
+          await app.api.readConversationMetadata(conversationId);
+      if (cachedConversation != null) {
+        widget.conversation.addAll(cachedConversation);
+      }
+      final cached = await app.api.readConversationSnapshot(conversationId);
+      if (cached != null && cached.isNotEmpty && mounted && messages.isEmpty) {
+        final hydrated = await Future.wait(cached.map((raw) async {
+          if (raw is Map) return _decryptMessage(Map<String, dynamic>.from(raw));
+          return raw;
+        }));
+        if (mounted) {
+          setState(() {
+            messages = mergeMessages(messages, hydrated);
+            loading = false;
+            loadError = null;
+            showingOfflineData = true;
+          });
+          _scrollToLatestMessage();
+        }
+      }
+    } catch (_) {
+      // Fall through to API cache/network loading if local hydration fails.
+    }
     try {
       // Fetch conversation metadata and messages together: these are independent
       // requests, and serialising them adds a full network round-trip to every
@@ -3871,6 +4124,8 @@ class _ChatState extends State<Chat> {
       final detail = results[0];
       widget.conversation
           .addAll(Map<String, dynamic>.from(detail['conversation']));
+      unawaited(app.api.writeConversationMetadata(
+          conversationId, widget.conversation));
       final fetched = List<dynamic>.from(results[1]['messages'] ?? []);
       final decryptedFetched = await Future.wait(fetched.map((raw) async {
         if (raw is Map) return _decryptMessage(Map<String, dynamic>.from(raw));
@@ -3881,7 +4136,9 @@ class _ChatState extends State<Chat> {
           messages = mergeMessages(messages, decryptedFetched);
           loading = false;
           loadError = null;
+          showingOfflineData = app.api.offlineDataMode;
         });
+        unawaited(_persistConversationMessages());
         _scrollToLatestMessage();
         // Inspect recent text messages automatically; users do not need the manual-save menu.
         _scanRecentMessagesForMemory(fetched);
@@ -3913,7 +4170,13 @@ class _ChatState extends State<Chat> {
         }
       }
     } catch (error) {
-      loadError = error.toString();
+      if (messages.isEmpty) {
+        loadError = error.toString();
+      } else {
+        // Keep readable cached history visible if the refresh fails.
+        loadError = null;
+        showingOfflineData = true;
+      }
     }
     if (mounted && loading) {
       setState(() => loading = false);
@@ -3942,7 +4205,11 @@ class _ChatState extends State<Chat> {
       socket!.emit('conversation:join', widget.conversation['_id']);
       // A long-idle socket can reconnect after messages were sent on another
       // device. Fetch the durable server history after reconnect to fill gaps.
-      if (_socketConnectedOnce) unawaited(load());
+      // Also refresh on the first successful connection after starting offline;
+      // that is when this device needs to catch up with messages sent elsewhere.
+      if (_socketConnectedOnce || showingOfflineData || app.api.offlineDataMode) {
+        unawaited(load());
+      }
       _socketConnectedOnce = true;
     });
     socket!.on('typing:start', (data) {
@@ -3998,6 +4265,7 @@ class _ChatState extends State<Chat> {
             !messages
                 .any((item) => item is Map && item['_id']?.toString() == id)) {
           setState(() => messages = mergeMessages(messages, [incoming]));
+          unawaited(_persistConversationMessages());
           _scrollToLatestMessage();
           // Detect meaningful information in new live messages.
           _detectMemoryForMessage(incoming);
@@ -4042,6 +4310,7 @@ class _ChatState extends State<Chat> {
         copy['reactions'] = [];
         messages[index] = copy;
       });
+      unawaited(_persistConversationMessages());
     });
     socket!.on('message:expired', (data) {
       if (!mounted || data is! Map) return;
@@ -4057,6 +4326,7 @@ class _ChatState extends State<Chat> {
           copy['mediaUrl'] = null;
           messages[index] = copy;
         });
+        unawaited(_persistConversationMessages());
       }
     });
     socket!.on(
@@ -4082,6 +4352,7 @@ class _ChatState extends State<Chat> {
       updated[field] = ids;
       messages[index] = updated;
     });
+    unawaited(_persistConversationMessages());
   }
 
   Future<void> markReceived(String id) async {
@@ -4122,6 +4393,7 @@ class _ChatState extends State<Chat> {
         }
         reply = null;
       });
+      unawaited(_persistConversationMessages());
       input.clear();
       _scrollToLatestMessage();
       // Sent messages can contain useful reminders or personal details too.
@@ -5568,6 +5840,20 @@ class _ChatState extends State<Chat> {
         ],
       ),
       body: Column(children: [
+        if (showingOfflineData || app.api.offlineDataMode)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: const Row(children: [
+              Icon(Icons.cloud_off_outlined, size: 18),
+              SizedBox(width: 8),
+              Expanded(child: Text(
+                'Offline mode — showing saved messages. Connect to send and sync new changes.',
+                style: TextStyle(fontSize: 12),
+              )),
+            ]),
+          ),
         if (closedPaymentCount > 0)
           Align(
             alignment: Alignment.centerLeft,

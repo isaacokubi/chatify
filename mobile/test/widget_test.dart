@@ -31,6 +31,65 @@ void main() {
     api.client.close();
   });
 
+  test('authenticated GET falls back to cached data when the network is lost', () async {
+    SharedPreferences.setMockInitialValues({});
+    final firstClient = MockClient((request) async {
+      expect(request.method, 'GET');
+      expect(request.url.path, '/api/conversations');
+      return http.Response(
+        '{"conversations":[{"_id":"conversation-1","lastMessage":{"text":"Previously received"}}]}',
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final firstApi = Api(client: firstClient)..token = 'offline-test-token';
+    final online = await firstApi.call('GET', '/api/conversations');
+    expect((online['conversations'] as List).single['_id'], 'conversation-1');
+    firstClient.close();
+
+    final offlineClient = MockClient((_) async {
+      throw http.ClientException('No internet connection');
+    });
+    final offlineApi = Api(client: offlineClient)..token = 'offline-test-token';
+    final cached = await offlineApi.call('GET', '/api/conversations');
+    expect((cached['conversations'] as List).single['lastMessage']['text'],
+        'Previously received');
+    expect(offlineApi.lastResponseFromCache, isTrue);
+    expect(offlineApi.offlineDataMode, isTrue);
+
+    final otherAccountClient = MockClient((_) async {
+      throw http.ClientException('No internet connection');
+    });
+    final otherAccountApi = Api(client: otherAccountClient)
+      ..token = 'a-different-account-token';
+    await expectLater(
+      otherAccountApi.call('GET', '/api/conversations'),
+      throwsA(isA<http.ClientException>()),
+    );
+    offlineClient.close();
+    otherAccountClient.close();
+  });
+
+  test('conversation snapshots are securely cached per account', () async {
+    SharedPreferences.setMockInitialValues({});
+    final first = Api()..token = 'snapshot-account-one';
+    await first.writeConversationSnapshot('conversation-1', [
+      {'_id': 'message-1', 'text': 'Saved encrypted history'}
+    ]);
+    expect(
+      (await first.readConversationSnapshot('conversation-1'))!.single['_id'],
+      'message-1',
+    );
+
+    final otherAccount = Api()..token = 'snapshot-account-two';
+    expect(
+      await otherAccount.readConversationSnapshot('conversation-1'),
+      isNull,
+    );
+    first.client.close();
+    otherAccount.client.close();
+  });
+
   test('temporary API failure preserves the stored login token', () async {
     SharedPreferences.setMockInitialValues({'token': 'existing-token'});
     final client = MockClient(
