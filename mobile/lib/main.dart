@@ -2814,33 +2814,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     );
   }
 
-  Future<void> _removeSchoolRecord({required String id, required String label, required String endpoint}) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialog) => AlertDialog(
-        title: Text('Delete $label?'),
-        content: Text(label == 'student'
-            ? 'The student will be archived so historical attendance and academic records remain intact.'
-            : 'This action cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    try {
-      await app.api.call('DELETE', '/api/schools/$schoolId/$endpoint');
-      await loadSection();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label removed.')));
-    } catch (error) {
-      if (mounted) {
-        await loadSection();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete $label: $error')));
-      }
-    }
-  }
-
   Widget _swipeSchoolRecord({required String id, required String label, required String endpoint, required Widget child}) {
     return Dismissible(
       key: ValueKey('school-$section-$id'),
