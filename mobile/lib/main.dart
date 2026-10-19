@@ -2739,9 +2739,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final receipt = await showDialog<String>(context:context,builder:(ctx)=>AlertDialog(
       title:const Text('Verify school fee payment'),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
-        Text('Confirm the real transaction in the school M-Pesa statement before entering its receipt number. Ref: ${payment['paymentReference'] ?? ''}'),
+        Text('Confirm the real transaction in the school statement before entering its receipt/reference number. Ref: ${payment['paymentReference'] ?? ''}'),
         const SizedBox(height:12),
-        TextField(controller:receiptController,decoration:const InputDecoration(labelText:'Actual M-Pesa receipt number')),
+        TextField(controller:receiptController,decoration:const InputDecoration(labelText:'Actual payment receipt / transaction reference')),
       ]),
       actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(ctx,receiptController.text.trim()),child:const Text('Confirm payment'))],
     ));
