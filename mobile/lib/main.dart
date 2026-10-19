@@ -2707,14 +2707,15 @@ class SchoolWorkspacePage extends StatefulWidget {
 
 class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   AppState get app => context.read<AppState>();
-  List<dynamic> schools = [], messages = [], conferences = [], fees = [], members = [], students = [], attendance = [], assessments = [];
+  List<dynamic> schools = [], messages = [], conferences = [], fees = [], members = [], students = [], attendance = [], assessments = [], schoolVerificationRequests = [];
   Map<String, dynamic> feePaymentOptions = {};
   String? schoolId, role, error;
   bool isOwner = false;
+  bool isSchoolVerificationReviewer = false;
   bool loading = false;
   int section = 0, recordPage = 1, recordTotal = 0;
   static const int _recordPageSize = 20;
-  final schoolName = TextEditingController(), schoolCode = TextEditingController(), joinSchoolCode = TextEditingController(), joinStaffCode = TextEditingController(), staffInviteCode = TextEditingController();
+  final schoolName = TextEditingController(), schoolCode = TextEditingController(), schoolCounty = TextEditingController(), schoolOfficialEmail = TextEditingController(), schoolOfficialPhone = TextEditingController(), joinSchoolCode = TextEditingController(), joinStaffCode = TextEditingController(), staffInviteCode = TextEditingController();
   final memberEmail = TextEditingController(), studentNames = TextEditingController(), recipientIdController = TextEditingController();
   final messageBody = TextEditingController(), messageSubject = TextEditingController();
   final amount = TextEditingController(), feeStudent = TextEditingController(), feeTerm = TextEditingController(), payerPhone = TextEditingController();
@@ -2732,7 +2733,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   @override
   void dispose() {
-    for (final c in [schoolName, schoolCode, joinSchoolCode, joinStaffCode, staffInviteCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, darajaConsumerKey, darajaConsumerSecret, darajaPasskey, conferenceTitle, conferenceAgenda, conferenceLocation, admissionNumber, registeredStudentName, studentClass, guardianName, guardianPhone, guardianEmail, attendanceDate, attendanceNote, subjectName, assessmentName, assessmentTerm, assessmentScore, assessmentOutOf, teacherNote]) { c.dispose(); }
+    for (final c in [schoolName, schoolCode, schoolCounty, schoolOfficialEmail, schoolOfficialPhone, joinSchoolCode, joinStaffCode, staffInviteCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, darajaConsumerKey, darajaConsumerSecret, darajaPasskey, conferenceTitle, conferenceAgenda, conferenceLocation, admissionNumber, registeredStudentName, studentClass, guardianName, guardianPhone, guardianEmail, attendanceDate, attendanceNote, subjectName, assessmentName, assessmentTerm, assessmentScore, assessmentOutOf, teacherNote]) { c.dispose(); }
     super.dispose();
   }
 
@@ -2741,6 +2742,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     try {
       final result = await app.api.call('GET', '/api/schools');
       schools = List<dynamic>.from(result['schools'] ?? []);
+      try {
+        final verification = await app.api.call('GET', '/api/schools/verification-requests');
+        schoolVerificationRequests = List<dynamic>.from(verification['requests'] ?? []);
+        isSchoolVerificationReviewer = verification['reviewer'] == true;
+      } catch (_) {
+        // Existing school access remains usable if verification-request listing is unavailable.
+      }
       if (schoolId == null && schools.isNotEmpty) _selectSchool(Map<String,dynamic>.from(schools.first));
       if (mounted) setState(() {});
     } catch (e) { error = e.toString(); }
@@ -2911,10 +2919,38 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> createSchool() async {
-    if (schoolName.text.trim().isEmpty || schoolCode.text.trim().isEmpty) return;
+    if (schoolName.text.trim().isEmpty || schoolCode.text.trim().isEmpty ||
+        schoolCounty.text.trim().isEmpty || schoolOfficialEmail.text.trim().isEmpty ||
+        schoolOfficialPhone.text.trim().isEmpty) {
+      setState(() => error = 'Complete all school verification details before submitting.');
+      return;
+    }
     await _action(() async {
-      await app.api.call('POST','/api/schools', {'name':schoolName.text.trim(),'code':schoolCode.text.trim()});
-      schoolName.clear(); schoolCode.clear(); await loadSchools();
+      await app.api.call('POST', '/api/schools/verification-requests', {
+        'schoolName': schoolName.text.trim(),
+        'proposedCode': schoolCode.text.trim(),
+        'county': schoolCounty.text.trim(),
+        'officialEmail': schoolOfficialEmail.text.trim(),
+        'officialPhone': schoolOfficialPhone.text.trim(),
+      });
+      schoolName.clear(); schoolCode.clear(); schoolCounty.clear();
+      schoolOfficialEmail.clear(); schoolOfficialPhone.clear();
+      await loadSchools();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verification request submitted. The workspace will only be created after Chatify verifies the school.')),
+      );
+    });
+  }
+
+  Future<void> reviewSchoolVerification(Map<String, dynamic> request, String decision) async {
+    final requestId = request['id']?.toString();
+    if (!isSchoolVerificationReviewer || requestId == null) return;
+    await _action(() async {
+      await app.api.call('POST', '/api/schools/verification-requests/$requestId/review', {
+        'decision': decision,
+        'reviewNote': decision == 'APPROVE' ? 'School identity verified by Chatify reviewer.' : 'School identity could not be verified.',
+      });
+      await loadSchools();
     });
   }
 
@@ -3174,7 +3210,34 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         if (schoolId != null) Padding(padding:const EdgeInsets.only(top:6),child:Text(isOwner ? 'Owner verified: you created this school workspace. Only your account can change school settings and administer it.' : 'Membership verified: your account is not this school's owner. Owner-only settings and administration are locked.',style:TextStyle(color:isOwner ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.secondary,fontWeight:FontWeight.w600))),
         if (isAdmin && schoolCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:6),child:Text('Share this school invitation code with parents and staff: ${schoolCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.primary,fontWeight:FontWeight.w600))),
         if (isAdmin && staffInviteCode.text.isNotEmpty) Padding(padding:const EdgeInsets.only(top:4),child:Text('Private staff invitation code (share with staff only): ${staffInviteCode.text}',style:TextStyle(color:Theme.of(context).colorScheme.secondary,fontWeight:FontWeight.w600))),
-        if (schools.isEmpty) ...[field(schoolName,'School name'),field(schoolCode,'Unique school code',hint:'e.g. NAIROBI-PRI'),actionButton('Create school workspace',createSchool,icon:Icons.school)],
+        if (schools.isEmpty) ...[
+          const Card(child: Padding(padding: EdgeInsets.all(12), child: Text('School workspaces are not created instantly. Chatify must verify that the school exists before an administrator workspace is activated. Do not submit a school you cannot represent.'))),
+          field(schoolName, 'Official school name'),
+          field(schoolCode, 'Proposed unique school code', hint: 'e.g. NAIROBI-PRI'),
+          field(schoolCounty, 'County where the school is located'),
+          field(schoolOfficialEmail, 'Official school email', hint: 'Use the school’s official contact email'),
+          field(schoolOfficialPhone, 'Official school phone number', hint: 'The school office contact number', keyboard: TextInputType.phone),
+          actionButton('Submit school for verification', createSchool, icon: Icons.verified_user),
+        ],
+        if (schoolVerificationRequests.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text('School verification requests', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ...schoolVerificationRequests.map((raw) {
+            final request = Map<String, dynamic>.from(raw as Map);
+            final status = (request['status'] ?? 'PENDING').toString();
+            return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text((request['schoolName'] ?? 'School request').toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text('Code: ${request['proposedCode'] ?? ''} • County: ${request['county'] ?? ''}'),
+              Text('Official contact: ${request['officialEmail'] ?? ''} • ${request['officialPhone'] ?? ''}'),
+              Text('Status: $status'),
+              if ((request['reviewNote'] ?? '').toString().isNotEmpty) Text((request['reviewNote']).toString()),
+              if (isSchoolVerificationReviewer && status == 'PENDING') Wrap(spacing: 8, children: [
+                FilledButton.icon(onPressed: () => reviewSchoolVerification(request, 'APPROVE'), icon: const Icon(Icons.verified), label: const Text('Approve')),
+                OutlinedButton.icon(onPressed: () => reviewSchoolVerification(request, 'REJECT'), icon: const Icon(Icons.block), label: const Text('Reject')),
+              ]),
+            ])));
+          }),
+        ],
         if (schoolId != null) ...[
           const SizedBox(height:12),
           Wrap(spacing:8,runSpacing:8,children:[
