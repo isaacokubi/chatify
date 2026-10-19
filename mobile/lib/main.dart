@@ -2721,6 +2721,27 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
+  Future<void> verifyFee(Map<String,dynamic> payment) async {
+    final id = schoolId; if (id == null) return;
+    final receiptController = TextEditingController();
+    final receipt = await showDialog<String>(context:context,builder:(ctx)=>AlertDialog(
+      title:const Text('Verify school fee payment'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        Text('Confirm the real transaction in the school M-Pesa statement before entering its receipt number. Ref: ${payment['paymentReference'] ?? ''}'),
+        const SizedBox(height:12),
+        TextField(controller:receiptController,decoration:const InputDecoration(labelText:'Actual M-Pesa receipt number')),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(ctx,receiptController.text.trim()),child:const Text('Confirm payment'))],
+    ));
+    final value = receipt?.trim() ?? '';
+    if (value.isEmpty) { receiptController.dispose(); return; }
+    await _action(() async {
+      await app.api.call('POST','/api/schools/$id/fees/${payment['paymentReference']}/verify',{'mpesaReceipt':value});
+      await loadSection();
+    });
+    receiptController.dispose();
+  }
+
   Future<void> startFeePayment() async {
     final id = schoolId; if (id == null) return;
     final n = int.tryParse(amount.text.trim());
@@ -2781,7 +2802,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           ],
           if (section==2) ...[
             if (role=='parent') ...[field(feeStudent,'Student name'),field(amount,'Amount in KSh',keyboard:TextInputType.number),field(feeTerm,'Term / year'),actionButton('Record fee payment',startFeePayment,icon:Icons.payment)],
-            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:response.bodyBytes,fileExtension:'html',mimeType:MimeType.html); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Receipt downloaded. Open it to print or save as PDF.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
+            ...fees.map((p)=>Card(child:ListTile(leading:Icon(p['status']=='CONFIRMED'?Icons.verified:Icons.pending_actions),title:Text('KSh ${p['amount']??''} • ${p['studentName']??''}'),subtitle:Text('${p['term']??''} • ${p['status']??'PENDING'} • Ref ${p['paymentReference']??''}'),trailing:role=='admin' && p['status']!='CONFIRMED'?IconButton(tooltip:'Verify actual payment',icon:const Icon(Icons.verified_outlined),onPressed:()=>verifyFee(Map<String,dynamic>.from(p))):p['status']=='CONFIRMED'?IconButton(tooltip:'Download printable receipt',icon:const Icon(Icons.receipt_long),onPressed:() async { try { final uri=Uri.parse('${app.api.base}/api/schools/$schoolId/fees/${p['paymentReference']}/receipt'); final response=await app.api.client.get(uri,headers:{if(app.api.token!=null)'Authorization':'Bearer ${app.api.token}'}); if(response.statusCode>=400) throw ApiException(response.statusCode,'Receipt download failed'); await FileSaver.instance.saveFile(name:'school-fee-receipt-${p['paymentReference']}',bytes:response.bodyBytes,fileExtension:'html',mimeType:MimeType.html); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Receipt downloaded. Open it to print or save as PDF.'))); } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString()))); } }):null))),
           ],
           if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))],
           if (section==4 && isAdmin) ...[
