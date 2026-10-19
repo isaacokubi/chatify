@@ -2992,7 +2992,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   Future<void> editParentPupilInfo(Map<String, dynamic> member) async {
     final id = schoolId;
-    if (id == null || !isOwner || role != 'admin' || member['role'] != 'parent') return;
+    if (id == null || !isOwner || role != 'admin' || !['parent', 'staff'].contains(member['role'])) return;
     final namesController = TextEditingController(
       text: (member['studentNames'] is List
           ? (member['studentNames'] as List).map((value) => value.toString()).join(', ')
@@ -3007,16 +3007,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Parent: ${member['name'] ?? member['email'] ?? 'Parent'}'),
+              Text('${member['role'] == 'staff' ? 'Staff member' : 'Parent'}: ${member['name'] ?? member['email'] ?? 'Member'}'),
               const SizedBox(height: 8),
-              const Text('Correct the pupil name(s) supplied by this parent. Use the names on the school register and separate multiple pupils with commas.'),
+              const Text('Set the exact pupil name(s) this member is authorized to view. Use names from the school register and separate multiple pupils with commas.'),
               const SizedBox(height: 12),
               TextField(
                 controller: namesController,
                 autofocus: true,
                 maxLines: 3,
                 decoration: const InputDecoration(
-                  labelText: 'Correct pupil name(s)',
+                  labelText: 'Linked pupil name(s)',
                   hintText: 'e.g. Brian Otieno, Mary Otieno',
                   border: OutlineInputBorder(),
                 ),
@@ -3203,7 +3203,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           field(joinSchoolCode,'School invite code',hint:'Ask the school administrator for its code'),
           DropdownButtonFormField<String>(initialValue:memberRole,decoration:const InputDecoration(labelText:'Join as',border:OutlineInputBorder()),items:const [DropdownMenuItem(value:'parent',child:Text('Parent / guardian')),DropdownMenuItem(value:'staff',child:Text('Teacher / staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),
           if(memberRole=='staff') field(joinStaffCode,'Staff invitation code',hint:'Separate code supplied by the school administrator'),
-          if(memberRole=='parent') field(studentNames,'Linked student name(s)',hint:'Enter exact names, separated by commas'),
+          field(studentNames,'Linked student name(s)',hint:'Enter exact registered names, separated by commas'),
           actionButton('Join school',joinSchool,icon:Icons.group_add),
         ]))),
         if (schools.isNotEmpty) DropdownButtonFormField<String>(initialValue:schoolId,decoration:const InputDecoration(labelText:'Your school',border:OutlineInputBorder()),items:schools.map((s)=>DropdownMenuItem<String>(value:s['id'].toString(),child:Text(s['name'].toString(),overflow:TextOverflow.ellipsis))).toList(),onChanged:(id){final s=schools.cast<Map>().firstWhere((x)=>x['id']==id);setState(()=>_selectSchool(Map<String,dynamic>.from(s)));}),
@@ -3324,7 +3324,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             )),
             _schoolPager(),
           ],
-          if (section==3 && (role=='staff' || isAdmin)) ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(initialValue:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'),trailing:isAdmin && m['role']=='parent'?IconButton(tooltip:'Correct linked pupil information',icon:const Icon(Icons.edit_outlined),onPressed:()=>editParentPupilInfo(Map<String,dynamic>.from(m))):null)))),
+          if (section==3 && (role=='staff' || isAdmin)) ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(initialValue:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Exact names from the school register'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>_swipeSchoolRecord(id:m['id'].toString(),label:'member',endpoint:'members/${m['id']}',child:Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'),trailing:isAdmin && ['parent','staff'].contains(m['role'])?IconButton(tooltip:'Edit linked pupil access',icon:const Icon(Icons.edit_outlined),onPressed:()=>editParentPupilInfo(Map<String,dynamic>.from(m))):null)))),
             _schoolPager()],
           if (section==5) ...[
             if (role != 'parent') ...[
