@@ -5299,12 +5299,12 @@ class _ChatState extends State<Chat> {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(opened
                   ? 'M-Pesa menu opened. Recipient $recipientPhone copied. Choose Send Money, enter KSh $amountValue, and confirm the recipient before entering your PIN.'
-                  : 'Recipient ${recipientPhone} copied. Open M-Pesa on ${normalizedSender ?? senderPhone.text.trim()}, choose Send Money, and enter KSh ${amountValue}.'),
+                  : 'Recipient $recipientPhone copied. Open M-Pesa on ${normalizedSender ?? senderPhone.text.trim()}, choose Send Money, and enter KSh $amountValue.'),
               duration: const Duration(seconds: 7),
             ));
           }
         } catch (_) {
-          if (mounted) {
+          if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(
                 'Recipient ${recipientPhone} copied. Open M-Pesa, choose Send Money, and enter KSh ${amountValue}.',
