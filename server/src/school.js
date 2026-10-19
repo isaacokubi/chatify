@@ -1,13 +1,13 @@
 // School communication, conferences and fee-ledger API.
 // All school records are scoped to the authenticated user's school membership.
 // A fee receipt is available only after an authorized staff member verifies payment.
-import { randomUUID, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
+import { randomUUID, randomBytes, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
 import { createDarajaProvider, normalizeMpesaPhone, resolveCallbackOutcome } from './payments.js';
 
 export function encryptSchoolSecret(value, secret = process.env.SCHOOL_PAYMENT_ENCRYPTION_KEY) {
   if (typeof secret !== 'string' || secret.trim().length < 32) throw new Error('School payment encryption is not configured');
   const key = createHash('sha256').update(secret).digest();
-  const iv = Buffer.from(randomUUID().replace(/-/g, '').slice(0, 24), 'hex');
+  const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
   return [iv.toString('hex'), cipher.getAuthTag().toString('hex'), encrypted.toString('hex')].join(':');
@@ -419,8 +419,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         throw error;
       }
       if (!confirmed) return res.json({ ok: true, duplicate: true });
-      await deliverSchoolReceipt(confirmed._id);
-      return res.json({ ok: true });
+      res.json({ ok: true });
+      deliverSchoolReceipt(confirmed._id).catch(error => console.error('School receipt delivery processing failed', { paymentReference: confirmed.paymentReference, message: String(error?.message || 'unknown').slice(0, 160) }));
+      return;
     } catch (error) { return next(error); }
   });
 
