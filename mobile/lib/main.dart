@@ -4762,10 +4762,172 @@ class _ChatState extends State<Chat> {
     );
     if (!mounted || mode == null) return;
 
-    // All three checkout choices use merchant-authorized STK Push. Never send a
-    // Till/Paybill payment through Chatify's own shortcode; the seller's Daraja
-    // credentials and exact shortcode are required so funds reach the right merchant.
-    if (mode == 'till' || mode == 'paybill' || mode == 'contact') {
+    // A personal contact is not a merchant checkout. Standard Daraja STK Push
+    // only charges a payer against an authorized Till/Paybill shortcode; it cannot
+    // transfer funds directly to an ordinary personal phone number. For contacts,
+    // use the recipient's registered phone and hand off to the sender's M-Pesa USSD
+    // menu instead of blocking on a merchant payment-profile configuration.
+    if (mode == 'contact') {
+      final me = app.user?['_id']?.toString() ?? app.user?['id']?.toString() ?? '';
+      final participants =
+          List<dynamic>.from(widget.conversation['participants'] ?? []);
+      final other = participants.whereType<Map>().firstWhere((p) {
+        final nested = p['user'] is Map ? p['user'] as Map : null;
+        final id = (p['_id'] ?? p['id'] ?? p['userId'] ??
+                nested?['_id'] ?? nested?['id'])
+            ?.toString();
+        return id != null && id.isNotEmpty && id != me;
+      }, orElse: () => <String, dynamic>{});
+      final nested = other['user'] is Map ? other['user'] as Map : null;
+      var recipientRaw = (other['mpesaPhone'] ??
+              other['phone'] ??
+              nested?['mpesaPhone'] ??
+              nested?['phone'] ??
+              '')
+          .toString()
+          .trim();
+      final recipientId = (other['_id'] ?? other['id'] ?? other['userId'] ??
+              nested?['_id'] ?? nested?['id'])
+          ?.toString() ??
+          '';
+      // Contacts endpoint exposes the registered phone for saved contacts if the
+      // conversation projection did not include it.
+      if (recipientRaw.isEmpty && recipientId.isNotEmpty) {
+        try {
+          final directory = await app.api.call('GET', '/api/contacts');
+          final entries = List<dynamic>.from(directory['contacts'] ?? []);
+          final contact = entries.whereType<Map>().firstWhere(
+            (entry) => (entry['userId'] ?? '').toString() == recipientId,
+            orElse: () => <String, dynamic>{},
+          );
+          recipientRaw = (contact['phone'] ?? '').toString().trim();
+        } catch (_) {
+          // Show an actionable message below; never substitute the sender's phone.
+        }
+      }
+      final recipientPhone = normalizeKenyanPhone(recipientRaw);
+      if (recipientPhone == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+              'This contact’s registered phone number is unavailable. Refresh the conversation or save the contact, then try again.',
+            ),
+            duration: Duration(seconds: 5),
+          ));
+        }
+        return;
+      }
+
+      final amount = TextEditingController();
+      final senderPhone = TextEditingController(
+        text: app.user?['mpesaPhone']?.toString() ??
+            app.user?['phone']?.toString() ??
+            '',
+      );
+      final formKey = GlobalKey<FormState>();
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: const Text('Lipa to this contact'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    initialValue: recipientPhone,
+                    readOnly: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Recipient’s registered M-Pesa number',
+                      helperText: 'Loaded from this contact’s Chatify account.',
+                    ),
+                  ),
+                  TextFormField(
+                    controller: amount,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Amount (KSh)'),
+                    validator: (value) {
+                      final n = int.tryParse((value ?? '').trim());
+                      return n == null || n < 1 || n > 150000
+                          ? 'Enter KSh 1–150,000'
+                          : null;
+                    },
+                  ),
+                  TextFormField(
+                    controller: senderPhone,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Your M-Pesa number',
+                      helperText:
+                          'Defaults to the number you registered. The M-Pesa menu opens on your phone/SIM.',
+                    ),
+                    validator: (value) =>
+                        normalizeKenyanPhone(value ?? '') == null
+                            ? 'Enter a valid Kenyan M-Pesa number'
+                            : null,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Personal Send Money transfers go to the registered contact number. Safaricom does not support a direct-to-person STK prompt using a personal phone number; you will confirm the recipient and amount in M-Pesa. No payment is recorded as successful by Chatify.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() ?? false) {
+                  Navigator.pop(dialog, true);
+                }
+              },
+              child: const Text('Open M-Pesa'),
+            ),
+          ],
+        ),
+      );
+      if (accepted == true && mounted) {
+        final normalizedSender = normalizeKenyanPhone(senderPhone.text);
+        final amountValue = int.parse(amount.text.trim());
+        await Clipboard.setData(ClipboardData(text: recipientPhone));
+        try {
+          final opened = await launchUrl(
+            Uri(scheme: 'tel', path: '*334#'),
+            mode: LaunchMode.externalApplication,
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(opened
+                  ? 'M-Pesa menu opened. Recipient ${recipientPhone} copied. Choose Send Money, enter KSh ${amountValue}, and confirm the recipient before entering your PIN.'
+                  : 'Recipient ${recipientPhone} copied. Open M-Pesa on ${normalizedSender ?? senderPhone.text.trim()}, choose Send Money, and enter KSh ${amountValue}.'),
+              duration: const Duration(seconds: 7),
+            ));
+          }
+        } catch (_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                'Recipient ${recipientPhone} copied. Open M-Pesa, choose Send Money, and enter KSh ${amountValue}.',
+              ),
+              duration: const Duration(seconds: 7),
+            ));
+          }
+        }
+      }
+      amount.dispose();
+      senderPhone.dispose();
+      return;
+    }
+
+    // Till and Paybill require merchant-authorized STK Push credentials and a
+    // matching configured shortcode. Personal contacts do not use this path.
+    if (mode == 'till' || mode == 'paybill') {
       final isTill = mode == 'till';
       final isPaybill = mode == 'paybill';
       final isContact = mode == 'contact';
