@@ -274,6 +274,142 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     } catch (error) { return next(error); }
   });
 
+
+  // School register, attendance and assessment records. Every query is scoped to school membership.
+  const SchoolStudent = model('SchoolStudent', new mongoose.Schema({
+    schoolId: { type: O, required: true, index: true },
+    admissionNumber: { type: String, required: true, trim: true, uppercase: true, maxlength: 40 },
+    fullName: { type: String, required: true, trim: true, maxlength: 120 },
+    className: { type: String, required: true, trim: true, maxlength: 80 },
+    guardianName: { type: String, trim: true, maxlength: 120 },
+    guardianPhone: { type: String, trim: true, maxlength: 30 },
+    guardianEmail: { type: String, trim: true, lowercase: true, maxlength: 180 },
+    active: { type: Boolean, default: true },
+  }, { timestamps: true }));
+  SchoolStudent.schema.index({ schoolId: 1, admissionNumber: 1 }, { unique: true });
+
+  const SchoolAttendance = model('SchoolAttendance', new mongoose.Schema({
+    schoolId: { type: O, required: true, index: true },
+    studentId: { type: O, ref: 'SchoolStudent', required: true, index: true },
+    studentName: { type: String, required: true }, admissionNumber: { type: String, required: true },
+    className: { type: String, required: true }, date: { type: Date, required: true },
+    status: { type: String, enum: ['present','absent','late','excused'], required: true },
+    note: { type: String, trim: true, maxlength: 300 }, markedBy: { type: O, required: true },
+  }, { timestamps: true }));
+  SchoolAttendance.schema.index({ schoolId: 1, studentId: 1, date: 1 }, { unique: true });
+
+  const SchoolAssessment = model('SchoolAssessment', new mongoose.Schema({
+    schoolId: { type: O, required: true, index: true }, studentId: { type: O, ref: 'SchoolStudent', required: true, index: true },
+    studentName: { type: String, required: true }, admissionNumber: { type: String, required: true }, className: { type: String, required: true },
+    subject: { type: String, required: true, trim: true, maxlength: 80 }, assessment: { type: String, required: true, trim: true, maxlength: 120 },
+    term: { type: String, required: true, trim: true, maxlength: 80 }, score: { type: Number, required: true, min: 0 },
+    outOf: { type: Number, required: true, min: 1 }, teacherNote: { type: String, trim: true, maxlength: 500 }, recordedBy: { type: O, required: true },
+  }, { timestamps: true }));
+  SchoolAssessment.schema.index({ schoolId: 1, studentId: 1, subject: 1, assessment: 1, term: 1 }, { unique: true });
+
+  async function schoolVisibleStudents(req) {
+    const filter = { schoolId: req.params.schoolId, active: true };
+    if (req.schoolMembership.role === 'parent') {
+      const names = (req.schoolMembership.studentNames || []).map(x => String(x).trim().toLowerCase());
+      filter.$expr = { $in: [{ $toLower: '$fullName' }, names] };
+    }
+    return SchoolStudent.find(filter).sort({ className: 1, fullName: 1 }).limit(1000).lean();
+  }
+
+  app.get('/api/schools/:schoolId/students', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try { return res.json({ students: await schoolVisibleStudents(req) }); }
+    catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/students', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const admissionNumber = String(req.body?.admissionNumber || '').trim().toUpperCase();
+      const fullName = String(req.body?.fullName || '').trim();
+      const className = String(req.body?.className || '').trim();
+      if (!/^[A-Z0-9/-]{2,40}$/.test(admissionNumber) || !fullName || fullName.length > 120 || !className || className.length > 80)
+        return res.status(400).json({ error: 'Enter a valid admission number, student name and class/grade' });
+      const student = await SchoolStudent.create({ schoolId: req.params.schoolId, admissionNumber, fullName, className,
+        guardianName: String(req.body?.guardianName || '').trim().slice(0,120),
+        guardianPhone: String(req.body?.guardianPhone || '').trim().slice(0,30),
+        guardianEmail: String(req.body?.guardianEmail || '').trim().toLowerCase().slice(0,180) });
+      return res.status(201).json({ student });
+    } catch (error) {
+      if (error?.code === 11000) return res.status(409).json({ error: 'That admission number already exists in this school' });
+      return next(error);
+    }
+  });
+
+  app.patch('/api/schools/:schoolId/students/:studentId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.studentId)) return res.status(400).json({ error: 'Invalid student record' });
+      const update = {};
+      for (const key of ['fullName','className','guardianName','guardianPhone','guardianEmail']) {
+        if (req.body?.[key] !== undefined) update[key] = String(req.body[key]).trim();
+      }
+      if (req.body?.active !== undefined) update.active = req.body.active === true;
+      const student = await SchoolStudent.findOneAndUpdate({ _id: req.params.studentId, schoolId: req.params.schoolId }, { $set: update }, { new: true, runValidators: true });
+      if (!student) return res.status(404).json({ error: 'Student not found in this school' });
+      return res.json({ student });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/attendance', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const students = await schoolVisibleStudents(req);
+      const filter = { schoolId: req.params.schoolId, studentId: { $in: students.map(s => s._id) } };
+      if (req.query.date) {
+        const date = new Date(String(req.query.date) + 'T00:00:00.000Z');
+        if (!Number.isFinite(date.getTime())) return res.status(400).json({ error: 'Use attendance date YYYY-MM-DD' });
+        filter.date = date;
+      }
+      return res.json({ attendance: await SchoolAttendance.find(filter).sort({ date: -1, className: 1, studentName: 1 }).limit(1000).lean(), students });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/attendance', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const studentId = String(req.body?.studentId || ''), status = String(req.body?.status || '');
+      const dateText = String(req.body?.date || new Date().toISOString().slice(0,10));
+      const date = new Date(dateText + 'T00:00:00.000Z');
+      if (!mongoose.isValidObjectId(studentId) || !['present','absent','late','excused'].includes(status) || !/^\d{4}-\d{2}-\d{2}$/.test(dateText) || !Number.isFinite(date.getTime()))
+        return res.status(400).json({ error: 'Choose a student, valid date and attendance status' });
+      const student = await SchoolStudent.findOne({ _id: studentId, schoolId: req.params.schoolId, active: true }).lean();
+      if (!student) return res.status(404).json({ error: 'Active student not found in this school' });
+      const record = await SchoolAttendance.findOneAndUpdate({ schoolId: req.params.schoolId, studentId, date },
+        { $set: { studentName: student.fullName, admissionNumber: student.admissionNumber, className: student.className, status, note: String(req.body?.note || '').trim().slice(0,300), markedBy: req.user._id } },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
+      return res.json({ attendance: record });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/academics', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const students = await schoolVisibleStudents(req);
+      const assessments = await SchoolAssessment.find({ schoolId: req.params.schoolId, studentId: { $in: students.map(s => s._id) } }).sort({ term: -1, className: 1, studentName: 1, subject: 1 }).limit(2000).lean();
+      return res.json({ assessments });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/academics', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const studentId = String(req.body?.studentId || ''), subject = String(req.body?.subject || '').trim();
+      const assessment = String(req.body?.assessment || '').trim(), term = String(req.body?.term || '').trim();
+      const score = Number(req.body?.score), outOf = Number(req.body?.outOf ?? 100);
+      if (!mongoose.isValidObjectId(studentId) || !subject || subject.length > 80 || !assessment || assessment.length > 120 || !term || term.length > 80 ||
+          !Number.isFinite(score) || !Number.isFinite(outOf) || outOf <= 0 || score < 0 || score > outOf || outOf > 10000)
+        return res.status(400).json({ error: 'Enter student, subject, assessment, term and valid marks; score cannot exceed total marks' });
+      const student = await SchoolStudent.findOne({ _id: studentId, schoolId: req.params.schoolId, active: true }).lean();
+      if (!student) return res.status(404).json({ error: 'Active student not found in this school' });
+      const record = await SchoolAssessment.create({ schoolId: req.params.schoolId, studentId, studentName: student.fullName, admissionNumber: student.admissionNumber,
+        className: student.className, subject, assessment, term, score, outOf,
+        teacherNote: String(req.body?.teacherNote || '').trim().slice(0,500), recordedBy: req.user._id });
+      return res.status(201).json({ assessment: record });
+    } catch (error) {
+      if (error?.code === 11000) return res.status(409).json({ error: 'That assessment has already been recorded for this student and term' });
+      return next(error);
+    }
+  });
+
   async function deliverSchoolReceipt(paymentId) {
     const payment = await FeePayment.findById(paymentId).select('+receiptHtml');
     if (!payment || payment.status !== 'CONFIRMED' || !payment.receiptHtml) return { sent: 0, pending: true };

@@ -2694,7 +2694,7 @@ class SchoolWorkspacePage extends StatefulWidget {
 
 class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   AppState get app => context.read<AppState>();
-  List<dynamic> schools = [], messages = [], conferences = [], fees = [], members = [];
+  List<dynamic> schools = [], messages = [], conferences = [], fees = [], members = [], students = [], attendance = [], assessments = [];
   String? schoolId, role, error;
   bool loading = false;
   int section = 0;
@@ -2705,6 +2705,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   final paybill = TextEditingController(), till = TextEditingController(), bank = TextEditingController(), account = TextEditingController();
   final darajaConsumerKey = TextEditingController(), darajaConsumerSecret = TextEditingController(), darajaPasskey = TextEditingController();
   final conferenceTitle = TextEditingController(), conferenceAgenda = TextEditingController(), conferenceLocation = TextEditingController();
+  final admissionNumber = TextEditingController(), registeredStudentName = TextEditingController(), studentClass = TextEditingController(), guardianName = TextEditingController(), guardianPhone = TextEditingController(), guardianEmail = TextEditingController();
+  final attendanceDate = TextEditingController(text: DateTime.now().toIso8601String().substring(0,10)), attendanceNote = TextEditingController();
+  final subjectName = TextEditingController(), assessmentName = TextEditingController(), assessmentTerm = TextEditingController(), assessmentScore = TextEditingController(), assessmentOutOf = TextEditingController(text: '100'), teacherNote = TextEditingController();
+  String attendanceStudentId = '', attendanceStatus = 'present', assessmentStudentId = '';
   String memberRole = 'parent', audience = 'direct', paymentMethod = 'mpesa_paybill', darajaMode = 'production';
 
   @override
@@ -2712,7 +2716,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   @override
   void dispose() {
-    for (final c in [schoolName, schoolCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, darajaConsumerKey, darajaConsumerSecret, darajaPasskey, conferenceTitle, conferenceAgenda, conferenceLocation]) { c.dispose(); }
+    for (final c in [schoolName, schoolCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, darajaConsumerKey, darajaConsumerSecret, darajaPasskey, conferenceTitle, conferenceAgenda, conferenceLocation, admissionNumber, registeredStudentName, studentClass, guardianName, guardianPhone, guardianEmail, attendanceDate, attendanceNote, subjectName, assessmentName, assessmentTerm, assessmentScore, assessmentOutOf, teacherNote]) { c.dispose(); }
     super.dispose();
   }
 
@@ -2759,6 +2763,17 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       } else if (section == 3 && role != 'parent') {
         final r = await app.api.call('GET', '/api/schools/$id/members');
         members = List<dynamic>.from(r['members'] ?? []);
+      } else if (section == 5 || section == 6 || section == 7) {
+        final results = await Future.wait([
+          app.api.call('GET', '/api/schools/$id/students'),
+          if (section == 6) app.api.call('GET', '/api/schools/$id/attendance'),
+          if (section == 7) app.api.call('GET', '/api/schools/$id/academics'),
+        ]);
+        students = List<dynamic>.from(results.first['students'] ?? []);
+        if (section == 6 && results.length > 1) attendance = List<dynamic>.from(results[1]['attendance'] ?? []);
+        if (section == 7 && results.length > 1) assessments = List<dynamic>.from(results[1]['assessments'] ?? []);
+        if (attendanceStudentId.isEmpty && students.isNotEmpty) attendanceStudentId = students.first['_id']?.toString() ?? '';
+        if (assessmentStudentId.isEmpty && students.isNotEmpty) assessmentStudentId = students.first['_id']?.toString() ?? '';
       }
     } catch (e) { error = e.toString(); }
     if (mounted) setState(() => loading = false);
@@ -2854,6 +2869,35 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
+  Future<void> registerStudent() async {
+    final id = schoolId;
+    if (id == null || admissionNumber.text.trim().isEmpty || registeredStudentName.text.trim().isEmpty || studentClass.text.trim().isEmpty) return;
+    await _action(() async {
+      await app.api.call('POST', '/api/schools/$id/students', {'admissionNumber': admissionNumber.text.trim(), 'fullName': registeredStudentName.text.trim(), 'className': studentClass.text.trim(), 'guardianName': guardianName.text.trim(), 'guardianPhone': guardianPhone.text.trim(), 'guardianEmail': guardianEmail.text.trim()});
+      admissionNumber.clear(); registeredStudentName.clear(); studentClass.clear(); guardianName.clear(); guardianPhone.clear(); guardianEmail.clear();
+      await loadSection();
+    });
+  }
+
+  Future<void> saveAttendance() async {
+    final id = schoolId;
+    if (id == null || attendanceStudentId.isEmpty) return;
+    await _action(() async {
+      await app.api.call('POST', '/api/schools/$id/attendance', {'studentId': attendanceStudentId, 'date': attendanceDate.text.trim(), 'status': attendanceStatus, 'note': attendanceNote.text.trim()});
+      attendanceNote.clear(); await loadSection();
+    });
+  }
+
+  Future<void> saveAssessment() async {
+    final id = schoolId;
+    final score = double.tryParse(assessmentScore.text.trim()), outOf = double.tryParse(assessmentOutOf.text.trim());
+    if (id == null || assessmentStudentId.isEmpty || score == null || outOf == null) return;
+    await _action(() async {
+      await app.api.call('POST', '/api/schools/$id/academics', {'studentId': assessmentStudentId, 'subject': subjectName.text.trim(), 'assessment': assessmentName.text.trim(), 'term': assessmentTerm.text.trim(), 'score': score, 'outOf': outOf, 'teacherNote': teacherNote.text.trim()});
+      subjectName.clear(); assessmentName.clear(); assessmentScore.clear(); teacherNote.clear(); await loadSection();
+    });
+  }
+
   Future<void> createConference() async {
     final id = schoolId; if (id == null || conferenceTitle.text.trim().isEmpty || conferenceAgenda.text.trim().isEmpty) return;
     final now = DateTime.now().add(const Duration(days:1));
@@ -2874,7 +2918,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       body: RefreshIndicator(onRefresh:loadSchools,child:ListView(padding:const EdgeInsets.all(16),children:[
         const Text('School workspace',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),
         const SizedBox(height:6),
-        const Text('School-parent messages, staff communication, conferences and fee records.'),
+        const Text('Admissions, attendance, academic records, parent communication, conferences and fee management. M-Pesa remains pending until the school merchant credentials are configured.'),
         const SizedBox(height:14),
         if (schools.isNotEmpty) DropdownButtonFormField<String>(value:schoolId,decoration:const InputDecoration(labelText:'Your school',border:OutlineInputBorder()),items:schools.map((s)=>DropdownMenuItem<String>(value:s['id'].toString(),child:Text(s['name'].toString(),overflow:TextOverflow.ellipsis))).toList(),onChanged:(id){final s=schools.cast<Map>().firstWhere((x)=>x['id']==id);setState(()=>_selectSchool(Map<String,dynamic>.from(s)));}),
         if (schools.isEmpty) ...[field(schoolName,'School name'),field(schoolCode,'Unique school code',hint:'e.g. NAIROBI-PRI'),actionButton('Create school workspace',createSchool,icon:Icons.school)],
@@ -2886,6 +2930,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             ChoiceChip(label:const Text('Fees'),selected:section==2,onSelected:(_){setState(()=>section=2);loadSection();}),
             if (role!='parent') ChoiceChip(label:const Text('Members'),selected:section==3,onSelected:(_){setState(()=>section=3);loadSection();}),
             if (isAdmin) ChoiceChip(label:const Text('Payment setup'),selected:section==4,onSelected:(_){setState(()=>section=4);}),
+            ChoiceChip(label:const Text('Students'),selected:section==5,onSelected:(_){setState(()=>section=5);loadSection();}),
+            ChoiceChip(label:const Text('Attendance'),selected:section==6,onSelected:(_){setState(()=>section=6);loadSection();}),
+            ChoiceChip(label:const Text('Academics'),selected:section==7,onSelected:(_){setState(()=>section=7);loadSection();}),
           ]),
           const SizedBox(height:14),
           if (loading) const Center(child:Padding(padding:EdgeInsets.all(16),child:CircularProgressIndicator())),
@@ -2907,6 +2954,39 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             if (role == 'admin') ...fees.where((p)=>p['status']=='CONFIRMED').map((p)=>actionButton('Retry receipt email • ${p['paymentReference']}',()=>resendSchoolReceipt(Map<String,dynamic>.from(p)),icon:Icons.forward_to_inbox)),
           ],
           if (section==3 && role!='parent') ...[field(memberEmail,'Existing Chatify account email'),DropdownButtonFormField<String>(value:memberRole,decoration:const InputDecoration(labelText:'Role'),items:const [DropdownMenuItem(value:'parent',child:Text('Parent')),DropdownMenuItem(value:'staff',child:Text('Staff'))],onChanged:(v)=>setState(()=>memberRole=v??'parent')),field(studentNames,'Linked student names',hint:'Comma-separated, parents only'),actionButton('Add school member',addMember,icon:Icons.person_add),...members.map((m)=>Card(child:ListTile(title:Text((m['name']??m['email']??'Member').toString()),subtitle:Text('${m['role']??''} • ${(m['studentNames']??[]).join(', ')}'))))],
+          if (section==5) ...[
+            if (role != 'parent') ...[
+              const Text('Student admission register', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              field(admissionNumber, 'Admission / student number'), field(registeredStudentName, 'Student full name'), field(studentClass, 'Class / grade'),
+              field(guardianName, 'Parent / guardian name'), field(guardianPhone, 'Guardian phone', keyboard: TextInputType.phone), field(guardianEmail, 'Guardian email', keyboard: TextInputType.emailAddress),
+              actionButton('Register student', registerStudent, icon: Icons.person_add_alt_1),
+            ],
+            Text('Enrolled students: ${students.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            if (students.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('No student records yet. School staff can register students above.')),
+            ...students.map((s) => Card(child: ListTile(leading: const CircleAvatar(child: Icon(Icons.school_outlined)), title: Text((s['fullName'] ?? 'Student').toString()), subtitle: Text('${s['admissionNumber'] ?? ''} • ${s['className'] ?? ''}\n${s['guardianName'] ?? 'Guardian not recorded'} ${s['guardianPhone'] ?? ''}'), isThreeLine: true))),
+          ],
+          if (section==6) ...[
+            if (role != 'parent' && students.isNotEmpty) ...[
+              const Text('Daily attendance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              DropdownButtonFormField<String>(value: students.any((s) => s['_id']?.toString() == attendanceStudentId) ? attendanceStudentId : students.first['_id']?.toString(), decoration: const InputDecoration(labelText: 'Student'), items: students.map((s) => DropdownMenuItem<String>(value: s['_id'].toString(), child: Text('${s['fullName']} • ${s['className']}'))).toList(), onChanged: (v) => setState(() => attendanceStudentId = v ?? '')),
+              field(attendanceDate, 'Attendance date (YYYY-MM-DD)'), DropdownButtonFormField<String>(value: attendanceStatus, decoration: const InputDecoration(labelText: 'Attendance status'), items: const [DropdownMenuItem(value: 'present', child: Text('Present')), DropdownMenuItem(value: 'absent', child: Text('Absent')), DropdownMenuItem(value: 'late', child: Text('Late')), DropdownMenuItem(value: 'excused', child: Text('Excused absence'))], onChanged: (v) => setState(() => attendanceStatus = v ?? 'present')),
+              field(attendanceNote, 'Note (optional)'), actionButton('Save attendance', saveAttendance, icon: Icons.fact_check_outlined),
+            ],
+            Text('Attendance records: ${attendance.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            if (attendance.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('No attendance records have been recorded yet.')),
+            ...attendance.map((a) => Card(child: ListTile(leading: Icon(a['status'] == 'present' ? Icons.check_circle : a['status'] == 'late' ? Icons.schedule : Icons.event_busy), title: Text('${a['studentName'] ?? 'Student'} • ${(a['status'] ?? '').toString().toUpperCase()}'), subtitle: Text('${a['className'] ?? ''} • ${a['date']?.toString().split('T').first ?? ''}${(a['note'] ?? '').toString().isEmpty ? '' : '\n${a['note']}'}')))),
+          ],
+          if (section==7) ...[
+            if (role != 'parent' && students.isNotEmpty) ...[
+              const Text('Record academic assessment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              DropdownButtonFormField<String>(value: students.any((s) => s['_id']?.toString() == assessmentStudentId) ? assessmentStudentId : students.first['_id']?.toString(), decoration: const InputDecoration(labelText: 'Student'), items: students.map((s) => DropdownMenuItem<String>(value: s['_id'].toString(), child: Text('${s['fullName']} • ${s['className']}'))).toList(), onChanged: (v) => setState(() => assessmentStudentId = v ?? '')),
+              field(subjectName, 'Subject'), field(assessmentName, 'Assessment name (e.g. CAT 1)'), field(assessmentTerm, 'Term / academic year'), field(assessmentScore, 'Score', keyboard: TextInputType.number), field(assessmentOutOf, 'Total marks', keyboard: TextInputType.number), field(teacherNote, 'Teacher comment (optional)'),
+              actionButton('Save assessment result', saveAssessment, icon: Icons.grading_outlined),
+            ],
+            Text('Assessment results: ${assessments.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            if (assessments.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('No assessment results have been recorded yet.')),
+            ...assessments.map((a) => Card(child: ListTile(leading: const Icon(Icons.assessment_outlined), title: Text('${a['studentName'] ?? 'Student'} • ${a['subject'] ?? ''}'), subtitle: Text('${a['assessment'] ?? ''} • ${a['term'] ?? ''}\nScore: ${a['score'] ?? 0} / ${a['outOf'] ?? 100}${(a['teacherNote'] ?? '').toString().isEmpty ? '' : '\n${a['teacherNote']}'}'), isThreeLine: true))),
+          ],
           if (section==4 && isAdmin) ...[
             DropdownButtonFormField<String>(value:paymentMethod,decoration:const InputDecoration(labelText:'School payment method'),items:const [DropdownMenuItem(value:'mpesa_paybill',child:Text('M-Pesa Paybill')),DropdownMenuItem(value:'mpesa_till',child:Text('M-Pesa Till')),DropdownMenuItem(value:'bank',child:Text('Bank transfer'))],onChanged:(v)=>setState(()=>paymentMethod=v??'mpesa_paybill')),
             if(paymentMethod=='mpesa_paybill')field(paybill,'School Paybill number'),
