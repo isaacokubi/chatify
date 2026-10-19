@@ -127,6 +127,36 @@ class Api {
   String _conversationSnapshotKey(String conversationId) =>
       'chatify_secure_messages_v1_${_cacheScope()}_${_stableCacheHash(conversationId)}';
 
+  String _conversationMetadataKey(String conversationId) =>
+      'chatify_secure_conversation_v1_${_cacheScope()}_${_stableCacheHash(conversationId)}';
+
+  Future<Map<String, dynamic>?> readConversationMetadata(
+      String conversationId) async {
+    try {
+      final encoded = await _secureStorage.read(
+          key: _conversationMetadataKey(conversationId));
+      if (encoded == null || encoded.isEmpty) return null;
+      final decoded = jsonDecode(encoded);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      // Metadata is optional; the server can refresh it when available.
+    }
+    return null;
+  }
+
+  Future<void> writeConversationMetadata(
+      String conversationId, Map<String, dynamic> conversation) async {
+    try {
+      final encoded = jsonEncode(conversation);
+      if (encoded.length <= 200000) {
+        await _secureStorage.write(
+            key: _conversationMetadataKey(conversationId), value: encoded);
+      }
+    } catch (_) {
+      // Do not let local cache failures affect normal messaging.
+    }
+  }
+
   Future<List<dynamic>?> readConversationSnapshot(String conversationId) async {
     try {
       final encoded = await _secureStorage.read(
@@ -4064,6 +4094,11 @@ class _ChatState extends State<Chat> {
     // Hydrate the last saved history before attempting the network. This avoids
     // an empty chat or spinner when a previously opened conversation is offline.
     try {
+      final cachedConversation =
+          await app.api.readConversationMetadata(conversationId);
+      if (cachedConversation != null) {
+        widget.conversation.addAll(cachedConversation);
+      }
       final cached = await app.api.readConversationSnapshot(conversationId);
       if (cached != null && cached.isNotEmpty && mounted && messages.isEmpty) {
         final hydrated = await Future.wait(cached.map((raw) async {
@@ -4096,6 +4131,8 @@ class _ChatState extends State<Chat> {
       final detail = results[0];
       widget.conversation
           .addAll(Map<String, dynamic>.from(detail['conversation']));
+      unawaited(app.api.writeConversationMetadata(
+          conversationId, widget.conversation));
       final fetched = List<dynamic>.from(results[1]['messages'] ?? []);
       final decryptedFetched = await Future.wait(fetched.map((raw) async {
         if (raw is Map) return _decryptMessage(Map<String, dynamic>.from(raw));
