@@ -172,8 +172,9 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
         return res.status(409).json({error: 'Merchant Daraja credentials do not match the configured Till or Paybill'});
       }
       const callbackToken = String(process.env.POS_STK_CALLBACK_TOKEN || '').trim();
-      const baseUrl = new URL(process.env.POS_STK_PUBLIC_BASE_URL || '');
-      if (callbackToken.length < 32 || baseUrl.protocol !== 'https:' || !baseUrl.hostname.includes('.') || baseUrl.username || baseUrl.password) {
+      let baseUrl;
+      try { baseUrl = new URL(String(process.env.POS_STK_PUBLIC_BASE_URL || '')); } catch { baseUrl = null; }
+      if (callbackToken.length < 32 || !baseUrl || baseUrl.protocol !== 'https:' || !baseUrl.hostname.includes('.') || baseUrl.username || baseUrl.password) {
         return res.status(503).json({error: 'Merchant STK callbacks are not configured. Contact the business owner.'});
       }
       const callbackUrl = 'https://' + baseUrl.host + '/api/business/pos/stk/callback/' + callbackToken;
