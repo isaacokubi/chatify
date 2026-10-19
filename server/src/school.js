@@ -347,7 +347,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
   app.post('/api/schools/:schoolId/fees/:paymentReference/verify', auth, requireRole('admin'), async (req, res, next) => {
     try {
       const receipt = String(req.body?.mpesaReceipt || '').trim().toUpperCase();
-      if (!/^[A-Z0-9]{6,40}$/.test(receipt)) return res.status(400).json({ error: 'Enter the actual M-Pesa receipt/reference from the confirmed transaction' });
+      if (!/^[A-Z0-9/-]{4,40}$/.test(receipt)) return res.status(400).json({ error: 'Enter the actual payment receipt/reference from the confirmed transaction' });
       const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference });
       if (!payment) return res.status(404).json({ error: 'Fee record not found' });
       if (payment.status === 'CONFIRMED') {
