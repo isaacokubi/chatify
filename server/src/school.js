@@ -249,6 +249,41 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     } catch (error) { return next(error); }
   });
 
+  // School admins can correct the pupil names a parent linked during workspace joining.
+  // This updates only that parent's school membership, not the parent's Chatify account.
+  app.put('/api/schools/:schoolId/members/:memberId/student-info', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const rawNames = req.body?.studentNames;
+      if (!Array.isArray(rawNames) || rawNames.length === 0 || rawNames.length > 10) {
+        return res.status(400).json({ error: 'Enter between 1 and 10 linked student names.' });
+      }
+      const studentNames = [...new Set(rawNames.map(value => String(value ?? '').trim()).filter(Boolean))];
+      if (studentNames.length === 0 || studentNames.some(name => name.length > 100)) {
+        return res.status(400).json({ error: 'Each linked student name must contain 1–100 characters.' });
+      }
+      if (!mongoose.isValidObjectId(req.params.memberId)) {
+        return res.status(400).json({ error: 'Invalid school member.' });
+      }
+      const member = await Membership.findOneAndUpdate(
+        { _id: req.params.memberId, schoolId: req.params.schoolId, role: 'parent', active: true },
+        { $set: { studentNames } },
+        { new: true, runValidators: true }
+      ).populate('userId', 'name email');
+      if (!member) return res.status(404).json({ error: 'Active parent membership was not found in this school.' });
+      return res.json({
+        member: {
+          id: String(member._id),
+          userId: String(member.userId?._id || member.userId),
+          name: member.userId?.name,
+          email: member.userId?.email,
+          role: member.role,
+          studentNames: member.studentNames,
+        },
+        message: 'Linked pupil information updated.',
+      });
+    } catch (error) { return next(error); }
+  });
+
   app.put('/api/schools/:schoolId/payment-profile', auth, requireRole('admin'), async (req, res, next) => {
     try {
       const profile = normalizeSchoolPaymentProfile(req.body || {});
