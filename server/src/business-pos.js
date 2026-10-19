@@ -138,6 +138,100 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     return org;
   }
 
+  // Customer-facing STK checkout uses the merchant's own authorized shortcode.
+  // Never fall back to the platform shortcode: that would send money to the wrong recipient.
+  async function initiateStorefrontStk(req, res, organization) {
+    try {
+      if (!organization || organization.settings?.storefrontPublished === false) {
+        return res.status(404).json({error: 'This business storefront is not available for checkout'});
+      }
+      const profile = organization.settings?.posPaymentProfile;
+      if (!profile || !POS_METHODS.includes(profile.method)) {
+        return res.status(409).json({error: 'This business has not configured a Till or Paybill checkout profile'});
+      }
+      const encrypted = organization.settings?.posDarajaCredentialsEncrypted;
+      if (!encrypted) {
+        return res.status(409).json({error: 'This business must configure its own authorized Daraja credentials before customer STK checkout is available'});
+      }
+      if (req.body?.feeAcknowledged !== true) {
+        return res.status(400).json({error: 'Review and accept the disclosed 0.5% Chatify fee before requesting an STK prompt'});
+      }
+      const phone = normalizeMpesaPhone(String(req.body?.phone || ''));
+      if (!phone) return res.status(400).json({error: 'Enter a valid Kenyan M-Pesa phone number'});
+      const description = String(req.body?.description || ('Chatify ' + organization.name)).trim().slice(0, 120);
+      const charge = buildPosCharge({organization, amount: req.body?.amount, description, reference: req.body?.reference, profile});
+      charge.createdBy = req.user._id;
+      const credentials = decryptMerchantCredentials(encrypted);
+      const expectedShortcode = profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber;
+      if (credentials.shortcode !== expectedShortcode) {
+        return res.status(409).json({error: 'Merchant Daraja credentials do not match the configured Till or Paybill'});
+      }
+      const callbackToken = String(process.env.POS_STK_CALLBACK_TOKEN || '').trim();
+      const baseUrl = new URL(process.env.POS_STK_PUBLIC_BASE_URL || '');
+      if (callbackToken.length < 32 || baseUrl.protocol !== 'https:' || !baseUrl.hostname.includes('.') || baseUrl.username || baseUrl.password) {
+        return res.status(503).json({error: 'Merchant STK callbacks are not configured. Contact the business owner.'});
+      }
+      const callbackUrl = 'https://' + baseUrl.host + '/api/business/pos/stk/callback/' + callbackToken;
+      const provider = createDarajaProvider({
+        mode: credentials.mode, consumerKey: credentials.consumerKey, consumerSecret: credentials.consumerSecret,
+        shortcode: credentials.shortcode, passkey: credentials.passkey, callbackUrl,
+        transactionType: profile.method === 'mpesa_till' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline',
+      });
+      charge.stkPhone = phone;
+      charge.confirmationSource = 'daraja_stk_pending';
+      const saved = await Charge.create(charge);
+      try {
+        const result = await provider.initiate({
+          paymentId: saved.paymentId, amount: saved.totalAmount ?? saved.amount, phone,
+          description: saved.description,
+        });
+        saved.checkoutRequestId = result.checkoutRequestId;
+        saved.merchantRequestId = result.merchantRequestId;
+        await saved.save();
+        return res.status(202).json({
+          paymentId: saved.paymentId, status: saved.status, method: saved.method,
+          baseAmount: saved.baseAmount, platformFee: saved.platformFee,
+          totalAmount: saved.totalAmount, platformFeeRate: saved.platformFeeRate,
+          platformFeeStatus: saved.platformFeeStatus, phone,
+          notice: 'Safaricom accepted the STK request. The payment remains pending until the authenticated callback confirms the result.',
+        });
+      } catch (error) {
+        if (error?.stage !== 'stk_transport') {
+          await Charge.updateOne({_id: saved._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}},
+            {$set: {status: 'FAILED', stkResultDescription: 'STK initiation rejected', confirmationSource: null, stkPhone: null}});
+          return res.status(502).json({error: error?.message || 'Safaricom rejected the STK request'});
+        }
+        // A timeout is ambiguous. Keep the charge locked and pending; never automatically
+        // retry because Safaricom may already have received the request.
+        await Charge.updateOne({_id: saved._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}},
+          {$set: {stkResultDescription: 'STK outcome unknown after network timeout; check Daraja before retrying'}});
+        return res.status(502).json({error: 'Safaricom response timed out. Payment outcome is unknown; do not retry until the merchant checks Daraja.', outcomeUnknown: true});
+      }
+    } catch (error) {
+      return res.status(400).json({error: error.message || 'Could not prepare the merchant STK payment'});
+    }
+  }
+
+  // Public storefront checkout, authenticated as the payer. Merchant credentials stay server-side.
+  app.post('/api/storefront/:slug/stk-push', auth, async (req, res) => {
+    const slug = String(req.params.slug || '').trim().toLowerCase();
+    if (!slug || slug.length > 80) return res.status(400).json({error: 'Invalid storefront'});
+    const organization = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}});
+    if (!organization) return res.status(404).json({error: 'Storefront not found'});
+    return initiateStorefrontStk(req, res, organization);
+  });
+
+  // Direct-chat shortcut is allowed only when exactly one published storefront belongs to the contact.
+  app.post('/api/storefront/by-seller/:sellerId/stk-push', auth, async (req, res) => {
+    if (!mongoose.isValidObjectId(req.params.sellerId)) return res.status(400).json({error: 'Invalid contact'});
+    const organizations = await Organization.find({
+      ownerId: req.params.sellerId, 'settings.storefrontPublished': {$ne: false},
+    }).limit(2);
+    if (organizations.length === 0) return res.status(404).json({error: 'This contact has no published business storefront'});
+    if (organizations.length > 1) return res.status(409).json({error: 'This contact has multiple storefronts. Open the intended business storefront and pay there.'});
+    return initiateStorefrontStk(req, res, organizations[0]);
+  });
+
   // Configure the merchant's own Till/Paybill details. These are payment instructions, not
   // platform Daraja credentials; the merchant must ensure the account is active with Safaricom.
   app.put('/api/business/organizations/:orgId/pos/payment-profile', auth, async (req, res) => {
