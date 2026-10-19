@@ -95,6 +95,21 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     active: { type: Boolean, default: true },
   }, { timestamps: true }));
   Membership.schema.index({ schoolId: 1, userId: 1 }, { unique: true });
+  // A workspace is not created until a platform reviewer verifies that the school is real.
+  const SchoolVerificationRequest = model('SchoolVerificationRequest', new mongoose.Schema({
+    requesterId: { type: O, ref: 'User', required: true, index: true },
+    schoolName: { type: String, required: true, trim: true, maxlength: 160 },
+    proposedCode: { type: String, required: true, trim: true, uppercase: true, maxlength: 24 },
+    county: { type: String, required: true, trim: true, maxlength: 80 },
+    officialEmail: { type: String, required: true, trim: true, lowercase: true, maxlength: 254 },
+    officialPhone: { type: String, required: true, trim: true, maxlength: 24 },
+    status: { type: String, enum: ['PENDING','APPROVED','REJECTED'], default: 'PENDING', index: true },
+    reviewedBy: { type: O, ref: 'User' },
+    reviewedAt: Date,
+    reviewNote: { type: String, trim: true, maxlength: 500 },
+    schoolId: { type: O, ref: 'SchoolWorkspace' },
+  }, { timestamps: true }));
+  SchoolVerificationRequest.schema.index({ requesterId: 1, proposedCode: 1, status: 1 });
   const SchoolMessage = model('SchoolMessage', new mongoose.Schema({
     schoolId: { type: O, required: true, index: true },
     senderId: { type: O, required: true },
@@ -164,18 +179,85 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     } catch (error) { return next(error); }
   };
 
-  app.post('/api/schools', auth, async (req, res, next) => {
+  function isSchoolVerificationAdmin(req) {
+    const allowed = String(process.env.SCHOOL_VERIFICATION_ADMIN_EMAILS || '')
+      .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+    const email = String(req.user?.email || '').trim().toLowerCase();
+    return allowed.length > 0 && email.length > 0 && allowed.includes(email);
+  }
+
+  // Anyone may request verification, but a request alone never creates a workspace.
+  app.post('/api/schools/verification-requests', auth, async (req, res, next) => {
     try {
-      const name = String(req.body?.name || '').trim();
-      const code = String(req.body?.code || '').trim().toUpperCase();
-      if (!name || name.length > 160 || !/^[A-Z0-9-]{3,24}$/.test(code)) return res.status(400).json({ error: 'Enter a school name and a unique 3–24 character code using letters, numbers or hyphens' });
-      const school = await School.create({ name, code, createdBy: req.user._id });
-      await Membership.create({ schoolId: school._id, userId: req.user._id, role: 'admin' });
-      return res.status(201).json({ school: { id: String(school._id), name: school.name, code: school.code, staffInviteCode: school.staffInviteCode }, role: 'admin' });
+      const schoolName = String(req.body?.schoolName || '').trim();
+      const proposedCode = String(req.body?.proposedCode || '').trim().toUpperCase();
+      const county = String(req.body?.county || '').trim();
+      const officialEmail = String(req.body?.officialEmail || '').trim().toLowerCase();
+      const officialPhone = String(req.body?.officialPhone || '').trim();
+      if (!schoolName || schoolName.length > 160 || !/^[A-Z0-9-]{3,24}$/.test(proposedCode) ||
+          !county || county.length > 80 || !/^\\S+@\\S+\\.\\S+$/.test(officialEmail) ||
+          officialEmail.length > 254 || !/^[+0-9() -]{9,24}$/.test(officialPhone)) {
+        return res.status(400).json({ error: 'Enter the school name, proposed code, county, official school email and phone number.' });
+      }
+      if (await School.exists({ code: proposedCode })) return res.status(409).json({ error: 'A workspace already uses that school code. Contact support if it belongs to your school.' });
+      const pending = await SchoolVerificationRequest.findOne({ proposedCode, status: 'PENDING' });
+      if (pending) return res.status(409).json({ error: 'A verification request for that school code is already pending.' });
+      const request = await SchoolVerificationRequest.create({
+        requesterId: req.user._id, schoolName, proposedCode, county, officialEmail, officialPhone,
+      });
+      return res.status(202).json({ request: { id: String(request._id), schoolName, proposedCode, county, status: request.status, createdAt: request.createdAt },
+        message: 'Request received. The workspace will not be created until Chatify verifies the school.' });
     } catch (error) {
-      if (error?.code === 11000) return res.status(409).json({ error: 'That school code is already in use' });
+      if (error?.code === 11000) return res.status(409).json({ error: 'A request for this school code already exists.' });
       return next(error);
     }
+  });
+
+  app.get('/api/schools/verification-requests', auth, async (req, res, next) => {
+    try {
+      const filter = isSchoolVerificationAdmin(req)
+        ? { status: 'PENDING' }
+        : { requesterId: req.user._id };
+      const requests = await SchoolVerificationRequest.find(filter).sort({ createdAt: -1 }).limit(100).lean();
+      return res.json({ requests: requests.map(item => ({
+        id: String(item._id), schoolName: item.schoolName, proposedCode: item.proposedCode,
+        county: item.county, officialEmail: item.officialEmail, officialPhone: item.officialPhone,
+        status: item.status, reviewNote: item.reviewNote || '', createdAt: item.createdAt,
+      })), reviewer: isSchoolVerificationAdmin(req) });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/verification-requests/:requestId/review', auth, async (req, res, next) => {
+    try {
+      if (!isSchoolVerificationAdmin(req)) return res.status(403).json({ error: 'Only an authorized Chatify school-verification reviewer can approve or reject schools.' });
+      const decision = String(req.body?.decision || '').toUpperCase();
+      const reviewNote = String(req.body?.reviewNote || '').trim().slice(0, 500);
+      if (!['APPROVE', 'REJECT'].includes(decision)) return res.status(400).json({ error: 'Choose APPROVE or REJECT.' });
+      const request = await SchoolVerificationRequest.findOne({ _id: req.params.requestId, status: 'PENDING' });
+      if (!request) return res.status(404).json({ error: 'Pending school verification request not found.' });
+      if (decision === 'REJECT') {
+        request.status = 'REJECTED'; request.reviewedBy = req.user._id;
+        request.reviewedAt = new Date(); request.reviewNote = reviewNote || 'School identity could not be verified.';
+        await request.save();
+        return res.json({ status: request.status, message: 'Request rejected. No school workspace was created.' });
+      }
+      if (await School.exists({ code: request.proposedCode })) return res.status(409).json({ error: 'That school code has already been registered. Ask the requester to submit a new request.' });
+      const school = await School.create({ name: request.schoolName, code: request.proposedCode, createdBy: request.requesterId });
+      await Membership.create({ schoolId: school._id, userId: request.requesterId, role: 'admin' });
+      request.status = 'APPROVED'; request.reviewedBy = req.user._id; request.reviewedAt = new Date();
+      request.reviewNote = reviewNote; request.schoolId = school._id;
+      await request.save();
+      return res.json({ status: request.status, school: { id: String(school._id), name: school.name, code: school.code }, message: 'School verified and workspace created.' });
+    } catch (error) {
+      if (error?.code === 11000) return res.status(409).json({ error: 'That school code is already in use. No duplicate workspace was created.' });
+      return next(error);
+    }
+  });
+
+  // Legacy direct creation is disabled to stop unverified or fabricated schools.
+  // Only an approved verification request may create a production workspace.
+  app.post('/api/schools', auth, async (_req, res) => {
+    return res.status(403).json({ error: 'School workspaces require verification first. Submit a school verification request instead.' });
   });
 
   app.get('/api/schools', auth, async (req, res, next) => {
