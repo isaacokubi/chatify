@@ -227,11 +227,22 @@ export function registerSchoolRoutes({ app, auth, mongoose, User }) {
         if (payment.mpesaReceipt === receipt) return res.json({ payment, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + payment.paymentReference + '/receipt' });
         return res.status(409).json({ error: 'This fee record is already confirmed with a different receipt' });
       }
+      let confirmed;
       try {
-        payment.status = 'CONFIRMED'; payment.mpesaReceipt = receipt; payment.verifiedBy = req.user._id; payment.verifiedAt = new Date();
-        await payment.save();
+        // Atomic compare-and-set prevents two administrators confirming the same
+        // pending record with different receipt numbers at the same time.
+        confirmed = await FeePayment.findOneAndUpdate(
+          { _id: payment._id, status: 'PENDING_VERIFICATION' },
+          { $set: { status: 'CONFIRMED', mpesaReceipt: receipt, verifiedBy: req.user._id, verifiedAt: new Date() } },
+          { new: true, runValidators: true }
+        );
       } catch (error) { if (error?.code === 11000) return res.status(409).json({ error: 'This M-Pesa receipt has already been used for another fee payment at this school' }); throw error; }
-      return res.json({ payment, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + payment.paymentReference + '/receipt' });
+      if (!confirmed) {
+        const latest = await FeePayment.findById(payment._id);
+        if (latest?.status === 'CONFIRMED' && latest.mpesaReceipt === receipt) return res.json({ payment: latest, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + latest.paymentReference + '/receipt', duplicate: true });
+        return res.status(409).json({ error: 'This fee record has already been verified or changed. Refresh the fee list.' });
+      }
+      return res.json({ payment: confirmed, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + confirmed.paymentReference + '/receipt' });
     } catch (error) { return next(error); }
   });
 
