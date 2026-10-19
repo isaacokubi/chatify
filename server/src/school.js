@@ -339,7 +339,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     try {
       const filter = { schoolId: req.params.schoolId };
       if (req.schoolMembership.role === 'parent') filter.parentId = req.user._id;
-      const payments = await FeePayment.find(filter).sort({ createdAt: -1 }).limit(200).lean();
+      const payments = await FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone -checkoutRequestId -merchantRequestId').sort({ createdAt: -1 }).limit(200).lean();
       return res.json({ payments });
     } catch (error) { return next(error); }
   });
