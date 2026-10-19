@@ -136,7 +136,7 @@ export function createEmailProvider(config = {}, transport) {
         `Chatify reference: ${payload.paymentReference}`,
         '',
         'The official printable receipt is attached as an HTML file.',
-      ].join('\\n');
+      ].join('\n');
       await mailer.sendMail({
         from,
         to: payload.email,
