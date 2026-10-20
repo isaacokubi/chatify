@@ -9413,7 +9413,7 @@ class BusinessHub extends StatefulWidget {
   State<BusinessHub> createState() => _BusinessHubState();
 }
 
-class _BusinessHubState extends State<BusinessHub> {
+class _BusinessHubState extends State<BusinessHub> with WidgetsBindingObserver {
   Map<String, dynamic>? organization;
   Map<String, dynamic> dashboard = {};
   List<dynamic> organizations = [],
@@ -9425,12 +9425,40 @@ class _BusinessHubState extends State<BusinessHub> {
   int pendingOfflineCount = 0;
   List<String> syncConflicts = [];
   String? error;
+  Future<void> _offlineQueueTail = Future<void>.value();
+  bool _flushingOfflineQueue = false;
   AppState get app => context.read<AppState>();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     loadOrganizations();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refreshing the workspace also retries durable, idempotent business creates.
+      unawaited(loadOrganizations());
+    }
+  }
+
+  Future<void> _restoreOfflineQueueState(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final queue = prefs.getStringList(_offlineQueueKey(id)) ?? <String>[];
+    final issues = prefs.getStringList(_offlineIssuesKey(id)) ?? <String>[];
+    if (!mounted) return;
+    setState(() {
+      pendingOfflineCount = queue.length;
+      syncConflicts = issues;
+    });
   }
 
   Future<void> loadOrganizations() async {
@@ -9754,21 +9782,42 @@ class _BusinessHubState extends State<BusinessHub> {
   // Persist only offline record creates; each mutation ID makes retry safe if the response is lost.
   Future<void> _enqueueOfflineCreate(
       String id, String entityType, Map<String, dynamic> changes) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = _offlineQueueKey(id);
-    final queue = prefs.getStringList(key) ?? <String>[];
-    queue.add(jsonEncode({
-      'mutationId':
-          'mobile:$entityType:${DateTime.now().microsecondsSinceEpoch}',
-      'operation': 'create',
-      'entityType': entityType,
-      'changes': changes
-    }));
-    await prefs.setStringList(key, queue);
-    if (mounted) setState(() => pendingOfflineCount = queue.length);
+    final completed = Completer<void>();
+    _offlineQueueTail = _offlineQueueTail.then((_) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final key = _offlineQueueKey(id);
+        final queue = prefs.getStringList(key) ?? <String>[];
+        final mutationId = 'mobile:$entityType:${DateTime.now().microsecondsSinceEpoch}';
+        queue.add(jsonEncode({
+          'mutationId': mutationId,
+          'operation': 'create',
+          'entityType': entityType,
+          'changes': changes
+        }));
+        await prefs.setStringList(key, queue);
+        if (mounted && organization?['_id']?.toString() == id) {
+          setState(() => pendingOfflineCount = queue.length);
+        }
+        completed.complete();
+      } catch (error, stack) {
+        completed.completeError(error, stack);
+      }
+    });
+    return completed.future;
   }
 
   Future<int> _flushOfflineQueue(String id) async {
+    if (_flushingOfflineQueue) return 0;
+    _flushingOfflineQueue = true;
+    try {
+      return await _flushOfflineQueueOnce(id);
+    } finally {
+      _flushingOfflineQueue = false;
+    }
+  }
+
+  Future<int> _flushOfflineQueueOnce(String id) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _offlineQueueKey(id);
     final queue = prefs.getStringList(key) ?? <String>[];
