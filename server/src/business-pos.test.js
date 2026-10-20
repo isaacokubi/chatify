@@ -113,7 +113,7 @@ test('business checkout adds the 0.5% fee on top and rejects totals above the pr
 });
 
 test('POS STK validates the merchant base amount and leaves platform fee for separate collection', () => {
-  const charge = {amount:450, baseAmount:450, totalAmount:453, platformFee:3, stkPhone:'254712345678'};
+  const charge = {amount:450, baseAmount:450, totalAmount:453, platformFee:3, feeCollectionMode:'separate', stkPhone:'254712345678'};
   const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
     {Name:'Amount',Value:450}, {Name:'PhoneNumber',Value:254712345678}, {Name:'MpesaReceiptNumber',Value:'QWERTY1234'},
   ]}};
