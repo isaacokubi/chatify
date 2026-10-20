@@ -102,7 +102,7 @@ export function buildPosCharge({organization, amount, description, reference, pr
     ? {method: 'mpesa_till', tillNumber: profile.tillNumber}
     : {method: 'mpesa_paybill', paybillNumber: profile.paybillNumber, accountNumber: paymentReference};
   const paymentId = randomUUID();
-  const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: total, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, description: title, currency: 'KES', ...destination};
+  const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, description: title, currency: 'KES', ...destination};
   return {paymentId, organizationId: organization._id, reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_PAYMENT', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
 }
 
@@ -536,7 +536,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
           {method: 'mpesa_till', 'destination.tillNumber': shortcode},
         ],
         status: 'PENDING',
-        $and: [{$or: [{totalAmount: amount}, {totalAmount: {$exists: false}, amount}]}],
+        $and: [{$or: [{baseAmount: amount}, {baseAmount: {$exists: false}, amount}]}],
         reference,
         providerReceipt: {$in: [null, '']},
       }, {$set: {
@@ -551,7 +551,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
         if (existing) await recordPosPlatformFee(existing, receipt);
         return res.status(200).json({ResultCode: 0, ResultDesc: 'Duplicate receipt ignored'});
       }
-      if (charge) await recordPosPlatformFee(charge, receipt);
+      if (charge) { await recordPosPlatformFee(charge, receipt); const payerPhone=normalizeMpesaPhone(String(body.MSISDN||body.PhoneNumber||'')); if(payerPhone&&charge.platformFee>0&&platformFeeCollector){try{await platformFeeCollector.collect({paymentId:charge.paymentId,source:'business_pos',payerPhone,baseAmount:charge.baseAmount??charge.amount,feeAmount:charge.platformFee});}catch(error){console.error('POS QR sale succeeded but separate platform fee STK could not start',{paymentId:charge.paymentId,stage:error?.stage||'configuration_or_unknown'});}} }
       return res.status(200).json({ResultCode: 0, ResultDesc: charge ? 'Payment confirmed' : 'Received; no exact matching Paybill sale'});
     } catch (error) {
       if (error?.code === 11000) return res.status(200).json({ResultCode: 0, ResultDesc: 'Duplicate receipt ignored'});
