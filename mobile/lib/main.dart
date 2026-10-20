@@ -7320,8 +7320,8 @@ class _ChatState extends State<Chat> {
                     decoration: const InputDecoration(labelText: 'Amount (KSh)'),
                     validator: (value) {
                       final amountValue = int.tryParse((value ?? '').trim());
-                      return amountValue == null || amountValue < 1 || amountValue > 149253
-                          ? 'Enter KSh 1–149,253 before the 0.5% fee'
+                      return amountValue == null || amountValue < 1 || amountValue > 150000
+                          ? 'Enter KSh 1–150,000'
                           : null;
                     },
                   ),
@@ -7368,19 +7368,15 @@ class _ChatState extends State<Chat> {
 
       if (confirmed == true && mounted) {
         final baseAmount = int.parse(paymentAmount.text.trim());
-        final fee = (baseAmount * 0.005).ceil();
-        final total = baseAmount + fee;
-        final acceptFee = await showDialog<bool>(
+        final acceptPayment = await showDialog<bool>(
           context: context,
           builder: (dialog) => AlertDialog(
             title: const Text('Confirm M-Pesa payment'),
             content: Text(
               'Merchant: ${isContact ? 'this contact' : (isTill ? 'Till' : 'Paybill')}\n'
               '${isContact ? '' : 'Number: ${merchantNumber.text.trim()}\n'}'
-              'Amount: KSh $baseAmount\n'
-              'Chatify platform fee (0.5%, rounded up): KSh $fee\n'
-              'Total STK charge: KSh $total\n\n'
-              'The fee is recorded as pending settlement; Chatify does not automatically split or settle it. Continue?',
+              'Total M-Pesa charge: KSh $baseAmount\n\n'
+              'Chatify does not add a transaction commission. Safaricom charges, if applicable, are separate. Continue?',
             ),
             actions: [
               TextButton(
@@ -7390,7 +7386,7 @@ class _ChatState extends State<Chat> {
             ],
           ),
         );
-        if (acceptFee == true && mounted) {
+        if (acceptPayment == true && mounted) {
           final messenger = ScaffoldMessenger.of(context);
           messenger.showSnackBar(const SnackBar(
             content: Text('Requesting STK prompt…'),
@@ -7405,14 +7401,13 @@ class _ChatState extends State<Chat> {
               'amount': baseAmount,
               'description': description.text.trim(),
               if (!isContact) 'merchantNumber': merchantNumber.text.trim(),
-              'feeAcknowledged': true,
             });
             if (mounted) {
               final notice = result['notice']?.toString() ??
                   'STK request accepted. The payment remains pending until Safaricom confirms it.';
               messenger.showSnackBar(SnackBar(
                 content: Text(
-                    '$notice\nTotal: KSh ${result['totalAmount'] ?? total}'),
+                    '$notice\nAmount: KSh ${result['totalAmount'] ?? baseAmount}'),
                 duration: const Duration(seconds: 6),
               ));
             }
@@ -7557,8 +7552,6 @@ class _ChatState extends State<Chat> {
             '');
     final form = GlobalKey<FormState>();
     final baseAmount = (payment['baseAmount'] as num?)?.toInt() ?? (payment['amount'] as num?)?.toInt() ?? 0;
-    final platformFee = (payment['platformFee'] as num?)?.toInt() ?? 0;
-    final totalAmount = (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
     final accepted = await showDialog<bool>(
         context: context,
         builder: (dialog) => AlertDialog(
@@ -7567,10 +7560,10 @@ class _ChatState extends State<Chat> {
                 key: form,
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Text(
-                      'Requested amount: KSh $baseAmount\nPlatform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nTotal charged: KSh $totalAmount', style: Theme.of(context).textTheme.bodyMedium),
+                      'Amount to pay: KSh $baseAmount\nNo Chatify transaction commission is added.', style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 10),
                   const Text(
-                      'If payment succeeds, the fee is recorded as pending settlement. Chatify does not automatically receive or split the fee yet. This STK payment goes to the configured business shortcode, not directly to a personal recipient.', style: TextStyle(fontSize: 12)),
+                      'This STK payment goes to the configured business shortcode, not directly to a personal recipient. Safaricom charges, if applicable, are separate.', style: TextStyle(fontSize: 12)),
                   const SizedBox(height: 10),
                   TextFormField(
                   controller: payerPhone,
@@ -10234,14 +10227,12 @@ class _StorefrontPageState extends State<StorefrontPage> {
             'Order was created but no payment reference was returned.');
       }
       final baseAmount = (payment['baseAmount'] as num?)?.toInt() ?? (payment['amount'] as num?)?.toInt() ?? 0;
-      final platformFee = (payment['platformFee'] as num?)?.toInt() ?? 0;
-      final totalAmount = (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
       if (!mounted) return;
       final consent = await showDialog<bool>(
           context: context, builder: (dialogContext) => AlertDialog(
         title: const Text('Confirm checkout total'),
         content: Text(
-                    'Order subtotal: KSh $baseAmount\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nTotal M-Pesa charge: KSh $totalAmount\n\nIf payment succeeds, the platform fee is accrued as pending settlement; it is not automatically transferred to Chatify.'),
+                    'Order total: KSh $baseAmount\nNo Chatify transaction commission is added. Safaricom charges, if applicable, are separate.'),
         actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
@@ -11787,8 +11778,6 @@ class _BusinessHubState extends State<BusinessHub> {
       } else if (action == 'mpesa') {
         final preview = await app.api.call('GET', '$base/mpesa-fee-preview');
         final baseAmount = (preview['baseAmount'] as num?)?.toInt() ?? 0;
-        final platformFee = (preview['platformFee'] as num?)?.toInt() ?? 0;
-        final totalAmount = (preview['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
         final phone = TextEditingController();
         if (!mounted) return;
         final accepted = await showDialog<bool>(
@@ -11797,10 +11786,10 @@ class _BusinessHubState extends State<BusinessHub> {
                     title: const Text('Review invoice M-Pesa total'),
                     content: Column(mainAxisSize: MainAxisSize.min, children: [
                       Text(
-                          'Invoice balance: KSh $baseAmount\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nBuyer total: KSh $totalAmount'),
+                          'Invoice balance: KSh $baseAmount\nNo Chatify transaction commission is added.'),
                       const SizedBox(height: 8),
                       const Text(
-                          'If payment succeeds, the platform fee is accrued as pending settlement and is not automatically transferred to Chatify. Disclose this total to the customer before sending the prompt.', style: TextStyle(fontSize: 12)),
+                          'Confirm the invoice balance with the customer before sending the M-Pesa prompt. Safaricom charges, if applicable, are separate.', style: TextStyle(fontSize: 12)),
                       const SizedBox(height: 8),
                       TextField(
                           controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(
@@ -12585,19 +12574,11 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
               'Enter a description and whole-number amount from KSh 1 to KSh 150,000.')));
       return;
     }
-    final fee = (n * 0.005).ceil();
-    final total = n + fee;
-    if (total > 150000) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              'Sale amount plus the platform fee must not exceed KSh 150,000.')));
-      return;
-    }
     final accepted = await showDialog<bool>(
         context: context, builder: (d) => AlertDialog(
-      title: const Text('Confirm POS checkout fee'),
+      title: const Text('Confirm POS sale amount'),
       content: Text(
-                  'Sale amount: KSh $n\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $fee\nBuyer total: KSh $total\n\nShow this breakdown to the buyer before they scan/pay. If payment succeeds, the fee is accrued as pending settlement; it is not automatically transferred to Chatify.'),
+                  'Sale amount and customer total: KSh $n\nNo Chatify transaction commission is added. Safaricom charges, if applicable, are separate.'),
       actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
@@ -12628,13 +12609,11 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       return;
     }
     final baseAmount = (item['baseAmount'] as num?)?.toInt() ?? (item['amount'] as num?)?.toInt() ?? 0;
-    final platformFee = (item['platformFee'] as num?)?.toInt() ?? 0;
-    final totalAmount = (item['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
     final feeConsent = await showDialog<bool>(
         context: context, builder: (d) => AlertDialog(
-      title: const Text('Confirm buyer fee disclosure'),
+      title: const Text('Confirm customer payment'),
       content: Text(
-                  'Sale amount: KSh $baseAmount\nChatify platform fee (0.5%, rounded up to whole KSh): KSh $platformFee\nBuyer total: KSh $totalAmount\n\nConfirm that you have shown the buyer this breakdown. The fee remains pending settlement and is not automatically transferred to Chatify.'),
+                  'Sale amount and customer total: KSh $baseAmount\nNo Chatify transaction commission is added. Confirm the customer has reviewed the amount.'),
       actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
@@ -12645,7 +12624,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     if (feeConsent != true) return;
     try {
       await app.api.call(
-          'POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/stk', {'phone': phone.trim(), 'feeAcknowledged': true});
+          'POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/stk', {'phone': phone.trim()});
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -12739,11 +12718,9 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
                       data: payload, version: QrVersions.auto, size: 220, backgroundColor: Colors.white),
         Text(widget.organizationName, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
                 Text(
-                    'Buyer total: KSh ${item['totalAmount'] ?? item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
-                Text(
-                    'Sale amount: KSh ${item['baseAmount'] ?? item['amount'] ?? ''}  +  Chatify fee: KSh ${item['platformFee'] ?? 0} (0.5%, rounded up to whole KSh)', textAlign: TextAlign.center),
-        const Text(
-                    'If payment succeeds, the platform fee is accrued as pending settlement; this payment is not automatically split or transferred to Chatify.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+                    'Customer total: KSh ${item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
+                Text('Sale amount: KSh ${item['amount'] ?? ''}', textAlign: TextAlign.center),
+        const Text('No Chatify transaction commission is added. Safaricom charges, if applicable, are separate.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
         Text(item['description']?.toString() ?? ''),
         SelectableText('Reference: ${item['reference'] ?? ''}'),
         Text('Status: ${item['status'] ?? 'PENDING'}'),
