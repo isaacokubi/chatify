@@ -777,11 +777,21 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     ready = false;
     restoreError = null;
-    await api.restore();
-    final preferences = await SharedPreferences.getInstance();
-    themeMode = preferences.getBool('chatify_dark_mode') == true
-        ? ThemeMode.dark
-        : ThemeMode.light;
+    try {
+      await api.restore().timeout(const Duration(seconds: 5));
+    } catch (error) {
+      // A storage plugin failure must not leave the app stuck on its splash.
+      restoreError = 'Could not restore the saved session: $error';
+    }
+    try {
+      final preferences = await SharedPreferences.getInstance()
+          .timeout(const Duration(seconds: 3));
+      themeMode = preferences.getBool('chatify_dark_mode') == true
+          ? ThemeMode.dark
+          : ThemeMode.light;
+    } catch (error) {
+      restoreError ??= 'Could not load local preferences: $error';
+    }
     if (api.token != null) {
       try {
         user = Map<String, dynamic>.from(
