@@ -633,7 +633,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     if(document.currency!=='KES')return res.status(400).json({error:'M-Pesa STK is currently supported for KES invoices only'});
     const baseAmount=Math.round((document.total-document.paidAmount)*100)/100;
     if(!Number.isSafeInteger(baseAmount)||!validPaymentAmount(baseAmount))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
-    try{return res.json({...await calculateConfiguredPaymentTotal(baseAmount),currency:'KES',feeNotice:'The configured platform fee is recorded for settlement. Automatic split settlement requires a platform-controlled Safaricom merchant/disbursement setup.'});}
+    try{return res.json({...await calculateConfiguredPaymentTotal(baseAmount),currency:'KES',feeNotice:'The merchant receives the invoice base amount. After the base payment succeeds, Chatify requests its disclosed platform fee separately through the configured platform-owned Paybill/Till.'});}
     catch(error){return res.status(400).json({error:error.message});}
   });
   app.post('/api/business/organizations/:orgId/documents/:documentId/mpesa-stk', auth, async (req,res)=>{
