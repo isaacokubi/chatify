@@ -22,12 +22,13 @@ export function registerBusinessCustomerPortalRoutes({app,auth,mongoose}) {
  PortalRequest.schema.index({customerUserId:1,documentId:1,type:1,status:1});
  app.get('/api/customer/portal/orders',auth,async(req,res)=>{
   const docs=await Document.find({createdBy:req.user._id,type:'order'}).sort({createdAt:-1}).limit(100)
-   .select('organizationId number status items subtotal tax total paidAmount currency dueDate createdAt updatedAt').lean();
+   .select('organizationId number status items subtotal tax total paidAmount currency dueDate deliveryStatus deliveryAddress deliveryProvider trackingNumber deliveryNotes dispatchedAt deliveredAt createdAt updatedAt').lean();
   const orgIds=[...new Set(docs.map(d=>String(d.organizationId)))];
   const orgs=await Organization.find({_id:{$in:orgIds}}).select('name slug').lean();
   const byId=new Map(orgs.map(o=>[String(o._id),o]));
   return res.json({orders:docs.map(d=>({id:String(d._id),number:d.number,status:d.status,items:d.items,
    subtotal:d.subtotal,tax:d.tax,total:d.total,paidAmount:d.paidAmount,currency:d.currency,dueDate:d.dueDate,
+   delivery:{status:d.deliveryStatus||'not_required',address:d.deliveryAddress||'',provider:d.deliveryProvider||'',trackingNumber:d.trackingNumber||'',notes:d.deliveryNotes||'',dispatchedAt:d.dispatchedAt||null,deliveredAt:d.deliveredAt||null},
    createdAt:d.createdAt,updatedAt:d.updatedAt,business:byId.get(String(d.organizationId))||{name:'Business',slug:''}}))});
  });
  app.get('/api/customer/portal/requests',auth,async(req,res)=>{
