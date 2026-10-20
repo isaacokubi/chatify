@@ -2505,7 +2505,7 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-enum _AdminSection { overview, people, payments, feeWallet }
+enum _AdminSection { overview, people, payments, billing }
 
 class _AdminDashboardState extends State<AdminDashboard> {
   Map<String, dynamic> overview = {};
@@ -2523,6 +2523,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
   final TextEditingController feePaybillController = TextEditingController();
   final TextEditingController feeTillController = TextEditingController();
   final TextEditingController feeAccountReferenceController = TextEditingController(text: 'CHATIFY-FEE');
+  Map<String, dynamic> workspaceBillingSettings = {};
+  bool workspaceBillingSettingsLoading = false, workspaceBillingSettingsSaving = false;
+  final TextEditingController businessSetupFeeController = TextEditingController(text: '1000');
+  final TextEditingController businessMonthlyFeeController = TextEditingController(text: '500');
+  final TextEditingController schoolSetupFeeController = TextEditingController(text: '5000');
+  final TextEditingController schoolMonthlyFeeController = TextEditingController(text: '2500');
+  final TextEditingController billingGraceDaysController = TextEditingController(text: '3');
   int userPage = 1, paymentPage = 1, userTotal = 0, paymentTotal = 0;
   DateTime? refreshedAt;
   _AdminSection section = _AdminSection.overview;
@@ -2659,6 +2666,82 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
+  Future<void> loadWorkspaceBillingSettings() async {
+    if (mounted) setState(() => workspaceBillingSettingsLoading = true);
+    try {
+      final result = await api.call('GET', '/api/admin/workspace-billing-settings');
+      final settings = Map<String, dynamic>.from(result['settings'] ?? {});
+      if (!mounted) return;
+      setState(() {
+        workspaceBillingSettings = settings;
+        businessSetupFeeController.text = (settings['businessSetupFee'] ?? 1000).toString();
+        businessMonthlyFeeController.text = (settings['businessMonthlyFee'] ?? 500).toString();
+        schoolSetupFeeController.text = (settings['schoolSetupFee'] ?? 5000).toString();
+        schoolMonthlyFeeController.text = (settings['schoolMonthlyFee'] ?? 2500).toString();
+        billingGraceDaysController.text = (settings['gracePeriodDays'] ?? 3).toString();
+      });
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load workspace billing settings: $e')));
+    } finally {
+      if (mounted) setState(() => workspaceBillingSettingsLoading = false);
+    }
+  }
+
+  Future<void> saveWorkspaceBillingSettings() async {
+    int? parse(TextEditingController controller) => int.tryParse(controller.text.trim());
+    final businessSetup = parse(businessSetupFeeController);
+    final businessMonthly = parse(businessMonthlyFeeController);
+    final schoolSetup = parse(schoolSetupFeeController);
+    final schoolMonthly = parse(schoolMonthlyFeeController);
+    final graceDays = parse(billingGraceDaysController);
+    final amounts = [businessSetup, businessMonthly, schoolSetup, schoolMonthly];
+    if (amounts.any((value) => value == null || value < 0 || value > 1000000) || graceDays == null || graceDays < 0 || graceDays > 30) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter whole-number prices from KSh 0 to KSh 1,000,000 and a grace period from 0 to 30 days.')));
+      return;
+    }
+    setState(() => workspaceBillingSettingsSaving = true);
+    try {
+      final result = await api.call('PUT', '/api/admin/workspace-billing-settings', {
+        'businessSetupFee': businessSetup, 'businessMonthlyFee': businessMonthly,
+        'schoolSetupFee': schoolSetup, 'schoolMonthlyFee': schoolMonthly,
+        'gracePeriodDays': graceDays,
+      });
+      if (!mounted) return;
+      setState(() => workspaceBillingSettings = Map<String, dynamic>.from(result['settings'] ?? {}));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Workspace setup and subscription prices saved.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Billing settings were not saved: $e')));
+    } finally {
+      if (mounted) setState(() => workspaceBillingSettingsSaving = false);
+    }
+  }
+
+  Widget _workspaceBillingSection(ThemeData theme) {
+    Widget amountField(TextEditingController controller, String label) => TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(labelText: label, prefixText: 'KSh ', border: const OutlineInputBorder()),
+    );
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Workspace setup and monthly subscriptions', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 8),
+      const Text('These prices apply to new workspaces. Setup is a one-time payment; subscriptions renew monthly. Existing workspaces are grandfathered until migrated deliberately.'),
+      if (workspaceBillingSettingsLoading) const LinearProgressIndicator(),
+      const SizedBox(height: 12),
+      amountField(businessSetupFeeController, 'Business one-time setup fee'),
+      const SizedBox(height: 10),
+      amountField(businessMonthlyFeeController, 'Business monthly subscription'),
+      const SizedBox(height: 10),
+      amountField(schoolSetupFeeController, 'School one-time setup fee'),
+      const SizedBox(height: 10),
+      amountField(schoolMonthlyFeeController, 'School monthly subscription'),
+      const SizedBox(height: 10),
+      TextField(controller: billingGraceDaysController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Grace period after expiry (days)', border: OutlineInputBorder(), helperText: 'Allowed range: 0–30 days.')),
+      const SizedBox(height: 12),
+      FilledButton.icon(onPressed: workspaceBillingSettingsSaving || workspaceBillingSettingsLoading ? null : saveWorkspaceBillingSettings, icon: workspaceBillingSettingsSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined), label: Text(workspaceBillingSettingsSaving ? 'Saving…' : 'Save workspace billing prices')),
+    ])));
+  }
+
   Future<void> changeStatus(Map<String, dynamic> user) async {
     final id = user['_id']?.toString() ?? user['id']?.toString();
     if (id == null || id.isEmpty) return;
@@ -2707,6 +2790,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
     searchController.dispose();
     feeRateController.dispose();
     feeWalletPhoneController.dispose();
+    businessSetupFeeController.dispose();
+    businessMonthlyFeeController.dispose();
+    schoolSetupFeeController.dispose();
+    schoolMonthlyFeeController.dispose();
+    billingGraceDaysController.dispose();
     feePaybillController.dispose();
     feeTillController.dispose();
     feeAccountReferenceController.dispose();
@@ -3049,14 +3137,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ButtonSegment(
                   value: _AdminSection.payments, label: Text('Payments'), icon: Icon(Icons.payments_outlined)),
               ButtonSegment(
-                  value: _AdminSection.feeWallet, label: Text('Fee wallet'), icon: Icon(Icons.account_balance_wallet_outlined)),
+                  value: _AdminSection.billing, label: Text('Workspace billing'), icon: Icon(Icons.workspace_premium_outlined)),
             ],
             selected: {section},
             onSelectionChanged: (value) {
               setState(() => section = value.first);
               if (section == _AdminSection.people && users.isEmpty) loadUsers();
               if (section == _AdminSection.payments && payments.isEmpty) loadPayments();
-              if (section == _AdminSection.feeWallet) loadFeeWalletSettings();
+              if (section == _AdminSection.billing) loadWorkspaceBillingSettings();
             },
           ),
           const SizedBox(height: 18),
@@ -3144,7 +3232,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ] else if (section == _AdminSection.payments) ...[
             _paymentsSection(theme),
           ] else ...[
-            _feeWalletSection(theme),
+            _workspaceBillingSection(theme),
           ],
         ],
       ),
