@@ -68,7 +68,7 @@ test('duplicate successful callbacks do not apply the same setup payment twice',
 });
 
 test('confirmed monthly payment extends the subscription by one month', async () => {
-  const h = billingHarness({ setupPaid: true, expiresAt: new Date('2026-10-01T00:00:00.000Z') });
+  const h = billingHarness({ setupPaid: true, expiresAt: new Date('2026-12-01T00:00:00.000Z') });
   h.payment.billingType = 'workspace_subscription';
   const result = await applyWorkspaceBillingPayment(h);
   assert.equal(result.applied, true);
