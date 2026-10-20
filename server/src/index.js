@@ -242,8 +242,25 @@ const PlatformFeeSettings=mongoose.models.PlatformFeeSettings||mongoose.model('P
 },{timestamps:true}));
 app.get('/api/admin/platform-fee-settings',auth,requireAdmin,async(q,r)=>{
   const settings=await PlatformFeeSettings.findOne({key:'global'}).lean();
-  // Only public destination details are stored here; Daraja credentials remain in server secrets.
-  r.json({settings:settings||{enabled:true,feeRate:0.5,walletType:'mpesa_phone',walletPhone:'',paybillNumber:'',tillNumber:'',accountReference:'CHATIFY-FEE'}});
+  // A saved destination is not proof that Daraja can automatically collect platform fees.
+  // Live collection requires platform-owned Daraja credentials and a Paybill/Till shortcode.
+  const configured=settings||{enabled:true,feeRate:0.5,walletType:'mpesa_phone',walletPhone:'',paybillNumber:'',tillNumber:'',accountReference:'CHATIFY-FEE'};
+  const walletConfigured=configured.walletType==='mpesa_paybill'?Boolean(configured.paybillNumber):configured.walletType==='mpesa_till'?Boolean(configured.tillNumber):Boolean(configured.walletPhone);
+  const darajaConfigured=Boolean(process.env.PLATFORM_FEE_MPESA_CONSUMER_KEY&&process.env.PLATFORM_FEE_MPESA_CONSUMER_SECRET&&process.env.PLATFORM_FEE_MPESA_PASSKEY&&process.env.PLATFORM_FEE_MPESA_CALLBACK_URL&&process.env.PLATFORM_FEE_MPESA_ENV&&process.env.PLATFORM_FEE_MPESA_SHORTCODE);
+  r.json({settings:configured,collection:{walletConfigured,darajaConfigured,automaticCollectionReady:configured.enabled&&walletConfigured&&darajaConfigured&&(configured.walletType==='mpesa_paybill'||configured.walletType==='mpesa_till'),status:configured.enabled&&walletConfigured&&darajaConfigured?'configured_not_yet_activated':'setup_required',requiredEnvironment:['PLATFORM_FEE_MPESA_ENV','PLATFORM_FEE_MPESA_CONSUMER_KEY','PLATFORM_FEE_MPESA_CONSUMER_SECRET','PLATFORM_FEE_MPESA_SHORTCODE','PLATFORM_FEE_MPESA_PASSKEY','PLATFORM_FEE_MPESA_CALLBACK_URL']}});
+});
+// Read-only, paginated reconciliation endpoint for administrators. It never exposes payer phones.
+app.get('/api/admin/platform-fees',auth,requireAdmin,async(q,r)=>{
+  const page=Math.max(1,Math.min(10000,Number.parseInt(q.query.page,10)||1));
+  const limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||25));
+  const status=['PENDING_SETTLEMENT','SETTLED','REVERSED'].includes(q.query.status)?q.query.status:null;
+  const filter=status?{status}:{};
+  const [fees,total,summary]=await Promise.all([
+    PlatformFeeLedger.find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit).select('paymentId source businessOrganizationId baseAmount feeAmount totalAmount currency status providerReceipt confirmedAt createdAt').lean(),
+    PlatformFeeLedger.countDocuments(filter),
+    PlatformFeeLedger.aggregate([{$match:filter},{$group:{_id:'$status',count:{$sum:1},feeAmount:{$sum:'$feeAmount'}}}]),
+  ]);
+  r.json({fees,total,page,limit,summary:summary.map(item=>({status:item._id,count:item.count,feeAmount:item.feeAmount}))});
 });
 app.put('/api/admin/platform-fee-settings',auth,requireAdmin,async(q,r)=>{
   const body=q.body||{};
