@@ -9449,6 +9449,7 @@ class _BusinessHubState extends State<BusinessHub> {
           (item) => item is Map && item['_id']?.toString() == currentId,
           orElse: () => organizations.first,
         ) as Map<String, dynamic>;
+        await _restoreOfflineQueueState(organization!['_id'].toString());
         await loadWorkspaceData();
       } else {
         organization = null;
