@@ -76,7 +76,7 @@ const Spark=mongoose.models.Spark||mongoose.model('Spark',new mongoose.Schema({
   authorImage:{type:String,default:'',maxlength:2048},
   text:{type:String,default:'',trim:true,maxlength:500},
   mediaType:{type:String,enum:['image','video'],default:undefined},
-  mediaUrl:{type:String,default:'',maxlength:2048},
+  mediaUrl:{type:String,default:'',maxlength:12000000},
   expiresAt:{type:Date,required:true,index:{expires:0}},
 },{timestamps:true}));
 
