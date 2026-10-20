@@ -4854,6 +4854,9 @@ class _HomeState extends State<Home> {
   int chatPage = 1, chatTotal = 0, memoryPage = 1, memoryTotal = 0, contactsPage = 1, contactsTotal = 0;
   final Map<int, String> chatCursors = {}, memoryCursors = {};
   List<dynamic> chats = [], users = [], memories = [];
+  // Sparks are short-lived status updates that expire after 24 hours.
+  List<dynamic> sparks = [];
+  bool sparksLoading = false;
   bool loading = false;
   bool offlineDataMode = false;
   bool selectingChats = false;
@@ -4882,6 +4885,7 @@ class _HomeState extends State<Home> {
     app.addListener(_onAppStateChanged);
     loadChats();
     loadSavedContacts();
+    loadSparks();
   }
 
   void _toggleConversationSelection(String id) {
@@ -4950,6 +4954,252 @@ class _HomeState extends State<Home> {
                     ' conversations. Some remaining items could not be deleted: ' + error.toString())));
       }
     }
+  }
+
+  // Load the signed-in user's active Sparks and those shared by saved contacts.
+  Future<void> loadSparks() async {
+    if (!mounted) return;
+    setState(() => sparksLoading = true);
+    try {
+      final result = await app.api.call('GET', '/api/sparks');
+      if (!mounted) return;
+      setState(() {
+        sparks = List<dynamic>.from(result['sparks'] ?? const []);
+        sparksLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => sparksLoading = false);
+    }
+  }
+
+  // A Spark is a lightweight text status that the server expires after 24 hours.
+  Future<void> _createSpark() async {
+    final controller = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create a Spark'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 500,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'What would you like to share?',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Share Spark'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (text == null || text.trim().isEmpty || !mounted) return;
+    try {
+      await app.api.call('POST', '/api/sparks', {'text': text.trim()});
+      await loadSparks();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Your Spark is live for 24 hours.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not share Spark: $error')),
+        );
+      }
+    }
+  }
+
+  void _viewSpark(Map<String, dynamic> spark) {
+    final author = spark['authorName']?.toString() ?? 'Chatify user';
+    final created = DateTime.tryParse(spark['createdAt']?.toString() ?? '');
+    final age = created == null
+        ? 'Recently'
+        : DateTime.now().difference(created.toLocal()).inMinutes < 60
+            ? '${DateTime.now().difference(created.toLocal()).inMinutes}m ago'
+            : '${DateTime.now().difference(created.toLocal()).inHours}h ago';
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.auto_awesome, size: 30),
+        title: Text(author),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(spark['text']?.toString() ?? ''),
+            const SizedBox(height: 12),
+            Text(age, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+        actions: [
+          if (spark['isMine'] == true)
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                try {
+                  await app.api.call('DELETE', '/api/sparks/${spark['_id']}');
+                  await loadSparks();
+                } catch (error) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Could not delete Spark: $error')),
+                    );
+                  }
+                }
+              },
+              child: const Text('Delete'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sparksStrip() {
+    final theme = Theme.of(context);
+    final mySparks = sparks.where((item) => item is Map && item['isMine'] == true).toList();
+    final otherSparks = sparks.where((item) => item is Map && item['isMine'] != true).toList();
+    return SizedBox(
+      height: 112,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        children: [
+          SizedBox(
+            width: 76,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: _createSpark,
+              child: Column(
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CircleAvatar(
+                        radius: 28,
+                        backgroundColor: theme.colorScheme.primaryContainer,
+                        foregroundImage: (app.user?['profileImage'] is String &&
+                                (app.user!['profileImage'] as String).startsWith('https://'))
+                            ? NetworkImage(app.user!['profileImage'] as String)
+                            : null,
+                        child: const Icon(Icons.person_outline, size: 28),
+                      ),
+                      Positioned(
+                        right: -2,
+                        bottom: -2,
+                        child: CircleAvatar(
+                          radius: 11,
+                          backgroundColor: theme.colorScheme.primary,
+                          child: const Icon(Icons.add, size: 16, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text('Your Spark', maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ),
+          for (final item in [...mySparks, ...otherSparks])
+            Builder(builder: (context) {
+              final spark = Map<String, dynamic>.from(item as Map);
+              final name = spark['authorName']?.toString() ?? 'Chatify user';
+              final initials = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
+              final profile = spark['authorImage']?.toString() ?? '';
+              return SizedBox(
+                width: 76,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => _viewSpark(spark),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(colors: [
+                            theme.colorScheme.primary,
+                            theme.colorScheme.tertiary,
+                          ]),
+                        ),
+                        child: CircleAvatar(
+                          radius: 25,
+                          backgroundColor: theme.colorScheme.surface,
+                          foregroundImage: profile.startsWith('https://') ? NetworkImage(profile) : null,
+                          child: Text(initials),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          if (sparksLoading)
+            const SizedBox(width: 60, child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))),
+        ],
+      ),
+    );
+  }
+
+  // Opens a chat avatar in a full-screen image viewer when the user taps it.
+  void _showExpandedAvatar({required String name, required String imageUrl}) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(18),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            Center(
+              child: imageUrl.startsWith('https://')
+                  ? InteractiveViewer(
+                      minScale: 0.8,
+                      maxScale: 4,
+                      child: Image.network(
+                        imageUrl,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => _largeAvatarFallback(name),
+                      ),
+                    )
+                  : _largeAvatarFallback(name),
+            ),
+            IconButton(
+              tooltip: 'Close profile picture',
+              onPressed: () => Navigator.pop(dialogContext),
+              icon: const Icon(Icons.close, color: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _largeAvatarFallback(String name) {
+    final label = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
+    return CircleAvatar(
+      radius: 100,
+      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+      child: Text(label, style: const TextStyle(fontSize: 64, fontWeight: FontWeight.w700)),
+    );
   }
 
   Future<void> loadChats() async {
@@ -5226,6 +5476,7 @@ class _HomeState extends State<Home> {
   Widget _chatHub() {
     return Column(
       children: [
+        _sparksStrip(),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: SegmentedButton<bool>(
@@ -5345,16 +5596,23 @@ class _HomeState extends State<Home> {
                 ? Checkbox(
                     value: selected,
                     onChanged: (_) => _toggleConversationSelection(id))
-                : CircleAvatar(
-                    // A group can only display its own group image. Never fall
-                    // back to a member's personal profile photo for group chats.
-                    foregroundImage: (() {
-                      final image = c['type'] == 'group'
-                          ? _conversationGroupImage(c)
-                          : _conversationProfileImage(c, app.user);
-                      return image == null ? null : NetworkImage(image);
-                    })(),
-                    child: Text(title.isEmpty ? '?' : title[0].toUpperCase())),
+                : Builder(builder: (context) {
+                    // Group chats use their own image; direct chats use the other
+                    // participant's profile image. Tapping opens an enlarged viewer.
+                    final image = c['type'] == 'group'
+                        ? _conversationGroupImage(c)
+                        : _conversationProfileImage(c, app.user);
+                    return GestureDetector(
+                      onTap: () => _showExpandedAvatar(
+                        name: title,
+                        imageUrl: image ?? '',
+                      ),
+                      child: CircleAvatar(
+                        foregroundImage: image == null ? null : NetworkImage(image),
+                        child: Text(title.isEmpty ? '?' : title[0].toUpperCase()),
+                      ),
+                    );
+                  }),
             title: Text(title),
             subtitle: Text(preview),
             trailing: !_useSwipeToDelete(context) && id.isNotEmpty

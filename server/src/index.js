@@ -69,6 +69,15 @@ Memory.schema.index({userId:1,createdAt:-1,_id:-1},{name:'user_memory_history_cu
 const MemorySuggestionSeen=mongoose.model('MemorySuggestionSeen',new mongoose.Schema({userId:{type:O,required:true},conversationId:{type:O,required:true},sourceMessageId:{type:O,required:true},status:{type:String,enum:['suggested','saved','dismissed','deleted'],default:'suggested'}},{timestamps:true}));
 MemorySuggestionSeen.schema.index({userId:1,sourceMessageId:1},{unique:true});
 const SavedContact=mongoose.model('SavedContact',new mongoose.Schema({userId:{type:O,required:true,index:true},contactUserId:{type:O,ref:'User',required:true,index:true},nameOverride:{type:String,trim:true,maxlength:80}},{timestamps:true}));
+// Short-lived status updates. MongoDB removes expired Sparks automatically.
+const Spark=mongoose.models.Spark||mongoose.model('Spark',new mongoose.Schema({
+  authorId:{type:O,ref:'User',required:true,index:true},
+  authorName:{type:String,required:true,trim:true,maxlength:80},
+  authorImage:{type:String,default:'',maxlength:2048},
+  text:{type:String,required:true,trim:true,maxlength:500},
+  expiresAt:{type:Date,required:true,index:{expires:0}},
+},{timestamps:true}));
+
 SavedContact.schema.index({userId:1,contactUserId:1},{unique:true});
 // Durable idempotent push-notification outbox shared by API replicas.
 const NotificationJob=mongoose.model('NotificationJob',new mongoose.Schema({recipientId:{type:O,required:true},messageId:{type:O,required:true},conversationId:{type:O,required:true},status:{type:String,enum:['queued','processing','done','failed'],default:'queued',index:true},availableAt:{type:Date,default:Date.now,required:true},lockedUntil:Date,attempts:{type:Number,default:0},completedAt:Date,expireAt:Date,lastError:{type:String,maxlength:180}},{timestamps:true,collection:'notificationjobs'}));
@@ -307,6 +316,35 @@ app.post('/api/users/:id/block',auth,async(q,r)=>{if(String(q.params.id)===Strin
 app.delete('/api/users/:id/block',auth,async(q,r)=>{q.user.blockedUsers.pull(q.params.id);await q.user.save();r.json({ok:true});});
 app.get('/api/users/blocked',auth,async(q,r)=>r.json({users:await User.find({_id:{$in:q.user.blockedUsers}}).select('name email profileImage')}));
 // CONTACT ROUTES: manage saved contacts while filtering inactive, self and blocked accounts.
+// Sparks: authenticated text updates visible to the author and their saved contacts.
+app.get('/api/sparks',auth,async(q,r)=>{
+  const contacts=await SavedContact.find({userId:q.user._id}).select('contactUserId').lean();
+  const visibleIds=[q.user._id,...contacts.map(item=>item.contactUserId)];
+  const now=new Date();
+  const items=await Spark.find({authorId:{$in:visibleIds},expiresAt:{$gt:now}})
+    .sort({createdAt:-1}).limit(200).lean();
+  r.json({sparks:items.map(item=>({...item,isMine:String(item.authorId)===String(q.user._id)}))});
+});
+app.post('/api/sparks',auth,async(q,r)=>{
+  const text=typeof q.body?.text==='string'?q.body.text.trim():'';
+  if(!text)return r.status(400).json({error:'Spark text is required'});
+  if(text.length>500)return r.status(400).json({error:'Spark text must be 500 characters or fewer'});
+  const profileImage=typeof q.user.profileImage==='string'&&q.user.profileImage.startsWith('https://')?q.user.profileImage:'';
+  const spark=await Spark.create({
+    authorId:q.user._id,
+    authorName:q.user.name||'Chatify user',
+    authorImage:profileImage,
+    text,
+    expiresAt:new Date(Date.now()+24*60*60*1000),
+  });
+  r.status(201).json({spark:{...spark.toObject(),isMine:true}});
+});
+app.delete('/api/sparks/:id',auth,async(q,r)=>{
+  if(!mongoose.isValidObjectId(q.params.id))return r.status(400).json({error:'Invalid Spark id'});
+  const deleted=await Spark.findOneAndDelete({_id:q.params.id,authorId:q.user._id});
+  if(!deleted)return r.status(404).json({error:'Spark not found'});
+  r.json({success:true});
+});
 app.get('/api/contacts',auth,async(q,r)=>{const page=Math.max(1,Number.parseInt(q.query.page,10)||1),limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||20));const filter={userId:q.user._id};const [saved,total]=await Promise.all([SavedContact.find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit).populate('contactUserId','name email phone profileImage status'),SavedContact.countDocuments(filter)]);r.json({contacts:saved.filter(c=>c.contactUserId&&c.contactUserId.status==='active').map(c=>({id:String(c._id),name:c.nameOverride||c.contactUserId.name,email:c.contactUserId.email,phone:c.contactUserId.phone,profileImage:c.contactUserId.profileImage,userId:String(c.contactUserId._id)})),total,page,limit});});
 app.get('/api/contacts/search',auth,async(q,r)=>{const raw=q.query.q;if(typeof raw!=='string')return r.status(400).json({error:'Enter a phone number'});const digits=raw.replace(/\D/g,'');if(digits.length<3||digits.length>15)return r.json({users:[]});let prefix=digits;if(digits.startsWith('0'))prefix='254'+digits.slice(1);else if(digits.startsWith('254'))prefix=digits;else if(digits.startsWith('7')||digits.startsWith('1'))prefix='254'+digits;else return r.json({users:[]});const users=await User.find({phone:{$regex:'^'+prefix},status:'active',_id:{$ne:q.user._id,$nin:q.user.blockedUsers||[]}}).select('name email phone profileImage status blockedUsers').limit(10);const visible=[];for(const user of users){if((user.blockedUsers||[]).some(id=>String(id)===String(q.user._id)))continue;visible.push(visibleUser(user));}r.json({users:visible});});
 app.post('/api/contacts',auth,async(q,r)=>{let person;const requestedUserId=q.body?.userId;if(typeof requestedUserId==='string'){if(!mongoose.isValidObjectId(requestedUserId))return r.status(400).json({error:'Invalid Chatify user'});person=await User.findOne({_id:{$eq:requestedUserId,$ne:q.user._id,$nin:q.user.blockedUsers||[]},status:'active'}).select('_id name status blockedUsers');}else{const raw=q.body?.phone;if(typeof raw!=='string')return r.status(400).json({error:'Provide a phone number or Chatify user'});const phone=normalizeMpesaPhone(raw);if(!phone)return r.status(400).json({error:'Enter a valid Kenyan phone number'});person=await User.findOne({phone,status:'active',_id:{$ne:q.user._id,$nin:q.user.blockedUsers||[]}}).select('_id name status blockedUsers');}if(!person)return r.status(404).json({error:'No Chatify account was found'});if((person.blockedUsers||[]).some(id=>String(id)===String(q.user._id)))return r.status(404).json({error:'No Chatify account was found'});let saved;try{saved=await SavedContact.create({userId:q.user._id,contactUserId:person._id});}catch(error){if(error.code!==11000)throw error;saved=await SavedContact.findOne({userId:q.user._id,contactUserId:person._id});}await saved.populate('contactUserId','name email phone profileImage status');r.status(201).json({contact:{id:String(saved._id),name:saved.contactUserId.name,email:saved.contactUserId.email,phone:saved.contactUserId.phone,profileImage:saved.contactUserId.profileImage,userId:String(saved.contactUserId._id)}});});
