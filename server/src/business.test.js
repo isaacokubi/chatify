@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {slugifyBusinessName, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines, resolveSellerMpesaPhone} from './business.js';
+import {slugifyBusinessName, offlineCreateId, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines, resolveSellerMpesaPhone} from './business.js';
+
+test('offline create IDs are stable per organization and mutation and isolated across organizations', () => {
+  const first = offlineCreateId('org-1', 'mobile:customer:operation-1');
+  assert.equal(first, offlineCreateId('org-1', 'mobile:customer:operation-1'));
+  assert.match(first, /^[a-f0-9]{24}$/);
+  assert.notEqual(first, offlineCreateId('org-2', 'mobile:customer:operation-1'));
+  assert.notEqual(first, offlineCreateId('org-1', 'mobile:customer:operation-2'));
+});
 
 test('business slugs are URL-safe and deterministic', () => {
   assert.equal(slugifyBusinessName('Baraka & Sons Retail'), 'baraka-sons-retail');

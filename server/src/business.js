@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {normalizeMpesaPhone, validPaymentAmount, newPaymentId, calculatePaymentTotal} from './payments.js';
 import {planQuotaStatus} from './business-entitlements.js';
 import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMessagingProviders, createLanguageProvider, createEtimsProvider, createStripeProvider, createPayPalProvider, createIdempotencyKey, detectOfflineConflict, newIntegrationRequestId} from './business-integrations.js';
@@ -16,6 +17,12 @@ const CASE_STATUSES = Object.freeze(['open', 'waiting_customer', 'waiting_team',
 
 export function slugifyBusinessName(value = '') {
   return String(value).normalize('NFKD').toLowerCase().replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+}
+
+// Stable database IDs let a retry recover a create that committed before its
+// mutation receipt was written (or before the response reached the client).
+export function offlineCreateId(organizationId, mutationId) {
+  return createHash('sha256').update(`${organizationId}:${mutationId}`).digest('hex').slice(0, 24);
 }
 
 export function calculateDocumentTotals(lines = [], taxRate = 0) {
@@ -784,12 +791,22 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
         if(!nameOrTitle){results.push({mutationId,status:'rejected',error:'Create mutation requires a name or title'});continue;}
         if(entityType==='catalog'&&(!Number.isFinite(Number(fields.price))||Number(fields.price)<0)){results.push({mutationId,status:'rejected',error:'A catalogue item requires a valid non-negative price'});continue;}
         if(fields.email){const email=String(fields.email).trim();const at=email.indexOf('@');if(at<1||at===email.length-1||!email.slice(at+1).includes('.')||email.includes(' ')){results.push({mutationId,status:'rejected',error:'Invalid customer email'});continue;}}
-        const payload={organizationId:org._id,...fields};
+        const stableEntityId=offlineCreateId(org._id,mutationId);
+        // Recover the record if a previous attempt committed the entity but
+        // crashed before writing its receipt. Scope the lookup to this org.
+        const alreadyCreated=await Model.findOne({_id:stableEntityId,organizationId:org._id});
+        if(alreadyCreated){
+          const result={record:alreadyCreated.toObject()};
+          try{await BusinessSyncMutation.create({organizationId:org._id,mutationId,actorId:req.user._id,entityType,entityId:String(alreadyCreated._id),status:'applied',result});}catch(error){if(error.code!==11000)throw error;}
+          results.push({mutationId,status:'applied',...result});
+          continue;
+        }
+        const payload={_id:stableEntityId,organizationId:org._id,...fields};
         if(entityType==='customer'){payload.name=nameOrTitle;payload.source='manual';payload.messagingConsent=false;}
         if(entityType==='catalog'){payload.name=nameOrTitle;payload.price=Number(fields.price);payload.stock=Math.max(0,Number(fields.stock)||0);payload.currency=shortText(fields.currency,3)||org.currency;payload.active=true;}
         if(entityType==='task'){payload.title=nameOrTitle;payload.createdBy=req.user._id;payload.status=TASK_STATUSES.includes(fields.status)?fields.status:'open';payload.priority=['low','normal','high','urgent'].includes(fields.priority)?fields.priority:'normal';}
         if(entityType==='case'){payload.title=nameOrTitle;payload.priority=['low','normal','high','urgent'].includes(fields.priority)?fields.priority:'normal';}
-        try{const created=await Model.create(payload);const result={record:created.toObject()};await BusinessSyncMutation.create({organizationId:org._id,mutationId,actorId:req.user._id,entityType,entityId:String(created._id),status:'applied',result});results.push({mutationId,status:'applied',...result});await recordAudit(org,req.user._id,'offline_sync.created',entityType,created._id,'Created record from offline queue');}catch(error){if(error.code===11000){const priorResult=await BusinessSyncMutation.findOne({organizationId:org._id,mutationId});results.push({mutationId,status:priorResult?.status||'rejected',...(priorResult?.result||{}),error:priorResult?undefined:'Record conflicts with an existing unique value'});}else{results.push({mutationId,status:'rejected',error:'Offline create could not be validated'});} }
+        try{const created=await Model.create(payload);const result={record:created.toObject()};try{await BusinessSyncMutation.create({organizationId:org._id,mutationId,actorId:req.user._id,entityType,entityId:String(created._id),status:'applied',result});}catch(error){if(error.code!==11000)throw error;}results.push({mutationId,status:'applied',...result});await recordAudit(org,req.user._id,'offline_sync.created',entityType,created._id,'Created record from offline queue');}catch(error){if(error.code===11000){const recovered=await Model.findOne({_id:stableEntityId,organizationId:org._id});if(recovered){const result={record:recovered.toObject()};try{await BusinessSyncMutation.create({organizationId:org._id,mutationId,actorId:req.user._id,entityType,entityId:String(recovered._id),status:'applied',result});}catch(receiptError){if(receiptError.code!==11000)throw receiptError;}results.push({mutationId,status:'applied',...result});}else{const priorResult=await BusinessSyncMutation.findOne({organizationId:org._id,mutationId});results.push({mutationId,status:priorResult?.status||'rejected',...(priorResult?.result||{}),error:priorResult?undefined:'Record conflicts with an existing unique value'});}}else{results.push({mutationId,status:'rejected',error:'Offline create could not be validated'});} }
         continue;
       }
       if(operation!=='update'||!validId(id)){results.push({mutationId,status:'rejected',error:'Update mutation requires a valid entity ID'});continue;}

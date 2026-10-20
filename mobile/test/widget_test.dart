@@ -31,7 +31,8 @@ void main() {
     api.client.close();
   });
 
-  test('authenticated GET falls back to cached data when the network is lost', () async {
+  test('authenticated GET falls back to cached data when the network is lost',
+      () async {
     SharedPreferences.setMockInitialValues({});
     final firstClient = MockClient((request) async {
       expect(request.method, 'GET');
@@ -90,6 +91,16 @@ void main() {
     otherAccount.client.close();
   });
 
+  test('offline mutation storage scope changes with the authenticated account',
+      () {
+    final first = Api()..token = 'account-one-token';
+    final second = Api()..token = 'account-two-token';
+    expect(first.accountScope, isNotEmpty);
+    expect(second.accountScope, isNot(first.accountScope));
+    first.client.close();
+    second.client.close();
+  });
+
   test('temporary API failure preserves the stored login token', () async {
     SharedPreferences.setMockInitialValues({'token': 'existing-token'});
     final client = MockClient(
@@ -145,8 +156,7 @@ void main() {
         hasLength(2));
   });
 
-  testWidgets('Chatify opens directly on the sign-in screen',
-      (tester) async {
+  testWidgets('Chatify opens directly on the sign-in screen', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       ChangeNotifierProvider(
@@ -160,7 +170,172 @@ void main() {
     expect(find.text('Create a new account'), findsOneWidget);
   });
 
-  testWidgets('admin control center exposes overview, people, payments and health',
+  testWidgets('Business catalogue uses most of a phone viewport',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      if (path == '/api/business/organizations') {
+        return http.Response(
+          '{"organizations":[{"_id":"org-1","name":"Demo Shop","slug":"demo-shop"}]}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (path.endsWith('/dashboard')) {
+        return http.Response('{"metrics":{}}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/catalog')) {
+        return http.Response('{"items":[{"_id":"item-1","name":"Phone"}]}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/customers')) {
+        return http.Response('{"customers":[]}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/documents')) {
+        return http.Response('{"documents":[]}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/tasks')) {
+        return http.Response('{"tasks":[]}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      return http.Response('{"error":"Unexpected request"}', 404,
+          headers: {'content-type': 'application/json'});
+    });
+    final state = AppState(api: Api(client: client), autoInit: false)
+      ..api.token = 'business-layout-account'
+      ..user = {'id': 'business-owner'};
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: state,
+      child: const MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(size: Size(390, 844)),
+          child: Scaffold(body: BusinessHub()),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Phone'), findsOneWidget);
+    expect(tester.getSize(find.byType(TabBarView)).height, greaterThan(422));
+    await tester.binding.setSurfaceSize(null);
+    client.close();
+    state.dispose();
+  });
+
+  testWidgets('profile picture keeps its full frame and opens an enlarged view',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final client = MockClient((_) async => http.Response('', 404));
+    final state = AppState(api: Api(client: client), autoInit: false)
+      ..user = {
+        'id': 'profile-owner',
+        'name': 'Profile Owner',
+        'profileImage': 'https://images.example/profile.jpg',
+      };
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: state,
+      child: const MaterialApp(home: Scaffold(body: Profile())),
+    ));
+    await tester.pump();
+
+    final preview = find.byKey(const ValueKey('profile-picture-preview'));
+    expect(tester.getSize(preview), const Size(180, 220));
+    await tester.tap(preview);
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(find.byTooltip('Close enlarged profile picture'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Close enlarged profile picture'));
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsNothing);
+    client.close();
+    state.dispose();
+  });
+
+  testWidgets(
+      'school fee form prefills editable parent phone and configured options',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      if (path == '/api/schools') {
+        return http.Response(
+          '{"schools":[{"id":"school-1","name":"Demo School","role":"parent","paymentProfile":{"method":"mpesa_till","tillNumber":"123456"}}]}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (path == '/api/schools/verification-requests') {
+        return http.Response('{"reviewer":false,"requests":[]}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/messages')) {
+        return http.Response('{"messages":[],"total":0}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/members')) {
+        return http.Response('{"members":[],"total":0}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/fees')) {
+        return http.Response(
+          '{"payments":[],"total":0,"paymentOptions":{"schoolName":"Demo School","configured":true,"method":"mpesa_till","tillNumber":"123456","officialPhone":"0712345678","darajaConfigured":true}}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (path.endsWith('/students')) {
+        return http.Response(
+          '{"students":[{"fullName":"Amina Parent","className":"4"}]}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{"error":"Unexpected request"}', 404,
+          headers: {'content-type': 'application/json'});
+    });
+    final state = AppState(api: Api(client: client), autoInit: false)
+      ..api.token = 'school-parent-token'
+      ..user = {
+        'id': 'parent-1',
+        'phone': '0711222333',
+      };
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: state,
+      child: const MaterialApp(home: SchoolWorkspacePage()),
+    ));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Fees'));
+    await tester.tap(find.text('Fees'));
+    await tester.pumpAndSettle();
+
+    final phoneField = find.byWidgetPredicate((widget) =>
+        widget is TextField &&
+        widget.decoration?.labelText ==
+            'Your M-Pesa phone receiving the STK prompt');
+    expect(phoneField, findsOneWidget);
+    expect(tester.widget<TextField>(phoneField).controller?.text, '0711222333');
+    await tester.enterText(phoneField, '0700111222');
+    expect(tester.widget<TextField>(phoneField).controller?.text, '0700111222');
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    expect(find.text('Send Money (0712345678)'), findsWidgets);
+    await tester.tap(find.text('Send Money (0712345678)').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('The app will record this as pending'),
+        findsOneWidget);
+
+    client.close();
+    state.dispose();
+  });
+
+  testWidgets(
+      'admin control center exposes overview, people, payments and health',
       (tester) async {
     final client = MockClient((request) async {
       if (request.url.path == '/api/status') {
