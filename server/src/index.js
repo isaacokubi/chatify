@@ -74,7 +74,9 @@ const Spark=mongoose.models.Spark||mongoose.model('Spark',new mongoose.Schema({
   authorId:{type:O,ref:'User',required:true,index:true},
   authorName:{type:String,required:true,trim:true,maxlength:80},
   authorImage:{type:String,default:'',maxlength:2048},
-  text:{type:String,required:true,trim:true,maxlength:500},
+  text:{type:String,default:'',trim:true,maxlength:500},
+  mediaType:{type:String,enum:['image','video'],default:undefined},
+  mediaUrl:{type:String,default:'',maxlength:2048},
   expiresAt:{type:Date,required:true,index:{expires:0}},
 },{timestamps:true}));
 
@@ -327,16 +329,27 @@ app.get('/api/sparks',auth,async(q,r)=>{
 });
 app.post('/api/sparks',auth,async(q,r)=>{
   const text=typeof q.body?.text==='string'?q.body.text.trim():'';
-  if(!text)return r.status(400).json({error:'Spark text is required'});
+  const mediaType=['image','video'].includes(q.body?.mediaType)?q.body.mediaType:null;
+  let mediaUrl='';
   if(text.length>500)return r.status(400).json({error:'Spark text must be 500 characters or fewer'});
+  if(q.body?.mediaData){
+    const data=typeof q.body.mediaData==='string'?q.body.mediaData:'';
+    const mimeType=typeof q.body.mimeType==='string'?q.body.mimeType:'';
+    const allowed=mediaType==='image'?['image/jpeg','image/png','image/webp']:['video/mp4','video/quicktime','video/webm'];
+    if(!mediaType||!allowed.includes(mimeType)||data.length>11*1024*1024)return r.status(400).json({error:'Choose a supported image or video no larger than 8 MB'});
+    try{
+      const uploaded=mediaType==='image'
+        ? await storageProvider.upload({data,mimeType})
+        : await storageProvider.uploadMedia({data,mimeType,mediaType});
+      mediaUrl=uploaded.mediaUrl;
+    }catch(error){
+      return r.status(503).json({error:'Media upload failed. Check that production media storage is configured.'});
+    }
+  }
+  if(!text&&!mediaUrl)return r.status(400).json({error:'Add text or upload an image/video for your Spark'});
   const profileImage=typeof q.user.profileImage==='string'&&q.user.profileImage.startsWith('https://')?q.user.profileImage:'';
-  const spark=await Spark.create({
-    authorId:q.user._id,
-    authorName:q.user.name||'Chatify user',
-    authorImage:profileImage,
-    text,
-    expiresAt:new Date(Date.now()+24*60*60*1000),
-  });
+  const spark=await Spark.create({authorId:q.user._id,authorName:q.user.name||'Chatify user',authorImage:profileImage,text,
+    mediaType:mediaUrl?mediaType:undefined,mediaUrl,expiresAt:new Date(Date.now()+24*60*60*1000)});
   r.status(201).json({spark:{...spark.toObject(),isMine:true}});
 });
 app.delete('/api/sparks/:id',auth,async(q,r)=>{
