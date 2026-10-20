@@ -133,6 +133,25 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
       await applyWorkspaceBillingPayment({ mongoose, payment });
       return res.json({ paid: true, amount: 0, notice: 'This workspace billing item is free under the current administrator pricing.' });
     }
+    // Reuse an unfinished billing payment rather than creating multiple STK prompts
+    // when a customer retries the screen or a mobile request times out.
+    const pending = await Payment.findOne({
+      requesterId: req.user._id,
+      billingType: type,
+      billingWorkspaceType: workspace.type,
+      billingWorkspaceId: workspace._id,
+      status: 'PENDING',
+      billingAppliedAt: { $exists: false }
+    }).sort({ createdAt: -1 });
+    if (pending) {
+      return res.status(200).json({ payment: {
+        paymentId: pending.paymentId,
+        amount: pending.amount,
+        status: pending.status,
+        billingType: pending.billingType,
+        initiatedAt: pending.initiatedAt || null
+      }, reused: true });
+    }
     const payment = await Payment.create({
       paymentId: newPaymentId(), requesterId: req.user._id, payerId: req.user._id,
       amount, baseAmount: amount, platformFee: 0, totalAmount: amount, platformFeeRate: 0,
@@ -141,6 +160,6 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
       description: type === 'workspace_setup' ? 'Chatify workspace setup' : 'Chatify monthly subscription',
       purpose: 'SELF_STK', provider: mpesaProvider.name, requestedAt: new Date()
     });
-    res.status(201).json({ payment: { paymentId: payment.paymentId, amount: payment.amount, status: payment.status, billingType: payment.billingType }, next: 'Call POST /api/payments/' + payment.paymentId + '/initiate with the payer phone to send the M-Pesa prompt.' });
+    res.status(201).json({ payment: { paymentId: payment.paymentId, amount: payment.amount, status: payment.status, billingType: payment.billingType, initiatedAt: payment.initiatedAt || null }, next: 'Call POST /api/payments/' + payment.paymentId + '/initiate with the payer phone to send the M-Pesa prompt.' });
   });
 }
