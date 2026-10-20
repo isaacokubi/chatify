@@ -3399,7 +3399,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final payment = Map<String, dynamic>.from(checkout['payment'] ?? {});
       final paymentId = payment['paymentId']?.toString();
       if (paymentId == null || paymentId.isEmpty) throw Exception('The billing checkout did not return a payment reference.');
-      await app.api.call('POST', '/api/payments/${Uri.encodeComponent(paymentId)}/initiate', {'phone': phone});
+      if (payment['initiatedAt'] == null) {
+        await app.api.call('POST', '/api/payments/${Uri.encodeComponent(paymentId)}/initiate', {'phone': phone});
+      }
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('M-Pesa prompt requested. Approve it on your phone; the workspace unlocks only after confirmation.')));
       for (var attempt = 0; attempt < 20 && mounted; attempt++) {
         await Future.delayed(const Duration(seconds: 3));
@@ -10684,9 +10686,7 @@ class _BusinessHubState extends State<BusinessHub> {
 
   Future<void> loadWorkspaceBilling() async {
     final id = organization?['_id']?.toString();
-    final ownerId = organization?['ownerId']?.toString();
-    final userId = (app.user?['_id'] ?? app.user?['id'] ?? app.user?['userId'])?.toString();
-    if (id == null || ownerId == null || userId == null || ownerId != userId) {
+    if (id == null) {
       if (mounted) setState(() => workspaceBilling = {});
       return;
     }
@@ -10723,7 +10723,9 @@ class _BusinessHubState extends State<BusinessHub> {
       final payment = Map<String, dynamic>.from(checkout['payment'] ?? {});
       final paymentId = payment['paymentId']?.toString();
       if (paymentId == null || paymentId.isEmpty) throw Exception('The billing checkout did not return a payment reference.');
-      await app.api.call('POST', '/api/payments/${Uri.encodeComponent(paymentId)}/initiate', {'phone': phone});
+      if (payment['initiatedAt'] == null) {
+        await app.api.call('POST', '/api/payments/${Uri.encodeComponent(paymentId)}/initiate', {'phone': phone});
+      }
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('M-Pesa prompt requested. Approve it on your phone; the workspace unlocks only after confirmation.')));
       for (var attempt = 0; attempt < 20 && mounted; attempt++) {
         await Future.delayed(const Duration(seconds: 3));
