@@ -3196,6 +3196,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   String? schoolId, role, error;
   bool isOwner = false;
   bool isSchoolVerificationReviewer = false;
+  Map<String, dynamic> schoolBilling = {};
+  bool schoolBillingLoading = false;
   bool loading = false;
   int section = 0, recordPage = 1, recordTotal = 0;
   static const int _recordPageSize = 20;
@@ -3267,6 +3269,69 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       darajaMode = (p['darajaMode'] ?? darajaMode).toString();
     }
     loadSection();
+    loadSchoolBilling();
+  }
+
+  Future<void> loadSchoolBilling() async {
+    final id = schoolId;
+    if (id == null || !isOwner) {
+      if (mounted) setState(() => schoolBilling = {});
+      return;
+    }
+    if (mounted) setState(() => schoolBillingLoading = true);
+    try {
+      final result = await app.api.call('GET', '/api/workspace-billing/school/${Uri.encodeComponent(id)}');
+      if (mounted && schoolId == id) setState(() => schoolBilling = Map<String, dynamic>.from(result['billing'] ?? {}));
+    } catch (e) {
+      if (mounted && schoolId == id) setState(() => error = e.toString());
+    } finally {
+      if (mounted && schoolId == id) setState(() => schoolBillingLoading = false);
+    }
+  }
+
+  Future<void> paySchoolWorkspaceBilling(String billingType) async {
+    final id = schoolId;
+    if (id == null || !isOwner || schoolBillingLoading) return;
+    final phoneController = TextEditingController(text: payerPhone.text.trim());
+    final phone = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Workspace subscription payment'),
+      content: TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'M-Pesa phone number', hintText: '07XXXXXXXX or 2547XXXXXXXX')),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, phoneController.text.trim()), child: const Text('Continue to M-Pesa'))],
+    ));
+    phoneController.dispose();
+    if (phone == null || phone.isEmpty || !mounted) return;
+    setState(() => schoolBillingLoading = true);
+    try {
+      final checkout = await app.api.call('POST', '/api/workspace-billing/school/${Uri.encodeComponent(id)}/checkout', {'billingType': billingType});
+      if (checkout['paid'] == true) {
+        await loadSchoolBilling();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(checkout['notice']?.toString() ?? 'Billing updated.')));
+        return;
+      }
+      final payment = Map<String, dynamic>.from(checkout['payment'] ?? {});
+      final paymentId = payment['paymentId']?.toString();
+      if (paymentId == null || paymentId.isEmpty) throw Exception('The billing checkout did not return a payment reference.');
+      await app.api.call('POST', '/api/payments/${Uri.encodeComponent(paymentId)}/initiate', {'phone': phone});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('M-Pesa prompt requested. Approve it on your phone; the workspace unlocks only after confirmation.')));
+      for (var attempt = 0; attempt < 20 && mounted; attempt++) {
+        await Future.delayed(const Duration(seconds: 3));
+        final statusResult = await app.api.call('GET', '/api/payments/${Uri.encodeComponent(paymentId)}');
+        final current = Map<String, dynamic>.from(statusResult['payment'] ?? {});
+        final status = current['status']?.toString().toUpperCase();
+        if (status == 'SUCCESS') {
+          await loadSchoolBilling();
+          await loadSchools();
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment confirmed. Refreshing school workspace access.')));
+          return;
+        }
+        if (status == 'FAILED' || status == 'CANCELLED') throw Exception('M-Pesa payment $status. You can retry from workspace billing.');
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment is still pending. Refresh billing shortly; do not pay again unless the first payment has failed.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => schoolBillingLoading = false);
+    }
   }
 
   Future<void> loadSection() async {
@@ -3376,6 +3441,43 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       options.add({'value': 'bank', 'label': 'Bank transfer'});
     }
     return options;
+  }
+
+  Widget _schoolBillingCard() {
+    final prices = schoolBilling['prices'] is Map
+        ? Map<String, dynamic>.from(schoolBilling['prices'] as Map)
+        : <String, dynamic>{};
+    final setupPaid = schoolBilling['setupFeePaid'] == true;
+    final locked = schoolBilling['locked'] == true;
+    final status = schoolBilling['status']?.toString() ?? 'Loading';
+    final setupFee = (prices['setupFee'] as num?)?.toInt() ?? 5000;
+    final monthlyFee = (prices['monthlyFee'] as num?)?.toInt() ?? 2500;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.workspace_premium_outlined),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('School workspace billing', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+            if (schoolBillingLoading) const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+          ]),
+          const SizedBox(height: 6),
+          Text('Status: $status${locked ? ' · Workspace locked' : ''}'),
+          Text('One-time setup: KSh $setupFee${setupPaid ? ' · Paid' : ' · Unpaid'}'),
+          Text('Monthly subscription: KSh $monthlyFee'),
+          if (schoolBilling['subscriptionExpiresAt'] != null) Text('Subscription expiry: ${schoolBilling['subscriptionExpiresAt']}'),
+          const SizedBox(height: 8),
+          const Text('School fee payments collected from parents are separate from this Chatify workspace subscription. No 0.5% Chatify transaction commission is charged.'),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            if (!setupPaid) FilledButton.icon(onPressed: schoolBillingLoading ? null : () => paySchoolWorkspaceBilling('workspace_setup'), icon: const Icon(Icons.payment), label: Text('Pay setup · KSh $setupFee')),
+            if (setupPaid) FilledButton.icon(onPressed: schoolBillingLoading ? null : () => paySchoolWorkspaceBilling('workspace_subscription'), icon: const Icon(Icons.autorenew), label: Text('Pay monthly · KSh $monthlyFee')),
+            OutlinedButton.icon(onPressed: schoolBillingLoading ? null : loadSchoolBilling, icon: const Icon(Icons.refresh), label: const Text('Refresh billing')),
+          ]),
+        ]),
+      ),
+    );
   }
 
   Widget _schoolPager() {
@@ -4073,6 +4175,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               ]),
             ])));
           }),
+        ],
+        if (schoolId != null && isOwner) ...[
+          const SizedBox(height: 12),
+          _schoolBillingCard(),
         ],
         if (schoolId != null) ...[
           const SizedBox(height: 12),
