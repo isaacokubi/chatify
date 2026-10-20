@@ -152,6 +152,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
   async function authorize(req, res, write = false) {
     const org = await Organization.findById(req.params.orgId);
     if (!org) { res.status(404).json({error: 'Business workspace not found'}); return null; }
+    if (org.billing?.billingEnforced === true) { const billing = org.billing; const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = billing.subscriptionExpiresAt ? new Date(billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!billing.setupFeePaid || !lockAt || lockAt <= new Date()) { res.status(402).json({error:'This business workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code:'WORKSPACE_BILLING_REQUIRED'}); return null; } }
     const isOwner = String(org.ownerId) === String(req.user._id);
     const member = (org.members || []).find(item => String(item.userId) === String(req.user._id));
     const role = isOwner ? 'owner' : String(member?.role || 'viewer');
