@@ -96,7 +96,7 @@ export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []
   return {items, subtotal: total, taxRate: 0, taxMode: 'none', tax: 0, total, currency: 'KES'};
 }
 
-export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io, mpesaProvider, startScheduler = true}) {
+export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io, mpesaProvider, platformFeeCollector, startScheduler = true}) {
   const O = mongoose.Schema.Types.ObjectId;
   // Read the current platform fee configuration for eligible business checkouts.
   // Default to 0.5% before the administrator saves settings; disabling fees exempts new checkouts.
@@ -651,7 +651,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const pending=await Payment.findOne({businessDocumentId:document._id,status:'PENDING',initiatedAt:{$exists:true}});
     if(pending)return res.status(409).json({error:'An M-Pesa request is already pending for this invoice',paymentId:pending.paymentId});
     const payment=await Payment.create({paymentId:newPaymentId(),requesterId:req.user._id,payerId:req.user._id,businessOrganizationId:org._id,businessDocumentId:document._id,amount:outstanding,...fee,recipientPhone:normalizeMpesaPhone(org.phone)||phone,payerPhone:phone,phone,description:('Invoice '+document.number).slice(0,80),provider:mpesaProvider.name,requestedAt:new Date(),initiating:true});
-    try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.totalAmount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
+    try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.baseAmount ?? payment.amount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
     catch(error){payment.status='FAILED';payment.initiating=false;payment.completedAt=new Date();payment.callbackProcessedAt=new Date();payment.resultDescription='Provider initiation failed';await payment.save();console.error('Invoice M-Pesa initiation failed',{stage:error?.stage||'unknown'});res.status(503).json({error:'M-Pesa request could not be initiated. Check provider configuration and retry.'});}
   });
 
