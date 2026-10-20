@@ -186,7 +186,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const member = await membership(req, schoolId);
       if (!member) return res.status(403).json({ error: 'You are not a member of this school' });
       const billingSchool = await School.findById(schoolId).select('billing').lean();
-      if (billingSchool?.billing?.billingEnforced === true && (!billingSchool.billing.setupFeePaid || !billingSchool.billing.subscriptionExpiresAt || new Date(billingSchool.billing.subscriptionExpiresAt) <= new Date())) return res.status(402).json({error: 'This school workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: {setupFeePaid: Boolean(billingSchool.billing.setupFeePaid), subscriptionExpiresAt: billingSchool.billing.subscriptionExpiresAt || null}});
+      if (billingSchool?.billing?.billingEnforced === true) { const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = billingSchool.billing.subscriptionExpiresAt ? new Date(billingSchool.billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!billingSchool.billing.setupFeePaid || !lockAt || lockAt <= new Date()) return res.status(402).json({error: 'This school workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: {setupFeePaid: Boolean(billingSchool.billing.setupFeePaid), subscriptionExpiresAt: billingSchool.billing.subscriptionExpiresAt || null, gracePeriodDays: graceDays}}); }
       if (!roles.includes(member.role)) return res.status(403).json({ error: 'Your school role cannot perform this action' });
       // A role value alone must never grant control of another person's workspace.
       // Only the account that created the school may use administrator-only actions.
@@ -895,7 +895,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       }
       if (!confirmed) return res.json({ ok: true, duplicate: true });
       // The school receives only its school-fee amount; Chatify collects its fee in a separate platform-owned STK prompt.
-      try { if (platformFeeCollector && confirmed.payerPhone) await platformFeeCollector.collect({paymentId:confirmed.paymentReference,source:'school_fee',payerPhone:confirmed.payerPhone,baseAmount:confirmed.amount}); }
+
       catch (error) { console.error('School fee succeeded but separate Chatify fee collection could not start', {paymentReference:confirmed.paymentReference,stage:error?.stage||'configuration_or_unknown'}); }
       res.json({ ok: true });
       deliverSchoolReceipt(confirmed._id).catch(error => console.error('School receipt delivery processing failed', { paymentReference: confirmed.paymentReference, message: String(error?.message || 'unknown').slice(0, 160) }));
