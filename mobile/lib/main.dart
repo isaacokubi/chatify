@@ -2640,7 +2640,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final rate = double.tryParse(feeRateController.text.trim());
     if (rate == null || rate < 0 || rate > 5) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Enter a platform fee rate between 0 and 5 percent.')));
+        content: Text('Legacy fee settings are retained for historical compatibility; they do not apply to new transactions.')));
       return;
     }
     setState(() => feeWalletSaving = true);
@@ -2657,7 +2657,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       if (!mounted) return;
       setState(() => feeWalletSettings = Map<String, dynamic>.from(result['settings'] ?? {}));
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Platform fee and wallet settings saved.')));
+        content: Text('Legacy settings saved. These do not apply transaction commissions.')));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Settings were not saved: $e')));
@@ -2904,11 +2904,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Platform fee and wallet', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
-          const Text('Configure the platform fee for eligible business checkouts. Personal transfers between Chatify users are excluded. School-fee fee collection still needs a platform settlement route before it can be safely enabled.'),
+          const Text('Chatify no longer charges a percentage commission on transfers, business payments, POS sales or school-fee payments. Use Workspace billing to configure one-time setup and monthly subscription prices. These legacy settings do not control current transaction payments.'),
           const SizedBox(height: 12),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Enable platform fee'),
+            title: const Text('Legacy fee toggle (not used)'),
             subtitle: const Text('Only eligible business checkout flows currently apply this setting.'),
             value: feeWalletEnabled,
             onChanged: feeWalletSaving ? null : (value) => setState(() => feeWalletEnabled = value),
@@ -2916,7 +2916,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           TextField(
             controller: feeRateController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Platform fee (%)', helperText: 'Default: 0.5. Allowed range: 0–5%.'),
+            decoration: const InputDecoration(labelText: 'Legacy platform fee (%)', helperText: 'Historical setting only; current transactions are commission-free.'),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
@@ -3052,7 +3052,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   status == 'SUCCESS' ? Icons.check_circle_outline : status == 'FAILED' ? Icons.error_outline : Icons.payments_outlined, color: color)),
           title: Text(payment['description']?.toString() ?? payment['paymentId']?.toString() ?? 'Payment'),
           subtitle: Text(
-              '${payment['provider'] ?? 'Provider'} · $status\n${payment['paymentId'] ?? ''}${platformFee > 0 ? '\nPlatform fee KSh ${platformFee.toStringAsFixed(0)} · ${payment['platformFeeStatus'] ?? 'PENDING_SETTLEMENT'}' : ''}'),
+              '${payment['provider'] ?? 'Provider'} · $status\n${payment['paymentId'] ?? ''}${platformFee > 0 ? '\nHistorical platform fee KSh ${platformFee.toStringAsFixed(0)} · ${payment['platformFeeStatus'] ?? 'PENDING_SETTLEMENT'}' : ''}'),
           isThreeLine: true,
           trailing: Text('KES ${totalAmount.toStringAsFixed(2)}', style: theme.textTheme.titleSmall
                   ?.copyWith(fontWeight: FontWeight.w700)),
@@ -3174,10 +3174,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 _metric('Saved memories', overview['totalMemories'], Icons.auto_awesome_outlined),
                 _metric('Open business cases', overview['openCases'], Icons.support_agent_outlined),
                 _metric('Pending payments', overview['pendingPayments'], Icons.hourglass_top),
-                _metric(
-                    'Pending platform fees (KSh)', overview['pendingPlatformFeeAmount'], Icons.account_balance_wallet_outlined),
-                _metric(
-                    'Fee entries awaiting settlement', overview['pendingPlatformFeeCount'], Icons.receipt_long_outlined),
                 _metric('Failed payments', overview['failedPayments'], Icons.error_outline),
                 _metric('School workspaces', overview['totalSchools'], Icons.school_outlined),
                 _metric('Enrolled students', overview['totalStudents'], Icons.groups_outlined),
@@ -3540,6 +3536,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final setupPaid = schoolBilling['setupFeePaid'] == true;
     final locked = schoolBilling['locked'] == true;
     final status = schoolBilling['status']?.toString() ?? 'Loading';
+    final legacy = status == 'LEGACY_GRANDFATHERED';
     final setupFee = (prices['setupFee'] as num?)?.toInt() ?? 5000;
     final monthlyFee = (prices['monthlyFee'] as num?)?.toInt() ?? 2500;
     return Card(
@@ -3554,15 +3551,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           ]),
           const SizedBox(height: 6),
           Text('Status: $status${locked ? ' · Workspace locked' : ''}'),
-          Text('One-time setup: KSh $setupFee${setupPaid ? ' · Paid' : ' · Unpaid'}'),
-          Text('Monthly subscription: KSh $monthlyFee'),
+          if (legacy) const Text('This existing workspace is grandfathered. No new billing lock or setup payment is being enforced yet.'),
+          if (!legacy) Text('One-time setup: KSh $setupFee${setupPaid ? ' · Paid' : ' · Unpaid'}'),
+          if (!legacy) Text('Monthly subscription: KSh $monthlyFee'),
           if (schoolBilling['subscriptionExpiresAt'] != null) Text('Subscription expiry: ${schoolBilling['subscriptionExpiresAt']}'),
           const SizedBox(height: 8),
           const Text('School fee payments collected from parents are separate from this Chatify workspace subscription. No 0.5% Chatify transaction commission is charged.'),
           const SizedBox(height: 10),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            if (!setupPaid) FilledButton.icon(onPressed: schoolBillingLoading ? null : () => paySchoolWorkspaceBilling('workspace_setup'), icon: const Icon(Icons.payment), label: Text('Pay setup · KSh $setupFee')),
-            if (setupPaid) FilledButton.icon(onPressed: schoolBillingLoading ? null : () => paySchoolWorkspaceBilling('workspace_subscription'), icon: const Icon(Icons.autorenew), label: Text('Pay monthly · KSh $monthlyFee')),
+            if (!legacy && !setupPaid) FilledButton.icon(onPressed: schoolBillingLoading ? null : () => paySchoolWorkspaceBilling('workspace_setup'), icon: const Icon(Icons.payment), label: Text('Pay setup · KSh $setupFee')),
+            if (!legacy && setupPaid) FilledButton.icon(onPressed: schoolBillingLoading ? null : () => paySchoolWorkspaceBilling('workspace_subscription'), icon: const Icon(Icons.autorenew), label: Text('Pay monthly · KSh $monthlyFee')),
             OutlinedButton.icon(onPressed: schoolBillingLoading ? null : loadSchoolBilling, icon: const Icon(Icons.refresh), label: const Text('Refresh billing')),
           ]),
         ]),
@@ -10743,6 +10741,7 @@ class _BusinessHubState extends State<BusinessHub> {
     final setupPaid = workspaceBilling['setupFeePaid'] == true;
     final locked = workspaceBilling['locked'] == true;
     final status = workspaceBilling['status']?.toString() ?? 'Loading';
+    final legacy = status == 'LEGACY_GRANDFATHERED';
     final setupFee = (prices['setupFee'] as num?)?.toInt() ?? 1000;
     final monthlyFee = (prices['monthlyFee'] as num?)?.toInt() ?? 500;
     return Card(
@@ -10751,15 +10750,16 @@ class _BusinessHubState extends State<BusinessHub> {
         Row(children: [const Icon(Icons.workspace_premium_outlined), const SizedBox(width: 8), const Expanded(child: Text('Workspace billing', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))), if (workspaceBillingLoading) const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))]),
         const SizedBox(height: 4),
         Text('Status: $status${locked ? ' · Workspace locked' : ''}'),
-        Text('One-time setup: KSh $setupFee${setupPaid ? ' · Paid' : ' · Unpaid'}'),
-        Text('Monthly subscription: KSh $monthlyFee'),
+        if (legacy) const Text('This existing workspace is grandfathered. No new billing lock or setup payment is being enforced yet.'),
+        if (!legacy) Text('One-time setup: KSh $setupFee${setupPaid ? ' · Paid' : ' · Unpaid'}'),
+        if (!legacy) Text('Monthly subscription: KSh $monthlyFee'),
         if (workspaceBilling['subscriptionExpiresAt'] != null) Text('Subscription expiry: ${workspaceBilling['subscriptionExpiresAt']}'),
         const SizedBox(height: 6),
         const Text('Customer payments are commission-free: Chatify does not add a 0.5% transaction fee.'),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: [
-          if (!setupPaid) FilledButton.icon(onPressed: workspaceBillingLoading ? null : () => payBusinessWorkspaceBilling('workspace_setup'), icon: const Icon(Icons.payment), label: Text('Pay setup · KSh $setupFee')),
-          if (setupPaid) FilledButton.icon(onPressed: workspaceBillingLoading ? null : () => payBusinessWorkspaceBilling('workspace_subscription'), icon: const Icon(Icons.autorenew), label: Text('Pay monthly · KSh $monthlyFee')),
+          if (!legacy && !setupPaid) FilledButton.icon(onPressed: workspaceBillingLoading ? null : () => payBusinessWorkspaceBilling('workspace_setup'), icon: const Icon(Icons.payment), label: Text('Pay setup · KSh $setupFee')),
+          if (!legacy && setupPaid) FilledButton.icon(onPressed: workspaceBillingLoading ? null : () => payBusinessWorkspaceBilling('workspace_subscription'), icon: const Icon(Icons.autorenew), label: Text('Pay monthly · KSh $monthlyFee')),
           OutlinedButton.icon(onPressed: workspaceBillingLoading ? null : loadWorkspaceBilling, icon: const Icon(Icons.refresh), label: const Text('Refresh billing')),
         ]),
       ])),
