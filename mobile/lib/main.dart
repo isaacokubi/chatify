@@ -2153,10 +2153,6 @@ class _AuthState extends State<Auth> {
   @override
   void initState() {
     super.initState();
-    _pendingMessageSyncTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => _syncPendingMessages(),
-    );
     reg = widget.startWithRegistration;
   }
 
@@ -5208,6 +5204,10 @@ class _ChatState extends State<Chat> {
   @override
   void initState() {
     super.initState();
+    _pendingMessageSyncTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _syncPendingMessages(),
+    );
     if (widget.initialMessage != null && widget.initialMessage!.trim().isNotEmpty) {
       input.text = widget.initialMessage!.trim();
       input.selection = TextSelection.collapsed(offset: input.text.length);
