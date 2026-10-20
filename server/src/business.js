@@ -212,9 +212,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     if (!org) { res.status(404).json({error: 'Business workspace not found'}); return null; }
     // New workspaces must pay setup and subscription charges before business operations are enabled.
     // Legacy workspaces without billingEnforced are grandfathered in rather than locked unexpectedly.
-    if (org.billing?.billingEnforced === true && (!org.billing.setupFeePaid || !org.billing.subscriptionExpiresAt || new Date(org.billing.subscriptionExpiresAt) <= new Date())) {
-      res.status(402).json({error: 'This workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: {setupFeePaid: Boolean(org.billing.setupFeePaid), subscriptionExpiresAt: org.billing.subscriptionExpiresAt || null}}); return null;
-    }
+    if (org.billing?.billingEnforced === true) { const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = org.billing.subscriptionExpiresAt ? new Date(org.billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!org.billing.setupFeePaid || !lockAt || lockAt <= new Date()) { res.status(402).json({error: 'This workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: {setupFeePaid: Boolean(org.billing.setupFeePaid), subscriptionExpiresAt: org.billing.subscriptionExpiresAt || null, gracePeriodDays: graceDays}}); return null; } }
     // Cache the authenticated member's role for subsequent route-level write checks.
     req.businessRole = String(org.ownerId) === String(req.user._id) ? 'owner' : (org.members.find(member => String(member.userId) === String(req.user._id))?.role || 'viewer');
     return org;
