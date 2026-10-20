@@ -1,5 +1,33 @@
 # Chatify Defense Demo
 
+## Repeatable demo seed
+
+The API seed creates Chatify demo accounts, direct and group conversations, contacts and a Memory Card; two Business organizations; a storefront catalogue, customer, sample order document and task; and a school with administrator/staff/parent memberships, student records, attendance, assessments, an announcement, conference and a **pending verification** fee example. The current application has no separate cart/order model, teacher login role, school class/subject/term models, or simulated payment ledger; the seed does not invent those records. Its sample order is a Business `order` document. The school fee example is not a payment received.
+
+Use a dedicated development database whose database name contains `demo`, `dev`, `development` or `test`. The script refuses `NODE_ENV` other than `development`, an unset confirmation, and any database with a production name. For a verified connected development database whose name is simply `chatify`, set `CHATIFY_SEED_ALLOW_UNCLASSIFIED_DATABASE=YES` as a separate explicit acknowledgement. It never drops collections. Existing accounts are changed only when their `demoSeedKey` identifies this seeder; an unmarked account that collides with a demo email stops the run before any writes.
+
+Set `NODE_ENV=development`, `CHATIFY_SEED_DEMO=YES`, `MONGODB_URI` and `SEED_DEMO_PASSWORD` in a private local environment. `DEMO_SEED_PASSWORD` remains a legacy alias. The password must be 12–72 UTF-8 bytes. For a shared classroom demo, configure the requested common password locally; do not put it in `.env.example`, source code, shell history, Git, or reports. These shared demo credentials are only for testing and must never be used for production users.
+
+From `server/`, preview the seed without connecting to MongoDB or making writes:
+
+```sh
+npm run seed -- --dry-run
+```
+
+After confirming the selected database is disposable and correctly named, seed it with:
+
+```sh
+npm run seed
+```
+
+To also verify all eight accounts through the real HTTP login handler, start the API locally and rerun the seed with `CHATIFY_SEED_VERIFY_LOGIN=YES`. It sends credentials only to a localhost URL (default `http://127.0.0.1:5000`); use `CHATIFY_DEMO_API_URL` only for another local port. It records pass/fail in the account register and never logs tokens or passwords.
+
+The seed uses stable IDs and upserts, so a rerun reconciles only its own records. It hashes passwords with bcrypt and checks that each saved hash accepts the configured password. This does not exercise the HTTP login endpoint. `DEMO_ACCOUNT_REGISTER.md` is regenerated after a completed run; it contains no passwords or hashes. To remove only demo records, back up the dedicated database, then drop that **entire dedicated demo database** with your MongoDB administration tool. There is no automatic reset command.
+
+The seeder blocks production-named databases and requires development mode, but the operator must still verify the private MongoDB URI points to the intended isolated demo database before execution. Do not use production credentials or production data.
+
+Seed coverage follows actual models: platform roles are `admin`/`user`; school roles are workspace memberships (`admin`, `staff`, `parent`); Business roles are organization memberships. User accounts are not created for school pupils because the current schema stores pupils as school student records.
+
 Register Alice and Brian. Alice searches for Brian, starts a direct chat and sends: `Let's meet at the library tomorrow at 2 PM to discuss the project.` Use the Memory action to save the extracted event as `Project Meeting`, then open Memories. Send another message and choose `Delete after reading`; trigger the read flow and show the expired message is removed/hidden. Create a group, add a member, send a message and demonstrate administrator controls.
 
 Password-reset delivery, Cloudinary uploads and push delivery require real provider configuration. Development image storage and notifications use mocks. Never use production users or real provider secrets for a demo. Push notifications require native Firebase configuration; when it is available, Flutter requests permission and registers its token through the authenticated `/api/devices` endpoint.

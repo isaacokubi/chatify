@@ -29,6 +29,7 @@ It does not represent reconciled settlements, refunds, provider fees, or tax acc
 - mobile/ — Flutter/Dart client
 - server/ — Node.js/Express/Socket.IO API
 - docs/ — architecture, API, database, development, security and demo notes
+- [Verification record](docs/VERIFICATION_2026-10-20.md) — dated record of the backend/mobile test suites, build results, demo database seed and account login checks. Check this before repeating unchanged checks.
 - [Project walkthrough](docs/PROJECT_WALKTHROUGH.md) — plain-language guide to how the system works, how the main features connect, security concepts, code navigation, and tutor-defense preparation.
 - [Code walkthrough](docs/CODE_WALKTHROUGH.md) — code-reading guide with focused flow explanations.
 - [Business platform guide](docs/BUSINESS_PLATFORM.md) — organization workspaces, CRM, catalogues, quotations, payment reconciliation, tasks, shared inbox handover, suppliers, workflows, audit logs and storefront APIs.

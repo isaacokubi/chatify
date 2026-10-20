@@ -89,7 +89,7 @@ export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []
   return {items, subtotal: total, taxRate: 0, taxMode: 'none', tax: 0, total, currency: 'KES'};
 }
 
-export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io, mpesaProvider}) {
+export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io, mpesaProvider, startScheduler = true}) {
   const O = mongoose.Schema.Types.ObjectId;
   const messaging = createMessagingProviders(process.env);
   const language = createLanguageProvider(process.env);
@@ -869,8 +869,10 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       }catch(error){workflow.runs.push({status:'failed',triggerData:{trigger:'schedule',scheduledAt:now},result:{error:'Workflow action failed'},ranAt:now});if(workflow.runs.length>100)workflow.runs=workflow.runs.slice(-100);await workflow.save().catch(()=>{});console.error('Business workflow failed',{workflowId:String(workflow._id)});}
     }
   };
-  const workflowTimer=setInterval(()=>runWorkflowTick().catch(()=>console.error('Business workflow scheduler tick failed')),60000);
-  workflowTimer.unref();
+  if (startScheduler) {
+    const workflowTimer=setInterval(()=>runWorkflowTick().catch(()=>console.error('Business workflow scheduler tick failed')),60000);
+    workflowTimer.unref();
+  }
   app.post('/api/internal/business/workflows/tick',async(req,res)=>{const secret=process.env.BUSINESS_WORKFLOW_CRON_SECRET?.trim();if(!secret||req.get('authorization')!=='Bearer '+secret)return res.status(404).json({error:'Not found'});try{await runWorkflowTick();res.json({ok:true});}catch(error){res.status(500).json({error:'Workflow scheduler tick failed'});}});
 
 }
