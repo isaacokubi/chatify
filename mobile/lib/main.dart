@@ -439,6 +439,49 @@ class Api {
         await _writePendingMessages(queue);
       });
 
+  // App-wide outbox sync means messages still retry after the user leaves a chat.
+  // The server idempotency key makes a repeated request safe if the response was lost.
+  Future<int> syncPendingMessages() async {
+    if (token == null || token!.isEmpty) return 0;
+    var sentCount = 0;
+    final queued = await readPendingMessages();
+    for (final item in queued) {
+      final conversationId = item['conversationId']?.toString();
+      final body = item['body'];
+      final id = item['clientMessageId']?.toString() ??
+          (body is Map ? body['clientMessageId']?.toString() : null);
+      if (conversationId == null ||
+          conversationId.isEmpty ||
+          body is! Map ||
+          id == null ||
+          id.isEmpty) {
+        continue;
+      }
+      try {
+        final response = await call(
+          'POST',
+          '/api/conversations/$conversationId/messages',
+          Map<String, dynamic>.from(body),
+        );
+        if (response['message'] is Map) {
+          await removePendingMessage(id);
+          sentCount++;
+        }
+      } catch (error) {
+        // Stop on this pass; preserve unresolved entries and avoid hammering the API.
+        if (error is ApiException &&
+            error.statusCode >= 400 &&
+            error.statusCode < 500 &&
+            error.statusCode != 408 &&
+            error.statusCode != 429) {
+          // Invalid or no-longer-authorized messages need user review; do not discard them.
+        }
+        break;
+      }
+    }
+    return sentCount;
+  }
+
   Future<void> restore() async {
     try {
       token = await _secureStorage.read(key: 'token');
@@ -879,7 +922,7 @@ class _AsyncActionButtonState extends State<AsyncActionButton> {
 }
 
 // Shared app state. Screens listen to this object and rebuild after login, chat, contact, memory, or payment data changes.
-class AppState extends ChangeNotifier {
+class AppState extends ChangeNotifier with WidgetsBindingObserver {
   final Api api;
   ThemeMode themeMode = ThemeMode.light;
   bool ready = false;
@@ -897,10 +940,14 @@ class AppState extends ChangeNotifier {
   StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
   String? _registeredPushToken;
   bool _disposed = false;
+  Timer? _outboxSyncTimer;
+  bool _syncingOutbox = false;
 
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
+    _outboxSyncTimer?.cancel();
     _presenceSocket?.dispose();
     _tokenRefreshSubscription?.cancel();
     _messageOpenedSubscription?.cancel();
@@ -909,7 +956,37 @@ class AppState extends ChangeNotifier {
   }
 
   AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
+    WidgetsBinding.instance.addObserver(this);
+    _outboxSyncTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => unawaited(_syncOutboxInBackground()),
+    );
     if (autoInit) init();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_syncOutboxInBackground());
+    }
+  }
+
+  Future<void> _syncOutboxInBackground() async {
+    if (_disposed || _syncingOutbox || api.token == null || api.token!.isEmpty) {
+      return;
+    }
+    _syncingOutbox = true;
+    try {
+      final sent = await api.syncPendingMessages();
+      if (sent > 0 && !_disposed) {
+        messageEventVersion++;
+        notifyListeners();
+      }
+    } catch (_) {
+      // Background sync must not interrupt the foreground app.
+    } finally {
+      _syncingOutbox = false;
+    }
   }
 
   // Update the signed-in account and notify listeners from inside ChangeNotifier.
