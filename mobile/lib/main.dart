@@ -1421,9 +1421,10 @@ class ChatifyApp extends StatelessWidget {
                         Text(appState.restoreError!,
                             textAlign: TextAlign.center),
                         const SizedBox(height: 12),
-                        FilledButton(
+                        AsyncActionButton(
+                          label: 'Retry',
+                          icon: Icons.refresh,
                           onPressed: appState.init,
-                          child: const Text('Retry'),
                         ),
                       ],
                     ),
@@ -2635,7 +2636,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         const SizedBox(height: 8),
         Text(error!, textAlign: TextAlign.center),
         const SizedBox(height: 16),
-        FilledButton.icon(onPressed: loadOverview, icon: const Icon(Icons.refresh), label: const Text('Try again')),
+        AsyncActionButton(label: 'Try again', icon: Icons.refresh, onPressed: loadOverview),
       ]),
     ));
     final money = (overview['successfulPaymentAmount'] as num?)?.toDouble() ?? 0;
@@ -3926,7 +3927,7 @@ class _HomeState extends State<Home> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text(chatsError!, textAlign: TextAlign.center),
         const SizedBox(height: 12),
-        FilledButton(onPressed: loadChats, child: const Text('Retry'))
+        AsyncActionButton(label: 'Retry chats', icon: Icons.refresh, onPressed: loadChats)
       ]));
     }
     if (chats.isEmpty) {
@@ -4468,7 +4469,7 @@ class _HomeState extends State<Home> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text(memoriesError!, textAlign: TextAlign.center),
         const SizedBox(height: 12),
-        FilledButton(onPressed: loadMemories, child: const Text('Retry'))
+        AsyncActionButton(label: 'Retry memories', icon: Icons.refresh, onPressed: loadMemories)
       ]));
     }
     if (memories.isEmpty) {
@@ -8824,7 +8825,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
               const SizedBox(height: 12),
               Text(error!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
-              FilledButton(onPressed: loadStore, child: const Text('Retry')),
+              AsyncActionButton(label: 'Retry store', icon: Icons.refresh, onPressed: loadStore),
             ]),
           )));
     }
