@@ -453,12 +453,8 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
         return res.status(500).json({error: 'Could not process payment confirmation'});
       }
     }
-    const updatedCharge = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID},
-      {$set: {status: outcome.status, stkResultCode: outcome.resultCode, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date(), ...(charge.platformFee?{platformFeeStatus:outcome.status==='SUCCESS'?'PENDING_SETTLEMENT':'FAILED'}:{})}}, {new:true});
-    if (updatedCharge?.status === 'SUCCESS' && updatedCharge.feeCollectionMode === 'separate' && updatedCharge.platformFee > 0 && platformFeeCollector) {
-      try { await platformFeeCollector.collect({paymentId:updatedCharge.paymentId,source:'business_pos',payerPhone:updatedCharge.stkPhone,baseAmount:updatedCharge.baseAmount??updatedCharge.amount,feeAmount:updatedCharge.platformFee}); }
-      catch (error) { console.error('POS sale succeeded but separate platform fee STK could not start',{paymentId:updatedCharge.paymentId,stage:error?.stage||'configuration_or_unknown'}); }
-    }
+    await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID},
+      {$set: {status: outcome.status, stkResultCode: outcome.resultCode, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date(), ...(charge.platformFee?{platformFeeStatus:'FAILED'}:{})}}, {new:true});
     return res.json({ok: true});
   });
 
