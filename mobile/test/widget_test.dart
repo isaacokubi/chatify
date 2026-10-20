@@ -402,4 +402,61 @@ void main() {
     api.client.close();
   });
 
+  test('app-wide outbox sync sends queued messages after leaving the chat', () async {
+    SharedPreferences.setMockInitialValues({});
+    var attempts = 0;
+    final api = Api(
+      client: MockClient((request) async {
+        attempts++;
+        expect(request.method, 'POST');
+        expect(request.url.path, '/api/conversations/conversation-1/messages');
+        expect(request.headers['authorization'], isNotNull);
+        final body = request.body;
+        expect(body, contains('background-client-id'));
+        return http.Response(
+          '{"message":{"_id":"server-message","clientMessageId":"background-client-id"}}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    )..token = 'background-sync-account';
+    await api.enqueuePendingMessage({
+      'conversationId': 'conversation-1',
+      'clientMessageId': 'background-client-id',
+      'body': {
+        'clientMessageId': 'background-client-id',
+        'encryptedPayload': 'ciphertext',
+        'encryptionVersion': 1,
+      },
+    });
+
+    expect(await api.syncPendingMessages(), 1);
+    expect(attempts, 1);
+    expect(await api.readPendingMessages(), isEmpty);
+    api.client.close();
+  });
+
+  test('app-wide outbox keeps a message queued when reconnect sync fails', () async {
+    SharedPreferences.setMockInitialValues({});
+    final api = Api(
+      client: MockClient((_) async {
+        throw http.ClientException('airplane mode');
+      }),
+    )..token = 'background-offline-account';
+    await api.enqueuePendingMessage({
+      'conversationId': 'conversation-1',
+      'clientMessageId': 'offline-client-id',
+      'body': {
+        'clientMessageId': 'offline-client-id',
+        'encryptedPayload': 'ciphertext',
+        'encryptionVersion': 1,
+      },
+    });
+
+    expect(await api.syncPendingMessages(), 0);
+    expect((await api.readPendingMessages()).single['clientMessageId'],
+        'offline-client-id');
+    api.client.close();
+  });
+
 }
