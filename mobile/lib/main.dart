@@ -12200,6 +12200,49 @@ class _BusinessHubState extends State<BusinessHub> {
     }
   }
 
+  Future<void> _manageDocumentDelivery(String documentId, Map item) async {
+    final statuses = ['pending','packed','dispatched','in_transit','delivered','failed','returned','not_required'];
+    String status = statuses.contains(item['deliveryStatus']) ? item['deliveryStatus'].toString() : 'pending';
+    final address = TextEditingController(text: item['deliveryAddress']?.toString() ?? '');
+    final provider = TextEditingController(text: item['deliveryProvider']?.toString() ?? '');
+    final tracking = TextEditingController(text: item['trackingNumber']?.toString() ?? '');
+    final notes = TextEditingController(text: item['deliveryNotes']?.toString() ?? '');
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        title: const Text('Product delivery'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          DropdownButtonFormField<String>(
+            value: status,
+            decoration: const InputDecoration(labelText: 'Delivery status'),
+            items: statuses.map((value) => DropdownMenuItem(value: value, child: Text(value.replaceAll('_',' ')))).toList(),
+            onChanged: (value) { if (value != null) setDialogState(() => status = value); },
+          ),
+          TextField(controller: address, decoration: const InputDecoration(labelText: 'Delivery address')),
+          TextField(controller: provider, decoration: const InputDecoration(labelText: 'Courier / delivery provider')),
+          TextField(controller: tracking, decoration: const InputDecoration(labelText: 'Tracking number')),
+          TextField(controller: notes, maxLines: 2, decoration: const InputDecoration(labelText: 'Customer update / notes')),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save delivery')),
+        ],
+      ),
+    ));
+    if (accepted != true || !mounted) return;
+    try {
+      final orgId = organization!['_id'].toString();
+      final response = await app.api.call('PATCH',
+        '/api/business/organizations/${Uri.encodeComponent(orgId)}/documents/${Uri.encodeComponent(documentId)}/delivery',
+        {'deliveryStatus':status,'deliveryAddress':address.text.trim(),'deliveryProvider':provider.text.trim(),'trackingNumber':tracking.text.trim(),'deliveryNotes':notes.text.trim()});
+      await loadWorkspaceData();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Delivery details saved.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save delivery details: $error')));
+    } finally {
+      address.dispose(); provider.dispose(); tracking.dispose(); notes.dispose();
+    }
+  }
+
   Future<void> _showDocumentActions(Map item) async {
     final type = item['type']?.toString() ?? '';
     final status = item['status']?.toString() ?? '';
@@ -12258,6 +12301,12 @@ class _BusinessHubState extends State<BusinessHub> {
                     title:
                         const Text('Submit through configured eTIMS gateway'),
                     onTap: () => Navigator.pop(context, 'etims')),
+              if (type == 'order' || type == 'invoice')
+                ListTile(
+                    leading: const Icon(Icons.local_shipping_outlined),
+                    title: const Text('Manage product delivery'),
+                    subtitle: Text('Delivery: ${item['deliveryStatus'] ?? 'not_required'}'),
+                    onTap: () => Navigator.pop(context, 'delivery')),
             ])));
     if (action == null) return;
     final id = item['_id']?.toString();
@@ -12268,6 +12317,10 @@ class _BusinessHubState extends State<BusinessHub> {
     }
     if (action == 'matching') {
       await _showPaymentMatching(id);
+      return;
+    }
+    if (action == 'delivery') {
+      await _manageDocumentDelivery(id, item);
       return;
     }
     try {
