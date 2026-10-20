@@ -91,6 +91,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     officialPhone: { type: String, trim: true, maxlength: 24 },
     staffInviteCode: { type: String, default: () => randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase(), select: false },
     createdBy: { type: O, ref: 'User', required: true },
+    billing: { type: mongoose.Schema.Types.Mixed, default: {} },
     paymentProfile: {
       method: { type: String, enum: ['mpesa_paybill','mpesa_till','bank'] },
       paybillNumber: String, tillNumber: String, accountNumber: String, bankName: String,
@@ -184,6 +185,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const schoolId = req.params.schoolId || req.params.id;
       const member = await membership(req, schoolId);
       if (!member) return res.status(403).json({ error: 'You are not a member of this school' });
+      const billingSchool = await School.findById(schoolId).select('billing').lean();
+      if (billingSchool?.billing?.billingEnforced === true) { const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = billingSchool.billing.subscriptionExpiresAt ? new Date(billingSchool.billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!billingSchool.billing.setupFeePaid || !lockAt || lockAt <= new Date()) return res.status(402).json({error: 'This school workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: {setupFeePaid: Boolean(billingSchool.billing.setupFeePaid), subscriptionExpiresAt: billingSchool.billing.subscriptionExpiresAt || null, gracePeriodDays: graceDays}}); }
       if (!roles.includes(member.role)) return res.status(403).json({ error: 'Your school role cannot perform this action' });
       // A role value alone must never grant control of another person's workspace.
       // Only the account that created the school may use administrator-only actions.
@@ -261,7 +264,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         return res.json({ status: request.status, message: 'Request rejected. No school workspace was created.' });
       }
       if (await School.exists({ code: request.proposedCode })) return res.status(409).json({ error: 'That school code has already been registered. Ask the requester to submit a new request.' });
-      const school = await School.create({ name: request.schoolName, code: request.proposedCode, officialPhone: request.officialPhone, createdBy: request.requesterId });
+      const school = await School.create({ name: request.schoolName, code: request.proposedCode, officialPhone: request.officialPhone, createdBy: request.requesterId, billing: {billingEnforced: true, setupFeePaid: false, subscriptionExpiresAt: null, status: 'SETUP_PAYMENT_REQUIRED'} });
       await Membership.create({ schoolId: school._id, userId: request.requesterId, role: 'admin' });
       request.status = 'APPROVED'; request.reviewedBy = req.user._id; request.reviewedAt = new Date();
       request.reviewNote = reviewNote; request.schoolId = school._id;
@@ -892,7 +895,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       }
       if (!confirmed) return res.json({ ok: true, duplicate: true });
       // The school receives only its school-fee amount; Chatify collects its fee in a separate platform-owned STK prompt.
-      try { if (platformFeeCollector && confirmed.payerPhone) await platformFeeCollector.collect({paymentId:confirmed.paymentReference,source:'school_fee',payerPhone:confirmed.payerPhone,baseAmount:confirmed.amount}); }
+
       catch (error) { console.error('School fee succeeded but separate Chatify fee collection could not start', {paymentReference:confirmed.paymentReference,stage:error?.stage||'configuration_or_unknown'}); }
       res.json({ ok: true });
       deliverSchoolReceipt(confirmed._id).catch(error => console.error('School receipt delivery processing failed', { paymentReference: confirmed.paymentReference, message: String(error?.message || 'unknown').slice(0, 160) }));

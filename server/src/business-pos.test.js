@@ -7,11 +7,11 @@ test('validates Till profile and creates a customer-readable payment QR payload'
   const charge = buildPosCharge({organization: {_id: 'org-1', name: 'Sample Supermarket'}, amount: 450, description: 'Groceries', reference: 'SALE-1', profile});
   const qr = JSON.parse(charge.qrPayload);
   assert.equal(charge.status, 'PENDING');
-  assert.equal(qr.amount, 453);
+  assert.equal(qr.amount, 450);
   assert.equal(charge.baseAmount, 450);
-  assert.equal(charge.platformFee, 3);
-  assert.equal(charge.totalAmount, 453);
-  assert.equal(charge.platformFeeStatus, 'PENDING_PAYMENT');
+  assert.equal(charge.platformFee, 0);
+  assert.equal(charge.totalAmount, 450);
+  assert.equal(charge.platformFeeStatus, 'NOT_APPLICABLE');
   assert.equal(qr.paymentId, charge.paymentId);
   assert.equal(qr.description, 'Groceries');
   assert.equal(qr.tillNumber, '1234567');
@@ -101,19 +101,19 @@ test('STK callback maps user cancellation and provider failure without marking a
 });
 
 
-test('business checkout adds the 0.5% fee on top and rejects totals above the provider cap', () => {
+test('business checkout does not add a Chatify transaction commission', () => {
   const profile = normalizeMerchantPaymentProfile({method: 'mpesa_till', tillNumber: '1234567'});
   const charge = buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 1000, description: 'Checkout', profile});
   assert.equal(charge.baseAmount, 1000);
-  assert.equal(charge.platformFee, 5);
+  assert.equal(charge.platformFee, 0);
   assert.equal(charge.amount, 1000);
-  assert.equal(charge.totalAmount, 1005);
+  assert.equal(charge.totalAmount, 1000);
   assert.equal(JSON.parse(charge.qrPayload).amount, 1000);
-  assert.throws(() => buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 150000, description: 'Checkout', profile}), /0.5% platform fee/);
+  assert.equal(buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 150000, description: 'Checkout', profile}).totalAmount, 150000);
 });
 
-test('POS STK validates the merchant base amount and leaves platform fee for separate collection', () => {
-  const charge = {amount:450, baseAmount:450, totalAmount:453, platformFee:3, feeCollectionMode:'separate', stkPhone:'254712345678'};
+test('POS STK charges only the sale amount without a separate platform commission', () => {
+  const charge = {amount:450, baseAmount:450, totalAmount:450, platformFee:0, feeCollectionMode:'separate', stkPhone:'254712345678'};
   const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
     {Name:'Amount',Value:450}, {Name:'PhoneNumber',Value:254712345678}, {Name:'MpesaReceiptNumber',Value:'QWERTY1234'},
   ]}};

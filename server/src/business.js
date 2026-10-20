@@ -98,12 +98,8 @@ export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []
 
 export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io, mpesaProvider, platformFeeCollector, startScheduler = true}) {
   const O = mongoose.Schema.Types.ObjectId;
-  // Read the current platform fee configuration for eligible business checkouts.
-  // Default to 0.5% before the administrator saves settings; disabling fees exempts new checkouts.
-  const calculateConfiguredPaymentTotal = async amount => {
-    const config = await mongoose.models.PlatformFeeSettings?.findOne({key:'global'}).lean();
-    return calculatePaymentTotal(amount, {applicable: config?.enabled !== false, feeRate: Number.isFinite(Number(config?.feeRate)) ? Number(config.feeRate) : 0.5});
-  };
+  // Chatify no longer adds transaction commissions. Workspace billing is handled separately.
+  const calculateConfiguredPaymentTotal = async amount => ({baseAmount: amount, platformFee: 0, totalAmount: amount, platformFeeRate: 0, platformFeeStatus: 'NOT_APPLICABLE'});
   const messaging = createMessagingProviders(process.env);
   const language = createLanguageProvider(process.env);
   const etims = createEtimsProvider(process.env);
@@ -116,7 +112,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     description: {type: String, maxlength: 2000, default: ''}, email: String, phone: String, website: String,
     country: {type: String, default: 'KE'}, currency: {type: String, default: 'KES'}, timezone: {type: String, default: 'Africa/Nairobi'},
     plan: {type: String, enum: ['free', 'business_pro', 'teams', 'enterprise'], default: 'free'},
-    members: {type: [memberSchema], default: []}, settings: {type: mongoose.Schema.Types.Mixed, default: {}},
+    members: {type: [memberSchema], default: []}, settings: {type: mongoose.Schema.Types.Mixed, default: {}}, billing: {type: mongoose.Schema.Types.Mixed, default: {}},
     branches: {type: [{name: String, address: String, phone: String, active: {type: Boolean, default: true}}], default: []},
   }, {timestamps: true}));
   Organization.schema.index({'members.userId': 1});
@@ -214,6 +210,9 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   const requireOrg = async (req, res) => {
     const org = await getOrg(req.params.orgId, req.user._id);
     if (!org) { res.status(404).json({error: 'Business workspace not found'}); return null; }
+    // New workspaces must pay setup and subscription charges before business operations are enabled.
+    // Legacy workspaces without billingEnforced are grandfathered in rather than locked unexpectedly.
+    if (org.billing?.billingEnforced === true) { const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = org.billing.subscriptionExpiresAt ? new Date(org.billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!org.billing.setupFeePaid || !lockAt || lockAt <= new Date()) { res.status(402).json({error: 'This workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: {setupFeePaid: Boolean(org.billing.setupFeePaid), subscriptionExpiresAt: org.billing.subscriptionExpiresAt || null, gracePeriodDays: graceDays}}); return null; } }
     // Cache the authenticated member's role for subsequent route-level write checks.
     req.businessRole = String(org.ownerId) === String(req.user._id) ? 'owner' : (org.members.find(member => String(member.userId) === String(req.user._id))?.role || 'viewer');
     return org;
@@ -377,7 +376,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
           businessOrganizationId: org._id, businessDocumentId: document._id,
           description: ('Order ' + number).slice(0, 80), provider: mpesaProvider.name, requestedAt: new Date(),
         });
-        res.status(201).json({order: document, payment: {paymentId: payment.paymentId, amount: payment.amount, baseAmount: payment.baseAmount, platformFee: payment.platformFee, totalAmount: payment.totalAmount, platformFeeRate: payment.platformFeeRate, platformFeeStatus: payment.platformFeeStatus, status: payment.status, provider: payment.provider}, notice: 'Order created. Review the 0.5% platform fee and total before authorizing the M-Pesa prompt.'});
+        res.status(201).json({order: document, payment: {paymentId: payment.paymentId, amount: payment.amount, baseAmount: payment.baseAmount, platformFee: payment.platformFee, totalAmount: payment.totalAmount, platformFeeRate: payment.platformFeeRate, platformFeeStatus: payment.platformFeeStatus, status: payment.status, provider: payment.provider}, notice: 'Order created. Review the order total before authorizing the M-Pesa prompt.'});
       } catch (error) {
         await BusinessDocument.deleteOne({_id: document._id, organizationId: org._id});
         throw error;
@@ -390,7 +389,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     try {
       const name = shortText(req.body?.name, 120); const slug = slugifyBusinessName(req.body?.slug || name);
       if (!name || !slug) return res.status(400).json({error: 'Business name is required'});
-      const org = await Organization.create({name, slug, ownerId: req.user._id, industry: INDUSTRIES.includes(req.body?.industry) ? req.body.industry : 'other', description: shortText(req.body?.description, 2000), email: shortText(req.body?.email, 200), phone: shortText(req.body?.phone, 40), website: shortText(req.body?.website, 500), country: shortText(req.body?.country, 2) || 'KE', currency: shortText(req.body?.currency, 3) || 'KES', timezone: shortText(req.body?.timezone, 80) || 'Africa/Nairobi', members: [{userId: req.user._id, role: 'owner'}]});
+      const org = await Organization.create({name, slug, ownerId: req.user._id, industry: INDUSTRIES.includes(req.body?.industry) ? req.body.industry : 'other', description: shortText(req.body?.description, 2000), email: shortText(req.body?.email, 200), phone: shortText(req.body?.phone, 40), website: shortText(req.body?.website, 500), country: shortText(req.body?.country, 2) || 'KE', currency: shortText(req.body?.currency, 3) || 'KES', timezone: shortText(req.body?.timezone, 80) || 'Africa/Nairobi', members: [{userId: req.user._id, role: 'owner'}], billing: {billingEnforced: true, setupFeePaid: false, subscriptionExpiresAt: null, status: 'SETUP_PAYMENT_REQUIRED'}});
       await recordAudit(org, req.user._id, 'organization.created', 'organization', org._id, 'Created business workspace'); res.status(201).json({organization: org});
     } catch (error) { safeError(res, error); }
   });
@@ -633,7 +632,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     if(document.currency!=='KES')return res.status(400).json({error:'M-Pesa STK is currently supported for KES invoices only'});
     const baseAmount=Math.round((document.total-document.paidAmount)*100)/100;
     if(!Number.isSafeInteger(baseAmount)||!validPaymentAmount(baseAmount))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
-    try{return res.json({...await calculateConfiguredPaymentTotal(baseAmount),currency:'KES',feeNotice:'The merchant receives the invoice base amount. After the base payment succeeds, Chatify requests its disclosed platform fee separately through the configured platform-owned Paybill/Till.'});}
+    try{return res.json({...await calculateConfiguredPaymentTotal(baseAmount),currency:'KES',feeNotice:'No Chatify transaction commission is charged.'});}
     catch(error){return res.status(400).json({error:error.message});}
   });
   app.post('/api/business/organizations/:orgId/documents/:documentId/mpesa-stk', auth, async (req,res)=>{
@@ -646,7 +645,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const outstanding=Math.round((document.total-document.paidAmount)*100)/100;
     if(!Number.isSafeInteger(outstanding)||!validPaymentAmount(outstanding))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
     let fee;try{fee=await calculateConfiguredPaymentTotal(outstanding);}catch(error){return res.status(400).json({error:error.message});}
-    if(req.body?.feeAcknowledged!==true)return res.status(400).json({error:'Confirm the disclosed configured platform fee before sending an invoice STK prompt',baseAmount:fee.baseAmount,platformFee:fee.platformFee,totalAmount:fee.totalAmount,platformFeeRate:fee.platformFeeRate});
+    
     const phone=normalizeMpesaPhone(req.body?.phone);if(!phone)return res.status(400).json({error:'Enter a valid Kenyan customer M-Pesa phone number'});
     const pending=await Payment.findOne({businessDocumentId:document._id,status:'PENDING',initiatedAt:{$exists:true}});
     if(pending)return res.status(409).json({error:'An M-Pesa request is already pending for this invoice',paymentId:pending.paymentId});
