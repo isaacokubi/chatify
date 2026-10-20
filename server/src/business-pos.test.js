@@ -111,3 +111,12 @@ test('business checkout adds the 0.5% fee on top and rejects totals above the pr
   assert.equal(JSON.parse(charge.qrPayload).amount, 1005);
   assert.throws(() => buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 150000, description: 'Checkout', profile}), /0.5% platform fee/);
 });
+
+test('POS STK validates the merchant base amount and leaves platform fee for separate collection', () => {
+  const charge = {amount:450, baseAmount:450, totalAmount:453, platformFee:3, stkPhone:'254712345678'};
+  const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
+    {Name:'Amount',Value:450}, {Name:'PhoneNumber',Value:254712345678}, {Name:'MpesaReceiptNumber',Value:'QWERTY1234'},
+  ]}};
+  assert.equal(resolvePosStkCallbackOutcome(callback,charge).status,'SUCCESS');
+  assert.equal(resolvePosStkCallbackOutcome({...callback,CallbackMetadata:{Item:[{Name:'Amount',Value:453},{Name:'PhoneNumber',Value:254712345678},{Name:'MpesaReceiptNumber',Value:'QWERTY1234'}]}},charge).error,'mismatch');
+});
