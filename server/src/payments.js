@@ -12,7 +12,17 @@ export function calculatePlatformFee(amount) {
   return Math.ceil((amount * PLATFORM_FEE_BASIS_POINTS) / 10000);
 }
 
-export function calculatePaymentTotal(amount) {
+// Calculate the amount payable for a category that explicitly opts into the platform fee.
+ // Personal transfers must call this with applicable:false (or use no fee fields).
+export function calculatePaymentTotal(amount, {applicable = true} = {}) {
+  if (!Number.isSafeInteger(amount) || amount < 1 || amount > MAX_PAYMENT_AMOUNT) {
+    throw new Error(`Payment base must be a positive whole-KSh amount no greater than KSh ${MAX_PAYMENT_AMOUNT}`);
+  }
+  // Keep ordinary transfers fee-free; Safaricom's own charges are separate provider charges.
+  if (!applicable) {
+    return {baseAmount: amount, platformFee: 0, totalAmount: amount, platformFeeRate: 0, platformFeeStatus: 'NOT_APPLICABLE'};
+  }
+  // Only opted-in business/school-fee workflows calculate the platform's 0.5% fee.
   const platformFee = calculatePlatformFee(amount);
   const totalAmount = amount + platformFee;
   if (!Number.isSafeInteger(totalAmount) || totalAmount > MAX_PAYMENT_AMOUNT) {
