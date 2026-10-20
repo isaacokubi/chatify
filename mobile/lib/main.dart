@@ -134,6 +134,10 @@ class Api {
   // between different signed-in users on the same device.
   bool lastResponseFromCache = false;
   bool offlineDataMode = false;
+  // Coalesce simultaneous identical GETs (for example multiple widgets loading
+  // the same profile/conversation) into one network request.
+  final Map<String, Future<Map<String, dynamic>>> _inFlightGets = {};
+
 
   String _stableCacheHash(String value) {
     var hash = 2166136261;
@@ -345,6 +349,19 @@ class Api {
   }
 
   Future<Map<String, dynamic>> call(String method, String path,
+      [Map<String, dynamic>? body]) {
+    if (method != 'GET') return _callUncoalesced(method, path, body);
+    final key = '${_cacheScope()}|$path';
+    final existing = _inFlightGets[key];
+    if (existing != null) return existing;
+    final request = _callUncoalesced(method, path, body);
+    _inFlightGets[key] = request;
+    return request.whenComplete(() {
+      if (identical(_inFlightGets[key], request)) _inFlightGets.remove(key);
+    });
+  }
+
+  Future<Map<String, dynamic>> _callUncoalesced(String method, String path,
       [Map<String, dynamic>? body]) async {
     final h = {
       'Content-Type': 'application/json',
@@ -733,18 +750,29 @@ class AppState extends ChangeNotifier {
         }
       }
     }
+    // Show the app as soon as the session is restored. Key provisioning and
+    // push registration are independent background tasks and must not hold the
+    // first frame hostage on slow networks or a cold API instance.
     if (user != null) {
-      try {
-        await ensureEncryptionKey();
-      } catch (error) {
-        // Do not block sign-in, but encrypted sends remain disabled until key recovery.
-        encryptionError = error.toString();
-      }
       _connectPresence();
-      await _initializePushNotifications();
+      unawaited(_finishBackgroundStartup());
     }
     ready = true;
     notifyListeners();
+  }
+
+  Future<void> _finishBackgroundStartup() async {
+    try {
+      await ensureEncryptionKey().timeout(const Duration(seconds: 12));
+    } catch (error) {
+      encryptionError = error.toString();
+      notifyListeners();
+    }
+    try {
+      await _initializePushNotifications().timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Push is best-effort; it must not block opening the app.
+    }
   }
 
   /// Creates the device-local key on first use and registers only its public half.
