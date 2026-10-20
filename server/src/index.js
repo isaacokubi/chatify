@@ -284,7 +284,7 @@ app.get('/api/conversations/:id/messages',auth,async(q,r)=>{
  const c=await Conversation.findOne({_id:q.params.id,participants:q.user._id,hiddenFor:{$ne:q.user._id}});
  if(!c)return r.status(404).json({error:'Conversation not found'});
  const filter={conversationId:c._id,expiredAt:{$exists:false},hiddenFor:{$ne:q.user._id}};
- if(q.query.q){const term=String(q.query.q).trim().slice(0,100);if(term){const escaped=term.replace(/[.*+?^$()|[\]\\{}]/g,'\\term.replace(/[.*+?^$()|[\\]\\\\{}]/g,'\\\\$&')');filter.text={$regex:escaped,$options:'i'};}}
+ if(q.query.q){const term=String(q.query.q).trim().slice(0,100);if(term){const escaped=term.replace(/[.*+?^$()|[\]\\{}]/g,'\\$&');filter.text={$regex:escaped,$options:'i'};}}
  const countFilter={...filter};
  const page=Math.max(1,Number.parseInt(q.query.page,10)||1),limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||40));
  const cursor=typeof q.query.cursor==='string'?q.query.cursor:'';
