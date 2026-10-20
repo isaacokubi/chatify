@@ -7601,7 +7601,6 @@ class _ChatState extends State<Chat> {
       final result = await app.api
           .call('POST', '/api/payments/${payment['paymentId']}/initiate', {
         'phone': normalizeKenyanPhone(payerPhone.text)!,
-        'feeAcknowledged': true,
       });
       final updated = Map<String, dynamic>.from(result['payment']);
       if (mounted) {
