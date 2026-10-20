@@ -5056,7 +5056,10 @@ class _PaymentHistoryState extends State<PaymentHistory> {
       }
     } catch (e) {
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Payment request status is unknown. Refresh payment status before trying again; Chatify did not automatically retry the request.'),
+          duration: Duration(seconds: 8),
+        ));
       }
     } finally {
       phone.dispose();
