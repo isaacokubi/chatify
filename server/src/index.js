@@ -55,9 +55,11 @@ const Conversation=mongoose.model('Conversation',new mongoose.Schema({type:{type
 Conversation.schema.index({participants:1,updatedAt:-1});
 // Messages store text/media, replies, reactions, delivery/read receipts and application-level expiry state.
 const Message=mongoose.model('Message',new mongoose.Schema({conversationId:{type:O,index:true},senderId:O,text:{type:String,trim:true,maxlength:5000},encryptedPayload:{type:String,select:true},encryptionVersion:{type:Number,enum:[1]},messageType:{type:String,enum:['text','image','file'],default:'text'},mediaUrl:String,replyTo:O,reactions:[{userId:O,emoji:String}],hiddenFor:[O],deliveredTo:[O],readBy:[O],expiryType:{type:String,enum:['NONE','AFTER_READ','AFTER_TIME','AFTER_REPLY'],default:'NONE'},expiresAt:Date,expiredAt:Date,deletedAt:Date},{timestamps:true}));
-Message.schema.index({conversationId:1,createdAt:-1}); Message.schema.index({expiresAt:1});
+Message.schema.index({conversationId:1,createdAt:-1,_id:-1}); Message.schema.index({expiresAt:1,expiredAt:1,conversationId:1});
 // Memory Cards are user-owned structured notes extracted from conversation context or entered by the user.
 const Memory=mongoose.model('Memory',new mongoose.Schema({userId:{type:O,index:true},conversationId:O,personId:{type:O,index:true},personName:{type:String,trim:true,maxlength:80},type:{type:String,enum:['EVENT','PAYMENT','PLACE','TASK','NOTE','OTHER']},title:String,description:String,date:Date,time:String,location:String,sourceMessageId:O,completed:{type:Boolean,default:false}},{timestamps:true}));
+// Supports bounded newest-first user memory reads and cursor pagination without scanning deep offsets.
+Memory.schema.index({userId:1,createdAt:-1,_id:-1});
 // Persist every message that has already produced a memory suggestion. This ledger is deliberately separate from Memory so deleting a saved card never makes its source message eligible again.
 const MemorySuggestionSeen=mongoose.model('MemorySuggestionSeen',new mongoose.Schema({userId:{type:O,required:true},conversationId:{type:O,required:true},sourceMessageId:{type:O,required:true},status:{type:String,enum:['suggested','saved','dismissed','deleted'],default:'suggested'}},{timestamps:true}));
 MemorySuggestionSeen.schema.index({userId:1,sourceMessageId:1},{unique:true});
@@ -104,7 +106,9 @@ const leaveUserConversation=(userId,conversationId)=>io.in('user:'+String(userId
 io.on('connection',async s=>{
  const userId=String(s.user.sub);
  s.join('user:'+userId);
- const activeConversations=await Conversation.find({participants:userId}).select('_id participants');
+ // Do not scan and join every historical conversation at each socket connect. Clients join
+ // older conversations on demand with conversation:join after server-side membership checks.
+ const activeConversations=await Conversation.find({participants:userId}).sort({updatedAt:-1,_id:-1}).limit(100).select('_id participants').lean();
  for(const c of activeConversations)s.join(String(c._id));
  const peerIds=new Set(activeConversations.flatMap(c=>c.participants.map(id=>String(id))).filter(id=>id!==userId));
  s.emit('presence:initial',{userIds:[...peerIds].filter(id=>onlineUsers.has(id))});
@@ -119,7 +123,9 @@ io.on('connection',async s=>{
    if(!sockets.length){
      onlineUsers.delete(userId);
      const u=await User.findByIdAndUpdate(userId,{lastSeen:new Date()});
-     const conversations=await Conversation.find({participants:userId}).select('_id participants');
+     // Presence fan-out is bounded to recently active conversations; historical conversations
+     // receive events when opened and subscribed, avoiding unbounded disconnect work.
+     const conversations=await Conversation.find({participants:userId}).sort({updatedAt:-1,_id:-1}).limit(100).select('_id participants').lean();
      const peers=new Set(conversations.flatMap(c=>c.participants.map(id=>String(id))).filter(id=>id!==userId));
      for(const peerId of peers)io.to('user:'+peerId).emit('user:offline',{userId,...(u?.privacy?.lastSeen!==false?{lastSeen:u?.lastSeen}:{})});
      if(u)for(const conversation of conversations)io.to(String(conversation._id)).emit('user:offline',{userId,...(u.privacy?.lastSeen!==false?{lastSeen:u.lastSeen}:{})});
@@ -127,7 +133,9 @@ io.on('connection',async s=>{
  });
 });
 // HEALTH CHECK: reports whether MongoDB is connected so hosting platforms can detect an unhealthy API.
-app.get('/health',(q,r)=>{const connected=mongoose.connection.readyState===1;r.status(connected?200:503).json({ok:connected,service:'chatify-api',database:connected?'connected':'unavailable',time:new Date().toISOString()});});
+app.get('/health',(q,r)=>{const connected=mongoose.connection.readyState===1;r.status(connected?200:503).json({ok:connected,service:'chatify-api',database:connected?'connected':'unavailable',readyState:mongoose.connection.readyState,uptimeSeconds:Math.floor(process.uptime()),time:new Date().toISOString()});});
+// Readiness is suitable for load balancers; it never exposes credentials or database details.
+app.get('/ready',(q,r)=>{const connected=mongoose.connection.readyState===1;r.status(connected?200:503).json({ready:connected});});
 app.post('/api/media',auth,async(q,r)=>{
   if(q.body?.data!=null&&!isSupportedImageData(q.body.data,q.body.mimeType))return r.status(400).json({error:'Choose a valid JPEG, PNG or WebP image no larger than 10 MB'});
   const {data,mimeType,url}=q.body||{};
@@ -377,9 +385,35 @@ app.use((q,r,n)=>{
 // Centralized error handler: keep all API failures in a predictable JSON format.
 app.use((err,q,r,n)=>{if(r.headersSent)return n(err);const status=err.code===11000?409:err.status||err.statusCode||(['ValidationError','CastError'].includes(err.name)?400:500);const message=status===409?'A record with that value already exists':status<500?(err.message||'Request failed'):'Request failed';r.status(status).json({error:message});});
 // PERIODIC EXPIRY JOB: clears/hides due message content and broadcasts an expiry event.
-const expiryTimer=setInterval(async()=>{try{const due=await Message.find({expiresAt:{$lte:new Date()},expiredAt:{$exists:false}}).select('_id conversationId');for(const item of due){const expired=await Message.findOneAndUpdate({_id:item._id,expiredAt:{$exists:false}},{$set:{expiredAt:new Date(),text:'',encryptedPayload:null,mediaUrl:null}},{new:true});if(expired)io.to(String(item.conversationId)).emit('message:expired',{messageId:item._id});}}catch(error){console.error('Message expiration cleanup failed:',error.message);}},60000);
+let expirySweepRunning=false;
+const expiryTimer=setInterval(async()=>{
+  // Bound each sweep so a backlog cannot monopolize the API event loop or load all due
+  // records into memory. Atomic conditional updates make competing replicas safe.
+  if(expirySweepRunning||mongoose.connection.readyState!==1)return;
+  expirySweepRunning=true;
+  try{
+    const due=await Message.find({expiresAt:{$lte:new Date()},expiredAt:{$exists:false}})
+      .sort({expiresAt:1,_id:1}).limit(250).select('_id conversationId').lean();
+    for(const item of due){
+      const expiredAt=new Date();
+      const expired=await Message.findOneAndUpdate({_id:item._id,expiredAt:{$exists:false},expiresAt:{$lte:expiredAt}},
+        {$set:{expiredAt,text:'',encryptedPayload:null,mediaUrl:null}},{new:true}).select('_id').lean();
+      if(expired)io.to(String(item.conversationId)).emit('message:expired',{messageId:item._id});
+    }
+  }catch(error){console.error('Message expiration cleanup failed:',error.message);}
+  finally{expirySweepRunning=false;}
+},60000);
 expiryTimer.unref();
-if(env.mongo)await mongoose.connect(env.mongo); else console.warn('MONGODB_URI not set; configure Atlas before persistent use.');
+if(env.mongo)await mongoose.connect(env.mongo,{
+  // Keep pool usage predictable as API replicas scale out. Budget total connections as
+  // (maxPoolSize × API replicas) plus workers and operational headroom against Atlas limits.
+  maxPoolSize:Number.parseInt(process.env.MONGO_MAX_POOL_SIZE||'30',10),
+  minPoolSize:Number.parseInt(process.env.MONGO_MIN_POOL_SIZE||'2',10),
+  maxIdleTimeMS:30000,
+  serverSelectionTimeoutMS:10000,
+  socketTimeoutMS:45000,
+  autoIndex:process.env.MONGO_AUTO_INDEX==='true'
+}); else console.warn('MONGODB_URI not set; configure Atlas before persistent use.');
 server.listen(env.port,()=>console.log('Chatify API listening on '+env.port));
 // GRACEFUL SHUTDOWN: stop timers and close network/database resources as the process exits.
 const shutdown=createShutdownHandler({
