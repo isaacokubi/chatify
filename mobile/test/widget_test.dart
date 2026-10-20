@@ -316,4 +316,55 @@ void main() {
     await tester.tap(find.text('Pay with M-Pesa'));
     expect(tapped, isTrue);
   });
+
+  test('pending outgoing messages persist, deduplicate and remain account scoped', () async {
+    SharedPreferences.setMockInitialValues({});
+    final first = Api()..token = 'queue-account-one';
+    final queued = <String, dynamic>{
+      'conversationId': 'conversation-1',
+      'body': {
+        'clientMessageId': 'stable-client-id',
+        'encryptedPayload': 'ciphertext-only',
+        'encryptionVersion': 1,
+      },
+      'localMessage': {'_id': 'local-stable-client-id'},
+      'queuedAt': '2026-10-20T00:00:00Z',
+    };
+    await first.enqueuePendingMessage(queued);
+    await first.enqueuePendingMessage(queued);
+    expect((await first.readPendingMessages()).length, 1);
+    expect(
+      (await first.readPendingMessages()).single['body']['encryptedPayload'],
+      'ciphertext-only',
+    );
+
+    final other = Api()..token = 'queue-account-two';
+    expect(await other.readPendingMessages(), isEmpty);
+    await first.removePendingMessage('stable-client-id');
+    expect(await first.readPendingMessages(), isEmpty);
+    first.client.close();
+    other.client.close();
+  });
+
+  test('message merge replaces a queued local message with its server copy', () {
+    final merged = mergeMessages([
+      {
+        '_id': 'local-stable-id',
+        'clientMessageId': 'stable-id',
+        'deliveryStatus': 'pending',
+        'text': 'hello',
+      }
+    ], [
+      {
+        '_id': 'server-message-id',
+        'clientMessageId': 'stable-id',
+        'deliveryStatus': 'sent',
+        'text': 'hello',
+      }
+    ]);
+    expect(merged, hasLength(1));
+    expect(merged.single['_id'], 'server-message-id');
+    expect(merged.single['deliveryStatus'], 'sent');
+  });
+
 }
