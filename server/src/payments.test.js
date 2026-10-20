@@ -201,13 +201,13 @@ test('eligible business payments respect the administrator-configured fee rate',
   });
 });
 
-test('M-Pesa callback matches the total including the disclosed platform fee', () => {
-  const payment = {amount:1000, totalAmount:1005, phone:'254712345678'};
+test('merchant payment callback matches the base amount while the platform fee is collected separately', () => {
+  const payment = {amount:1000, baseAmount:1000, totalAmount:1005, feeCollectionMode:'separate', phone:'254712345678'};
   const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
-    {Name:'Amount',Value:1005}, {Name:'PhoneNumber',Value:254712345678},
+    {Name:'Amount',Value:1000}, {Name:'PhoneNumber',Value:254712345678},
   ]}};
   assert.equal(resolveCallbackOutcome(callback,payment).status,'SUCCESS');
   assert.equal(resolveCallbackOutcome({...callback,CallbackMetadata:{Item:[
-    {Name:'Amount',Value:1000}, {Name:'PhoneNumber',Value:254712345678},
+    {Name:'Amount',Value:1005}, {Name:'PhoneNumber',Value:254712345678},
   ]}},payment).error,'mismatch');
 });

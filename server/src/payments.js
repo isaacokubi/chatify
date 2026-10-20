@@ -205,7 +205,8 @@ export function resolveCallbackOutcome(callback, payment) {
   const items = Array.isArray(callback.CallbackMetadata?.Item) ? callback.CallbackMetadata.Item : [];
   const value = name => items.find(item => item?.Name === name)?.Value;
   const code = Number(callback.ResultCode);
-  if (code === 0 && (Number(value('Amount')) !== (payment.totalAmount ?? payment.amount) || String(value('PhoneNumber')) !== payment.phone)) return {error:'mismatch'};
+  const expectedAmount = payment.feeCollectionMode === 'separate' ? (payment.baseAmount ?? payment.amount) : (payment.totalAmount ?? payment.amount);
+  if (code === 0 && (Number(value('Amount')) !== expectedAmount || String(value('PhoneNumber')) !== payment.phone)) return {error:'mismatch'};
   return {resultCode:code,status:code === 0 ? 'SUCCESS' : code === 1032 ? 'CANCELLED' : 'FAILED',description:String(callback.ResultDesc || '').slice(0,160)};
 }
 

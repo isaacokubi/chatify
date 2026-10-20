@@ -48,7 +48,8 @@ export function resolvePosStkCallbackOutcome(callback, charge) {
   const amount = Number(value('Amount'));
   const phone = normalizeMpesaPhone(String(value('PhoneNumber') || ''));
   const receipt = String(value('MpesaReceiptNumber') || '').trim().toUpperCase();
-  if (amount !== (charge.totalAmount ?? charge.amount) || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return {error: 'mismatch'};
+  const expectedAmount = charge.feeCollectionMode === 'separate' ? (charge.baseAmount ?? charge.amount) : (charge.totalAmount ?? charge.amount);
+  if (amount !== expectedAmount || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return {error: 'mismatch'};
   return {status: 'SUCCESS', resultCode: 0, phone, receipt, description: String(callback.ResultDesc || '').slice(0, 160)};
 }
 
@@ -102,15 +103,15 @@ export function buildPosCharge({organization, amount, description, reference, pr
     ? {method: 'mpesa_till', tillNumber: profile.tillNumber}
     : {method: 'mpesa_paybill', paybillNumber: profile.paybillNumber, accountNumber: paymentReference};
   const paymentId = randomUUID();
-  const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: total, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, description: title, currency: 'KES', ...destination};
-  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_PAYMENT', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
+  const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, description: title, currency: 'KES', ...destination};
+  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, feeCollectionMode:'separate', platformFeeStatus: 'PENDING_PAYMENT', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
 }
 
 export function canUsePosRole(role) {
   return ['owner', 'admin', 'manager', 'sales', 'finance'].includes(String(role));
 }
 
-export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) {
+export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, platformFeeCollector}) {
   const O = mongoose.Schema.Types.ObjectId;
   const Organization = mongoose.models.BusinessOrganization;
   if (!Organization) throw new Error('BusinessOrganization model must be registered before POS routes');
@@ -124,6 +125,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     platformFee: {type: Number, required: true, min: 1, max: 750},
     totalAmount: {type: Number, required: true, min: 1, max: 150000},
     platformFeeRate: {type: Number, default: 0.5},
+    feeCollectionMode: {type:String, enum:['combined','separate'], default:'combined'},
     platformFeeStatus: {type: String, enum: ['PENDING_PAYMENT', 'PENDING_SETTLEMENT', 'SETTLED', 'FAILED'], default: 'PENDING_PAYMENT', index: true},
     currency: {type: String, enum: ['KES'], default: 'KES'},
     description: {type: String, required: true, maxlength: 120},
@@ -208,7 +210,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       const saved = await Charge.create(charge);
       try {
         const result = await provider.initiate({
-          paymentId: saved.paymentId, amount: saved.totalAmount ?? saved.amount, phone,
+          paymentId: saved.paymentId, amount: saved.baseAmount ?? saved.amount, phone,
           description: saved.description,
         });
         saved.checkoutRequestId = result.checkoutRequestId;
@@ -311,7 +313,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
         const qr = await mpesaProvider.generateDynamicQr({
           merchantName: org.name,
           reference: charge.reference,
-          amount: charge.totalAmount ?? charge.amount,
+          amount: charge.baseAmount ?? charge.amount,
           shortcode: profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber,
           transactionCode: profile.method === 'mpesa_till' ? 'BG' : 'PB',
         });
@@ -374,7 +376,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       if (!claimed) return res.status(409).json({error: 'Another STK request is already in progress'});
       let result;
       try {
-        result = await provider.initiate({paymentId: charge.paymentId, amount: charge.totalAmount ?? charge.amount, phone, description: charge.description});
+        result = await provider.initiate({paymentId: charge.paymentId, amount: charge.baseAmount ?? charge.amount, phone, description: charge.description});
       } catch (error) {
         // A transport timeout is ambiguous: Daraja may have accepted the request even if
         // our server never received its response. Keep the claim locked in that case so a
@@ -407,7 +409,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     }
   });
 
-  const PlatformFeeLedger = mongoose.models.PlatformFeeLedger || mongoose.model('PlatformFeeLedger', new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},source:{type:String,enum:['personal_request','business_pos'],required:true},businessOrganizationId:{type:O,index:true},baseAmount:{type:Number,required:true,min:1},feeAmount:{type:Number,required:true,min:1},totalAmount:{type:Number,required:true,min:1},currency:{type:String,default:'KES'},status:{type:String,enum:['PENDING_SETTLEMENT','SETTLED','REVERSED'],default:'PENDING_SETTLEMENT',index:true},providerReceipt:{type:String,default:null},confirmedAt:{type:Date,required:true}},{timestamps:true}));
+  const PlatformFeeLedger = mongoose.models.PlatformFeeLedger || mongoose.model('PlatformFeeLedger', new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},source:{type:String,enum:['personal_request','business_checkout','business_pos','school_fee'],required:true},businessOrganizationId:{type:O,index:true},baseAmount:{type:Number,required:true,min:1},feeAmount:{type:Number,required:true,min:1},totalAmount:{type:Number,required:true,min:1},currency:{type:String,default:'KES'},status:{type:String,enum:['PENDING_SETTLEMENT','SETTLED','REVERSED'],default:'PENDING_SETTLEMENT',index:true},providerReceipt:{type:String,default:null},confirmedAt:{type:Date,required:true}},{timestamps:true}));
   async function recordPosPlatformFee(charge, receipt) {
     // Pre-fee charges must remain untouched; only charges created with a recorded fee accrue one.
     if (!charge || !Number.isSafeInteger(charge.baseAmount) || !Number.isSafeInteger(charge.platformFee) || charge.platformFee < 1) return;
@@ -438,7 +440,13 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
         const updated = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, providerReceipt: {$in: [null, '']}},
           {$set: {status: 'SUCCESS', providerReceipt: outcome.receipt, stkResultCode: 0, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}}, {new: true});
         if (!updated && await Charge.exists({providerReceipt: outcome.receipt})) { const existing=await Charge.findOne({providerReceipt:outcome.receipt}); if(existing) await recordPosPlatformFee(existing, outcome.receipt); return res.json({ok: true, duplicate: true}); }
-        if (updated) await recordPosPlatformFee(updated, outcome.receipt);
+        if (updated) {
+          await recordPosPlatformFee(updated, outcome.receipt);
+          if (updated.feeCollectionMode === 'separate' && updated.platformFee > 0 && platformFeeCollector) {
+            try { await platformFeeCollector.collect({paymentId:updated.paymentId,source:'business_pos',payerPhone:updated.stkPhone,baseAmount:updated.baseAmount??updated.amount,feeAmount:updated.platformFee}); }
+            catch (error) { console.error('POS sale succeeded but separate platform fee STK could not start',{paymentId:updated.paymentId,stage:error?.stage||'configuration_or_unknown'}); }
+          }
+        }
         return res.json({ok: true, confirmed: Boolean(updated)});
       } catch (error) {
         if (error?.code === 11000) return res.json({ok: true, duplicate: true});
@@ -446,7 +454,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       }
     }
     await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID},
-      {$set: {status: outcome.status, stkResultCode: outcome.resultCode, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date(), ...(charge.platformFee?{platformFeeStatus:'FAILED'}:{})}});
+      {$set: {status: outcome.status, stkResultCode: outcome.resultCode, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date(), ...(charge.platformFee?{platformFeeStatus:'FAILED'}:{})}}, {new:true});
     return res.json({ok: true});
   });
 
@@ -527,14 +535,19 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     }
     try {
       const charge = await Charge.findOneAndUpdate({
-        $or: [
-          {method: 'mpesa_paybill', 'destination.paybillNumber': shortcode},
-          {method: 'mpesa_till', 'destination.tillNumber': shortcode},
-        ],
         status: 'PENDING',
-        $and: [{$or: [{totalAmount: amount}, {totalAmount: {$exists: false}, amount}]}],
         reference,
         providerReceipt: {$in: [null, '']},
+        $and: [
+          {$or: [
+            {method: 'mpesa_paybill', 'destination.paybillNumber': shortcode},
+            {method: 'mpesa_till', 'destination.tillNumber': shortcode},
+          ]},
+          {$or: [
+            {feeCollectionMode:'separate',baseAmount:amount},
+            {feeCollectionMode:{$ne:'separate'},$or:[{totalAmount:amount},{totalAmount:{$exists:false},amount}]},
+          ]},
+        ],
       }, {$set: {
         status: 'SUCCESS',
         providerReceipt: receipt,
@@ -547,7 +560,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
         if (existing) await recordPosPlatformFee(existing, receipt);
         return res.status(200).json({ResultCode: 0, ResultDesc: 'Duplicate receipt ignored'});
       }
-      if (charge) await recordPosPlatformFee(charge, receipt);
+      if (charge) { await recordPosPlatformFee(charge, receipt); const payerPhone=normalizeMpesaPhone(String(body.MSISDN||body.PhoneNumber||'')); if(charge.feeCollectionMode==='separate'&&payerPhone&&charge.platformFee>0&&platformFeeCollector){try{await platformFeeCollector.collect({paymentId:charge.paymentId,source:'business_pos',payerPhone,baseAmount:charge.baseAmount??charge.amount,feeAmount:charge.platformFee});}catch(error){console.error('POS QR sale succeeded but separate platform fee STK could not start',{paymentId:charge.paymentId,stage:error?.stage||'configuration_or_unknown'});}} }
       return res.status(200).json({ResultCode: 0, ResultDesc: charge ? 'Payment confirmed' : 'Received; no exact matching Paybill sale'});
     } catch (error) {
       if (error?.code === 11000) return res.status(200).json({ResultCode: 0, ResultDesc: 'Duplicate receipt ignored'});
