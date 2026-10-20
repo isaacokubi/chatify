@@ -367,7 +367,40 @@ app.post('/api/memories/extract',auth,async(q,r)=>{
   }
   return r.json({candidates:candidate(sourceText).map(item=>({...item,...personContext,...(conversationId?{conversationId:String(conversationId)}:{})}))});
 });
-app.get('/api/memories',auth,async(q,r)=>{const page=Math.max(1,Number.parseInt(q.query.page,10)||1),limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||20));const filter={userId:q.user._id};const [memories,total]=await Promise.all([Memory.find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit),Memory.countDocuments(filter)]);r.json({memories,total,page,limit});});
+app.get('/api/memories',auth,async(q,r)=>{
+  const limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||20));
+  const filter={userId:q.user._id};
+  const cursor=typeof q.query.cursor==='string'?q.query.cursor:'';
+  let cursorDate,cursorId;
+  if(cursor){
+    try{
+      const decoded=JSON.parse(Buffer.from(cursor,'base64url').toString('utf8'));
+      cursorDate=new Date(decoded.createdAt);
+      cursorId=String(decoded.id||'');
+      if(!Number.isFinite(cursorDate.getTime())||!mongoose.isValidObjectId(cursorId))throw new Error('invalid');
+    }catch{return r.status(400).json({error:'Invalid memory pagination cursor'});}
+    filter.$or=[{createdAt:{$lt:cursorDate}},{createdAt:cursorDate,_id:{$lt:new O(cursorId)}}];
+  }
+  // Cursor reads use the compound user/time/id index and avoid deep skip scans.
+  // The page parameter remains supported for older clients until they adopt nextCursor.
+  if(!cursor){
+    const page=Math.max(1,Math.min(10000,Number.parseInt(q.query.page,10)||1));
+    if(page>1)filter.__legacyOffsetPage=page;
+  }
+  const legacyPage=filter.__legacyOffsetPage;
+  delete filter.__legacyOffsetPage;
+  const query=Memory.find(filter).sort({createdAt:-1,_id:-1}).limit(limit+1);
+  if(!cursor&&legacyPage)query.skip((legacyPage-1)*limit);
+  const rows=await query.lean();
+  const hasMore=rows.length>limit;
+  const memories=hasMore?rows.slice(0,limit):rows;
+  const last=memories[memories.length-1];
+  const nextCursor=hasMore&&last?Buffer.from(JSON.stringify({createdAt:last.createdAt,id:String(last._id)})).toString('base64url'):null;
+  // Keep total/page fields for older app versions; clients can migrate to nextCursor.
+  const [total]=await Promise.all([Memory.countDocuments({userId:q.user._id})]);
+  const page=legacyPage||Math.max(1,Number.parseInt(q.query.page,10)||1);
+  r.json({memories,total,page,limit,nextCursor,hasMore});
+});
 app.post('/api/memories',auth,async(q,r)=>{const b=q.body||{};const title=typeof b.title==='string'?b.title.trim():'';const description=typeof b.description==='string'?b.description.trim():'';if(!title||title.length>120||!description||description.length>2000||!['EVENT','PAYMENT','PLACE','TASK','NOTE','OTHER'].includes(b.type))return r.status(400).json({error:'Memory type, title and description are required'});let conversationId,sourceMessageId,personId,personName;if(b.conversationId){const c=await Conversation.findOne({_id:b.conversationId,participants:q.user._id});if(!c)return r.status(403).json({error:'Conversation access required'});conversationId=c._id;}if(b.sourceMessageId){const source=await Message.findOne({_id:b.sourceMessageId,conversationId,deletedAt:{$exists:false},expiredAt:{$exists:false}});if(!source)return r.status(400).json({error:'Source message is unavailable'});sourceMessageId=source._id;const existing=await Memory.findOne({userId:q.user._id,sourceMessageId});if(existing)return r.json({memory:existing,alreadySaved:true});if(String(source.senderId)!==String(q.user._id)&&conversationId){const peer=await User.findOne({_id:source.senderId,status:'active'}).select('name').lean();if(peer){personId=source.senderId;personName=peer.name;}}}const duplicate=await Memory.findOne({userId:q.user._id,type:b.type,title,description});if(duplicate){if(sourceMessageId&&conversationId)await MemorySuggestionSeen.updateOne({userId:q.user._id,sourceMessageId},{$set:{conversationId,status:'saved'}},{upsert:true});return r.json({memory:duplicate,alreadySaved:true});}const m=await Memory.create({userId:q.user._id,conversationId,personId,personName,sourceMessageId,type:b.type,title,description,date:b.date,time:b.time,location:b.location,completed:false});if(sourceMessageId&&conversationId)await MemorySuggestionSeen.updateOne({userId:q.user._id,sourceMessageId},{$set:{conversationId,status:'saved'}},{upsert:true});r.status(201).json({memory:m});});
 app.patch('/api/memories/:id',auth,async(q,r)=>{const b=q.body||{};const allowed={};if('type'in b){if(!['EVENT','PAYMENT','PLACE','TASK','NOTE','OTHER'].includes(b.type))return r.status(400).json({error:'Unsupported memory type'});allowed.type=b.type;}for(const [key,max] of [['title',120],['description',2000],['time',80],['location',200]])if(key in b){if(typeof b[key]!=='string'||!b[key].trim()||b[key].trim().length>max)return r.status(400).json({error:`${key} must be between 1 and ${max} characters`});allowed[key]=b[key].trim();}if('date'in b){const date=b.date==null?null:new Date(b.date);if(date!=null&&Number.isNaN(date.getTime()))return r.status(400).json({error:'Enter a valid memory date'});allowed.date=date;}if('completed'in b){if(typeof b.completed!=='boolean')return r.status(400).json({error:'Completed must be true or false'});allowed.completed=b.completed;}const m=await Memory.findOneAndUpdate({_id:q.params.id,userId:q.user._id},{$set:allowed},{new:true,runValidators:true});if(!m)return r.status(404).json({error:'Memory not found'});r.json({memory:m});});
 app.delete('/api/memories/:id',auth,async(q,r)=>{const memory=await Memory.findOne({_id:q.params.id,userId:q.user._id});if(memory?.sourceMessageId&&memory.conversationId)await MemorySuggestionSeen.updateOne({userId:q.user._id,sourceMessageId:memory.sourceMessageId},{$set:{conversationId:memory.conversationId,status:'deleted'}},{upsert:true});await Memory.deleteOne({_id:q.params.id,userId:q.user._id});r.status(204).end();});
