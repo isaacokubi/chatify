@@ -36,6 +36,148 @@ bool _useSwipeToDelete(BuildContext context) {
 
 // School workspace uses the shared authenticated API and URL launcher.
 
+
+// Displays remote images from a small persistent cache first, so previously
+// viewed profile, catalogue and attachment images remain available offline.
+// Cache only small images to avoid exhausting browser local storage on web.
+class OfflineCachedImage extends StatefulWidget {
+  final String url;
+  final double? width;
+  final double? height;
+  final BoxFit? fit;
+  final Widget Function(BuildContext, Object, StackTrace?)? errorBuilder;
+
+  const OfflineCachedImage(
+    this.url, {
+    super.key,
+    this.width,
+    this.height,
+    this.fit,
+    this.errorBuilder,
+  });
+
+  @override
+  State<OfflineCachedImage> createState() => _OfflineCachedImageState();
+}
+
+class _OfflineCachedImageState extends State<OfflineCachedImage> {
+  Uint8List? _bytes;
+  bool _loading = true;
+  bool _failed = false;
+
+  String get _key {
+    var hash = 2166136261;
+    for (final unit in widget.url.codeUnits) {
+      hash = ((hash ^ unit) * 16777619) & 0xffffffff;
+    }
+    return 'chatify_image_cache_v1_${hash.toRadixString(16)}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant OfflineCachedImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _bytes = null;
+      _loading = true;
+      _failed = false;
+      _loadImage();
+    }
+  }
+
+  Future<void> _loadImage() async {
+    // Paint the last downloaded copy immediately before attempting a refresh.
+    try {
+      final prefs = await SharedPreferences.getInstance()
+          .timeout(const Duration(seconds: 2));
+      final encoded = prefs.getString(_key);
+      if (encoded != null && encoded.isNotEmpty) {
+        final cached = base64Decode(encoded);
+        if (mounted) setState(() => _bytes = cached);
+      }
+    } catch (_) {
+      // Cache is optional; continue to the network without blocking the UI.
+    }
+
+    try {
+      final uri = Uri.tryParse(widget.url);
+      if (uri == null || (uri.scheme != 'https' && uri.scheme != 'http')) {
+        throw const FormatException('Unsupported image URL');
+      }
+      final response = await http.get(uri).timeout(const Duration(seconds: 6));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('Image request failed');
+      }
+      final bytes = response.bodyBytes;
+      // Keep individual entries modest: base64 expands data and web storage is limited.
+      if (bytes.isNotEmpty && bytes.length <= 350 * 1024) {
+        try {
+          final prefs = await SharedPreferences.getInstance()
+              .timeout(const Duration(seconds: 2));
+          await prefs.setString(_key, base64Encode(bytes));
+        } catch (_) {
+          // A storage quota or platform plugin issue must not hide the image.
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _bytes = bytes;
+          _loading = false;
+          _failed = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _failed = _bytes == null;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = _bytes;
+    if (bytes != null) {
+      return Image.memory(
+        bytes,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        gaplessPlayback: true,
+        errorBuilder: widget.errorBuilder,
+      );
+    }
+    if (_loading) {
+      return SizedBox(
+        width: widget.width,
+        height: widget.height,
+        child: const Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    if (_failed && widget.errorBuilder != null) {
+      return widget.errorBuilder!(context, StateError('Image unavailable'), StackTrace.current);
+    }
+    return SizedBox(
+      width: widget.width,
+      height: widget.height,
+      child: const Center(child: Icon(Icons.broken_image_outlined)),
+    );
+  }
+}
+
 // Represents a readable API failure so screens can show a useful message instead of raw transport errors.
 // Builds a portable PDF receipt from a confirmed school-fee record.
 // The authenticated receipt endpoint is checked before this function is called.
@@ -807,9 +949,33 @@ class AppState extends ChangeNotifier {
                 .timeout(const Duration(seconds: 8)))['user']);
       } catch (error) {
         if (error is ApiException && error.statusCode == 401) {
+          // Only a confirmed authentication rejection invalidates the saved token.
           await logout();
         } else {
-          restoreError = error.toString();
+          // The 8-second startup guard can expire before Api's longer offline
+          // fallback runs. Read the last account-scoped /me response directly,
+          // keep the token, and let cached screens open without internet.
+          Map<String, dynamic>? cachedMe;
+          try {
+            cachedMe = await api
+                ._readCachedResponse('/api/auth/me')
+                .timeout(const Duration(seconds: 2));
+          } catch (_) {
+            cachedMe = null;
+          }
+          final cachedUser = cachedMe?['user'];
+          if (cachedUser is Map) {
+            user = Map<String, dynamic>.from(cachedUser);
+            api.offlineDataMode = true;
+            restoreError = null;
+          } else if (error is TimeoutException ||
+              (error is ApiException && error.statusCode == 408)) {
+            // Don't display a raw timeout exception or discard credentials.
+            api.offlineDataMode = true;
+            restoreError = null;
+          } else {
+            restoreError = error.toString();
+          }
         }
       }
     }
@@ -7655,7 +7821,7 @@ class _ChatState extends State<Chat> {
         return const Text('Image unavailable');
       }
     } else {
-      image = Image.network(
+      image = OfflineCachedImage(
         url,
         width: 220,
         fit: BoxFit.contain,
@@ -8860,7 +9026,7 @@ class _ProfileState extends State<Profile> {
                 child: InteractiveViewer(
                   minScale: 1,
                   maxScale: 4,
-                  child: Image.network(
+                  child: OfflineCachedImage(
                     imageUrl,
                     fit: BoxFit.contain,
                     width: double.infinity,
@@ -9001,7 +9167,7 @@ class _ProfileState extends State<Profile> {
                 clipBehavior: Clip.antiAlias,
                 child:
                     profileImage != null && profileImage.startsWith('https://')
-                        ? Image.network(
+                        ? OfflineCachedImage(
                             profileImage,
                             fit: BoxFit.contain,
                             errorBuilder: (_, __, ___) => const Center(
@@ -9618,7 +9784,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
             if (image.startsWith('https://'))
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.network(image,
+                child: OfflineCachedImage(image,
                     height: 170,
                     width: double.infinity,
                     fit: BoxFit.cover,
@@ -9890,7 +10056,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
                       SizedBox(
                           width: 100,
                           height: 110,
-                          child: Image.network(image,
+                          child: OfflineCachedImage(image,
                               fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) =>
                                   const Icon(Icons.inventory_2_outlined)))
