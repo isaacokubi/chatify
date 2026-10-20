@@ -10514,6 +10514,8 @@ class _BusinessHubState extends State<BusinessHub> {
       documents = [],
       tasks = [];
   bool loading = true, saving = false;
+  Map<String, dynamic> workspaceBilling = {};
+  bool workspaceBillingLoading = false;
   int pendingOfflineCount = 0;
   List<String> syncConflicts = [];
   final Map<String, Future<int>> _offlineSyncs = {};
@@ -10543,8 +10545,10 @@ class _BusinessHubState extends State<BusinessHub> {
           orElse: () => organizations.first,
         ) as Map<String, dynamic>;
         await loadWorkspaceData();
+        await loadWorkspaceBilling();
       } else {
         organization = null;
+        workspaceBilling = {};
         dashboard = {};
         catalog = [];
         customers = [];
@@ -10588,6 +10592,98 @@ class _BusinessHubState extends State<BusinessHub> {
       }
     }
     if (mounted) setState(() {});
+  }
+
+  Future<void> loadWorkspaceBilling() async {
+    final id = organization?['_id']?.toString();
+    final ownerId = organization?['ownerId']?.toString();
+    final userId = (app.user?['_id'] ?? app.user?['id'] ?? app.user?['userId'])?.toString();
+    if (id == null || ownerId == null || userId == null || ownerId != userId) {
+      if (mounted) setState(() => workspaceBilling = {});
+      return;
+    }
+    if (mounted) setState(() => workspaceBillingLoading = true);
+    try {
+      final result = await app.api.call('GET', '/api/workspace-billing/business/${Uri.encodeComponent(id)}');
+      if (mounted && organization?['_id']?.toString() == id) setState(() => workspaceBilling = Map<String, dynamic>.from(result['billing'] ?? {}));
+    } catch (e) {
+      if (mounted && organization?['_id']?.toString() == id) error = e.toString();
+    } finally {
+      if (mounted && organization?['_id']?.toString() == id) setState(() => workspaceBillingLoading = false);
+    }
+  }
+
+  Future<void> payBusinessWorkspaceBilling(String billingType) async {
+    final id = organization?['_id']?.toString();
+    if (id == null || workspaceBillingLoading) return;
+    final phoneController = TextEditingController(text: (app.user?['mpesaPhone'] ?? app.user?['phone'] ?? '').toString());
+    final phone = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Workspace subscription payment'),
+      content: TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'M-Pesa phone number', hintText: '07XXXXXXXX or 2547XXXXXXXX')),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, phoneController.text.trim()), child: const Text('Continue to M-Pesa'))],
+    ));
+    phoneController.dispose();
+    if (phone == null || phone.isEmpty || !mounted) return;
+    setState(() => workspaceBillingLoading = true);
+    try {
+      final checkout = await app.api.call('POST', '/api/workspace-billing/business/${Uri.encodeComponent(id)}/checkout', {'billingType': billingType});
+      if (checkout['paid'] == true) {
+        await loadWorkspaceBilling();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(checkout['notice']?.toString() ?? 'Billing updated.')));
+        return;
+      }
+      final payment = Map<String, dynamic>.from(checkout['payment'] ?? {});
+      final paymentId = payment['paymentId']?.toString();
+      if (paymentId == null || paymentId.isEmpty) throw Exception('The billing checkout did not return a payment reference.');
+      await app.api.call('POST', '/api/payments/${Uri.encodeComponent(paymentId)}/initiate', {'phone': phone});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('M-Pesa prompt requested. Approve it on your phone; the workspace unlocks only after confirmation.')));
+      for (var attempt = 0; attempt < 20 && mounted; attempt++) {
+        await Future.delayed(const Duration(seconds: 3));
+        final statusResult = await app.api.call('GET', '/api/payments/${Uri.encodeComponent(paymentId)}');
+        final current = Map<String, dynamic>.from(statusResult['payment'] ?? {});
+        final status = current['status']?.toString().toUpperCase();
+        if (status == 'SUCCESS') {
+          await loadOrganizations();
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment confirmed. Workspace billing status has been refreshed.')));
+          return;
+        }
+        if (status == 'FAILED' || status == 'CANCELLED') throw Exception('M-Pesa payment $status. You can retry from workspace billing.');
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment is still pending. Refresh billing shortly; do not pay again unless the first payment has failed.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => workspaceBillingLoading = false);
+    }
+  }
+
+  Widget _businessBillingCard() {
+    if (workspaceBilling.isEmpty) return const SizedBox.shrink();
+    final prices = workspaceBilling['prices'] is Map ? Map<String, dynamic>.from(workspaceBilling['prices'] as Map) : <String, dynamic>{};
+    final setupPaid = workspaceBilling['setupFeePaid'] == true;
+    final locked = workspaceBilling['locked'] == true;
+    final status = workspaceBilling['status']?.toString() ?? 'Loading';
+    final setupFee = (prices['setupFee'] as num?)?.toInt() ?? 1000;
+    final monthlyFee = (prices['monthlyFee'] as num?)?.toInt() ?? 500;
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [const Icon(Icons.workspace_premium_outlined), const SizedBox(width: 8), const Expanded(child: Text('Workspace billing', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))), if (workspaceBillingLoading) const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))]),
+        const SizedBox(height: 4),
+        Text('Status: $status${locked ? ' · Workspace locked' : ''}'),
+        Text('One-time setup: KSh $setupFee${setupPaid ? ' · Paid' : ' · Unpaid'}'),
+        Text('Monthly subscription: KSh $monthlyFee'),
+        if (workspaceBilling['subscriptionExpiresAt'] != null) Text('Subscription expiry: ${workspaceBilling['subscriptionExpiresAt']}'),
+        const SizedBox(height: 6),
+        const Text('Customer payments are commission-free: Chatify does not add a 0.5% transaction fee.'),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          if (!setupPaid) FilledButton.icon(onPressed: workspaceBillingLoading ? null : () => payBusinessWorkspaceBilling('workspace_setup'), icon: const Icon(Icons.payment), label: Text('Pay setup · KSh $setupFee')),
+          if (setupPaid) FilledButton.icon(onPressed: workspaceBillingLoading ? null : () => payBusinessWorkspaceBilling('workspace_subscription'), icon: const Icon(Icons.autorenew), label: Text('Pay monthly · KSh $monthlyFee')),
+          OutlinedButton.icon(onPressed: workspaceBillingLoading ? null : loadWorkspaceBilling, icon: const Icon(Icons.refresh), label: const Text('Refresh billing')),
+        ]),
+      ])),
+    );
   }
 
   Future<void> createOrganization() async {
@@ -12093,6 +12189,7 @@ class _BusinessHubState extends State<BusinessHub> {
                         loading = true;
                       });
                       await loadWorkspaceData();
+                      await loadWorkspaceBilling();
                       if (mounted) setState(() => loading = false);
                     },
                   ),
@@ -12226,6 +12323,7 @@ class _BusinessHubState extends State<BusinessHub> {
             ],
           ),
         ),
+        if (workspaceBilling.isNotEmpty) _businessBillingCard(),
         if (!compactLayout)
         SizedBox(
           height: 76,
