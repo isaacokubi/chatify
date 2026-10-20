@@ -137,6 +137,19 @@ class Api {
   // Coalesce simultaneous identical GETs (for example multiple widgets loading
   // the same profile/conversation) into one network request.
   final Map<String, Future<Map<String, dynamic>>> _inFlightGets = {};
+  Future<void> _pendingQueueTail = Future<void>.value();
+
+  Future<T> _serializePendingQueue<T>(Future<T> Function() operation) {
+    final result = Completer<T>();
+    _pendingQueueTail = _pendingQueueTail.then((_) async {
+      try {
+        result.complete(await operation());
+      } catch (error, stack) {
+        result.completeError(error, stack);
+      }
+    });
+    return result.future;
+  }
 
 
   String _stableCacheHash(String value) {
@@ -359,7 +372,10 @@ class Api {
   String _pendingMessagesKey() =>
       'chatify_pending_messages_v1_${_cacheScope()}';
 
-  Future<List<Map<String, dynamic>>> readPendingMessages() async {
+  Future<List<Map<String, dynamic>>> readPendingMessages() =>
+      _readPendingMessagesFromStorage();
+
+  Future<List<Map<String, dynamic>>> _readPendingMessagesFromStorage() async {
     final key = _pendingMessagesKey();
     for (final read in <Future<String?> Function()>[
       () => _secureStorage.read(key: key),
@@ -395,23 +411,28 @@ class Api {
     }
   }
 
-  Future<void> enqueuePendingMessage(Map<String, dynamic> message) async {
-    final queue = await readPendingMessages();
-    final id = message['clientMessageId']?.toString();
-    if (id == null || id.isEmpty) {
-      throw ArgumentError('Pending messages require a stable clientMessageId.');
-    }
-    if (queue.any((item) => item['clientMessageId']?.toString() == id)) return;
-    queue.add(Map<String, dynamic>.from(message));
-    await _writePendingMessages(queue);
-  }
+  Future<void> enqueuePendingMessage(Map<String, dynamic> message) =>
+      _serializePendingQueue(() async {
+        final queue = await _readPendingMessagesFromStorage();
+        final id = message['clientMessageId']?.toString();
+        if (id == null || id.isEmpty) {
+          throw ArgumentError(
+              'Pending messages require a stable clientMessageId.');
+        }
+        if (queue.any((item) => item['clientMessageId']?.toString() == id)) {
+          return;
+        }
+        queue.add(Map<String, dynamic>.from(message));
+        await _writePendingMessages(queue);
+      });
 
-  Future<void> removePendingMessage(String clientMessageId) async {
-    final queue = await readPendingMessages();
-    queue.removeWhere(
-        (item) => item['clientMessageId']?.toString() == clientMessageId);
-    await _writePendingMessages(queue);
-  }
+  Future<void> removePendingMessage(String clientMessageId) =>
+      _serializePendingQueue(() async {
+        final queue = await _readPendingMessagesFromStorage();
+        queue.removeWhere(
+            (item) => item['clientMessageId']?.toString() == clientMessageId);
+        await _writePendingMessages(queue);
+      });
 
   Future<void> restore() async {
     try {
