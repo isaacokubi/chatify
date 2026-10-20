@@ -7317,7 +7317,7 @@ class _ChatState extends State<Chat> {
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
                       Text(loadError!, textAlign: TextAlign.center),
                       const SizedBox(height: 12),
-                      FilledButton(onPressed: load, child: const Text('Retry'))
+                      AsyncActionButton(label: 'Retry', icon: Icons.refresh, onPressed: load)
                     ]))
                   : messages.isEmpty
                       ? const Empty(
@@ -8130,7 +8130,7 @@ class _ProfileState extends State<Profile> {
             value: memories,
             onChanged: (v) => setState(() => memories = v),
             title: const Text('Memory suggestions')),
-        FilledButton(onPressed: save, child: const Text('Save changes')),
+        AsyncActionButton(label: 'Save changes', onPressed: save),
         TextButton(
             onPressed: changePassword, child: const Text('Change password')),
         TextButton(
