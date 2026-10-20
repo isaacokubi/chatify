@@ -12445,9 +12445,38 @@ class _BusinessHubState extends State<BusinessHub> {
           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle:
               Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-          trailing: amount == null
-              ? null
-              : Text('${item['currency'] ?? 'KES'} $amount'),
+          trailing: kind == 'tasks' && item['_id'] != null
+              ? IconButton(
+                  tooltip: 'Delete saved task',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () async {
+                    final taskId = item['_id'].toString();
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Delete saved task?'),
+                        content: Text('Delete “$title” from this workspace?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+                          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete')),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true || !mounted) return;
+                    try {
+                      final orgId = organization?['_id']?.toString();
+                      if (orgId == null) return;
+                      await app.api.call('DELETE', '/api/business/organizations/${Uri.encodeComponent(orgId)}/tasks/${Uri.encodeComponent(taskId)}');
+                      await loadWorkspaceData();
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task deleted.')));
+                    } catch (error) {
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete task: $error')));
+                    }
+                  },
+                )
+              : amount == null
+                  ? null
+                  : Text('${item['currency'] ?? 'KES'} $amount'),
           onTap: kind == 'sales documents'
               ? () => _showDocumentActions(Map<String, dynamic>.from(item))
               : null,
