@@ -52,7 +52,7 @@ const User=mongoose.model('User',new mongoose.Schema({name:{type:String,required
 User.schema.index({name:'text',email:'text'});
 // Conversations track direct/group membership, group admins, hidden state and the latest-message summary.
 const Conversation=mongoose.model('Conversation',new mongoose.Schema({type:{type:String,enum:['direct','group'],default:'direct'},participants:[{type:O,ref:'User'}],hiddenFor:{type:[O],default:[]},directKey:{type:String,unique:true,sparse:true},title:String,description:String,image:String,admins:[O],lastMessage:{text:String,senderId:O,createdAt:Date}},{timestamps:true}));
-Conversation.schema.index({participants:1,updatedAt:-1});
+Conversation.schema.index({participants:1,updatedAt:-1}); Conversation.schema.index({participants:1,updatedAt:-1,_id:-1});
 // Messages store text/media, replies, reactions, delivery/read receipts and application-level expiry state.
 const Message=mongoose.model('Message',new mongoose.Schema({conversationId:{type:O,index:true},senderId:O,text:{type:String,trim:true,maxlength:5000},encryptedPayload:{type:String,select:true},encryptionVersion:{type:Number,enum:[1]},messageType:{type:String,enum:['text','image','file'],default:'text'},mediaUrl:String,replyTo:O,reactions:[{userId:O,emoji:String}],hiddenFor:[O],deliveredTo:[O],readBy:[O],expiryType:{type:String,enum:['NONE','AFTER_READ','AFTER_TIME','AFTER_REPLY'],default:'NONE'},expiresAt:Date,expiredAt:Date,deletedAt:Date},{timestamps:true}));
 Message.schema.index({conversationId:1,createdAt:-1,_id:-1}); Message.schema.index({expiresAt:1,expiredAt:1,conversationId:1});
