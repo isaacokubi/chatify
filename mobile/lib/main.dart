@@ -10253,7 +10253,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
       final initiated = await app.api.call(
           'POST',
           '/api/payments/${Uri.encodeComponent(id)}/initiate',
-          {'phone': phone.text.trim(), 'feeAcknowledged': true});
+          {'phone': phone.text.trim()});
       if (!mounted) return;
       final isMock = initiated['mock'] == true;
       setState(() {
@@ -11802,7 +11802,7 @@ class _BusinessHubState extends State<BusinessHub> {
                           onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Confirm and send STK'))
                     ]));
         if (accepted != true) { phone.dispose(); return; }
-        response = await app.api.call('POST', '$base/mpesa-stk', {'phone': phone.text.trim(), 'feeAcknowledged': true});
+        response = await app.api.call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
         phone.dispose();
       } else {
         response = await app.api.call('POST', '$base/etims-submit', {});
