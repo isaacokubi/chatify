@@ -32,9 +32,10 @@ export function createPlatformFeeCollector({ mongoose, env = process.env }) {
     return settingsModelRef.findOne({key:'global'}).lean();
   };
   const callbackUrl = () => {
+    const configured = String(env.PLATFORM_FEE_MPESA_CALLBACK_URL || '').trim();
     const base = String(env.PUBLIC_API_URL || env.API_URL || '').trim();
-    if (!base) throw new Error('PUBLIC_API_URL or API_URL must be configured for platform fee callbacks');
-    const url = new URL('/api/payments/platform-fee/callback', base.replace(/\/$/, ''));
+    if (!configured && !base) throw new Error('Set PLATFORM_FEE_MPESA_CALLBACK_URL or PUBLIC_API_URL/API_URL for platform fee callbacks');
+    const url = configured ? new URL(configured) : new URL('/api/payments/platform-fee/callback', base.replace(/\/$/, ''));
     if (url.protocol !== 'https:') throw new Error('Platform fee callback URL must use HTTPS');
     return url.toString();
   };
