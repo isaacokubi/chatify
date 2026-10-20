@@ -166,6 +166,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
   // Never fall back to the platform shortcode: that would send money to the wrong recipient.
   async function initiateStorefrontStk(req, res, organization) {
     try {
+      if (organization?.billing?.billingEnforced === true) { const billing = organization.billing; const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = billing.subscriptionExpiresAt ? new Date(billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!billing.setupFeePaid || !lockAt || lockAt <= new Date()) return res.status(402).json({error:'This business storefront is temporarily unavailable because its workspace subscription is unpaid or expired.', code:'WORKSPACE_BILLING_REQUIRED'}); }
       if (!organization || organization.settings?.storefrontPublished === false) {
         return res.status(404).json({error: 'This business storefront is not available for checkout'});
       }
