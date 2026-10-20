@@ -702,6 +702,50 @@ List<Map<String, dynamic>> extractMemoryCandidatesLocally(String input) {
   }).take(3).toList();
 }
 
+// Buttons that perform asynchronous work disable themselves while the action is running.
+// This prevents rapid repeat taps and gives a consistent inline progress indicator.
+class AsyncActionButton extends StatefulWidget {
+  final String label;
+  final FutureOr<void> Function() onPressed;
+  final IconData icon;
+  const AsyncActionButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.icon = Icons.check,
+  });
+
+  @override
+  State<AsyncActionButton> createState() => _AsyncActionButtonState();
+}
+
+class _AsyncActionButtonState extends State<AsyncActionButton> {
+  bool _busy = false;
+
+  Future<void> _run() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onPressed();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FilledButton.icon(
+        onPressed: _busy ? null : _run,
+        icon: _busy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(widget.icon),
+        label: Text(_busy ? 'Please wait…' : widget.label),
+      );
+}
+
 // Shared app state. Screens listen to this object and rebuild after login, chat, contact, memory, or payment data changes.
 class AppState extends ChangeNotifier {
   final Api api;
@@ -741,7 +785,9 @@ class AppState extends ChangeNotifier {
     if (api.token != null) {
       try {
         user = Map<String, dynamic>.from(
-            (await api.call('GET', '/api/auth/me'))['user']);
+            (await api
+                .call('GET', '/api/auth/me')
+                .timeout(const Duration(seconds: 8)))['user']);
       } catch (error) {
         if (error is ApiException && error.statusCode == 401) {
           await logout();
@@ -3269,7 +3315,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   Widget field(TextEditingController c, String label, {String? hint, TextInputType? keyboard}) => Padding(padding:const EdgeInsets.only(bottom:10),child:TextField(controller:c,keyboardType:keyboard,decoration:InputDecoration(labelText:label,hintText:hint,border:const OutlineInputBorder())));
   Widget secretField(TextEditingController c, String label) => Padding(padding:const EdgeInsets.only(bottom:10),child:TextField(controller:c,obscureText:true,autocorrect:false,enableSuggestions:false,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder())));
-  Widget actionButton(String label, VoidCallback onPressed, {IconData icon=Icons.check}) => Padding(padding:const EdgeInsets.only(bottom:10),child:SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:onPressed,icon:Icon(icon),label:Text(label))));
+  Widget actionButton(String label, FutureOr<void> Function() onPressed, {IconData icon=Icons.check}) => Padding(padding:const EdgeInsets.only(bottom:10),child:SizedBox(width:double.infinity,child:AsyncActionButton(label:label,onPressed:onPressed,icon:icon)));
 
   @override
   Widget build(BuildContext context) {
