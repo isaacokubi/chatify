@@ -14,8 +14,9 @@ This is a dated record of checks actually run for the Chatify repair and demo se
 | Flutter tests: `cd mobile && flutter test` | **17 passed** | Includes all 4 `reply_test.dart` cases and 13 widget/unit cases. |
 | Android debug APK: `cd mobile && flutter build apk --debug` | **Passed** | `mobile/build/app/outputs/flutter-apk/app-debug.apk` built successfully. |
 | Seeder dry run: `cd server && npm run seed -- --dry-run` | **Passed, no writes** | Reported 8 accounts and Chats, Business, Stores and Schools; made no database connection. |
-| Demo seed and integrity verification | **Passed** | Latest successful repeat reconciled 30 stable records, found 30/30, and reported 0 broken relationships. A subsequent repeat created 0 duplicate records. |
+| Demo seed and integrity verification | **Passed** | Latest successful repeat reconciled 67 stable records, found 67/67, and reported 0 broken relationships. The repeat created 0 duplicates. |
 | Seeded account login API | **8 of 8 passed** | Each account authenticated through local `POST /api/auth/login`; response identity, active state, expected platform role and token presence checked. Token values were not recorded. |
+| Demo dashboard API smoke check | **Passed** | Chats: 2 visible conversations and 2 direct messages. Makena's Market: 2 branches, 5 catalogue items, 2 customers, 2 documents, 2 tasks, 1 case and 1 upcoming task; related supplier/workflow/sourcing records loaded. School admin, staff and parent each loaded 6 linked students, 6 attendance rows, 12 assessments and a pending fee; audience-filtered messages and conferences were visible per role. |
 | Diff whitespace check | **Passed** | `git diff --check` and staged equivalent. |
 
 ## Backend test suites included in `npm test`
@@ -66,10 +67,10 @@ The selected database label was `chatify`; it was confirmed for this run through
 | --- | --- |
 | Accounts | 8 active managed demo users: 1 platform admin and 7 regular users with module memberships. All 8 passed HTTP login. |
 | Chats | 2 conversations, 3 messages, 2 saved contacts, 1 Memory Card. |
-| Business and Stores | 2 organizations, 4 catalogue items, 1 customer, 1 sample order document, 1 task. No payment was initiated. |
-| Schools | 1 workspace, 3 memberships, 2 students, 2 attendance records, 2 assessments, 1 announcement, 1 conference, 1 pending fee record. The fee is not a payment received. |
+| Business and Stores | 2 organizations, 3 branches, 7 catalogue items, 3 customers, 3 documents (order, invoice and quote), 3 tasks, 1 support case, 1 supplier, 1 disabled workflow preview, 1 shared-inbox assignment and 1 sourcing request. No payment was initiated. |
+| Schools | 1 workspace, 3 memberships, 6 linked students, 6 attendance records, 12 assessments, 5 role-targeted messages, 2 audience-specific conferences and 1 pending fee record. The fee is not a payment received. |
 
-The full account register is [server/DEMO_ACCOUNT_REGISTER.md](../server/DEMO_ACCOUNT_REGISTER.md). On the last successful repeat, the seed reported all 30 non-user records as updated and created none, confirming stable-key idempotency. The initial rollout included retrying a seed after fixing an integrity mismatch; the final report reflects the reconciled records, not an assumption that the first attempt was atomic.
+The full account register is [server/DEMO_ACCOUNT_REGISTER.md](../server/DEMO_ACCOUNT_REGISTER.md). On the last successful repeat, the seed reconciled all 67 non-user records, created 0 duplicates and found 0 broken relationships. Eight accounts were safely updated as managed demo accounts; no unmanaged accounts were modified. The seed login checks passed 8/8. A read-only API smoke check also confirmed the populated Chats, Business, Store and school admin/staff/parent views. The initial rollout included retrying a seed after fixing stable-key and relationship issues; the final report reflects reconciled records, not an assumption that the first attempt was atomic.
 
 ## Blocked or not verified
 

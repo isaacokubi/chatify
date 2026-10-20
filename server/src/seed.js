@@ -69,10 +69,11 @@ function makeData(models, people) {
   const directId = stableId('chat:direct'), groupId = stableId('chat:group');
   const directKey = [String(alice._id), String(brian._id)].sort().join(':');
   const message1 = stableId('chat:direct:message:1'), message2 = stableId('chat:direct:message:2');
-  const productIds = ['woven-basket', 'tea-gift-box', 'delivery-service'].map(key => stableId(`catalog:${key}`));
+  const catalogKeys = ['woven-basket', 'tea-gift-box', 'delivery-service', 'brand-review', 'honey-jar', 'maasai-coasters', 'studio-workshop'];
+  const productIds = catalogKeys.map(key => stableId(`catalog:${key}`));
   const customerId = stableId('customer:amina'), orderId = stableId('document:order');
   const storeId = stableId('business:makena-market'), studioId = stableId('business:jirani-studio');
-  const schoolId = stableId('school:lakeview'), studentIds = [0, 1].map(index => stableId(`school:student:${index}`));
+  const schoolId = stableId('school:lakeview');
   const yesterday = new Date('2026-10-19T00:00:00.000Z');
   const records = [
     record(Conversation, 'chat:direct', { _id: directId, type: 'direct', directKey, participants: [alice._id, brian._id], lastMessage: { text: 'The library works. See you then!', senderId: brian._id, createdAt: new Date('2026-10-20T08:30:00.000Z') } }),
@@ -87,26 +88,44 @@ function makeData(models, people) {
 
   const Organization = mongoose.model('BusinessOrganization'), CatalogItem = mongoose.model('BusinessCatalogItem');
   const Customer = mongoose.model('BusinessCustomer'), Document = mongoose.model('BusinessDocument'), Task = mongoose.model('BusinessTask');
-  const storeData = { _id: storeId, name: "Makena's Market", slug: 'demo-makenas-market', ownerId: owner._id, industry: 'retail', description: 'A neighbourhood shop for Kenyan crafts and gifts.', email: owner.email, phone: '+254700000101', country: 'KE', currency: 'KES', timezone: 'Africa/Nairobi', settings: { storefrontPublished: true }, members: [{ userId: owner._id, role: 'owner' }, { userId: staff._id, role: 'manager' }] };
-  const studioData = { _id: studioId, name: 'Jirani Creative Studio', slug: 'demo-jirani-studio', ownerId: staff._id, industry: 'consulting', description: 'A small team helping local organizations with design and communications.', email: staff.email, country: 'KE', currency: 'KES', settings: { storefrontPublished: true }, members: [{ userId: staff._id, role: 'owner' }] };
+  const Case = mongoose.model('BusinessCase'), Supplier = mongoose.model('BusinessSupplier'), Workflow = mongoose.model('BusinessWorkflow');
+  const InboxAssignment = mongoose.model('BusinessInboxAssignment'), TradeRequest = mongoose.model('BusinessTradeRequest');
+  const storeData = { _id: storeId, name: "Makena's Market", slug: 'demo-makenas-market', ownerId: owner._id, industry: 'retail', description: 'A neighbourhood shop for Kenyan crafts and gifts.', email: owner.email, phone: '+254700000101', country: 'KE', currency: 'KES', timezone: 'Africa/Nairobi', settings: { storefrontPublished: true }, branches: [{ _id: stableId('branch:makena:westlands'), name: 'Westlands Pickup Point', address: 'Westlands, Nairobi', phone: '+254700000101', active: true }, { _id: stableId('branch:makena:karen'), name: 'Karen Market Stall', address: 'Karen, Nairobi', phone: '+254700000102', active: true }], members: [{ userId: owner._id, role: 'owner' }, { userId: staff._id, role: 'manager' }] };
+  const studioData = { _id: studioId, name: 'Jirani Creative Studio', slug: 'demo-jirani-studio', ownerId: staff._id, industry: 'consulting', description: 'A small team helping local organizations with design and communications.', email: staff.email, country: 'KE', currency: 'KES', settings: { storefrontPublished: true }, branches: [{ _id: stableId('branch:jirani:nairobi'), name: 'Nairobi Studio', address: 'Kilimani, Nairobi', active: true }], members: [{ userId: staff._id, role: 'owner' }] };
   records.push(record(Organization, 'business:makena-market', storeData), record(Organization, 'business:jirani-studio', studioData));
   const catalog = [
     { name: 'Handwoven Sisal Basket', sku: 'DEMO-BASKET-01', category: 'Home and craft', description: 'Handwoven natural-fibre storage basket.', price: 2400, stock: 18, lowStockAt: 4, images: ['https://images.unsplash.com/photo-1590736969955-71cc94901144'], organizationId: storeId },
     { name: 'Kenyan Tea Gift Box', sku: 'DEMO-TEA-01', category: 'Gifts', description: 'A gift selection of locally grown tea.', price: 1850, stock: 24, lowStockAt: 5, images: ['https://images.unsplash.com/photo-1544787219-7f47ccb76574'], organizationId: storeId },
     { name: 'Delivery and Gift Wrapping', sku: 'DEMO-SERVICE-01', category: 'Services', description: 'Local delivery with reusable gift wrapping.', price: 350, stock: 0, lowStockAt: 0, type: 'service', organizationId: storeId },
     { name: 'Brand Review Session', sku: 'DEMO-STUDIO-01', category: 'Consulting', description: 'A one-hour brand and communications review.', price: 5000, stock: 0, lowStockAt: 0, type: 'service', organizationId: studioId },
+    { name: 'Coastal Forest Honey', sku: 'DEMO-HONEY-01', category: 'Food and pantry', description: 'A 500 g jar of locally sourced wildflower honey.', price: 950, stock: 3, lowStockAt: 6, images: ['https://images.unsplash.com/photo-1587049352851-8d4e89133924'], organizationId: storeId },
+    { name: 'Maasai Bead Coasters', sku: 'DEMO-COASTER-01', category: 'Home and craft', description: 'Set of four colourful hand-beaded coasters.', price: 1200, stock: 12, lowStockAt: 3, images: ['https://images.unsplash.com/photo-1578500494198-246f612d3b3d'], organizationId: storeId },
+    { name: 'Small Business Brand Workshop', sku: 'DEMO-WORKSHOP-01', category: 'Consulting', description: 'A facilitated two-hour brand planning workshop.', price: 8500, stock: 0, lowStockAt: 0, type: 'service', organizationId: studioId },
   ];
-  catalog.forEach((item, index) => records.push(record(CatalogItem, `catalog:${['woven-basket', 'tea-gift-box', 'delivery-service', 'brand-review'][index]}`, { _id: productIds[index] || stableId('catalog:brand-review'), type: 'product', currency: 'KES', active: true, ...item })));
+  catalog.forEach((item, index) => records.push(record(CatalogItem, `catalog:${catalogKeys[index]}`, { _id: productIds[index], type: 'product', currency: 'KES', active: true, ...item })));
+  const customerId2 = stableId('customer:baraka');
+  const customerId3 = stableId('customer:zawadi');
   records.push(
     record(Customer, 'customer:amina', { _id: customerId, organizationId: storeId, name: 'Amina Hassan', email: 'amina.customer@example.test', phone: '+254700000202', company: 'Amina Home', tags: ['demo', 'retail'], source: 'manual', messagingConsent: false }),
+    record(Customer, 'customer:baraka', { _id: customerId2, organizationId: storeId, name: 'Baraka Muli', email: 'baraka.customer@example.test', phone: '+254700000204', company: 'Muli Guest House', tags: ['demo', 'hospitality'], source: 'referral', messagingConsent: false }),
+    record(Customer, 'customer:zawadi', { _id: customerId3, organizationId: studioId, name: 'Zawadi Wanjiku', email: 'zawadi.customer@example.test', phone: '+254700000205', company: 'Kijani Community Initiative', tags: ['demo', 'consulting'], source: 'manual', messagingConsent: false }),
     record(Document, 'document:order', { _id: orderId, organizationId: storeId, customerId, type: 'order', number: 'DEMO-ORD-1001', status: 'sent', items: [{ catalogItemId: productIds[0], name: 'Handwoven Sisal Basket', quantity: 1, unitPrice: 2400, lineTotal: 2400 }, { catalogItemId: productIds[2], name: 'Delivery and Gift Wrapping', quantity: 1, unitPrice: 350, lineTotal: 350 }], subtotal: 2750, taxRate: 0, taxMode: 'none', tax: 0, total: 2750, paidAmount: 0, currency: 'KES', notes: 'Sample storefront order; no payment was initiated.', createdBy: owner._id }),
-    record(Task, 'business:task:follow-up', { _id: stableId('business:task:follow-up'), organizationId: storeId, title: 'Follow up on sample order', description: 'Confirm preferred delivery day with the customer.', type: 'follow_up', status: 'open', priority: 'normal', assignedTo: staff._id, customerId, documentId: orderId, createdBy: owner._id }),
+    record(Document, 'document:invoice', { _id: stableId('document:invoice'), organizationId: storeId, customerId: customerId2, type: 'invoice', number: 'DEMO-INV-1001', status: 'sent', items: [{ catalogItemId: productIds[1], name: 'Kenyan Tea Gift Box', quantity: 2, unitPrice: 1850, lineTotal: 3700 }], subtotal: 3700, taxRate: 0, taxMode: 'none', tax: 0, total: 3700, paidAmount: 0, currency: 'KES', dueDate: new Date('2026-11-05T00:00:00.000Z'), notes: 'Sample unpaid invoice; no payment has been recorded.', createdBy: owner._id }),
+    record(Document, 'document:quote', { _id: stableId('document:quote'), organizationId: studioId, customerId: customerId3, type: 'quote', number: 'DEMO-QUO-1001', status: 'sent', items: [{ catalogItemId: productIds[3], name: 'Brand Review Session', quantity: 1, unitPrice: 5000, lineTotal: 5000 }], subtotal: 5000, taxRate: 0, taxMode: 'none', tax: 0, total: 5000, paidAmount: 0, currency: 'KES', notes: 'Sample consulting quote, not yet accepted.', createdBy: staff._id }),
+    record(Task, 'business:task:follow-up', { _id: stableId('business:task:follow-up'), organizationId: storeId, title: 'Follow up on sample order', description: 'Confirm preferred delivery day with the customer.', type: 'follow_up', status: 'open', priority: 'normal', dueAt: new Date('2026-10-21T06:00:00.000Z'), assignedTo: staff._id, customerId, documentId: orderId, createdBy: owner._id }),
+    record(Task, 'business:task:restock', { _id: stableId('business:task:restock'), organizationId: storeId, title: 'Restock coastal forest honey', description: 'Contact the supplier and replenish the low-stock honey jars.', type: 'maintenance', status: 'in_progress', priority: 'high', assignedTo: staff._id, createdBy: owner._id }),
+    record(Task, 'business:task:brand-review', { _id: stableId('business:task:brand-review'), organizationId: studioId, title: 'Prepare brand review notes', description: 'Review the customer brief and prepare workshop materials.', type: 'task', status: 'open', priority: 'normal', dueAt: new Date('2026-10-22T12:00:00.000Z'), assignedTo: staff._id, customerId: customerId3, createdBy: staff._id }),
+    record(Case, 'business:case:delivery', { _id: stableId('business:case:delivery'), organizationId: storeId, customerId, conversationId: groupId, title: 'Confirm delivery arrangements', description: 'Customer asked whether the basket can arrive before the weekend.', status: 'waiting_customer', priority: 'normal', assignees: [owner._id, staff._id], updates: [{ authorId: staff._id, body: 'Shared delivery options and awaiting the preferred day.', createdAt: new Date('2026-10-20T07:00:00.000Z') }] }),
+    record(Supplier, 'business:supplier:honey', { _id: stableId('business:supplier:honey'), organizationId: storeId, name: 'Tana Valley Apiaries', email: 'orders@tana-apiaries.example.test', phone: '+254700000206', address: 'Garissa County, Kenya', notes: 'Sample supplier record.', reliabilityNotes: 'Demo record; confirm availability before placing a real order.', active: true }),
+    record(Workflow, 'business:workflow:order-follow-up', { _id: stableId('business:workflow:order-follow-up'), organizationId: storeId, name: 'New order follow-up preview', description: 'Preview creating a follow-up task after a new order.', trigger: 'order_created', enabled: false, actions: [{ actionType: 'create_task', config: { title: 'Review new order' } }], runs: [{ status: 'test_only', triggerData: { documentNumber: 'DEMO-ORD-1001' }, result: { wouldRun: ['create_task'], executed: false }, ranAt: new Date('2026-10-20T08:00:00.000Z'), ranBy: owner._id }] }),
+    record(InboxAssignment, 'business:inbox:community-project', { _id: stableId('business:inbox:community-project'), organizationId: studioId, conversationId: groupId, assignedTo: staff._id, status: 'open', priority: 'normal', handoverNote: 'Sample shared-inbox assignment for the project conversation.', lastHandoverBy: owner._id, lastHandoverAt: new Date('2026-10-20T08:15:00.000Z'), customerId: customerId3 }),
+    record(TradeRequest, 'business:trade:packaging', { _id: stableId('business:trade:packaging'), organizationId: storeId, buyerId: owner._id, supplierId: stableId('business:supplier:honey'), title: 'Reusable gift packaging', quantity: 100, budget: 18000, currency: 'KES', details: 'Sample sourcing request; no purchase has been placed.', status: 'open' }),
   );
 
   const School = mongoose.model('SchoolWorkspace'), Membership = mongoose.model('SchoolMembership'), Student = mongoose.model('SchoolStudent');
   const Attendance = mongoose.model('SchoolAttendance'), Assessment = mongoose.model('SchoolAssessment'), SchoolMessage = mongoose.model('SchoolMessage');
   const Conference = mongoose.model('SchoolConference'), FeePayment = mongoose.model('SchoolFeePayment');
-  const names = ['Amani Njeri', 'Leo Njeri'];
+  const names = ['Amani Njeri', 'Leo Njeri', 'Imani Njeri', 'Taji Njeri', 'Zuri Njeri', 'Kito Njeri'];
   records.push(record(School, 'school:lakeview', { _id: schoolId, name: 'Lakeview Community School', code: 'DEMO-LAKEVIEW', createdBy: schoolAdmin._id }));
   for (const [key, user, role, studentNames] of [
     ['admin', schoolAdmin, 'admin', []], ['teacher', teacher, 'staff', names], ['parent', parent, 'parent', names],
@@ -114,19 +133,33 @@ function makeData(models, people) {
   const students = [
     { admissionNumber: 'DEMO-001', fullName: names[0], className: 'Grade 4 East', guardianName: parent.name, guardianPhone: '+254700000303', guardianEmail: parent.email },
     { admissionNumber: 'DEMO-002', fullName: names[1], className: 'Grade 2 West', guardianName: parent.name, guardianPhone: '+254700000303', guardianEmail: parent.email },
+    { admissionNumber: 'DEMO-003', fullName: names[2], className: 'Grade 4 East', guardianName: parent.name, guardianPhone: '+254700000303', guardianEmail: parent.email },
+    { admissionNumber: 'DEMO-004', fullName: names[3], className: 'Grade 2 West', guardianName: parent.name, guardianPhone: '+254700000303', guardianEmail: parent.email },
+    { admissionNumber: 'DEMO-005', fullName: names[4], className: 'Grade 6 North', guardianName: parent.name, guardianPhone: '+254700000303', guardianEmail: parent.email },
+    { admissionNumber: 'DEMO-006', fullName: names[5], className: 'Grade 6 North', guardianName: parent.name, guardianPhone: '+254700000303', guardianEmail: parent.email },
   ];
   students.forEach((student, i) => {
-    const studentId = studentIds[i];
+    const studentId = stableId(`school:student:${i}`);
     records.push(record(Student, `school:student:${i}`, { _id: studentId, schoolId, ...student, active: true }));
-    records.push(record(Attendance, `school:attendance:${i}`, { _id: stableId(`school:attendance:${i}`), schoolId, studentId, studentName: student.fullName, admissionNumber: student.admissionNumber, className: student.className, date: yesterday, status: i === 0 ? 'present' : 'late', note: '', markedBy: teacher._id }));
-    records.push(record(Assessment, `school:assessment:${i}`, { _id: stableId(`school:assessment:${i}`), schoolId, studentId, studentName: student.fullName, admissionNumber: student.admissionNumber, className: student.className, subject: i === 0 ? 'Mathematics' : 'English', assessment: 'October class exercise', term: 'Term 3, 2026', score: i === 0 ? 82 : 76, outOf: 100, teacherNote: 'Sample academic record.', recordedBy: teacher._id }));
+    const status = ['present', 'late', 'present', 'absent', 'present', 'excused'][i];
+    records.push(record(Attendance, `school:attendance:${i}`, { _id: stableId(`school:attendance:${i}`), schoolId, studentId, studentName: student.fullName, admissionNumber: student.admissionNumber, className: student.className, date: yesterday, status, note: status === 'absent' ? 'Parent notified.' : '', markedBy: teacher._id }));
+    for (const [subjectIndex, subject] of ['Mathematics', 'English'].entries()) {
+      const score = 72 + ((i * 7 + subjectIndex * 9) % 25);
+      const assessmentKey = subjectIndex === 0 ? `school:assessment:${i}` : `school:assessment:${i}:${subjectIndex}`;
+      records.push(record(Assessment, assessmentKey, { _id: stableId(assessmentKey), schoolId, studentId, studentName: student.fullName, admissionNumber: student.admissionNumber, className: student.className, subject, assessment: 'October class exercise', term: 'Term 3, 2026', score, outOf: 100, teacherNote: 'Sample academic record.', recordedBy: teacher._id }));
+    }
   });
   records.push(
     record(SchoolMessage, 'school:announcement', { _id: stableId('school:announcement'), schoolId, senderId: schoolAdmin._id, audience: 'all_school', subject: 'Term 3 family meeting', body: 'Families are invited to the term meeting on Friday at 3 PM.' }),
+    record(SchoolMessage, 'school:staff-message', { _id: stableId('school:staff-message'), schoolId, senderId: schoolAdmin._id, audience: 'all_staff', subject: 'Grade team planning', body: 'Please review the October assessment results before the Friday planning meeting.' }),
+    record(SchoolMessage, 'school:parent-message', { _id: stableId('school:parent-message'), schoolId, senderId: schoolAdmin._id, audience: 'all_parents', subject: 'Learner progress and family meeting', body: 'A progress update is available for your linked learners. Please contact the school office if you need assistance.' }),
+    record(SchoolMessage, 'school:parent-inbox', { _id: stableId('school:parent-inbox'), schoolId, senderId: parent._id, recipientId: schoolAdmin._id, audience: 'direct', subject: 'Question about the family meeting', body: 'Could you please confirm whether both learners should attend the Friday meeting?' }),
+    record(SchoolMessage, 'school:staff-inbox', { _id: stableId('school:staff-inbox'), schoolId, senderId: teacher._id, recipientId: schoolAdmin._id, audience: 'direct', subject: 'Grade 4 assessment update', body: 'The Grade 4 October exercises have been recorded and are ready for review.' }),
     record(Conference, 'school:conference', { _id: stableId('school:conference'), schoolId, createdBy: schoolAdmin._id, title: 'Term 3 family meeting', agenda: 'Review learner progress and upcoming activities.', startsAt: new Date('2026-10-23T12:00:00.000Z'), endsAt: new Date('2026-10-23T13:00:00.000Z'), audience: 'all_parents', location: 'School hall' }),
+    record(Conference, 'school:staff-conference', { _id: stableId('school:staff-conference'), schoolId, createdBy: schoolAdmin._id, title: 'Grade team planning', agenda: 'Review class attendance and coordinate the next learning activities.', startsAt: new Date('2026-10-22T13:00:00.000Z'), endsAt: new Date('2026-10-22T14:00:00.000Z'), audience: 'all_staff', location: 'Staff room' }),
     record(FeePayment, 'school:fee:demo-pending', { _id: stableId('school:fee:demo-pending'), paymentReference: 'DEMO-FEE-1001', schoolId, parentId: parent._id, studentName: names[0], amount: 12500, term: 'Term 3, 2026', status: 'PENDING_VERIFICATION', payerPhone: '+254700000303' }),
   );
-  return { records, people, ids: { storeId, studioId, schoolId, directId, groupId, studentIds } };
+  return { records, people, ids: { storeId, studioId, schoolId, directId, groupId } };
 }
 
 function renderRegister(people, outcomes, passwordVerified, loginResults = new Map()) {
@@ -226,21 +259,46 @@ async function main() {
       for (const member of organization?.members || []) check(userIds.has(String(member.userId)), `${key}: member must be a seeded account`);
     }
     const businessIds = new Set(['business:makena-market', 'business:jirani-studio'].map(key => String(seededRecords.get(key)?._id)));
+    const businessUsers = new Set(managed.filter(person => ['business-owner', 'business-staff'].includes(person.key)).map(person => String(person.user._id)));
+    const catalogById = new Map([...seededRecords].filter(([key]) => key.startsWith('catalog:')).map(([, item]) => [String(item._id), item]));
     for (const [key, item] of seededRecords) {
-      if (item.organizationId && key.startsWith('catalog:')) check(businessIds.has(String(item.organizationId)), `${key}: catalogue organization must exist`);
-      if (key === 'customer:amina') check(businessIds.has(String(item.organizationId)), `${key}: customer organization must exist`);
-      if (key === 'document:order') {
-        check(businessIds.has(String(item.organizationId)), 'document:order: organization must exist');
-        check(String(item.customerId) === String(seededRecords.get('customer:amina')?._id), 'document:order: customer must exist in its organization');
-        for (const line of item.items || []) check(records.some(entry => entry.Model.modelName === 'BusinessCatalogItem' && String(entry.id) === String(line.catalogItemId)), 'document:order: each catalogue item must exist');
+      const modelName = records.find(entry => entry.key === key)?.Model.modelName;
+      if (modelName?.startsWith('Business') && item.organizationId) check(businessIds.has(String(item.organizationId)), `${key}: organization must exist`);
+      if (modelName === 'BusinessOrganization') {
+        check(businessUsers.has(String(item.ownerId)), `${key}: owner must be a seeded business account`);
+        for (const member of item.members || []) check(businessUsers.has(String(member.userId)), `${key}: member must be a seeded business account`);
       }
-      if (key === 'business:task:follow-up') check(String(item.documentId) === String(seededRecords.get('document:order')?._id) && String(item.customerId) === String(seededRecords.get('customer:amina')?._id), `${key}: order and customer must exist`);
+      if (modelName === 'BusinessDocument') {
+        const linkedCustomer = item.customerId && [...seededRecords.values()].find(value => value._id && String(value._id) === String(item.customerId) && value.organizationId && String(value.organizationId) === String(item.organizationId));
+        if (item.customerId) check(Boolean(linkedCustomer), `${key}: customer must exist in the same organization`);
+        let subtotal = 0;
+        for (const line of item.items || []) {
+          const product = catalogById.get(String(line.catalogItemId));
+          check(Boolean(product && String(product.organizationId) === String(item.organizationId)), `${key}: each catalogue item must exist in the same organization`);
+          subtotal += Number(line.lineTotal || 0);
+        }
+        check(subtotal === Number(item.subtotal), `${key}: line totals must match subtotal`);
+        check(Number(item.total) === Number(item.subtotal) + Number(item.tax || 0), `${key}: total must equal subtotal plus tax`);
+      }
+      if (modelName === 'BusinessTask') {
+        if (item.assignedTo) check(businessUsers.has(String(item.assignedTo)), `${key}: assignee must be a seeded business account`);
+        if (item.customerId) check([...seededRecords.values()].some(value => value._id && String(value._id) === String(item.customerId) && String(value.organizationId) === String(item.organizationId)), `${key}: customer must exist in the same organization`);
+        if (item.documentId) check([...seededRecords.values()].some(value => value._id && String(value._id) === String(item.documentId) && String(value.organizationId) === String(item.organizationId)), `${key}: document must exist in the same organization`);
+      }
+      if (modelName === 'BusinessCase') {
+        if (item.customerId) check([...seededRecords.values()].some(value => value._id && String(value._id) === String(item.customerId) && String(value.organizationId) === String(item.organizationId)), `${key}: customer must exist in the same organization`);
+        for (const assignee of item.assignees || []) check(businessUsers.has(String(assignee)), `${key}: assignee must be a seeded business account`);
+      }
+      if (modelName === 'BusinessInboxAssignment') check([...seededRecords.values()].some(value => value._id && String(value._id) === String(item.conversationId) && Array.isArray(value.participants)), `${key}: assigned conversation must exist`);
+      if (modelName === 'BusinessTradeRequest' && item.supplierId) check([...seededRecords.values()].some(value => value._id && String(value._id) === String(item.supplierId) && String(value.organizationId) === String(item.organizationId)), `${key}: supplier must exist in the same organization`);
     }
     const school = seededRecords.get('school:lakeview');
     for (const key of ['school:member:admin', 'school:member:teacher', 'school:member:parent']) {
       const member = seededRecords.get(key);
       check(Boolean(member && String(member.schoolId) === String(school?._id) && userIds.has(String(member.userId))), `${key}: school and account must exist`);
     }
+    const schoolMemberIds = new Set(['school:member:admin', 'school:member:teacher', 'school:member:parent'].map(key => String(seededRecords.get(key)?.userId)));
+    const schoolStudentNames = new Set([...seededRecords].filter(([key]) => key.startsWith('school:student:')).map(([, item]) => String(item.fullName).toLowerCase()));
     for (const [key, item] of seededRecords) {
       if (key.startsWith('school:student:')) check(String(item.schoolId) === String(school?._id), `${key}: school must exist`);
       if (key.startsWith('school:attendance:') || key.startsWith('school:assessment:')) {
@@ -249,9 +307,12 @@ async function main() {
         const staffMatches = userIds.has(String(key.startsWith('school:attendance:') ? item.markedBy : item.recordedBy));
         check(Boolean(student && schoolMatches && staffMatches), `${key}: student=${Boolean(student)}, schoolMatch=${schoolMatches}, staffMatch=${staffMatches}`);
       }
-      if (key === 'school:announcement') check(String(item.schoolId) === String(school?._id) && userIds.has(String(item.senderId)), `${key}: school and sender must exist`);
+      if (key.startsWith('school:announcement') || key.startsWith('school:staff-message') || key.startsWith('school:parent-message') || key.startsWith('school:parent-inbox') || key.startsWith('school:staff-inbox')) {
+        check(String(item.schoolId) === String(school?._id) && schoolMemberIds.has(String(item.senderId)), `${key}: school and sender membership must exist`);
+        if (item.recipientId) check(schoolMemberIds.has(String(item.recipientId)), `${key}: recipient membership must exist`);
+      }
       if (key === 'school:conference') check(String(item.schoolId) === String(school?._id) && userIds.has(String(item.createdBy)), `${key}: school and creator must exist`);
-      if (key === 'school:fee:demo-pending') check(String(item.schoolId) === String(school?._id) && userIds.has(String(item.parentId)) && item.status === 'PENDING_VERIFICATION', `${key}: school, parent and simulated pending status must be valid`);
+      if (key.startsWith('school:fee:')) check(String(item.schoolId) === String(school?._id) && userIds.has(String(item.parentId)) && schoolStudentNames.has(String(item.studentName).toLowerCase()) && item.status === 'PENDING_VERIFICATION', `${key}: school, parent, student and simulated pending status must be valid`);
     }
     if (brokenRelationships.length) throw new Error(`Seed data integrity verification failed (${brokenRelationships.length} issue(s)): ${brokenRelationships.join('; ')}`);
     for (const person of managed) {
