@@ -428,7 +428,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
       // A previous callback may have marked the charge successful before a ledger write
       // failed. Rebuild the idempotent fee entry on duplicate delivery rather than losing it.
       const completed = await Charge.findOne({checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, status: 'SUCCESS', providerReceipt: {$type: 'string'}});
-      if (completed) await recordPosPlatformFee(completed, completed.providerReceipt);
+      
       return res.json({ok: true, duplicate: true});
     }
     const outcome = resolvePosStkCallbackOutcome(cb, charge);
@@ -438,13 +438,10 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
       try {
         const updated = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, providerReceipt: {$in: [null, '']}},
           {$set: {status: 'SUCCESS', providerReceipt: outcome.receipt, stkResultCode: 0, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}}, {new: true});
-        if (!updated && await Charge.exists({providerReceipt: outcome.receipt})) { const existing=await Charge.findOne({providerReceipt:outcome.receipt}); if(existing) await recordPosPlatformFee(existing, outcome.receipt); return res.json({ok: true, duplicate: true}); }
+        if (!updated && await Charge.exists({providerReceipt: outcome.receipt})) { const existing=await Charge.findOne({providerReceipt:outcome.receipt});  return res.json({ok: true, duplicate: true}); }
         if (updated) {
-          await recordPosPlatformFee(updated, outcome.receipt);
-          if (updated.feeCollectionMode === 'separate' && updated.platformFee > 0 && platformFeeCollector) {
-            try { await platformFeeCollector.collect({paymentId:updated.paymentId,source:'business_pos',payerPhone:updated.stkPhone,baseAmount:updated.baseAmount??updated.amount,feeAmount:updated.platformFee}); }
-            catch (error) { console.error('POS sale succeeded but separate platform fee STK could not start',{paymentId:updated.paymentId,stage:error?.stage||'configuration_or_unknown'}); }
-          }
+          
+
         }
         return res.json({ok: true, confirmed: Boolean(updated)});
       } catch (error) {
@@ -559,7 +556,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
         if (existing) await recordPosPlatformFee(existing, receipt);
         return res.status(200).json({ResultCode: 0, ResultDesc: 'Duplicate receipt ignored'});
       }
-      if (charge) { await recordPosPlatformFee(charge, receipt); const payerPhone=normalizeMpesaPhone(String(body.MSISDN||body.PhoneNumber||'')); if(charge.feeCollectionMode==='separate'&&payerPhone&&charge.platformFee>0&&platformFeeCollector){try{await platformFeeCollector.collect({paymentId:charge.paymentId,source:'business_pos',payerPhone,baseAmount:charge.baseAmount??charge.amount,feeAmount:charge.platformFee});}catch(error){console.error('POS QR sale succeeded but separate platform fee STK could not start',{paymentId:charge.paymentId,stage:error?.stage||'configuration_or_unknown'});}} }
+      
       return res.status(200).json({ResultCode: 0, ResultDesc: charge ? 'Payment confirmed' : 'Received; no exact matching Paybill sale'});
     } catch (error) {
       if (error?.code === 11000) return res.status(200).json({ResultCode: 0, ResultDesc: 'Duplicate receipt ignored'});
