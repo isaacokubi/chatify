@@ -5175,6 +5175,7 @@ class _ChatState extends State<Chat> {
   Timer? _typingTimer;
   Timer? _remoteTypingTimer;
   Timer? _pendingMessageSyncTimer;
+  bool _syncingPendingMessages = false;
   bool _isTyping = false;
   List<dynamic> messages = [];
   List<dynamic> payments = [];
@@ -5817,11 +5818,13 @@ class _ChatState extends State<Chat> {
   }
 
   Future<void> _syncPendingMessages() async {
-    if (!mounted || app.api.token == null) return;
+    if (!mounted || app.api.token == null || _syncingPendingMessages) return;
     final conversationId = widget.conversation['_id']?.toString();
     if (conversationId == null || conversationId.isEmpty) return;
-    final queued = await app.api.readPendingMessages();
-    for (final item in queued) {
+    _syncingPendingMessages = true;
+    try {
+      final queued = await app.api.readPendingMessages();
+      for (final item in queued) {
       if (item['conversationId']?.toString() != conversationId) continue;
       final body = item['body'];
       final clientMessageId = body is Map
@@ -5857,6 +5860,8 @@ class _ChatState extends State<Chat> {
         }
         break;
       }
+    } finally {
+      _syncingPendingMessages = false;
     }
   }
 
@@ -7842,6 +7847,15 @@ class _ChatState extends State<Chat> {
                                                     .map((r) => r['emoji'])
                                                     .join(' ')),
                                               if (mine &&
+                                                  message['deliveryStatus'] ==
+                                                      'pending')
+                                                const Text(
+                                                  'Waiting to send • saved on device',
+                                                  style: TextStyle(fontSize: 10),
+                                                ),
+                                              if (mine &&
+                                                  message['deliveryStatus'] !=
+                                                      'pending' &&
                                                   message['deliveredTo']
                                                       is List &&
                                                   (message['deliveredTo']
