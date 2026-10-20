@@ -7,7 +7,7 @@ test('validates Till profile and creates a customer-readable payment QR payload'
   const charge = buildPosCharge({organization: {_id: 'org-1', name: 'Sample Supermarket'}, amount: 450, description: 'Groceries', reference: 'SALE-1', profile});
   const qr = JSON.parse(charge.qrPayload);
   assert.equal(charge.status, 'PENDING');
-  assert.equal(qr.amount, 453);
+  assert.equal(qr.amount, 450);
   assert.equal(charge.baseAmount, 450);
   assert.equal(charge.platformFee, 0);
   assert.equal(charge.totalAmount, 450);
@@ -113,7 +113,7 @@ test('business checkout does not add a Chatify transaction commission', () => {
 });
 
 test('POS STK charges only the sale amount without a separate platform commission', () => {
-  const charge = {amount:450, baseAmount:450, totalAmount:453, platformFee:3, feeCollectionMode:'separate', stkPhone:'254712345678'};
+  const charge = {amount:450, baseAmount:450, totalAmount:450, platformFee:0, feeCollectionMode:'separate', stkPhone:'254712345678'};
   const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
     {Name:'Amount',Value:450}, {Name:'PhoneNumber',Value:254712345678}, {Name:'MpesaReceiptNumber',Value:'QWERTY1234'},
   ]}};
