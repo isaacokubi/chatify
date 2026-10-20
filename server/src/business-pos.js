@@ -313,7 +313,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
         const qr = await mpesaProvider.generateDynamicQr({
           merchantName: org.name,
           reference: charge.reference,
-          amount: charge.totalAmount ?? charge.amount,
+          amount: charge.baseAmount ?? charge.amount,
           shortcode: profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber,
           transactionCode: profile.method === 'mpesa_till' ? 'BG' : 'PB',
         });
