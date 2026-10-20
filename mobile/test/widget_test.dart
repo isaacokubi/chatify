@@ -410,7 +410,7 @@ void main() {
         attempts++;
         expect(request.method, 'POST');
         expect(request.url.path, '/api/conversations/conversation-1/messages');
-        expect(request.headers['authorization'], isNotNull);
+        expect(request.headers.keys.any((key) => key.toLowerCase() == 'authorization'), isTrue);
         final body = request.body;
         expect(body, contains('background-client-id'));
         return http.Response(
