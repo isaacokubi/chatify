@@ -177,9 +177,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
       if (!encrypted) {
         return res.status(409).json({error: 'This business must configure its own authorized Daraja credentials before customer STK checkout is available'});
       }
-      if (req.body?.feeAcknowledged !== true) {
-        return res.status(400).json({error: 'Review and accept the disclosed 0.5% Chatify fee before requesting an STK prompt'});
-      }
+
       const phone = normalizeMpesaPhone(String(req.body?.phone || ''));
       if (!phone) return res.status(400).json({error: 'Enter a valid Kenyan M-Pesa phone number'});
       const expectedMerchantNumber = profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber;
