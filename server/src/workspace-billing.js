@@ -109,7 +109,7 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
     const locked = billing.billingEnforced === true && (!billing.setupFeePaid || !expiresAt || graceEnd <= new Date());
     res.json({ workspace: { id: String(workspace._id), name: workspace.name, type: workspace.type }, billing: {
       setupFeePaid: Boolean(billing.setupFeePaid), subscriptionExpiresAt: expiresAt,
-      status: !billing.billingEnforced ? 'LEGACY_GRANDFATHERED' : locked ? (!billing.setupFeePaid ? 'SETUP_PAYMENT_REQUIRED' : 'SUBSCRIPTION_EXPIRED') : 'ACTIVE',
+      status: !billing.billingEnforced ? 'LEGACY_GRANDFATHERED' : !billing.setupFeePaid ? 'SETUP_PAYMENT_REQUIRED' : !expiresAt ? 'SUBSCRIPTION_REQUIRED' : locked ? 'SUBSCRIPTION_EXPIRED' : 'ACTIVE',
       locked, gracePeriodDays: graceDays,
       prices: { setupFee: Number(settings[workspace.type + 'SetupFee'] ?? (workspace.type === 'business' ? 1000 : 5000)), monthlyFee: Number(settings[workspace.type + 'MonthlyFee'] ?? (workspace.type === 'business' ? 500 : 2500)) }
     }});
