@@ -10607,136 +10607,198 @@ class _BusinessHubState extends State<BusinessHub> {
     return DefaultTabController(
       length: 5,
       child: Column(children: [
-        // Keep workspace actions visible and labelled; icon-only actions were easy to miss,
-        // especially on touch screens and when this dashboard was used in a browser.
+        // Keep the workspace controls compact so the catalogue and customer
+        // lists receive most of the available height on mobile screens.
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-              isExpanded: true,
-              value: organization!['_id']?.toString(),
-              items: organizations
-                  .whereType<Map>()
-                  .map((item) => DropdownMenuItem<String>(
-                      value: item['_id'].toString(),
-                      child: Text(item['name']?.toString() ?? 'Business',
-                          overflow: TextOverflow.ellipsis)))
-                  .toList(),
-              onChanged: (id) async {
-                if (id == null) return;
-                setState(() {
-                  organization = organizations
-                      .whereType<Map>()
-                      .firstWhere((item) => item['_id'].toString() == id)
-                      .cast<String, dynamic>();
-                  loading = true;
-                });
-                await loadWorkspaceData();
-                if (mounted) setState(() => loading = false);
-              },
-            )),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                          builder: (_) => const StoreDirectoryPage())),
-                  icon: const Icon(Icons.storefront_outlined),
-                  label: const Text('Browse stores and products'),
+          padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: 38,
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    value: organization!['_id']?.toString(),
+                    items: organizations
+                        .whereType<Map>()
+                        .map((item) => DropdownMenuItem<String>(
+                              value: item['_id'].toString(),
+                              child: Text(
+                                item['name']?.toString() ?? 'Business',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (id) async {
+                      if (id == null) return;
+                      setState(() {
+                        organization = organizations
+                            .whereType<Map>()
+                            .firstWhere((item) => item['_id'].toString() == id)
+                            .cast<String, dynamic>();
+                        loading = true;
+                      });
+                      await loadWorkspaceData();
+                      if (mounted) setState(() => loading = false);
+                    },
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    final slug = organization?['slug']?.toString() ?? '';
-                    if (slug.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                          content: Text(
-                              'This workspace has no storefront slug yet.')));
-                      return;
-                    }
-                    Navigator.of(context).push(MaterialPageRoute<void>(
-                        builder: (_) => StorefrontPage(slug: slug)));
-                  },
-                  icon: const Icon(Icons.storefront_outlined),
-                  label: const Text('View storefront'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: saving ? null : _toggleStorefrontPublished,
-                  icon: Icon((organization?['settings'] is Map &&
-                          (organization!['settings']
-                                  as Map)['storefrontPublished'] ==
-                              false)
-                      ? Icons.publish_outlined
-                      : Icons.visibility_off_outlined),
-                  label: Text((organization?['settings'] is Map &&
-                          (organization!['settings']
-                                  as Map)['storefrontPublished'] ==
-                              false)
-                      ? 'Publish storefront'
-                      : 'Hide storefront'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _configureMpesaNumbers,
-                  icon: const Icon(Icons.phone_android),
-                  label: const Text('M-Pesa settings'),
-                ),
-                FilledButton.icon(
-                  onPressed: () {
-                    final id = organization?['_id']?.toString();
-                    if (id == null) return;
-                    Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => MerchantPosPage(
-                        organizationId: id,
-                        organizationName: organization?['name']?.toString() ?? 'Business',
+              ),
+              const SizedBox(height: 2),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
                       ),
-                    ));
-                  },
-                  icon: const Icon(Icons.point_of_sale_outlined),
-                  label: const Text('In-person POS payments'),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const StoreDirectoryPage(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.storefront_outlined, size: 17),
+                      label: const Text('Browse stores'),
+                    ),
+                    const SizedBox(width: 6),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: () {
+                        final slug = organization?['slug']?.toString() ?? '';
+                        if (slug.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('This workspace has no storefront slug yet.'),
+                            ),
+                          );
+                          return;
+                        }
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => StorefrontPage(slug: slug),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.storefront_outlined, size: 17),
+                      label: const Text('Storefront'),
+                    ),
+                    const SizedBox(width: 6),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: saving ? null : _toggleStorefrontPublished,
+                      icon: Icon(
+                        (organization?['settings'] is Map &&
+                                (organization!['settings'] as Map)['storefrontPublished'] == false)
+                            ? Icons.publish_outlined
+                            : Icons.visibility_off_outlined,
+                        size: 17,
+                      ),
+                      label: Text(
+                        (organization?['settings'] is Map &&
+                                (organization!['settings'] as Map)['storefrontPublished'] == false)
+                            ? 'Publish'
+                            : 'Hide storefront',
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: _configureMpesaNumbers,
+                      icon: const Icon(Icons.phone_android, size: 17),
+                      label: const Text('M-Pesa'),
+                    ),
+                    const SizedBox(width: 6),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: () {
+                        final id = organization?['_id']?.toString();
+                        if (id == null) return;
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => MerchantPosPage(
+                              organizationId: id,
+                              organizationName: organization?['name']?.toString() ?? 'Business',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.point_of_sale_outlined, size: 17),
+                      label: const Text('POS payments'),
+                    ),
+                    const SizedBox(width: 6),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: loadOrganizations,
+                      icon: const Icon(Icons.refresh, size: 17),
+                      label: const Text('Refresh'),
+                    ),
+                    const SizedBox(width: 6),
+                    FilledButton.tonalIcon(
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: createOrganization,
+                      icon: const Icon(Icons.add_business, size: 17),
+                      label: const Text('Add workspace'),
+                    ),
+                  ],
                 ),
-                OutlinedButton.icon(
-                  onPressed: loadOrganizations,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Refresh'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: createOrganization,
-                  icon: const Icon(Icons.add_business),
-                  label: const Text('Add workspace'),
-                ),
-              ],
-            ),
-          ]),
+              ),
+            ],
+          ),
         ),
         SizedBox(
-            height: 118,
-            child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                children: [
-                  SizedBox(
-                      width: 170,
-                      child: metric('Customers', metrics['customers'],
-                          Icons.people_outline)),
-                  SizedBox(
-                      width: 170,
-                      child: metric(
-                          'Products / services',
-                          metrics['activeCatalogItems'],
-                          Icons.inventory_2_outlined)),
-                  SizedBox(
-                      width: 170,
-                      child: metric(
-                          'Open tasks', metrics['openTasks'], Icons.task_alt)),
-                  SizedBox(
-                      width: 170,
-                      child: metric('Open cases', metrics['openCases'],
-                          Icons.support_agent_outlined)),
-                ])),
+          height: 76,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            children: [
+              SizedBox(
+                width: 142,
+                child: metric('Customers', metrics['customers'], Icons.people_outline),
+              ),
+              SizedBox(
+                width: 142,
+                child: metric('Products / services', metrics['activeCatalogItems'], Icons.inventory_2_outlined),
+              ),
+              SizedBox(
+                width: 142,
+                child: metric('Open tasks', metrics['openTasks'], Icons.task_alt),
+              ),
+              SizedBox(
+                width: 142,
+                child: metric('Open cases', metrics['openCases'], Icons.support_agent_outlined),
+              ),
+            ],
+          ),
+        ),
         const TabBar(isScrollable: true, tabs: [
           Tab(text: 'Catalogue'),
           Tab(text: 'Customers'),
