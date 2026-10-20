@@ -48,7 +48,7 @@ export function resolvePosStkCallbackOutcome(callback, charge) {
   const amount = Number(value('Amount'));
   const phone = normalizeMpesaPhone(String(value('PhoneNumber') || ''));
   const receipt = String(value('MpesaReceiptNumber') || '').trim().toUpperCase();
-  if (amount !== (charge.totalAmount ?? charge.amount) || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return {error: 'mismatch'};
+  if (amount !== (charge.baseAmount ?? charge.amount) || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return {error: 'mismatch'};
   return {status: 'SUCCESS', resultCode: 0, phone, receipt, description: String(callback.ResultDesc || '').slice(0, 160)};
 }
 
@@ -110,7 +110,7 @@ export function canUsePosRole(role) {
   return ['owner', 'admin', 'manager', 'sales', 'finance'].includes(String(role));
 }
 
-export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) {
+export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, platformFeeCollector}) {
   const O = mongoose.Schema.Types.ObjectId;
   const Organization = mongoose.models.BusinessOrganization;
   if (!Organization) throw new Error('BusinessOrganization model must be registered before POS routes');
@@ -208,7 +208,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       const saved = await Charge.create(charge);
       try {
         const result = await provider.initiate({
-          paymentId: saved.paymentId, amount: saved.totalAmount ?? saved.amount, phone,
+          paymentId: saved.paymentId, amount: saved.baseAmount ?? saved.amount, phone,
           description: saved.description,
         });
         saved.checkoutRequestId = result.checkoutRequestId;
@@ -374,7 +374,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       if (!claimed) return res.status(409).json({error: 'Another STK request is already in progress'});
       let result;
       try {
-        result = await provider.initiate({paymentId: charge.paymentId, amount: charge.totalAmount ?? charge.amount, phone, description: charge.description});
+        result = await provider.initiate({paymentId: charge.paymentId, amount: charge.baseAmount ?? charge.amount, phone, description: charge.description});
       } catch (error) {
         // A transport timeout is ambiguous: Daraja may have accepted the request even if
         // our server never received its response. Keep the claim locked in that case so a
@@ -445,8 +445,12 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
         return res.status(500).json({error: 'Could not process payment confirmation'});
       }
     }
-    await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID},
-      {$set: {status: outcome.status, stkResultCode: outcome.resultCode, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date(), ...(charge.platformFee?{platformFeeStatus:'FAILED'}:{})}});
+    const updatedCharge = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID},
+      {$set: {status: outcome.status, stkResultCode: outcome.resultCode, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date(), ...(charge.platformFee?{platformFeeStatus:outcome.status==='SUCCESS'?'PENDING_SETTLEMENT':'FAILED'}:{})}}, {new:true});
+    if (updatedCharge?.status === 'SUCCESS' && updatedCharge.platformFee > 0 && platformFeeCollector) {
+      try { await platformFeeCollector.collect({paymentId:updatedCharge.paymentId,source:'business_pos',payerPhone:updatedCharge.stkPhone,baseAmount:updatedCharge.baseAmount??updatedCharge.amount,feeAmount:updatedCharge.platformFee}); }
+      catch (error) { console.error('POS sale succeeded but separate platform fee STK could not start',{paymentId:updatedCharge.paymentId,stage:error?.stage||'configuration_or_unknown'}); }
+    }
     return res.json({ok: true});
   });
 
