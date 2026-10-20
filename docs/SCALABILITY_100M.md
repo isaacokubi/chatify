@@ -55,6 +55,26 @@ Required scenarios:
 
 Release gates must be based on an agreed target for active users, concurrent sockets, messages/second, read/write mix, payload sizes and geography. Record p95/p99 latency, error rate, resource headroom, queue lag and recovery time. Scale targets in steps (for example 100, 1k, 10k, 100k concurrent sockets) and only proceed when measured results meet the SLO with headroom. A 100M registered-account target must be converted into realistic peak-concurrency and traffic assumptions before infrastructure sizing.
 
+## Changes implemented on main (2026-10-20)
+
+The following first-stage runtime changes have been committed:
+- Socket connection setup and disconnect presence fan-out now query only the 100 most recently updated conversations instead of scanning every historical conversation. Older conversations can still be joined on demand through the existing server-authorized `conversation:join` event.
+- Message history and expiry indexes are declared in the schemas, and a separate explicit migration script creates the high-volume indexes without dropping data or indexes.
+- The message expiry sweep processes at most 250 due messages per pass and avoids overlapping sweeps within one process. The update remains conditional so multiple API replicas do not expire the same message twice. This is bounded work, not yet a durable queue.
+- Memory history supports an opaque cursor for indexed newest-first reads while retaining the legacy page parameters for older clients.
+- MongoDB connection pool size and timeouts can be configured with `MONGO_MAX_POOL_SIZE` and `MONGO_MIN_POOL_SIZE`; schema auto-indexing is disabled unless `MONGO_AUTO_INDEX=true`. The new indexes therefore require the explicit migration below.
+- Added `/ready` and expanded `/health` with safe readiness and uptime information.
+
+### Apply the new indexes safely
+
+1. Back up the target database and confirm the current `MONGODB_URI` points to the intended environment.
+2. Deploy the application code.
+3. From `server/`, run `npm run migrate:indexes` against the intended database during a low-traffic window. The script creates only named indexes and does not delete or rewrite records.
+4. Verify the indexes with MongoDB `getIndexes()` and compare `explain("executionStats")` for the affected queries.
+5. Watch index-build load, database CPU/IOPS, query latency and replication lag. Stop if the database shows unacceptable pressure.
+
+These commits are initial bottleneck reductions, not completion of the 100M-user architecture. Cross-instance Socket.IO adapter/presence, shared distributed rate limiting, durable workers, broad query/index coverage, multi-region infrastructure, and load/failover testing remain outstanding and must not be represented as already delivered.
+
 ## Safe implementation sequence
 
 1. Establish a baseline: production-like staging, sanitized representative data, dashboards, query profiling, and repeatable load tests.
