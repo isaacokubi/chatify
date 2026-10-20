@@ -2505,7 +2505,7 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-enum _AdminSection { overview, people, payments }
+enum _AdminSection { overview, people, payments, feeWallet }
 
 class _AdminDashboardState extends State<AdminDashboard> {
   Map<String, dynamic> overview = {};
@@ -2515,6 +2515,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
   String? error;
   String userQuery = '', paymentStatus = '';
   String? statusError;
+  Map<String, dynamic> feeWalletSettings = {};
+  bool feeWalletLoading = false, feeWalletSaving = false, feeWalletEnabled = true;
+  String feeWalletType = 'mpesa_phone';
+  final TextEditingController feeRateController = TextEditingController(text: '0.5');
+  final TextEditingController feeWalletPhoneController = TextEditingController();
+  final TextEditingController feePaybillController = TextEditingController();
+  final TextEditingController feeTillController = TextEditingController();
+  final TextEditingController feeAccountReferenceController = TextEditingController(text: 'CHATIFY-FEE');
   int userPage = 1, paymentPage = 1, userTotal = 0, paymentTotal = 0;
   DateTime? refreshedAt;
   _AdminSection section = _AdminSection.overview;
@@ -2597,6 +2605,60 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
+  Future<void> loadFeeWalletSettings() async {
+    if (mounted) setState(() => feeWalletLoading = true);
+    try {
+      final result = await api.call('GET', '/api/admin/platform-fee-settings');
+      final settings = Map<String, dynamic>.from(result['settings'] ?? {});
+      if (!mounted) return;
+      setState(() {
+        feeWalletSettings = settings;
+        feeWalletEnabled = settings['enabled'] != false;
+        feeWalletType = settings['walletType']?.toString() ?? 'mpesa_phone';
+        feeRateController.text = (settings['feeRate'] ?? 0.5).toString();
+        feeWalletPhoneController.text = settings['walletPhone']?.toString() ?? '';
+        feePaybillController.text = settings['paybillNumber']?.toString() ?? '';
+        feeTillController.text = settings['tillNumber']?.toString() ?? '';
+        feeAccountReferenceController.text = settings['accountReference']?.toString() ?? 'CHATIFY-FEE';
+      });
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load platform wallet settings: $e')));
+    } finally {
+      if (mounted) setState(() => feeWalletLoading = false);
+    }
+  }
+
+  Future<void> saveFeeWalletSettings() async {
+    final rate = double.tryParse(feeRateController.text.trim());
+    if (rate == null || rate < 0 || rate > 5) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Enter a platform fee rate between 0 and 5 percent.')));
+      return;
+    }
+    setState(() => feeWalletSaving = true);
+    try {
+      final result = await api.call('PUT', '/api/admin/platform-fee-settings', {
+        'enabled': feeWalletEnabled,
+        'feeRate': rate,
+        'walletType': feeWalletType,
+        'walletPhone': feeWalletPhoneController.text.trim(),
+        'paybillNumber': feePaybillController.text.trim(),
+        'tillNumber': feeTillController.text.trim(),
+        'accountReference': feeAccountReferenceController.text.trim(),
+      });
+      if (!mounted) return;
+      setState(() => feeWalletSettings = Map<String, dynamic>.from(result['settings'] ?? {}));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Platform fee and wallet settings saved.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Settings were not saved: $e')));
+    } finally {
+      if (mounted) setState(() => feeWalletSaving = false);
+    }
+  }
+
   Future<void> changeStatus(Map<String, dynamic> user) async {
     final id = user['_id']?.toString() ?? user['id']?.toString();
     if (id == null || id.isEmpty) return;
@@ -2643,6 +2705,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
   @override
   void dispose() {
     searchController.dispose();
+    feeRateController.dispose();
+    feeWalletPhoneController.dispose();
+    feePaybillController.dispose();
+    feeTillController.dispose();
+    feeAccountReferenceController.dispose();
     super.dispose();
   }
 
@@ -2736,6 +2803,73 @@ class _AdminDashboardState extends State<AdminDashboard> {
         IconButton(
             tooltip: 'Next page', onPressed: page < pages ? next : null, icon: const Icon(Icons.chevron_right)),
       ]),
+    );
+  }
+
+  Widget _feeWalletSection(ThemeData theme) {
+    final walletNeedsPhone = feeWalletType == 'mpesa_phone';
+    final walletNeedsPaybill = feeWalletType == 'mpesa_paybill';
+    final walletNeedsTill = feeWalletType == 'mpesa_till';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Platform fee and wallet', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          const Text('Configure the platform fee applied to business checkouts and school-fee payments. Personal transfers between Chatify users are excluded.'),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Enable platform fee'),
+            subtitle: const Text('Only eligible business/school payment flows should use this fee.'),
+            value: feeWalletEnabled,
+            onChanged: feeWalletSaving ? null : (value) => setState(() => feeWalletEnabled = value),
+          ),
+          TextField(
+            controller: feeRateController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Platform fee (%)', helperText: 'Default: 0.5. Allowed range: 0–5%.'),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: feeWalletType,
+            decoration: const InputDecoration(labelText: 'Platform wallet account type'),
+            items: const [
+              DropdownMenuItem(value: 'mpesa_phone', child: Text('M-Pesa phone')),
+              DropdownMenuItem(value: 'mpesa_paybill', child: Text('Paybill')),
+              DropdownMenuItem(value: 'mpesa_till', child: Text('Till')),
+            ],
+            onChanged: feeWalletSaving ? null : (value) { if (value != null) setState(() => feeWalletType = value); },
+          ),
+          if (walletNeedsPhone) TextField(
+            controller: feeWalletPhoneController,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(labelText: 'Wallet phone (254XXXXXXXXX)'),
+          ),
+          if (walletNeedsPaybill) TextField(
+            controller: feePaybillController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Platform Paybill number'),
+          ),
+          if (walletNeedsTill) TextField(
+            controller: feeTillController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Platform Till number'),
+          ),
+          TextField(
+            controller: feeAccountReferenceController,
+            decoration: const InputDecoration(labelText: 'Account/reference label'),
+          ),
+          const SizedBox(height: 12),
+          const Text('Important: this saves the fee destination for reconciliation. Automatic splitting/transfer of collected funds requires the platform’s Safaricom merchant and disbursement integration; saving a wallet number alone does not move money.'),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: feeWalletSaving || feeWalletLoading ? null : saveFeeWalletSettings,
+            icon: feeWalletSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
+            label: Text(feeWalletSaving ? 'Saving…' : 'Save wallet settings'),
+          ),
+        ]),
+      ),
     );
   }
 
@@ -2914,12 +3048,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   value: _AdminSection.people, label: Text('People'), icon: Icon(Icons.people_outline)),
               ButtonSegment(
                   value: _AdminSection.payments, label: Text('Payments'), icon: Icon(Icons.payments_outlined)),
+              ButtonSegment(
+                  value: _AdminSection.feeWallet, label: Text('Fee wallet'), icon: Icon(Icons.account_balance_wallet_outlined)),
             ],
             selected: {section},
             onSelectionChanged: (value) {
               setState(() => section = value.first);
               if (section == _AdminSection.people && users.isEmpty) loadUsers();
               if (section == _AdminSection.payments && payments.isEmpty) loadPayments();
+              if (section == _AdminSection.feeWallet) loadFeeWalletSettings();
             },
           ),
           const SizedBox(height: 18),
@@ -3004,8 +3141,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
             )),
           ] else if (section == _AdminSection.people) ...[
             _peopleSection(theme),
-          ] else ...[
+          ] else if (section == _AdminSection.payments) ...[
             _paymentsSection(theme),
+          ] else ...[
+            _feeWalletSection(theme),
           ],
         ],
       ),
