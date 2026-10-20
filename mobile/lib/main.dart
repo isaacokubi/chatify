@@ -11519,6 +11519,54 @@ class _BusinessHubState extends State<BusinessHub> {
     }
   }
 
+  Future<void> _configureGlobalTaxRates() async {
+    final country = TextEditingController(text: 'KE');
+    final currency = TextEditingController(text: 'KES');
+    final rate = TextEditingController(text: '16');
+    final label = TextEditingController(text: 'VAT');
+    String mode = 'exclusive';
+    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        title: const Text('Platform-wide tax rate'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: country, maxLength: 2, decoration: const InputDecoration(labelText: 'Country code (e.g. KE)')),
+          TextField(controller: currency, maxLength: 3, decoration: const InputDecoration(labelText: 'Currency (e.g. KES)')),
+          TextField(controller: label, decoration: const InputDecoration(labelText: 'Tax label (e.g. VAT)')),
+          TextField(controller: rate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Rate (%)')),
+          DropdownButtonFormField<String>(value: mode, decoration: const InputDecoration(labelText: 'Tax treatment'),
+            items: const [
+              DropdownMenuItem(value: 'exclusive', child: Text('Add tax on top')),
+              DropdownMenuItem(value: 'inclusive', child: Text('Tax included in price')),
+              DropdownMenuItem(value: 'none', child: Text('No tax')),
+            ],
+            onChanged: (value) { if (value != null) setDialogState(() => mode = value); }),
+          const Text('This rate applies to business documents for every workspace matching this country and currency. Verify the legally applicable rate before saving.', style: TextStyle(fontSize: 12)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Apply globally')),
+        ],
+      ),
+    ));
+    if (accepted != true || !mounted) return;
+    try {
+      final countryCode = country.text.trim().toUpperCase();
+      final currencyCode = currency.text.trim().toUpperCase();
+      final value = double.tryParse(rate.text);
+      if (countryCode.length != 2 || currencyCode.length != 3 || value == null || value < 0 || value > 100) {
+        throw const FormatException('Enter a valid country, currency and tax rate from 0 to 100.');
+      }
+      final response = await app.api.call('PUT',
+        '/api/admin/tax-rates/${Uri.encodeComponent(countryCode)}/${Uri.encodeComponent(currencyCode)}',
+        {'mode': mode, 'rate': value, 'taxLabel': label.text.trim()});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Global tax rate saved.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save global tax rate: $error')));
+    } finally {
+      country.dispose(); currency.dispose(); rate.dispose(); label.dispose();
+    }
+  }
+
   Future<void> _configureTaxProfile() async {
     final country = TextEditingController(
         text: organization?['country']?.toString() ?? 'KE');
@@ -12341,6 +12389,14 @@ class _BusinessHubState extends State<BusinessHub> {
   }
 
   Widget toolsPanel() => ListView(padding: const EdgeInsets.all(12), children: [
+        if (app.user?['role']?.toString() == 'admin')
+          Card(child: ListTile(
+            leading: const Icon(Icons.admin_panel_settings_outlined),
+            title: const Text('Platform-wide tax rates'),
+            subtitle: const Text('Set the centrally managed tax rate for every matching workspace'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _configureGlobalTaxRates,
+          )),
         // Keep the enterprise feature suite visible from the existing Business Tools panel.
         Card(
             child: ListTile(
