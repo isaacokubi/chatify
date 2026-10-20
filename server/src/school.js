@@ -152,6 +152,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     amount: { type: Number, required: true, min: 1, max: 150000 },
     term: { type: String, required: true, trim: true, maxlength: 80 },
     status: { type: String, enum: ['PENDING_STK','PENDING_VERIFICATION','CONFIRMED','FAILED','CANCELLED','REJECTED'], default: 'PENDING_VERIFICATION', index: true },
+    paymentMethod: { type: String, enum: ['mpesa_paybill','mpesa_till','mpesa_send_money','bank'] },
+    destinationNumber: { type: String, trim: true },
     payerPhone: { type: String, trim: true },
     checkoutRequestId: { type: String, sparse: true, index: true },
     merchantRequestId: { type: String },
@@ -738,12 +740,27 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       if (!registeredStudent) return res.status(404).json({ error: 'This student is not in the school register yet. Contact the school office to link the correct registered pupil.' });
       if (!Number.isSafeInteger(amount) || amount < 1 || amount > 150000 || !term || term.length > 80) return res.status(400).json({ error: 'Enter a valid whole-KSh amount and school term' });
       const school = await School.findById(req.params.schoolId).select('+paymentProfile.darajaConsumerKeyEnc +paymentProfile.darajaConsumerSecretEnc +paymentProfile.darajaPasskeyEnc').lean();
-      if (!school?.paymentProfile?.method) return res.status(409).json({ error: 'This school has not configured payment details. Contact the school office before paying.' });
-      const isMpesa = ['mpesa_paybill','mpesa_till'].includes(school.paymentProfile.method);
+      const requestedMethod = String(req.body?.paymentMethod || school?.paymentProfile?.method || '');
+      if (!['mpesa_paybill','mpesa_till','mpesa_send_money','bank'].includes(requestedMethod)) return res.status(400).json({ error: 'Choose one of the school’s configured fee payment methods.' });
+      if (!school || (!school.paymentProfile?.method && requestedMethod !== 'mpesa_send_money')) return res.status(409).json({ error: 'This school has not configured payment details. Contact the school office before paying.' });
+      if (requestedMethod === 'mpesa_send_money') {
+        let officialPhone = normalizeMpesaPhone(school.officialPhone || '');
+        if (!officialPhone) {
+          const verification = await SchoolVerificationRequest.findOne({ schoolId: req.params.schoolId, status: 'APPROVED' }).select('officialPhone').sort({ reviewedAt: -1 }).lean();
+          officialPhone = normalizeMpesaPhone(verification?.officialPhone || '');
+        }
+        if (!officialPhone) return res.status(409).json({ error: 'The school has not configured a verified M-Pesa phone number for Send Money.' });
+        const paymentReference = 'SCH-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
+        const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, paymentMethod: requestedMethod, destinationNumber: officialPhone, status: 'PENDING_VERIFICATION' });
+        return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status }, paymentDestination: { method: requestedMethod, officialPhone }, note: 'Send the amount to the school’s configured M-Pesa phone using Send Money. This record remains pending until school staff verify the M-Pesa receipt.' });
+      }
+      if (requestedMethod !== school.paymentProfile.method) return res.status(409).json({ error: 'The selected Till, Paybill or bank destination is not configured for this school.' });
+      const isMpesa = ['mpesa_paybill','mpesa_till'].includes(requestedMethod);
       if (isMpesa && !phone) return res.status(400).json({ error: 'Enter a valid Kenyan M-Pesa phone number to receive the school fee STK prompt.' });
       if (isMpesa && (!school.paymentProfile.darajaConsumerKeyEnc || !school.paymentProfile.darajaConsumerSecretEnc || !school.paymentProfile.darajaPasskeyEnc)) return res.status(409).json({ error: 'This school has configured a Paybill/Till destination but has not completed its own Daraja STK Push setup. Contact the school administrator; no payment prompt has been sent.' });
       const paymentReference = 'SCH-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
-      const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, ...(isMpesa ? { payerPhone: phone, status: 'PENDING_STK' } : { status: 'PENDING_VERIFICATION' }) });
+      const destinationNumber = requestedMethod === 'mpesa_paybill' ? school.paymentProfile.paybillNumber : requestedMethod === 'mpesa_till' ? school.paymentProfile.tillNumber : undefined;
+      const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, paymentMethod: requestedMethod, destinationNumber, ...(isMpesa ? { payerPhone: phone, status: 'PENDING_STK' } : { status: 'PENDING_VERIFICATION' }) });
       if (isMpesa) {
         try {
           const provider = providerForSchool(school);
@@ -751,14 +768,14 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
           payment.checkoutRequestId = refs.checkoutRequestId;
           payment.merchantRequestId = refs.merchantRequestId;
           await payment.save();
-          return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status, checkoutRequestId: payment.checkoutRequestId }, paymentDestination: { method: school.paymentProfile.method, paybillNumber: school.paymentProfile.paybillNumber, tillNumber: school.paymentProfile.tillNumber }, note: 'A school-specific M-Pesa STK Push was submitted to Safaricom. The fee is not confirmed until the Daraja callback verifies the amount, payer phone and receipt number.' });
+          return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status, checkoutRequestId: payment.checkoutRequestId }, paymentDestination: { method: requestedMethod, paybillNumber: school.paymentProfile.paybillNumber, tillNumber: school.paymentProfile.tillNumber }, note: 'A school-specific M-Pesa STK Push was submitted to Safaricom. The fee is not confirmed until the Daraja callback verifies the amount, payer phone and receipt number.' });
         } catch (error) {
           await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
           console.error('School STK Push initiation failed', { schoolId: String(school._id), paymentReference, stage: error?.stage || 'configuration_or_unknown' });
           return res.status(503).json({ error: 'Safaricom could not start the school fee STK prompt. No receipt was issued. Check the school Daraja configuration and try again.' });
         }
       }
-      return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status }, paymentDestination: school.paymentProfile, note: 'Bank payment details provided. This record remains pending until school staff verify the bank transaction.' });
+      return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status }, paymentDestination: { method: requestedMethod, bankName: school.paymentProfile.bankName, accountNumber: school.paymentProfile.accountNumber }, note: 'Bank payment details provided. This record remains pending until school staff verify the bank transaction.' });
     } catch (error) { return next(error); }
   });
 

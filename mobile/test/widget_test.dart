@@ -260,6 +260,8 @@ void main() {
       'school fee form prefills editable parent phone and configured options',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final client = MockClient((request) async {
       final path = request.url.path;
       if (path == '/api/schools') {
@@ -309,7 +311,6 @@ void main() {
       child: const MaterialApp(home: SchoolWorkspacePage()),
     ));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Fees'));
     await tester.tap(find.text('Fees'));
     await tester.pumpAndSettle();
 
