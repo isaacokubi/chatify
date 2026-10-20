@@ -5860,6 +5860,7 @@ class _ChatState extends State<Chat> {
         }
         break;
       }
+      }
     } finally {
       _syncingPendingMessages = false;
     }
