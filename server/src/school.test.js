@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeSchoolPaymentProfile, encryptSchoolSecret, decryptSchoolSecret } from './school.js';
+import { normalizeSchoolPaymentProfile, encryptSchoolSecret, decryptSchoolSecret, resolveSchoolMessageDestination } from './school.js';
 import { createEmailProvider } from './providers.js';
 
 test('accepts a valid school Paybill profile and removes spaces', () => {
@@ -50,4 +50,17 @@ test('school receipt emails can be delivered through the configured email transp
   assert.equal(sent.length, 1);
   assert.equal(sent[0].email, 'parent@example.test');
   assert.match(sent[0].receiptHtml, /official receipt/);
+});
+
+test('parents and staff can only address messages to their school inbox', () => {
+  assert.deepEqual(resolveSchoolMessageDestination('parent', 'all_school', undefined), { audience: 'all_school', recipientId: undefined });
+  assert.deepEqual(resolveSchoolMessageDestination('staff', 'all_school', undefined), { audience: 'all_school', recipientId: undefined });
+  assert.match(resolveSchoolMessageDestination('parent', 'direct', 'platform-admin-id').error, /school inbox/i);
+  assert.match(resolveSchoolMessageDestination('staff', 'direct', 'platform-admin-id').error, /school inbox/i);
+  assert.match(resolveSchoolMessageDestination('parent', 'all_school', 'platform-admin-id').error, /school inbox/i);
+});
+
+test('school administrators retain supported direct and announcement destinations', () => {
+  assert.deepEqual(resolveSchoolMessageDestination('admin', 'direct', 'school-staff-id'), { audience: 'direct', recipientId: 'school-staff-id' });
+  assert.deepEqual(resolveSchoolMessageDestination('admin', 'all_school', undefined), { audience: 'all_school', recipientId: undefined });
 });

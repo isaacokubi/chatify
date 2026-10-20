@@ -68,12 +68,27 @@ export function normalizeSchoolPaymentProfile(input = {}) {
   return { method, paybillNumber: method === 'mpesa_paybill' ? paybillNumber : '', tillNumber: method === 'mpesa_till' ? tillNumber : '', accountNumber, bankName };
 }
 
+export function resolveSchoolMessageDestination(role, requestedAudience, recipientId) {
+  const audience = String(requestedAudience || 'direct');
+  const allowed = ['direct', 'all_parents', 'all_staff', 'all_school'];
+  if (!['admin', 'staff', 'parent'].includes(role)) return { error: 'Your school role cannot send messages.' };
+  if (['parent', 'staff'].includes(role)) {
+    if (audience !== 'all_school' || recipientId) {
+      return { error: 'Parents and staff must send messages to their school inbox; individual platform administrator recipients are not available.' };
+    }
+    return { audience: 'all_school', recipientId: undefined };
+  }
+  if (!allowed.includes(audience)) return { error: 'Unsupported message audience.' };
+  return { audience, recipientId: audience === 'direct' ? recipientId : undefined };
+}
+
 export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider }) {
   const O = mongoose.Schema.Types.ObjectId;
   const model = (name, schema) => mongoose.models[name] || mongoose.model(name, schema);
   const School = model('SchoolWorkspace', new mongoose.Schema({
     name: { type: String, required: true, trim: true, maxlength: 160 },
     code: { type: String, required: true, trim: true, uppercase: true, maxlength: 24 },
+    officialPhone: { type: String, trim: true, maxlength: 24 },
     staffInviteCode: { type: String, default: () => randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase(), select: false },
     createdBy: { type: O, ref: 'User', required: true },
     paymentProfile: {
@@ -244,7 +259,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         return res.json({ status: request.status, message: 'Request rejected. No school workspace was created.' });
       }
       if (await School.exists({ code: request.proposedCode })) return res.status(409).json({ error: 'That school code has already been registered. Ask the requester to submit a new request.' });
-      const school = await School.create({ name: request.schoolName, code: request.proposedCode, createdBy: request.requesterId });
+      const school = await School.create({ name: request.schoolName, code: request.proposedCode, officialPhone: request.officialPhone, createdBy: request.requesterId });
       await Membership.create({ schoolId: school._id, userId: request.requesterId, role: 'admin' });
       request.status = 'APPROVED'; request.reviewedBy = req.user._id; request.reviewedAt = new Date();
       request.reviewNote = reviewNote; request.schoolId = school._id;
@@ -266,7 +281,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     try {
       const memberships = await Membership.find({ userId: req.user._id, active: true }).lean();
       const ids = memberships.map(m => m.schoolId);
-      const schools = await School.find({ _id: { $in: ids } }).select('+staffInviteCode name code createdBy paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
+      const schools = await School.find({ _id: { $in: ids } }).select('+staffInviteCode name code officialPhone createdBy paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.accountNumber paymentProfile.bankName paymentProfile.darajaMode paymentProfile.darajaConfiguredAt').lean();
       // Older workspaces created before staff invitation codes existed receive one lazily
       // when an administrator opens the workspace; only admins ever receive it in responses.
       for (const school of schools) {
@@ -281,7 +296,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
           school.staffInviteCode = updated?.staffInviteCode || generated;
         }
       }
-      return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, isOwner: String(s.createdBy) === String(req.user._id), staffInviteCode: memberships.find(m => String(m.schoolId) === String(s._id))?.role === 'admin' ? s.staffInviteCode : undefined, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
+      return res.json({ schools: schools.map(s => ({ id: String(s._id), name: s.name, code: s.code, officialPhone: s.officialPhone || '', role: memberships.find(m => String(m.schoolId) === String(s._id))?.role, isOwner: String(s.createdBy) === String(req.user._id), staffInviteCode: memberships.find(m => String(m.schoolId) === String(s._id))?.role === 'admin' ? s.staffInviteCode : undefined, paymentProfile: s.paymentProfile?.method ? { method: s.paymentProfile.method, paybillNumber: s.paymentProfile.paybillNumber, tillNumber: s.paymentProfile.tillNumber, accountNumber: s.paymentProfile.accountNumber, bankName: s.paymentProfile.bankName, darajaMode: s.paymentProfile.darajaMode, darajaConfigured: Boolean(s.paymentProfile.darajaConfiguredAt) } : null })) });
     } catch (error) { return next(error); }
   });
 
@@ -414,18 +429,19 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
   app.post('/api/schools/:schoolId/messages', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
       const body = String(req.body?.body || '').trim();
-      const audience = String(req.body?.audience || 'direct');
-      const recipientId = req.body?.recipientId;
+      const destination = resolveSchoolMessageDestination(req.schoolMembership.role, req.body?.audience, req.body?.recipientId);
       if (!body || body.length > 5000) return res.status(400).json({ error: 'Message must contain 1–5000 characters' });
-      if (req.schoolMembership.role === 'parent' && audience !== 'direct') return res.status(403).json({ error: 'Parents can send direct messages only' });
-      if (!['direct','all_parents','all_staff','all_school'].includes(audience)) return res.status(400).json({ error: 'Unsupported message audience' });
+      if (destination.error) {
+        const status = ['parent', 'staff'].includes(req.schoolMembership.role) ? 403 : 400;
+        return res.status(status).json({ error: destination.error });
+      }
+      const audience = destination.audience;
+      const recipientId = destination.recipientId;
       if (audience === 'direct') {
         if (!mongoose.isValidObjectId(recipientId)) return res.status(400).json({ error: 'Choose a recipient' });
         const target = await Membership.findOne({ schoolId: req.params.schoolId, userId: recipientId, active: true });
         if (!target) return res.status(404).json({ error: 'Recipient is not a member of this school' });
         if (req.schoolMembership.role === 'parent' && !['admin','staff'].includes(target.role)) return res.status(403).json({ error: 'Parents may contact school administrators or staff only' });
-      } else if (req.schoolMembership.role === 'staff') {
-        return res.status(403).json({ error: 'Only school administrators can send school-wide announcements' });
       }
       const message = await SchoolMessage.create({ schoolId: req.params.schoolId, senderId: req.user._id, recipientId: audience === 'direct' ? recipientId : undefined, audience, subject: String(req.body?.subject || '').trim().slice(0,160), body });
       return res.status(201).json({ message });
@@ -760,10 +776,17 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone -checkoutRequestId -merchantRequestId').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
         FeePayment.countDocuments(filter),
       ]);
-      const school = await School.findById(req.params.schoolId).select('name code paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
+      const school = await School.findById(req.params.schoolId).select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
       const profile = school?.paymentProfile;
+      let officialPhone = school?.officialPhone || '';
+      if (!officialPhone) {
+        const verification = await SchoolVerificationRequest.findOne({ schoolId: req.params.schoolId, status: 'APPROVED' })
+          .select('officialPhone').sort({ reviewedAt: -1 }).lean();
+        officialPhone = verification?.officialPhone || '';
+      }
       const paymentOptions = {
         schoolName: school?.name || 'School',
+        officialPhone,
         configured: Boolean(profile?.method),
         method: profile?.method || null,
         paybillNumber: profile?.method === 'mpesa_paybill' ? profile.paybillNumber : null,
