@@ -285,12 +285,13 @@ app.get('/api/conversations/:id/messages',auth,async(q,r)=>{
  if(!c)return r.status(404).json({error:'Conversation not found'});
  const filter={conversationId:c._id,expiredAt:{$exists:false},hiddenFor:{$ne:q.user._id}};
  if(q.query.q){const term=String(q.query.q).trim().slice(0,100);if(term){const escaped=term.replace(/[.*+?^$()|[\\]\\\\{}]/g,'\\\\$&');filter.text={$regex:escaped,$options:'i'};}}
+ const countFilter={...filter};
  const page=Math.max(1,Number.parseInt(q.query.page,10)||1),limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||40));
  const cursor=typeof q.query.cursor==='string'?q.query.cursor:'';
  if(cursor){try{const d=JSON.parse(Buffer.from(cursor,'base64url').toString('utf8'));const date=new Date(d.createdAt);if(!Number.isFinite(date.getTime())||!mongoose.isValidObjectId(String(d.id||'')))throw new Error('invalid');filter.$or=[{createdAt:{$lt:date}},{createdAt:date,_id:{$lt:new mongoose.Types.ObjectId(d.id)}}];}catch{return r.status(400).json({error:'Invalid message pagination cursor'});}}
  let query=Message.find(filter).sort({createdAt:-1,_id:-1}).limit(limit+1);
  if(!cursor&&page>1)query=query.skip((page-1)*limit);
- const [rows,total]=await Promise.all([query,Message.countDocuments(filter)]);
+ const [rows,total]=await Promise.all([query,Message.countDocuments(countFilter)]);
  const hasMore=rows.length>limit,descending=hasMore?rows.slice(0,limit):rows,last=descending[descending.length-1];
  const nextCursor=hasMore&&last?Buffer.from(JSON.stringify({createdAt:last.createdAt,id:String(last._id)})).toString('base64url'):null;
  r.json({messages:descending.reverse(),total,page,limit,nextCursor,hasMore});
