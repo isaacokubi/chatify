@@ -173,6 +173,54 @@ class Api {
   String _cacheKey(String path) =>
       'chatify_offline_v1_${_cacheScope()}_${Uri.encodeComponent(path)}';
 
+  String _cachedUserKey() => 'chatify_offline_user_v1_${_cacheScope()}';
+
+  Future<Map<String, dynamic>?> readCachedUser() async {
+    final key = _cachedUserKey();
+    for (final read in <Future<String?> Function()>[
+      () => _secureStorage.read(key: key),
+      () async => (await SharedPreferences.getInstance()).getString(key),
+    ]) {
+      try {
+        final encoded = await read();
+        if (encoded == null || encoded.isEmpty) continue;
+        final decoded = jsonDecode(encoded);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {
+        // Local user snapshots are best-effort; continue to the fallback store.
+      }
+    }
+    return null;
+  }
+
+  Future<void> writeCachedUser(Map<String, dynamic> value) async {
+    try {
+      final encoded = jsonEncode(value);
+      if (encoded.length > 100000) return;
+      final key = _cachedUserKey();
+      var secureWriteSucceeded = false;
+      try {
+        await _secureStorage.write(key: key, value: encoded);
+        secureWriteSucceeded = true;
+      } catch (_) {}
+      if (kIsWeb || !secureWriteSucceeded) {
+        await (await SharedPreferences.getInstance()).setString(key, encoded);
+      }
+    } catch (_) {
+      // The account snapshot is a convenience, never a reason to block startup.
+    }
+  }
+
+  Future<void> clearCachedUser() async {
+    final key = _cachedUserKey();
+    try {
+      await _secureStorage.delete(key: key);
+    } catch (_) {}
+    try {
+      await (await SharedPreferences.getInstance()).remove(key);
+    } catch (_) {}
+  }
+
   Future<Map<String, dynamic>?> _readCachedResponse(String path) async {
     if (token == null || token!.isEmpty) return null;
     final key = _cacheKey(path);
@@ -778,43 +826,85 @@ class AppState extends ChangeNotifier {
     ready = false;
     restoreError = null;
     try {
-      await api.restore().timeout(const Duration(seconds: 5));
-    } catch (error) {
-      // A storage plugin failure must not leave the app stuck on its splash.
-      restoreError = 'Could not restore the saved session: $error';
+      await api.restore().timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // Storage is optional for rendering the app. Continue to the sign-in screen.
     }
     try {
       final preferences = await SharedPreferences.getInstance()
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(seconds: 2));
       themeMode = preferences.getBool('chatify_dark_mode') == true
           ? ThemeMode.dark
           : ThemeMode.light;
-    } catch (error) {
-      restoreError ??= 'Could not load local preferences: $error';
+    } catch (_) {
+      // Defaults are safe when local preferences are unavailable.
     }
-    if (api.token != null) {
+
+    // Load the last known account before touching the network. This is what
+    // lets a returning user open Chatify in airplane mode or during an API outage.
+    if (api.token != null && api.token!.isNotEmpty) {
       try {
-        user = Map<String, dynamic>.from(
-            (await api
-                .call('GET', '/api/auth/me')
-                .timeout(const Duration(seconds: 8)))['user']);
-      } catch (error) {
-        if (error is ApiException && error.statusCode == 401) {
-          await logout();
-        } else {
-          restoreError = error.toString();
-        }
+        user = await api.readCachedUser();
+      } catch (_) {
+        user = null;
       }
     }
-    // Show the app as soon as the session is restored. Key provisioning and
-    // push registration are independent background tasks and must not hold the
-    // first frame hostage on slow networks or a cold API instance.
+
+    if (user != null) {
+      // Do not wait for DNS, a cold server, Firebase, or encryption registration
+      // before rendering the saved account. Refresh online in the background.
+      ready = true;
+      notifyListeners();
+      _connectPresence();
+      unawaited(_refreshUserFromServer());
+      unawaited(_finishBackgroundStartup());
+      return;
+    }
+
+    // First launch / first login still needs a server session. Bound the wait,
+    // then show sign-in instead of a fatal startup error if the network is down.
+    if (api.token != null && api.token!.isNotEmpty) {
+      try {
+        final response = await api
+            .call('GET', '/api/auth/me')
+            .timeout(const Duration(seconds: 5));
+        final restoredUser = response['user'];
+        if (restoredUser is Map) {
+          user = Map<String, dynamic>.from(restoredUser);
+          unawaited(api.writeCachedUser(user!));
+        }
+      } catch (error) {
+        if (error is ApiException && error.statusCode == 401) {
+          await api.clearToken();
+        }
+        // Network and server errors are not fatal. The sign-in screen remains usable.
+      }
+    }
+    ready = true;
+    notifyListeners();
     if (user != null) {
       _connectPresence();
       unawaited(_finishBackgroundStartup());
     }
-    ready = true;
-    notifyListeners();
+  }
+
+  Future<void> _refreshUserFromServer() async {
+    try {
+      final response = await api
+          .call('GET', '/api/auth/me')
+          .timeout(const Duration(seconds: 8));
+      final refreshedUser = response['user'];
+      if (refreshedUser is Map) {
+        user = Map<String, dynamic>.from(refreshedUser);
+        unawaited(api.writeCachedUser(user!));
+        notifyListeners();
+      }
+    } catch (error) {
+      if (error is ApiException && error.statusCode == 401) {
+        await logout();
+      }
+      // Keep the saved account and cached screens available while offline.
+    }
   }
 
   Future<void> _finishBackgroundStartup() async {
@@ -1020,6 +1110,7 @@ class AppState extends ChangeNotifier {
       }
       await api.saveToken(d['token'].toString());
       user = Map<String, dynamic>.from(d['user']);
+      unawaited(api.writeCachedUser(user!));
       try {
         await ensureEncryptionKey();
       } catch (error) {
@@ -1072,6 +1163,7 @@ class AppState extends ChangeNotifier {
     _messageOpenedSubscription = null;
     await _foregroundMessageSubscription?.cancel();
     _foregroundMessageSubscription = null;
+    await api.clearCachedUser();
     await api.clearToken();
     user = null;
     authRequested = false;
