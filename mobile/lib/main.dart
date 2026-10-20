@@ -5194,7 +5194,7 @@ class Chat extends StatefulWidget {
 }
 
 // Owns the active conversation UI: loads messages, listens for real-time events, and sends message actions.
-class _ChatState extends State<Chat> {
+class _ChatState extends State<Chat> with WidgetsBindingObserver {
   final input = TextEditingController();
   final searchInput = TextEditingController();
   final ScrollController _messagesScrollController = ScrollController();
@@ -5231,6 +5231,7 @@ class _ChatState extends State<Chat> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pendingMessageSyncTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => _syncPendingMessages(),
@@ -5243,6 +5244,13 @@ class _ChatState extends State<Chat> {
     _syncPresence();
     load();
     connect();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_syncPendingMessages());
+    }
   }
 
   // Resolve the other member from the conversation payload. The API normally
@@ -7110,6 +7118,7 @@ class _ChatState extends State<Chat> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     app.removeListener(_syncPresence);
     _typingTimer?.cancel();
     _remoteTypingTimer?.cancel();
