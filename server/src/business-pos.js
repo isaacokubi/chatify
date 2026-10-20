@@ -533,17 +533,19 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
     }
     try {
       const charge = await Charge.findOneAndUpdate({
-        $or: [
-          {method: 'mpesa_paybill', 'destination.paybillNumber': shortcode},
-          {method: 'mpesa_till', 'destination.tillNumber': shortcode},
-        ],
         status: 'PENDING',
-        $or: [
-          {feeCollectionMode:'separate',baseAmount:amount},
-          {feeCollectionMode:{$ne:'separate'},$or:[{totalAmount:amount},{totalAmount:{$exists:false},amount}]},
-        ],
         reference,
         providerReceipt: {$in: [null, '']},
+        $and: [
+          {$or: [
+            {method: 'mpesa_paybill', 'destination.paybillNumber': shortcode},
+            {method: 'mpesa_till', 'destination.tillNumber': shortcode},
+          ]},
+          {$or: [
+            {feeCollectionMode:'separate',baseAmount:amount},
+            {feeCollectionMode:{$ne:'separate'},$or:[{totalAmount:amount},{totalAmount:{$exists:false},amount}]},
+          ]},
+        ],
       }, {$set: {
         status: 'SUCCESS',
         providerReceipt: receipt,
