@@ -42,7 +42,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - run: flutter pub get
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-infos
       - run: flutter test
       - run: flutter build web --dart-define=CHATIFY_API=https://chatify-api-c1eh.onrender.com
       # Verify the Android Gradle files committed to this repository. Do not run

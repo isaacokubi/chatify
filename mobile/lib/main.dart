@@ -134,6 +134,10 @@ class Api {
   // between different signed-in users on the same device.
   bool lastResponseFromCache = false;
   bool offlineDataMode = false;
+  // Coalesce simultaneous identical GETs (for example multiple widgets loading
+  // the same profile/conversation) into one network request.
+  final Map<String, Future<Map<String, dynamic>>> _inFlightGets = {};
+
 
   String _stableCacheHash(String value) {
     var hash = 2166136261;
@@ -345,6 +349,19 @@ class Api {
   }
 
   Future<Map<String, dynamic>> call(String method, String path,
+      [Map<String, dynamic>? body]) {
+    if (method != 'GET') return _callUncoalesced(method, path, body);
+    final key = '${_cacheScope()}|$path';
+    final existing = _inFlightGets[key];
+    if (existing != null) return existing;
+    final request = _callUncoalesced(method, path, body);
+    _inFlightGets[key] = request;
+    return request.whenComplete(() {
+      if (identical(_inFlightGets[key], request)) _inFlightGets.remove(key);
+    });
+  }
+
+  Future<Map<String, dynamic>> _callUncoalesced(String method, String path,
       [Map<String, dynamic>? body]) async {
     final h = {
       'Content-Type': 'application/json',
@@ -685,6 +702,50 @@ List<Map<String, dynamic>> extractMemoryCandidatesLocally(String input) {
   }).take(3).toList();
 }
 
+// Buttons that perform asynchronous work disable themselves while the action is running.
+// This prevents rapid repeat taps and gives a consistent inline progress indicator.
+class AsyncActionButton extends StatefulWidget {
+  final String label;
+  final FutureOr<void> Function() onPressed;
+  final IconData icon;
+  const AsyncActionButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.icon = Icons.check,
+  });
+
+  @override
+  State<AsyncActionButton> createState() => _AsyncActionButtonState();
+}
+
+class _AsyncActionButtonState extends State<AsyncActionButton> {
+  bool _busy = false;
+
+  Future<void> _run() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onPressed();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FilledButton.icon(
+        onPressed: _busy ? null : _run,
+        icon: _busy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(widget.icon),
+        label: Text(_busy ? 'Please wait…' : widget.label),
+      );
+}
+
 // Shared app state. Screens listen to this object and rebuild after login, chat, contact, memory, or payment data changes.
 class AppState extends ChangeNotifier {
   final Api api;
@@ -716,15 +777,27 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     ready = false;
     restoreError = null;
-    await api.restore();
-    final preferences = await SharedPreferences.getInstance();
-    themeMode = preferences.getBool('chatify_dark_mode') == true
-        ? ThemeMode.dark
-        : ThemeMode.light;
+    try {
+      await api.restore().timeout(const Duration(seconds: 5));
+    } catch (error) {
+      // A storage plugin failure must not leave the app stuck on its splash.
+      restoreError = 'Could not restore the saved session: $error';
+    }
+    try {
+      final preferences = await SharedPreferences.getInstance()
+          .timeout(const Duration(seconds: 3));
+      themeMode = preferences.getBool('chatify_dark_mode') == true
+          ? ThemeMode.dark
+          : ThemeMode.light;
+    } catch (error) {
+      restoreError ??= 'Could not load local preferences: $error';
+    }
     if (api.token != null) {
       try {
         user = Map<String, dynamic>.from(
-            (await api.call('GET', '/api/auth/me'))['user']);
+            (await api
+                .call('GET', '/api/auth/me')
+                .timeout(const Duration(seconds: 8)))['user']);
       } catch (error) {
         if (error is ApiException && error.statusCode == 401) {
           await logout();
@@ -733,18 +806,29 @@ class AppState extends ChangeNotifier {
         }
       }
     }
+    // Show the app as soon as the session is restored. Key provisioning and
+    // push registration are independent background tasks and must not hold the
+    // first frame hostage on slow networks or a cold API instance.
     if (user != null) {
-      try {
-        await ensureEncryptionKey();
-      } catch (error) {
-        // Do not block sign-in, but encrypted sends remain disabled until key recovery.
-        encryptionError = error.toString();
-      }
       _connectPresence();
-      await _initializePushNotifications();
+      unawaited(_finishBackgroundStartup());
     }
     ready = true;
     notifyListeners();
+  }
+
+  Future<void> _finishBackgroundStartup() async {
+    try {
+      await ensureEncryptionKey().timeout(const Duration(seconds: 12));
+    } catch (error) {
+      encryptionError = error.toString();
+      notifyListeners();
+    }
+    try {
+      await _initializePushNotifications().timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Push is best-effort; it must not block opening the app.
+    }
   }
 
   /// Creates the device-local key on first use and registers only its public half.
@@ -1337,9 +1421,10 @@ class ChatifyApp extends StatelessWidget {
                         Text(appState.restoreError!,
                             textAlign: TextAlign.center),
                         const SizedBox(height: 12),
-                        FilledButton(
+                        AsyncActionButton(
+                          label: 'Retry',
+                          icon: Icons.refresh,
                           onPressed: appState.init,
-                          child: const Text('Retry'),
                         ),
                       ],
                     ),
@@ -2551,7 +2636,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         const SizedBox(height: 8),
         Text(error!, textAlign: TextAlign.center),
         const SizedBox(height: 16),
-        FilledButton.icon(onPressed: loadOverview, icon: const Icon(Icons.refresh), label: const Text('Try again')),
+        AsyncActionButton(label: 'Try again', icon: Icons.refresh, onPressed: loadOverview),
       ]),
     ));
     final money = (overview['successfulPaymentAmount'] as num?)?.toDouble() ?? 0;
@@ -3241,7 +3326,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   Widget field(TextEditingController c, String label, {String? hint, TextInputType? keyboard}) => Padding(padding:const EdgeInsets.only(bottom:10),child:TextField(controller:c,keyboardType:keyboard,decoration:InputDecoration(labelText:label,hintText:hint,border:const OutlineInputBorder())));
   Widget secretField(TextEditingController c, String label) => Padding(padding:const EdgeInsets.only(bottom:10),child:TextField(controller:c,obscureText:true,autocorrect:false,enableSuggestions:false,decoration:InputDecoration(labelText:label,border:const OutlineInputBorder())));
-  Widget actionButton(String label, VoidCallback onPressed, {IconData icon=Icons.check}) => Padding(padding:const EdgeInsets.only(bottom:10),child:SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:onPressed,icon:Icon(icon),label:Text(label))));
+  Widget actionButton(String label, FutureOr<void> Function() onPressed, {IconData icon=Icons.check}) => Padding(padding:const EdgeInsets.only(bottom:10),child:SizedBox(width:double.infinity,child:AsyncActionButton(label:label,onPressed:onPressed,icon:icon)));
 
   @override
   Widget build(BuildContext context) {
@@ -3842,7 +3927,7 @@ class _HomeState extends State<Home> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text(chatsError!, textAlign: TextAlign.center),
         const SizedBox(height: 12),
-        FilledButton(onPressed: loadChats, child: const Text('Retry'))
+        AsyncActionButton(label: 'Retry chats', icon: Icons.refresh, onPressed: loadChats)
       ]));
     }
     if (chats.isEmpty) {
@@ -4384,7 +4469,7 @@ class _HomeState extends State<Home> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text(memoriesError!, textAlign: TextAlign.center),
         const SizedBox(height: 12),
-        FilledButton(onPressed: loadMemories, child: const Text('Retry'))
+        AsyncActionButton(label: 'Retry memories', icon: Icons.refresh, onPressed: loadMemories)
       ]));
     }
     if (memories.isEmpty) {
@@ -7232,7 +7317,7 @@ class _ChatState extends State<Chat> {
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
                       Text(loadError!, textAlign: TextAlign.center),
                       const SizedBox(height: 12),
-                      FilledButton(onPressed: load, child: const Text('Retry'))
+                      AsyncActionButton(label: 'Retry', icon: Icons.refresh, onPressed: load)
                     ]))
                   : messages.isEmpty
                       ? const Empty(
@@ -8045,7 +8130,7 @@ class _ProfileState extends State<Profile> {
             value: memories,
             onChanged: (v) => setState(() => memories = v),
             title: const Text('Memory suggestions')),
-        FilledButton(onPressed: save, child: const Text('Save changes')),
+        AsyncActionButton(label: 'Save changes', onPressed: save),
         TextButton(
             onPressed: changePassword, child: const Text('Change password')),
         TextButton(
@@ -8740,7 +8825,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
               const SizedBox(height: 12),
               Text(error!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
-              FilledButton(onPressed: loadStore, child: const Text('Retry')),
+              AsyncActionButton(label: 'Retry store', icon: Icons.refresh, onPressed: loadStore),
             ]),
           )));
     }
