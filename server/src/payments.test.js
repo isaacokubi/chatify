@@ -186,6 +186,21 @@ test('platform fee is 0.5%, rounded up to whole KSh, with the provider total cap
   assert.throws(() => calculatePaymentTotal(150000), /must not exceed KSh 150000/);
 });
 
+test('ordinary user-to-user transfers do not receive a Chatify platform fee', () => {
+  assert.deepEqual(calculatePaymentTotal(1000, {applicable:false}), {
+    baseAmount:1000, platformFee:0, totalAmount:1000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'
+  });
+});
+
+test('eligible business payments respect the administrator-configured fee rate', () => {
+  assert.deepEqual(calculatePaymentTotal(1000, {applicable:true, feeRate:0.25}), {
+    baseAmount:1000, platformFee:3, totalAmount:1003, platformFeeRate:0.25, platformFeeStatus:'PENDING_PAYMENT'
+  });
+  assert.deepEqual(calculatePaymentTotal(1000, {applicable:true, feeRate:0}), {
+    baseAmount:1000, platformFee:0, totalAmount:1000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'
+  });
+});
+
 test('M-Pesa callback matches the total including the disclosed platform fee', () => {
   const payment = {amount:1000, totalAmount:1005, phone:'254712345678'};
   const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
