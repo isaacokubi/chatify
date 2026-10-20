@@ -812,6 +812,18 @@ class AppState extends ChangeNotifier {
   StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
   StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
   String? _registeredPushToken;
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _presenceSocket?.dispose();
+    _tokenRefreshSubscription?.cancel();
+    _messageOpenedSubscription?.cancel();
+    _foregroundMessageSubscription?.cancel();
+    super.dispose();
+  }
+
   AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
     if (autoInit) init();
   }
@@ -897,7 +909,7 @@ class AppState extends ChangeNotifier {
       if (refreshedUser is Map) {
         user = Map<String, dynamic>.from(refreshedUser);
         unawaited(api.writeCachedUser(user!));
-        notifyListeners();
+        if (!_disposed) notifyListeners();
       }
     } catch (error) {
       if (error is ApiException && error.statusCode == 401) {
@@ -912,7 +924,7 @@ class AppState extends ChangeNotifier {
       await ensureEncryptionKey().timeout(const Duration(seconds: 12));
     } catch (error) {
       encryptionError = error.toString();
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
     try {
       await _initializePushNotifications().timeout(const Duration(seconds: 8));
