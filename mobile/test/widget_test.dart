@@ -90,7 +90,7 @@ void main() {
     otherAccount.client.close();
   });
 
-  test('temporary API failure preserves the stored login token', () async {
+  test('temporary API failure preserves the token and still opens sign-in', () async {
     SharedPreferences.setMockInitialValues({'token': 'existing-token'});
     final client = MockClient(
         (_) async => http.Response('{"error":"Temporarily unavailable"}', 503));
@@ -98,8 +98,32 @@ void main() {
     await app.init();
     expect(app.api.token, 'existing-token');
     expect(app.user, isNull);
-    expect(app.restoreError, contains('Temporarily unavailable'));
+    expect(app.ready, isTrue);
+    expect(app.restoreError, isNull);
     client.close();
+    app.dispose();
+  });
+
+  test('saved account opens from local cache when the API is offline', () async {
+    SharedPreferences.setMockInitialValues({});
+    final setupApi = Api()..token = 'offline-account-token';
+    await setupApi.writeCachedUser({
+      'id': 'user-1',
+      'name': 'Offline User',
+      'email': 'offline@example.test',
+    });
+    final client = MockClient((_) async {
+      throw http.ClientException('No internet connection');
+    });
+    final app = AppState(api: Api(client: client), autoInit: false)
+      ..api.token = 'offline-account-token';
+    // Use the same mocked secure store and token scope as the previous API.
+    await app.init();
+    expect(app.ready, isTrue);
+    expect(app.user?['name'], 'Offline User');
+    expect(app.restoreError, isNull);
+    client.close();
+    setupApi.client.close();
     app.dispose();
   });
 
