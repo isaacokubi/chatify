@@ -32,6 +32,21 @@ const indexes=[
     options:{name:'user_memory_history_cursor_v1'},
   },
   {
+    collection:'notificationjobs',
+    keys:{recipientId:1,messageId:1},
+    options:{name:'notification_job_dedupe_v1',unique:true},
+  },
+  {
+    collection:'notificationjobs',
+    keys:{status:1,availableAt:1,lockedUntil:1,createdAt:1},
+    options:{name:'notification_jobs_claim_v1'},
+  },
+  {
+    collection:'notificationjobs',
+    keys:{expireAt:1},
+    options:{name:'notification_jobs_ttl_v1',expireAfterSeconds:0,partialFilterExpression:{expireAt:{$type:'date'}}},
+  },
+  {
     collection:'conversations',
     keys:{participants:1,updatedAt:-1,_id:-1},
     options:{name:'participant_recent_conversations_v1'},

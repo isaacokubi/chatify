@@ -102,3 +102,12 @@ These commits are initial bottleneck reductions, not completion of the 100M-user
 ## Important limitation
 
 This document does not claim the above architecture has been implemented, the database has been migrated, or that a load test has passed. Those claims require code changes, staging infrastructure, repeatable tests and measured results. Do not advertise 100-million-user readiness until these gates are evidenced.
+
+
+## Additional runtime hardening (2026-10-20)
+
+- Push notifications are now written to a MongoDB-backed outbox with a unique `(recipientId, messageId)` key, atomic worker leases, bounded retries, and a 30-day TTL for completed/terminal job metadata. A process crash can leave a job leased only until its lease expires; delivery is **at least once**, so a crash after provider acceptance can still result in a duplicate push. The queue does not store push tokens; workers reload current preferences/tokens at delivery time.
+- Conversation message/read/delivery/reaction/deletion and group-update events are fanned out to participant user rooms as well as the conversation room, so devices not currently subscribed to that room receive updates on a single Socket.IO deployment.
+- Apply the new notification outbox indexes using the existing explicit `npm run migrate:indexes` process after a backup during a low-traffic period.
+
+**Still required before horizontal scale-out:** this repository does not yet configure a cross-instance Socket.IO adapter or a shared distributed rate-limit store. Do not add API replicas and assume in-memory rooms, presence, or rate-limit counters are shared. Provision and test shared pub/sub/rate-limit infrastructure, validate high-volume school/business/store queries, then perform staging load/failover tests and a verified backup-restore drill. These code changes alone do not prove 100-million-user capacity.
