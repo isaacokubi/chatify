@@ -4972,51 +4972,59 @@ class _HomeState extends State<Home> {
     }
   }
 
-  // A Spark is a lightweight text status that the server expires after 24 hours.
+  // Create a 24-hour Spark as text, an image, or a short video.
   Future<void> _createSpark() async {
-    final controller = TextEditingController();
-    final text = await showDialog<String>(
+    final kind = await showModalBottomSheet<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Create a Spark'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 500,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            hintText: 'What would you like to share?',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Share Spark'),
-          ),
-        ],
-      ),
+      builder: (sheetContext) => SafeArea(child: Wrap(children: [
+        ListTile(leading: const Icon(Icons.text_fields), title: const Text('Text Spark'), onTap: () => Navigator.pop(sheetContext, 'text')),
+        ListTile(leading: const Icon(Icons.image_outlined), title: const Text('Upload image'), onTap: () => Navigator.pop(sheetContext, 'image')),
+        ListTile(leading: const Icon(Icons.videocam_outlined), title: const Text('Upload short video'), subtitle: const Text('Up to 8 MB'), onTap: () => Navigator.pop(sheetContext, 'video')),
+      ])),
     );
-    controller.dispose();
-    if (text == null || text.trim().isEmpty || !mounted) return;
+    if (kind == null || !mounted) return;
     try {
-      await app.api.call('POST', '/api/sparks', {'text': text.trim()});
+      final Map<String, dynamic> payload = {'text': ''};
+      if (kind == 'text') {
+        final controller = TextEditingController();
+        final text = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
+          title: const Text('Create a Spark'),
+          content: TextField(controller: controller, autofocus: true, maxLength: 500, maxLines: 4,
+            decoration: const InputDecoration(hintText: 'What would you like to share?', border: OutlineInputBorder())),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Share Spark')),
+          ],
+        ));
+        controller.dispose();
+        if (text == null || text.trim().isEmpty || !mounted) return;
+        payload['text'] = text.trim();
+      } else if (kind == 'image') {
+        final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+        if (file == null) return;
+        final bytes = await file.readAsBytes();
+        if (bytes.isEmpty || bytes.length > 8 * 1024 * 1024) throw const FormatException('Choose an image no larger than 8 MB.');
+        final lower = file.name.toLowerCase();
+        final mime = lower.endsWith('.png') ? 'image/png' : (lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
+        payload.addAll({'mediaData': base64Encode(bytes), 'mimeType': mime, 'mediaType': 'image'});
+      } else {
+        final selected = await FilePicker.platform.pickFiles(type: FileType.video, withData: true, allowMultiple: false);
+        if (selected == null || selected.files.isEmpty) return;
+        final file = selected.files.first;
+        final bytes = file.bytes;
+        if (bytes == null || bytes.isEmpty || bytes.length > 8 * 1024 * 1024) throw const FormatException('Choose a video no larger than 8 MB.');
+        final ext = (file.extension ?? '').toLowerCase();
+        final mime = switch (ext) {
+          'mp4' => 'video/mp4', 'mov' => 'video/quicktime', 'webm' => 'video/webm',
+          _ => throw const FormatException('Supported video formats: MP4, MOV and WebM.'),
+        };
+        payload.addAll({'mediaData': base64Encode(bytes), 'mimeType': mime, 'mediaType': 'video'});
+      }
+      await app.api.call('POST', '/api/sparks', payload);
       await loadSparks();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Your Spark is live for 24 hours.')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your Spark is live for 24 hours.')));
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not share Spark: $error')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not share Spark: $error')));
     }
   }
 
@@ -5037,7 +5045,13 @@ class _HomeState extends State<Home> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(spark['text']?.toString() ?? ''),
+            if (spark['mediaType'] == 'image' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('https://'))
+              ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(spark['mediaUrl'] as String, fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Text('Image could not be loaded.'))),
+            if (spark['mediaType'] == 'video' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('https://'))
+              TextButton.icon(onPressed: () => launchUrl(Uri.parse(spark['mediaUrl'] as String), mode: LaunchMode.externalApplication),
+                icon: const Icon(Icons.play_circle_outline), label: const Text('Play Spark video')),
+            if ((spark['text']?.toString() ?? '').isNotEmpty) Text(spark['text']?.toString() ?? ''),
             const SizedBox(height: 12),
             Text(age, style: Theme.of(context).textTheme.bodySmall),
           ],
