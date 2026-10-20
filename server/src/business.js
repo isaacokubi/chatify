@@ -98,6 +98,16 @@ export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []
 
 export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io, mpesaProvider, platformFeeCollector, startScheduler = true}) {
   const O = mongoose.Schema.Types.ObjectId;
+  // Tax rates are platform-owned: workspace members cannot override the centrally configured rate.
+  const PlatformTaxRate = mongoose.models.PlatformTaxRate || mongoose.model('PlatformTaxRate', new mongoose.Schema({
+    country:{type:String,required:true,uppercase:true,trim:true,match:/^[A-Z]{2}$/},
+    currency:{type:String,required:true,uppercase:true,trim:true,match:/^[A-Z]{3}$/},
+    mode:{type:String,enum:['exclusive','inclusive','none'],default:'exclusive'},
+    rate:{type:Number,min:0,max:100,required:true},
+    taxLabel:{type:String,default:'Tax',maxlength:80},
+    updatedBy:{type:O,ref:'User'},
+  },{timestamps:true}));
+  PlatformTaxRate.schema.index({country:1,currency:1},{unique:true,name:'platform_tax_country_currency_unique'});
   // Chatify no longer adds transaction commissions. Workspace billing is handled separately.
   const calculateConfiguredPaymentTotal = async amount => ({baseAmount: amount, platformFee: 0, totalAmount: amount, platformFeeRate: 0, platformFeeStatus: 'NOT_APPLICABLE'});
   const messaging = createMessagingProviders(process.env);
@@ -461,9 +471,14 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const type = req.body?.type; if (!DOCUMENT_TYPES.includes(type)) return res.status(400).json({error:'Document type must be quote, order, invoice, receipt or purchase_order'});
     if (req.body.customerId && !validId(req.body.customerId)) return res.status(400).json({error:'Invalid customer ID'});
     if (req.body.customerId && !await Customer.exists({_id:req.body.customerId,organizationId:org._id})) return res.status(404).json({error:'Customer not found in this business'});
-    const taxProfile = org.settings?.taxProfile && typeof org.settings.taxProfile === 'object' ? org.settings.taxProfile : {currency:org.currency,mode:'exclusive',rate:0};
+    // Always resolve tax from the platform's administrator-managed country/currency table.
+    // A missing configuration deliberately means zero tax until an administrator sets the rate.
+    const taxCountry = String(org.country || 'KE').toUpperCase();
+    const taxCurrency = String(org.currency || 'KES').toUpperCase();
+    const taxProfile = await PlatformTaxRate.findOne({country:taxCountry,currency:taxCurrency}).lean()
+      || {country:taxCountry,currency:taxCurrency,mode:'exclusive',rate:0,taxLabel:'Tax'};
     let totals;
-    try { totals = calculateInternationalTotals(req.body.items, {currency:taxProfile.currency || org.currency, mode:taxProfile.mode || 'exclusive', rate:Number(taxProfile.rate || 0)}); }
+    try { totals = calculateInternationalTotals(req.body.items, {currency:taxProfile.currency || taxCurrency, mode:taxProfile.mode || 'exclusive', rate:Number(taxProfile.rate || 0)}); }
     catch (error) { return res.status(400).json({error:error.message}); }
     // If a line references a catalogue item, its name and price come from this organization's
     // active catalogue—not from a client-submitted amount. Ad-hoc lines remain supported.
@@ -617,8 +632,26 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   });
   app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('name slug description industry country currency phone website');if(!org)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);res.json({business:org,items});});
   app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('_id');if(!org)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
-  // Organization tax profiles make jurisdiction settings explicit; rates are operator-configured
-  // and should be reviewed against current local tax rules before production invoicing.
+  // Only platform administrators may manage global tax rates. Rates are selected by each
+  // workspace's country/currency and applied consistently to business documents.
+  app.get('/api/admin/tax-rates', auth, async (req,res)=>{
+    if(req.user?.role!=='admin')return res.status(403).json({error:'Platform administrator permission required'});
+    res.json({taxRates:await PlatformTaxRate.find({}).sort({country:1,currency:1}).lean()});
+  });
+  app.put('/api/admin/tax-rates/:country/:currency', auth, async (req,res)=>{
+    if(req.user?.role!=='admin')return res.status(403).json({error:'Platform administrator permission required'});
+    const country=String(req.params.country||'').toUpperCase();
+    const currency=String(req.params.currency||'').toUpperCase();
+    const mode=req.body?.mode;
+    const rate=Number(req.body?.rate);
+    if(!/^[A-Z]{2}$/.test(country)||!/^[A-Z]{3}$/.test(currency)||!['exclusive','inclusive','none'].includes(mode)||!Number.isFinite(rate)||rate<0||rate>100)
+      return res.status(400).json({error:'Provide a two-letter country, three-letter currency, valid tax mode and rate from 0 to 100'});
+    const taxRate=await PlatformTaxRate.findOneAndUpdate({country,currency},{$set:{mode,rate,taxLabel:shortText(req.body?.taxLabel,80)||'Tax',updatedBy:req.user._id}},{upsert:true,new:true,runValidators:true,setDefaultsOnInsert:true});
+    res.json({taxRate,notice:'This administrator-managed rate applies to business documents for all workspaces using this country and currency. Confirm legal tax obligations with the relevant tax authority.'});
+  });
+
+  // Legacy workspace tax-profile writes are retained for compatibility, but do not determine
+  // invoice calculations; centrally managed PlatformTaxRate records take precedence.
   app.patch('/api/business/organizations/:orgId/tax-profile', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;const country=shortText(req.body?.country,2).toUpperCase();const currency=shortText(req.body?.currency,3).toUpperCase();const mode=req.body?.mode;const rate=Number(req.body?.rate);if(!/^[A-Z]{2}$/.test(country)||!SUPPORTED_TAX_MODES.includes(mode)||!Number.isFinite(rate)||rate<0||rate>100)return res.status(400).json({error:'Provide ISO country code, valid tax mode and a tax rate from 0 to 100'});try{calculateInternationalTotals([{name:'validation',quantity:1,unitPrice:1}],{currency,mode,rate});}catch(error){return res.status(400).json({error:error.message});}org.settings={...(org.settings||{}),taxProfile:{country,currency,mode,rate,taxLabel:shortText(req.body.taxLabel,80),registrationNumber:shortText(req.body.registrationNumber,80),updatedAt:new Date()}};org.currency=currency;org.country=country;await org.save();await recordAudit(org,req.user._id,'tax_profile.updated','organization',org._id,'Updated tax profile');res.json({taxProfile:org.settings.taxProfile,notice:'Tax profile saved. Verify rates and filing requirements with the relevant tax authority.'});});
   app.get('/api/business/organizations/:orgId/tax-profile', auth, async (req,res)=>{const org=await requireOrg(req,res);if(!org)return;res.json({taxProfile:org.settings?.taxProfile||{country:org.country,currency:org.currency,mode:'exclusive',rate:0}});});
 
