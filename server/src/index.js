@@ -52,14 +52,14 @@ const User=mongoose.model('User',new mongoose.Schema({name:{type:String,required
 User.schema.index({name:'text',email:'text'});
 // Conversations track direct/group membership, group admins, hidden state and the latest-message summary.
 const Conversation=mongoose.model('Conversation',new mongoose.Schema({type:{type:String,enum:['direct','group'],default:'direct'},participants:[{type:O,ref:'User'}],hiddenFor:{type:[O],default:[]},directKey:{type:String,unique:true,sparse:true},title:String,description:String,image:String,admins:[O],lastMessage:{text:String,senderId:O,createdAt:Date}},{timestamps:true}));
-Conversation.schema.index({participants:1,updatedAt:-1}); Conversation.schema.index({participants:1,updatedAt:-1,_id:-1});
+Conversation.schema.index({participants:1,updatedAt:-1}); Conversation.schema.index({participants:1,updatedAt:-1,_id:-1},{name:'participant_recent_conversations_v1'});
 // Messages store text/media, replies, reactions, delivery/read receipts and application-level expiry state.
 const Message=mongoose.model('Message',new mongoose.Schema({conversationId:{type:O,index:true},senderId:O,text:{type:String,trim:true,maxlength:5000},encryptedPayload:{type:String,select:true},encryptionVersion:{type:Number,enum:[1]},messageType:{type:String,enum:['text','image','file'],default:'text'},mediaUrl:String,replyTo:O,reactions:[{userId:O,emoji:String}],hiddenFor:[O],deliveredTo:[O],readBy:[O],expiryType:{type:String,enum:['NONE','AFTER_READ','AFTER_TIME','AFTER_REPLY'],default:'NONE'},expiresAt:Date,expiredAt:Date,deletedAt:Date},{timestamps:true}));
-Message.schema.index({conversationId:1,createdAt:-1,_id:-1}); Message.schema.index({expiresAt:1,expiredAt:1,conversationId:1});
+Message.schema.index({conversationId:1,createdAt:-1,_id:-1},{name:'conversation_history_cursor_v1'}); Message.schema.index({expiresAt:1,expiredAt:1,conversationId:1},{name:'message_expiry_sweep_v1'});
 // Memory Cards are user-owned structured notes extracted from conversation context or entered by the user.
 const Memory=mongoose.model('Memory',new mongoose.Schema({userId:{type:O,index:true},conversationId:O,personId:{type:O,index:true},personName:{type:String,trim:true,maxlength:80},type:{type:String,enum:['EVENT','PAYMENT','PLACE','TASK','NOTE','OTHER']},title:String,description:String,date:Date,time:String,location:String,sourceMessageId:O,completed:{type:Boolean,default:false}},{timestamps:true}));
 // Supports bounded newest-first user memory reads and cursor pagination without scanning deep offsets.
-Memory.schema.index({userId:1,createdAt:-1,_id:-1});
+Memory.schema.index({userId:1,createdAt:-1,_id:-1},{name:'user_memory_history_cursor_v1'});
 // Persist every message that has already produced a memory suggestion. This ledger is deliberately separate from Memory so deleting a saved card never makes its source message eligible again.
 const MemorySuggestionSeen=mongoose.model('MemorySuggestionSeen',new mongoose.Schema({userId:{type:O,required:true},conversationId:{type:O,required:true},sourceMessageId:{type:O,required:true},status:{type:String,enum:['suggested','saved','dismissed','deleted'],default:'suggested'}},{timestamps:true}));
 MemorySuggestionSeen.schema.index({userId:1,sourceMessageId:1},{unique:true});
