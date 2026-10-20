@@ -18,8 +18,9 @@ Run this checklist on a physical Android device with the PR build installed. CI 
 - [ ] While airplane mode is enabled, send a text message in an already-open conversation.
 - [ ] Confirm it appears as **Waiting to send • saved on device**, not Delivered or Read.
 - [ ] Force-stop and relaunch in airplane mode; confirm the pending message is still present.
-- [ ] Restore connectivity while keeping the conversation open. Wait for automatic sync.
-- [ ] Confirm the pending marker clears only after the server responds successfully.
+- [ ] Restore connectivity with the conversation open and confirm automatic sync.
+- [ ] Repeat with the conversation closed; wait for the app-wide outbox retry or resume Chatify to trigger sync.
+- [ ] Confirm the pending marker clears only after the server responds successfully and the server copy replaces the local copy.
 - [ ] Confirm the recipient receives exactly one copy.
 - [ ] Repeat by briefly disconnecting during a send response, then reconnecting. Confirm the stable client ID prevents duplicate server messages.
 
