@@ -367,4 +367,38 @@ void main() {
     expect(merged.single['deliveryStatus'], 'sent');
   });
 
+
+  test('payment initiation is never automatically replayed after timeout', () async {
+    SharedPreferences.setMockInitialValues({});
+    var attempts = 0;
+    final api = Api(
+      client: MockClient((_) async {
+        attempts++;
+        throw TimeoutException('payment request timed out');
+      }),
+    )..token = 'payment-account';
+    await expectLater(
+      api.call('POST', '/api/payments/payment-1/initiate', {}),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(attempts, 1);
+    api.client.close();
+  });
+
+  test('concurrent pending message enqueues do not overwrite each other', () async {
+    SharedPreferences.setMockInitialValues({});
+    final api = Api()..token = 'parallel-queue-account';
+    await Future.wait(List.generate(8, (index) {
+      final id = 'parallel-$index';
+      return api.enqueuePendingMessage({
+        'conversationId': 'conversation-1',
+        'body': {'clientMessageId': id, 'encryptedPayload': 'ciphertext'},
+      });
+    }));
+    final queued = await api.readPendingMessages();
+    expect(queued, hasLength(8));
+    expect(queued.map((item) => item['clientMessageId']).toSet().length, 8);
+    api.client.close();
+  });
+
 }
