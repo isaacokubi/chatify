@@ -68,12 +68,12 @@ test('duplicate successful callbacks do not apply the same setup payment twice',
 });
 
 test('confirmed monthly payment extends the subscription by one month', async () => {
-  const h = billingHarness({ setupPaid: true, expiresAt: new Date('2026-12-01T00:00:00.000Z') });
+  const h = billingHarness({ setupPaid: true, expiresAt: new Date('2026-11-01T00:00:00.000Z') });
   h.payment.billingType = 'workspace_subscription';
   const result = await applyWorkspaceBillingPayment(h);
   assert.equal(result.applied, true);
   assert.equal(h.workspace.billing.status, 'ACTIVE');
-  assert.equal(new Date(h.workspace.billing.subscriptionExpiresAt).toISOString(), '2026-11-01T00:00:00.000Z');
+  assert.equal(new Date(h.workspace.billing.subscriptionExpiresAt).toISOString(), '2026-12-01T00:00:00.000Z');
 });
 
 test('a failed entitlement write releases the payment claim for safe callback retry', async () => {
