@@ -82,7 +82,7 @@ export function resolveSchoolMessageDestination(role, requestedAudience, recipie
   return { audience, recipientId: audience === 'direct' ? recipientId : undefined };
 }
 
-export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider }) {
+export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider, platformFeeCollector }) {
   const O = mongoose.Schema.Types.ObjectId;
   const model = (name, schema) => mongoose.models[name] || mongoose.model(name, schema);
   const School = model('SchoolWorkspace', new mongoose.Schema({
@@ -891,6 +891,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
         throw error;
       }
       if (!confirmed) return res.json({ ok: true, duplicate: true });
+      // The school receives only its school-fee amount; Chatify collects its fee in a separate platform-owned STK prompt.
+      try { if (platformFeeCollector && confirmed.payerPhone) await platformFeeCollector.collect({paymentId:confirmed.paymentReference,source:'school_fee',payerPhone:confirmed.payerPhone,baseAmount:confirmed.amount}); }
+      catch (error) { console.error('School fee succeeded but separate Chatify fee collection could not start', {paymentReference:confirmed.paymentReference,stage:error?.stage||'configuration_or_unknown'}); }
       res.json({ ok: true });
       deliverSchoolReceipt(confirmed._id).catch(error => console.error('School receipt delivery processing failed', { paymentReference: confirmed.paymentReference, message: String(error?.message || 'unknown').slice(0, 160) }));
       return;
