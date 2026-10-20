@@ -24,10 +24,13 @@ Run this checklist on a physical Android device with the PR build installed. CI 
 - [ ] Repeat by briefly disconnecting during a send response, then reconnecting. Confirm the stable client ID prevents duplicate server messages.
 
 ## Other features and external services
-- [ ] Contacts, memories, school, and business: attempt each supported write while offline. Until that specific action has a durable queue, it must report that it was not synced and must not pretend it was saved remotely.
+- [ ] Contacts and Memory Cards: try each add/save action offline. These actions are not currently queued; the UI must show failure and must not claim a remote save. After reconnecting, retry manually and confirm only one contact/card exists.
+- [ ] School: try a non-payment write offline. It must show failure/not synced; do not repeat fee/payment initiation blindly. After reconnecting, verify the server record before retrying.
+- [ ] Business offline-create queue: create a supported customer, catalogue item, or task while offline; confirm the queue count increases. Force-stop/relaunch offline and confirm the queued create and conflict count are restored. Reconnect or resume the app, wait for sync, and confirm one server record exists. Repeat after interrupting the sync response. Confirm conflicts/rejections remain visible for review instead of being silently discarded.
+- [ ] Business writes outside the supported offline-create queue must report failure when offline; they must not be presented as saved remotely.
 - [ ] Media: offline upload must clearly report that the attachment was not queued; reconnect and retry only after checking the conversation for a possible prior server result.
-- [ ] Notifications: verify the UI never claims a push notification was delivered while the device/server was offline.
-- [ ] Payments: do not retry an initiation automatically after a timeout. Check the payment's server status before attempting again; only a verified provider callback may mark a payment successful.
+- [ ] Notifications: verify the UI never claims a push notification was delivered while the device/server was offline. Check token-registration failure separately from message-delivery status.
+- [ ] Payments: do not retry an initiation automatically after a timeout. Refresh/check the payment's server status before attempting again; only a verified provider callback may mark a payment successful. Confirm offline/timeout states never show a confirmed receipt.
 
 ## Acceptance
 - [ ] No crash or fatal startup error in airplane mode.
