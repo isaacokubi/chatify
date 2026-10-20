@@ -414,7 +414,9 @@ class Api {
   Future<void> enqueuePendingMessage(Map<String, dynamic> message) =>
       _serializePendingQueue(() async {
         final queue = await _readPendingMessagesFromStorage();
-        final id = message['clientMessageId']?.toString();
+        final body = message['body'];
+        final id = message['clientMessageId']?.toString() ??
+            (body is Map ? body['clientMessageId']?.toString() : null);
         if (id == null || id.isEmpty) {
           throw ArgumentError(
               'Pending messages require a stable clientMessageId.');
@@ -422,7 +424,10 @@ class Api {
         if (queue.any((item) => item['clientMessageId']?.toString() == id)) {
           return;
         }
-        queue.add(Map<String, dynamic>.from(message));
+        queue.add(<String, dynamic>{
+          ...Map<String, dynamic>.from(message),
+          'clientMessageId': id,
+        });
         await _writePendingMessages(queue);
       });
 
