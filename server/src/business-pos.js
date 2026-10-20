@@ -440,7 +440,13 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
         const updated = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, providerReceipt: {$in: [null, '']}},
           {$set: {status: 'SUCCESS', providerReceipt: outcome.receipt, stkResultCode: 0, stkResultDescription: outcome.description, confirmationSource: 'safaricom_stk_callback', confirmedAt: new Date()}}, {new: true});
         if (!updated && await Charge.exists({providerReceipt: outcome.receipt})) { const existing=await Charge.findOne({providerReceipt:outcome.receipt}); if(existing) await recordPosPlatformFee(existing, outcome.receipt); return res.json({ok: true, duplicate: true}); }
-        if (updated) await recordPosPlatformFee(updated, outcome.receipt);
+        if (updated) {
+          await recordPosPlatformFee(updated, outcome.receipt);
+          if (updated.feeCollectionMode === 'separate' && updated.platformFee > 0 && platformFeeCollector) {
+            try { await platformFeeCollector.collect({paymentId:updated.paymentId,source:'business_pos',payerPhone:updated.stkPhone,baseAmount:updated.baseAmount??updated.amount,feeAmount:updated.platformFee}); }
+            catch (error) { console.error('POS sale succeeded but separate platform fee STK could not start',{paymentId:updated.paymentId,stage:error?.stage||'configuration_or_unknown'}); }
+          }
+        }
         return res.json({ok: true, confirmed: Boolean(updated)});
       } catch (error) {
         if (error?.code === 11000) return res.json({ok: true, duplicate: true});
