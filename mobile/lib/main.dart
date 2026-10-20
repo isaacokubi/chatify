@@ -5048,6 +5048,10 @@ class _HomeState extends State<Home> {
             if (spark['mediaType'] == 'image' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('https://'))
               ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(spark['mediaUrl'] as String, fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const Text('Image could not be loaded.'))),
+            if (spark['mediaType'] == 'image' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('data:image/'))
+              ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.memory(base64Decode((spark['mediaUrl'] as String).split(',').last), fit: BoxFit.contain)),
+            if (spark['mediaType'] == 'video' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('data:video/'))
+              const Text('Video Spark saved. Configure Cloudinary in production for streamable video URLs.'),
             if (spark['mediaType'] == 'video' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('https://'))
               TextButton.icon(onPressed: () => launchUrl(Uri.parse(spark['mediaUrl'] as String), mode: LaunchMode.externalApplication),
                 icon: const Icon(Icons.play_circle_outline), label: const Text('Play Spark video')),
