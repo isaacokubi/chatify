@@ -2816,12 +2816,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Platform fee and wallet', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
-          const Text('Configure the platform fee applied to business checkouts and school-fee payments. Personal transfers between Chatify users are excluded.'),
+          const Text('Configure the platform fee for eligible business checkouts. Personal transfers between Chatify users are excluded. School-fee fee collection still needs a platform settlement route before it can be safely enabled.'),
           const SizedBox(height: 12),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Enable platform fee'),
-            subtitle: const Text('Only eligible business/school payment flows should use this fee.'),
+            subtitle: const Text('Only eligible business checkout flows currently apply this setting.'),
             value: feeWalletEnabled,
             onChanged: feeWalletSaving ? null : (value) => setState(() => feeWalletEnabled = value),
           ),
