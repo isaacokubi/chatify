@@ -98,6 +98,12 @@ export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []
 
 export function registerBusinessRoutes({app, auth, mongoose, User, Conversation, Payment, io, mpesaProvider, startScheduler = true}) {
   const O = mongoose.Schema.Types.ObjectId;
+  // Read the current platform fee configuration for eligible business checkouts.
+  // Default to 0.5% before the administrator saves settings; disabling fees exempts new checkouts.
+  const calculateConfiguredPaymentTotal = async amount => {
+    const config = await mongoose.models.PlatformFeeSettings?.findOne({key:'global'}).lean();
+    return calculatePaymentTotal(amount, {applicable: config?.enabled !== false, feeRate: Number.isFinite(Number(config?.feeRate)) ? Number(config.feeRate) : 0.5});
+  };
   const messaging = createMessagingProviders(process.env);
   const language = createLanguageProvider(process.env);
   const etims = createEtimsProvider(process.env);
@@ -364,7 +370,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
         createdBy: req.user._id,
       });
       try {
-        const fee = calculatePaymentTotal(totals.total);
+        const fee = await calculateConfiguredPaymentTotal(totals.total);
         const payment = await Payment.create({
           paymentId: newPaymentId(), requesterId: org.ownerId, payerId: req.user._id,
           amount: totals.total, ...fee, recipientPhone: sellerMpesaPhone, payerPhone: phone, phone,
@@ -627,7 +633,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     if(document.currency!=='KES')return res.status(400).json({error:'M-Pesa STK is currently supported for KES invoices only'});
     const baseAmount=Math.round((document.total-document.paidAmount)*100)/100;
     if(!Number.isSafeInteger(baseAmount)||!validPaymentAmount(baseAmount))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
-    try{return res.json({...calculatePaymentTotal(baseAmount),currency:'KES',feeNotice:'The 0.5% platform fee is pending settlement and is not automatically transferred to Chatify.'});}
+    try{return res.json({...await calculateConfiguredPaymentTotal(baseAmount),currency:'KES',feeNotice:'The configured platform fee is recorded for settlement. Automatic split settlement requires a platform-controlled Safaricom merchant/disbursement setup.'});}
     catch(error){return res.status(400).json({error:error.message});}
   });
   app.post('/api/business/organizations/:orgId/documents/:documentId/mpesa-stk', auth, async (req,res)=>{
@@ -639,8 +645,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     if(document.currency!=='KES')return res.status(400).json({error:'M-Pesa STK is currently supported for KES invoices only'});
     const outstanding=Math.round((document.total-document.paidAmount)*100)/100;
     if(!Number.isSafeInteger(outstanding)||!validPaymentAmount(outstanding))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
-    let fee;try{fee=calculatePaymentTotal(outstanding);}catch(error){return res.status(400).json({error:error.message});}
-    if(req.body?.feeAcknowledged!==true)return res.status(400).json({error:'Confirm the disclosed 0.5% platform fee before sending an invoice STK prompt',baseAmount:fee.baseAmount,platformFee:fee.platformFee,totalAmount:fee.totalAmount,platformFeeRate:fee.platformFeeRate});
+    let fee;try{fee=await calculateConfiguredPaymentTotal(outstanding);}catch(error){return res.status(400).json({error:error.message});}
+    if(req.body?.feeAcknowledged!==true)return res.status(400).json({error:'Confirm the disclosed configured platform fee before sending an invoice STK prompt',baseAmount:fee.baseAmount,platformFee:fee.platformFee,totalAmount:fee.totalAmount,platformFeeRate:fee.platformFeeRate});
     const phone=normalizeMpesaPhone(req.body?.phone);if(!phone)return res.status(400).json({error:'Enter a valid Kenyan customer M-Pesa phone number'});
     const pending=await Payment.findOne({businessDocumentId:document._id,status:'PENDING',initiatedAt:{$exists:true}});
     if(pending)return res.status(409).json({error:'An M-Pesa request is already pending for this invoice',paymentId:pending.paymentId});
