@@ -59,13 +59,15 @@ export function createPlatformFeeCollector({ mongoose, env = process.env }) {
   async function collect({paymentId, source, payerPhone, baseAmount, feeAmount}) {
     const phone = normalizeMpesaPhone(String(payerPhone || ''));
     if (!phone) throw new Error('A verified Kenyan payer phone is required for the separate platform-fee prompt');
-    if (!Number.isSafeInteger(baseAmount) || baseAmount < 1 || !Number.isSafeInteger(feeAmount) || feeAmount < 1) throw new Error('Invalid platform fee collection amount');
+    if (!Number.isSafeInteger(baseAmount) || baseAmount < 1 || (feeAmount !== undefined && (!Number.isSafeInteger(feeAmount) || feeAmount < 1))) throw new Error('Invalid platform fee collection amount');
     const existing = await Collection.findOne({paymentId});
     if (existing) return existing.toObject();
     const settings = await providerConfig();
     if (!settings || settings.enabled === false) throw new Error('Platform fee collection is disabled');
+    const fee = feeAmount === undefined ? Math.ceil(baseAmount * Number(settings.feeRate ?? 0.5) / 100) : feeAmount;
+    if (!Number.isSafeInteger(fee) || fee < 1) return {paymentId, status:'NOT_APPLICABLE', feeAmount:0};
     const walletNumber = settings.walletType === 'mpesa_paybill' ? settings.paybillNumber : settings.walletType === 'mpesa_till' ? settings.tillNumber : '';
-    const record = await Collection.create({paymentId, source, payerPhone:phone, baseAmount, feeAmount, walletType:settings.walletType, walletNumber, accountReference:settings.accountReference || 'CHATIFY-FEE'});
+    const record = await Collection.create({paymentId, source, payerPhone:phone, baseAmount, feeAmount:fee, walletType:settings.walletType, walletNumber, accountReference:settings.accountReference || 'CHATIFY-FEE'});
     try {
       const provider = providerFor(settings);
       const refs = await provider.initiate({paymentId:('FEE'+paymentId).replace(/[^A-Za-z0-9]/g,'').slice(-12), amount:feeAmount, phone, description:'Chatify fee'});
@@ -103,7 +105,7 @@ export function createPlatformFeeCollector({ mongoose, env = process.env }) {
     if (!settled) return {duplicate:true};
     // Update the shared reconciliation ledger only after Safaricom confirms this fee receipt.
     const Ledger = mongoose.models.PlatformFeeLedger;
-    if (Ledger) await Ledger.updateOne({paymentId:record.paymentId},{$set:{status:'SETTLED',providerReceipt:receipt}});
+    if (Ledger) await Ledger.updateOne({paymentId:record.paymentId},{$set:{status:'SETTLED',providerReceipt:receipt},$setOnInsert:{paymentId:record.paymentId,source:record.source,businessOrganizationId:undefined,baseAmount:record.baseAmount,feeAmount:record.feeAmount,totalAmount:record.baseAmount+record.feeAmount,currency:'KES',confirmedAt:now}},{upsert:true});
     const Payment = mongoose.models.Payment;
     if (Payment) await Payment.updateOne({paymentId:record.paymentId,platformFee:record.feeAmount},{$set:{platformFeeStatus:'SETTLED'}});
     const Charge = mongoose.models.BusinessPosCharge;
