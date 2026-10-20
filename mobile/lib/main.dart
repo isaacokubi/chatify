@@ -355,6 +355,64 @@ class Api {
     }
   }
 
+
+  String _pendingMessagesKey() =>
+      'chatify_pending_messages_v1_${_cacheScope()}';
+
+  Future<List<Map<String, dynamic>>> readPendingMessages() async {
+    final key = _pendingMessagesKey();
+    for (final read in <Future<String?> Function()>[
+      () => _secureStorage.read(key: key),
+      () async => (await SharedPreferences.getInstance()).getString(key),
+    ]) {
+      try {
+        final encoded = await read();
+        if (encoded == null || encoded.isEmpty) continue;
+        final decoded = jsonDecode(encoded);
+        if (decoded is List) {
+          return decoded
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
+        }
+      } catch (_) {
+        // Fall back to the other store if a local value is corrupt/unavailable.
+      }
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  Future<void> _writePendingMessages(List<Map<String, dynamic>> messages) async {
+    final key = _pendingMessagesKey();
+    final encoded = jsonEncode(messages);
+    var secureWriteSucceeded = false;
+    try {
+      await _secureStorage.write(key: key, value: encoded);
+      secureWriteSucceeded = true;
+    } catch (_) {}
+    if (kIsWeb || !secureWriteSucceeded) {
+      await (await SharedPreferences.getInstance()).setString(key, encoded);
+    }
+  }
+
+  Future<void> enqueuePendingMessage(Map<String, dynamic> message) async {
+    final queue = await readPendingMessages();
+    final id = message['clientMessageId']?.toString();
+    if (id == null || id.isEmpty) {
+      throw ArgumentError('Pending messages require a stable clientMessageId.');
+    }
+    if (queue.any((item) => item['clientMessageId']?.toString() == id)) return;
+    queue.add(Map<String, dynamic>.from(message));
+    await _writePendingMessages(queue);
+  }
+
+  Future<void> removePendingMessage(String clientMessageId) async {
+    final queue = await readPendingMessages();
+    queue.removeWhere(
+        (item) => item['clientMessageId']?.toString() == clientMessageId);
+    await _writePendingMessages(queue);
+  }
+
   Future<void> restore() async {
     try {
       token = await _secureStorage.read(key: 'token');
@@ -579,7 +637,7 @@ List<dynamic> mergeMessages(List<dynamic> current, List<dynamic> fetched) {
       merged.add(message);
       continue;
     }
-    final id = message['_id'].toString();
+    final id = (message['clientMessageId'] ?? message['_id']).toString();
     final index = indices[id];
     if (index == null) {
       indices[id] = merged.length;
@@ -2095,6 +2153,10 @@ class _AuthState extends State<Auth> {
   @override
   void initState() {
     super.initState();
+    _pendingMessageSyncTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _syncPendingMessages(),
+    );
     reg = widget.startWithRegistration;
   }
 
@@ -5116,6 +5178,7 @@ class _ChatState extends State<Chat> {
   final ScrollController _messagesScrollController = ScrollController();
   Timer? _typingTimer;
   Timer? _remoteTypingTimer;
+  Timer? _pendingMessageSyncTimer;
   bool _isTyping = false;
   List<dynamic> messages = [];
   List<dynamic> payments = [];
@@ -5679,30 +5742,70 @@ class _ChatState extends State<Chat> {
     setState(() => sending = true);
     try {
       final encrypted = await _encryptTextPayload(text);
-      final result = await app.api.call(
-          'POST', '/api/conversations/${widget.conversation['_id']}/messages', {
+      final clientMessageId =
+          '${DateTime.now().microsecondsSinceEpoch}-${app.user?['id'] ?? 'account'}';
+      final body = <String, dynamic>{
         ...encrypted,
+        'clientMessageId': clientMessageId,
         'expiryType': expiry,
         'expiresInSeconds': expiry == 'AFTER_TIME' ? 3600 : null,
         'replyTo': reply,
-      });
-      if (!mounted) return;
-      final sent = await _decryptMessage(
-          Map<String, dynamic>.from(result['message']));
-      final sentId = sent['_id']?.toString();
-      setState(() {
-        if (sentId == null ||
-            !messages.any(
-                (item) => item is Map && item['_id']?.toString() == sentId)) {
+      };
+      try {
+        final result = await app.api.call(
+          'POST',
+          '/api/conversations/${widget.conversation['_id']}/messages',
+          body,
+        );
+        if (!mounted) return;
+        final sent = await _decryptMessage(
+            Map<String, dynamic>.from(result['message']));
+        setState(() {
           messages = mergeMessages(messages, [sent]);
+          reply = null;
+        });
+        unawaited(_persistConversationMessages());
+        input.clear();
+        _scrollToLatestMessage();
+        _detectMemoryForMessage(sent);
+      } catch (error) {
+        // Do not queue authorization/validation errors: only transient network
+        // failures and server errors can be retried safely with the idempotency key.
+        if (error is ApiException &&
+            error.statusCode >= 400 &&
+            error.statusCode < 500) {
+          rethrow;
         }
-        reply = null;
-      });
-      unawaited(_persistConversationMessages());
-      input.clear();
-      _scrollToLatestMessage();
-      // Sent messages can contain useful reminders or personal details too.
-      _detectMemoryForMessage(sent);
+        final currentUserId = app.user?['id']?.toString() ?? '';
+        final pending = <String, dynamic>{
+          '_id': 'local-$clientMessageId',
+          'clientMessageId': clientMessageId,
+          'conversationId': widget.conversation['_id']?.toString(),
+          'senderId': currentUserId,
+          'createdAt': DateTime.now().toUtc().toIso8601String(),
+          'messageType': 'text',
+          'deliveryStatus': 'pending',
+          ...body,
+        };
+        await app.api.enqueuePendingMessage({
+          'conversationId': widget.conversation['_id']?.toString(),
+          'body': body,
+          'localMessage': pending,
+          'queuedAt': DateTime.now().toUtc().toIso8601String(),
+        });
+        if (!mounted) return;
+        final decryptedPending = await _decryptMessage(pending);
+        setState(() {
+          messages = mergeMessages(messages, [decryptedPending]);
+          reply = null;
+        });
+        unawaited(_persistConversationMessages());
+        input.clear();
+        _scrollToLatestMessage();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Saved on this device. Chatify will retry when online.'),
+        ));
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -5710,6 +5813,50 @@ class _ChatState extends State<Chat> {
       }
     } finally {
       if (mounted) setState(() => sending = false);
+    }
+  }
+
+  Future<void> _syncPendingMessages() async {
+    if (!mounted || app.api.token == null) return;
+    final conversationId = widget.conversation['_id']?.toString();
+    if (conversationId == null || conversationId.isEmpty) return;
+    final queued = await app.api.readPendingMessages();
+    for (final item in queued) {
+      if (item['conversationId']?.toString() != conversationId) continue;
+      final body = item['body'];
+      final clientMessageId = body is Map
+          ? body['clientMessageId']?.toString()
+          : null;
+      if (body is! Map || clientMessageId == null || clientMessageId.isEmpty) {
+        continue;
+      }
+      try {
+        final result = await app.api.call(
+          'POST',
+          '/api/conversations/$conversationId/messages',
+          Map<String, dynamic>.from(body),
+        );
+        final raw = result['message'];
+        if (raw is! Map) continue;
+        final sent = await _decryptMessage(Map<String, dynamic>.from(raw));
+        await app.api.removePendingMessage(clientMessageId);
+        if (!mounted) return;
+        setState(() {
+          messages = mergeMessages(messages, [sent]);
+        });
+        unawaited(_persistConversationMessages());
+        _scrollToLatestMessage();
+      } catch (error) {
+        // Validation/auth errors cannot be repaired by an automatic retry.
+        // Keep the item for user-visible recovery, but stop retrying this queue
+        // on this pass to avoid hammering the API.
+        if (error is ApiException &&
+            error.statusCode >= 400 &&
+            error.statusCode < 500) {
+          break;
+        }
+        break;
+      }
     }
   }
 
@@ -6928,6 +7075,7 @@ class _ChatState extends State<Chat> {
     app.removeListener(_syncPresence);
     _typingTimer?.cancel();
     _remoteTypingTimer?.cancel();
+    _pendingMessageSyncTimer?.cancel();
     if (_isTyping) socket?.emit('typing:stop', widget.conversation['_id']);
     socket?.dispose();
     _messagesScrollController.dispose();
