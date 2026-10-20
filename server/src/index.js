@@ -228,6 +228,39 @@ app.get('/api/admin/payments',auth,requireAdmin,async(q,r)=>{
   r.json({payments,total,page,limit});
 });
 
+// Store the platform fee destination separately from individual user and merchant accounts.
+const PlatformFeeSettings=mongoose.models.PlatformFeeSettings||mongoose.model('PlatformFeeSettings',new mongoose.Schema({
+  key:{type:String,unique:true,default:'global'},
+  enabled:{type:Boolean,default:true},
+  feeRate:{type:Number,min:0,max:5,default:0.5},
+  walletType:{type:String,enum:['mpesa_phone','mpesa_paybill','mpesa_till'],default:'mpesa_phone'},
+  walletPhone:{type:String,default:''},
+  paybillNumber:{type:String,default:''},
+  tillNumber:{type:String,default:''},
+  accountReference:{type:String,default:'CHATIFY-FEE'},
+  updatedBy:{type:O,default:null},
+},{timestamps:true}));
+app.get('/api/admin/platform-fee-settings',auth,requireAdmin,async(q,r)=>{
+  const settings=await PlatformFeeSettings.findOne({key:'global'}).lean();
+  // Only public destination details are stored here; Daraja credentials remain in server secrets.
+  r.json({settings:settings||{enabled:true,feeRate:0.5,walletType:'mpesa_phone',walletPhone:'',paybillNumber:'',tillNumber:'',accountReference:'CHATIFY-FEE'}});
+});
+app.put('/api/admin/platform-fee-settings',auth,requireAdmin,async(q,r)=>{
+  const body=q.body||{};
+  const walletType=String(body.walletType||'');
+  const feeRate=Number(body.feeRate);
+  const walletPhone=String(body.walletPhone||'').trim().replace(/^\\+/,'');
+  const paybillNumber=String(body.paybillNumber||'').trim();
+  const tillNumber=String(body.tillNumber||'').trim();
+  const accountReference=String(body.accountReference||'CHATIFY-FEE').trim().slice(0,80);
+  if(!['mpesa_phone','mpesa_paybill','mpesa_till'].includes(walletType))return r.status(400).json({error:'Choose an M-Pesa phone, Paybill or Till wallet'});
+  if(!Number.isFinite(feeRate)||feeRate<0||feeRate>5)return r.status(400).json({error:'Fee rate must be between 0 and 5 percent'});
+  if(walletType==='mpesa_phone'&&!/^254[17][0-9]{8}$/.test(walletPhone))return r.status(400).json({error:'Enter the platform wallet phone in 254XXXXXXXXX format'});
+  if(walletType==='mpesa_paybill'&&!/^[0-9]{5,10}$/.test(paybillNumber))return r.status(400).json({error:'Enter a valid platform Paybill number'});
+  if(walletType==='mpesa_till'&&!/^[0-9]{5,10}$/.test(tillNumber))return r.status(400).json({error:'Enter a valid platform Till number'});
+  const settings=await PlatformFeeSettings.findOneAndUpdate({key:'global'},{$set:{enabled:body.enabled!==false,feeRate,walletType,walletPhone:walletType==='mpesa_phone'?walletPhone:'',paybillNumber:walletType==='mpesa_paybill'?paybillNumber:'',tillNumber:walletType==='mpesa_till'?tillNumber:'',accountReference,updatedBy:q.user._id}},{new:true,upsert:true,runValidators:true,setDefaultsOnInsert:true});
+  r.json({settings});
+});
 app.post('/api/auth/forgot-password',recoveryRateLimit,async(q,r)=>{
   const email=typeof q.body?.email==='string'?q.body.email.trim().toLowerCase():'';
   if(email.length>254||!/^\S+@\S+\.\S+$/.test(email))return r.status(400).json({error:'Enter a valid email address'});
