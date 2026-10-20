@@ -122,7 +122,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
     reference: {type: String, required: true},
     amount: {type: Number, required: true, min: 1, max: 150000},
     baseAmount: {type: Number, required: true, min: 1, max: 150000},
-    platformFee: {type: Number, default: 0, min: 0, max: 0},
+    platformFee: {type: Number, default: 0, min: 0},
     totalAmount: {type: Number, required: true, min: 1, max: 150000},
     platformFeeRate: {type: Number, default: 0},
     feeCollectionMode: {type:String, enum:['combined','separate'], default:'combined'},
@@ -501,7 +501,6 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
         confirmedAt: new Date(),
       }}, {new: true});
       if (!charge) return res.status(409).json({error: 'Payment is not pending, does not exist, or has already been reconciled'});
-      await recordPosPlatformFee(charge, receipt);
       return res.json({charge: {paymentId: charge.paymentId, reference: charge.reference, status: charge.status, providerReceipt: charge.providerReceipt, confirmationSource: charge.confirmationSource, confirmedAt: charge.confirmedAt}});
     } catch (error) {
       if (error?.code === 11000) return res.status(409).json({error: 'That M-Pesa receipt has already been used for another sale'});
@@ -554,7 +553,6 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
       // Unique providerReceipt prevents a single M-Pesa receipt paying multiple sales.
       if (!charge && await Charge.exists({providerReceipt: receipt})) {
         const existing = await Charge.findOne({providerReceipt: receipt});
-        if (existing) await recordPosPlatformFee(existing, receipt);
         return res.status(200).json({ResultCode: 0, ResultDesc: 'Duplicate receipt ignored'});
       }
       
