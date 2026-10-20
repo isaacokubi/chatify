@@ -53,11 +53,11 @@ test('school receipt emails can be delivered through the configured email transp
 });
 
 test('parents and staff can only address messages to their school inbox', () => {
-  assert.deepEqual(resolveSchoolMessageDestination('parent', 'all_school', undefined), { audience: 'all_school', recipientId: undefined });
-  assert.deepEqual(resolveSchoolMessageDestination('staff', 'all_school', undefined), { audience: 'all_school', recipientId: undefined });
+  assert.deepEqual(resolveSchoolMessageDestination('parent', 'school_inbox', undefined), { audience: 'school_inbox', recipientId: undefined });
+  assert.deepEqual(resolveSchoolMessageDestination('staff', 'school_inbox', undefined), { audience: 'school_inbox', recipientId: undefined });
   assert.match(resolveSchoolMessageDestination('parent', 'direct', 'platform-admin-id').error, /school inbox/i);
   assert.match(resolveSchoolMessageDestination('staff', 'direct', 'platform-admin-id').error, /school inbox/i);
-  assert.match(resolveSchoolMessageDestination('parent', 'all_school', 'platform-admin-id').error, /school inbox/i);
+  assert.match(resolveSchoolMessageDestination('parent', 'school_inbox', 'platform-admin-id').error, /school inbox/i);
 });
 
 test('school administrators retain supported direct and announcement destinations', () => {

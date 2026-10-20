@@ -2979,7 +2979,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       await app.api.call('POST','/api/schools/$id/messages', {
         'body': messageBody.text.trim(),
         'subject': messageSubject.text.trim(),
-        'audience': schoolInboxOnly ? 'all_school' : audience,
+        'audience': schoolInboxOnly ? 'school_inbox' : audience,
         if (!schoolInboxOnly && audience == 'direct') 'recipientId': recipientIdController.text.trim(),
       });
       messageBody.clear(); messageSubject.clear(); await loadSection();

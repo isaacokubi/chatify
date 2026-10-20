@@ -70,13 +70,13 @@ export function normalizeSchoolPaymentProfile(input = {}) {
 
 export function resolveSchoolMessageDestination(role, requestedAudience, recipientId) {
   const audience = String(requestedAudience || 'direct');
-  const allowed = ['direct', 'all_parents', 'all_staff', 'all_school'];
+  const allowed = ['direct', 'all_parents', 'all_staff', 'all_school', 'school_inbox'];
   if (!['admin', 'staff', 'parent'].includes(role)) return { error: 'Your school role cannot send messages.' };
   if (['parent', 'staff'].includes(role)) {
-    if (audience !== 'all_school' || recipientId) {
+    if (audience !== 'school_inbox' || recipientId) {
       return { error: 'Parents and staff must send messages to their school inbox; individual platform administrator recipients are not available.' };
     }
-    return { audience: 'all_school', recipientId: undefined };
+    return { audience: 'school_inbox', recipientId: undefined };
   }
   if (!allowed.includes(audience)) return { error: 'Unsupported message audience.' };
   return { audience, recipientId: audience === 'direct' ? recipientId : undefined };
@@ -129,7 +129,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
     schoolId: { type: O, required: true, index: true },
     senderId: { type: O, required: true },
     recipientId: { type: O, index: true },
-    audience: { type: String, enum: ['direct','all_parents','all_staff','all_school'], default: 'direct' },
+    audience: { type: String, enum: ['direct','all_parents','all_staff','all_school','school_inbox'], default: 'direct' },
     subject: { type: String, trim: true, maxlength: 160 },
     body: { type: String, required: true, trim: true, maxlength: 5000 },
   }, { timestamps: true }));
@@ -454,8 +454,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider 
       const visibility = member.role === 'parent'
         ? { $or: [{ audience: 'all_parents' }, { audience: 'all_school' }, { senderId: req.user._id }, { recipientId: req.user._id }] }
         : member.role === 'staff'
-          ? { $or: [{ audience: 'all_staff' }, { audience: 'all_school' }, { senderId: req.user._id }, { recipientId: req.user._id }] }
-          : { $or: [{ audience: { $in: ['all_parents','all_staff','all_school'] } }, { senderId: req.user._id }, { recipientId: req.user._id }] };
+          ? { $or: [{ audience: 'all_staff' }, { audience: 'all_school' }, { audience: 'school_inbox' }, { senderId: req.user._id }, { recipientId: req.user._id }] }
+          : { $or: [{ audience: { $in: ['all_parents','all_staff','all_school','school_inbox'] } }, { senderId: req.user._id }, { recipientId: req.user._id }] };
       const page = pageOptions(req);
       const filter = { schoolId: req.params.schoolId, ...visibility };
       const [messages, total] = await Promise.all([
