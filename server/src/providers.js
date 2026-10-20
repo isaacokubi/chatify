@@ -63,6 +63,7 @@ export function createStorageProvider(config = {}, transport) {
       name: 'unavailable',
       available: false,
       upload: async () => { throw new Error('Image storage is not configured'); },
+      uploadMedia: async () => { throw new Error('Media storage is not configured'); },
     };
   }
   if (cloudinaryUrl) {
@@ -71,6 +72,14 @@ export function createStorageProvider(config = {}, transport) {
       name: 'cloudinary',
       available: true,
       upload: file => uploadToCloudinary(file, cloudinary.uploader),
+      uploadMedia: async file => {
+        if (!['video/mp4','video/quicktime','video/webm'].includes(file.mimeType) || typeof file.data !== 'string' || file.data.length > 11 * 1024 * 1024) throw new Error('Choose a supported video no larger than 8 MB');
+        const result = await cloudinary.uploader.upload(`data:${file.mimeType};base64,${file.data}`, {
+          resource_type: 'video', allowed_formats: ['mp4','mov','webm'], folder: 'chatify/sparks', unique_filename: true, overwrite: false,
+        });
+        if (typeof result?.secure_url !== 'string' || !/^https:\/\//i.test(result.secure_url)) throw new Error('Video storage returned an invalid secure URL');
+        return {mediaUrl: result.secure_url};
+      },
     };
   }
   return {
@@ -80,6 +89,10 @@ export function createStorageProvider(config = {}, transport) {
       mediaUrl: file.path || `data:${file.mimeType};base64,${file.data}`,
       mock: true,
     }),
+    uploadMedia: async file => {
+      if (!['video/mp4','video/quicktime','video/webm'].includes(file.mimeType) || typeof file.data !== 'string' || file.data.length > 11 * 1024 * 1024) throw new Error('Choose a supported video no larger than 8 MB');
+      return {mediaUrl: `data:${file.mimeType};base64,${file.data}`, mock: true};
+    },
   };
 }
 
