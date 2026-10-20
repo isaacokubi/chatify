@@ -2828,8 +2828,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           assessments = List<dynamic>.from(results[1]['assessments'] ?? []);
           recordTotal = (results[1]['total'] as num?)?.toInt() ?? 0;
         }
-        if (attendanceStudentId.isEmpty && students.isNotEmpty) attendanceStudentId = students.first['_id']?.toString() ?? '';
-        if (assessmentStudentId.isEmpty && students.isNotEmpty) assessmentStudentId = students.first['_id']?.toString() ?? '';
+        if (!students.any((student) => student['_id']?.toString() == attendanceStudentId)) {
+          attendanceStudentId = students.isNotEmpty ? (students.first['_id']?.toString() ?? '') : '';
+        }
+        if (!students.any((student) => student['_id']?.toString() == assessmentStudentId)) {
+          assessmentStudentId = students.isNotEmpty ? (students.first['_id']?.toString() ?? '') : '';
+        }
       }
     } catch (e) { error = e.toString(); }
     if (mounted) setState(() => loading = false);
