@@ -36,7 +36,7 @@ export function createPlatformFeeCollector({ mongoose, env = process.env }) {
     const base = String(env.PUBLIC_API_URL || env.API_URL || '').trim();
     if (!configured && !base) throw new Error('Set PLATFORM_FEE_MPESA_CALLBACK_URL or PUBLIC_API_URL/API_URL for platform fee callbacks');
     const url = configured ? new URL(configured) : new URL('/api/payments/platform-fee/callback', base.replace(/\/$/, ''));
-    if (url.protocol !== 'https:') throw new Error('Platform fee callback URL must use HTTPS');
+    if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/api/payments/platform-fee/callback') throw new Error('Platform fee callback URL must be HTTPS and point to /api/payments/platform-fee/callback');
     return url.toString();
   };
   const providerFor = (settings) => {
@@ -71,7 +71,7 @@ export function createPlatformFeeCollector({ mongoose, env = process.env }) {
     const record = await Collection.create({paymentId, source, payerPhone:phone, baseAmount, feeAmount:fee, walletType:settings.walletType, walletNumber, accountReference:settings.accountReference || 'CHATIFY-FEE'});
     try {
       const provider = providerFor(settings);
-      const refs = await provider.initiate({paymentId:('FEE'+paymentId).replace(/[^A-Za-z0-9]/g,'').slice(-12), amount:feeAmount, phone, description:'Chatify fee'});
+      const refs = await provider.initiate({paymentId:('FEE'+paymentId).replace(/[^A-Za-z0-9]/g,'').slice(-12), amount:fee, phone, description:'Chatify fee'});
       const updated = await Collection.findOneAndUpdate({_id:record._id,status:'PENDING_INITIATION'},{$set:{status:'PENDING',checkoutRequestId:refs.checkoutRequestId,merchantRequestId:refs.merchantRequestId}},{new:true});
       return updated?.toObject() || record.toObject();
     } catch (error) {
