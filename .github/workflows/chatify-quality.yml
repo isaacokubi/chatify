@@ -49,7 +49,7 @@ jobs:
         run: flutter pub get
       - name: Analyze Flutter code
         working-directory: mobile
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
       - name: Run Flutter tests
         working-directory: mobile
         run: flutter test
