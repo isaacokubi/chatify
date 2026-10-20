@@ -6,7 +6,7 @@ This is a dated record of checks actually run for the Chatify repair and demo se
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Backend tests: `cd server && npm test` | **152 passed, 0 failed, 0 skipped** | Node test runner summary; includes API startup and seed configuration/session tests. |
+| Backend tests: `cd server && npm test` | **154 passed, 0 failed, 0 skipped** | Post-rebase Node test runner summary; includes API startup and seed configuration/session tests. |
 | Backend syntax/lint: `cd server && npm run lint` | **Passed** | All configured `node --check` entries completed. |
 | Seed and config syntax | **Passed** | `node --check src/seed.js` and `node --check src/seedConfig.js`. |
 | Dependency inventory: `cd server && npm ls --depth=0` | **Passed** | All declared top-level dependencies resolved. |
@@ -20,7 +20,7 @@ This is a dated record of checks actually run for the Chatify repair and demo se
 
 ## Backend test suites included in `npm test`
 
-All 31 test files below passed as part of the 152-case backend run:
+All 31 test files below passed as part of the 154-case backend run:
 
 - `server/src/auth.test.js`
 - `server/src/business-customer-import.test.js`
