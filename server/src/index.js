@@ -353,8 +353,8 @@ app.post('/api/payments/send-stk',auth,async(q,r)=>{
   const phone=normalizeMpesaPhone(b.phone);
   if(!phone||!validPaymentAmount(b.amount)||typeof b.description!=='string'||!b.description.trim()||b.description.trim().length>80)
     return r.status(400).json({error:'Enter a valid Kenyan M-Pesa number, a whole KSh amount from 1 to 150000, and a description up to 80 characters'});
-  let fee;try{fee=calculatePaymentTotal(b.amount);}catch(error){return r.status(400).json({error:error.message});}
-  if(b.feeAcknowledged!==true)return r.status(400).json({error:'Confirm the disclosed 0.5% platform fee before requesting an STK prompt',baseAmount:fee.baseAmount,platformFee:fee.platformFee,totalAmount:fee.totalAmount,platformFeeRate:fee.platformFeeRate});
+  // Generic self-STK is not a business invoice or school-fee checkout, so it is fee-free.
+  const fee=calculatePaymentTotal(b.amount,{applicable:false});
   let conversationId;
   if(b.conversationId){
     if(!mongoose.isValidObjectId(b.conversationId))return r.status(400).json({error:'Invalid conversation'});
