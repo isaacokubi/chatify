@@ -4519,6 +4519,7 @@ class _HomeState extends State<Home> {
   bool showMemoriesInChats = false;
   static const int _homePageSize = 20;
   int chatPage = 1, chatTotal = 0, memoryPage = 1, memoryTotal = 0, contactsPage = 1, contactsTotal = 0;
+  final Map<int, String> chatCursors = {}, memoryCursors = {};
   List<dynamic> chats = [], users = [], memories = [];
   bool loading = false;
   bool offlineDataMode = false;
@@ -4623,8 +4624,18 @@ class _HomeState extends State<Home> {
     // not replace usable content with a full-screen spinner.
     if (chats.isEmpty) setState(() => loading = true);
     try {
-      final result = await app.api.call(
-          'GET', '/api/conversations?page=$chatPage&limit=$_homePageSize');
+      if (chatPage == 1) chatCursors.clear();
+      final cursor = chatCursors[chatPage];
+      final path = cursor == null
+          ? '/api/conversations?page=$chatPage&limit=$_homePageSize'
+          : '/api/conversations?limit=$_homePageSize&cursor=${Uri.encodeQueryComponent(cursor)}';
+      final result = await app.api.call('GET', path);
+      final nextCursor = result['nextCursor'];
+      if (nextCursor is String && nextCursor.isNotEmpty) {
+        chatCursors[chatPage + 1] = nextCursor;
+      } else {
+        chatCursors.remove(chatPage + 1);
+      }
       chats = List<dynamic>.from(result['conversations'] ?? []);
       chatTotal = (result['total'] as num?)?.toInt() ?? chats.length;
       chatsError = null;
@@ -4668,8 +4679,18 @@ class _HomeState extends State<Home> {
   Future<void> loadMemories() async {
     if (memories.isEmpty) setState(() => memoriesLoading = true);
     try {
-      final result = await app.api
-          .call('GET', '/api/memories?page=$memoryPage&limit=$_homePageSize');
+      if (memoryPage == 1) memoryCursors.clear();
+      final cursor = memoryCursors[memoryPage];
+      final path = cursor == null
+          ? '/api/memories?page=$memoryPage&limit=$_homePageSize'
+          : '/api/memories?limit=$_homePageSize&cursor=${Uri.encodeQueryComponent(cursor)}';
+      final result = await app.api.call('GET', path);
+      final nextCursor = result['nextCursor'];
+      if (nextCursor is String && nextCursor.isNotEmpty) {
+        memoryCursors[memoryPage + 1] = nextCursor;
+      } else {
+        memoryCursors.remove(memoryPage + 1);
+      }
       memories = List<dynamic>.from(result['memories'] ?? []);
       memoryTotal = (result['total'] as num?)?.toInt() ?? memories.length;
       memoriesError = null;
