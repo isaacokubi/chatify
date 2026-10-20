@@ -106,7 +106,8 @@ void main() {
 
   test('saved account opens from local cache when the API is offline', () async {
     SharedPreferences.setMockInitialValues({});
-    final setupApi = Api()..token = 'offline-account-token';
+    final setupApi = Api();
+    await setupApi.saveToken('offline-account-token');
     await setupApi.writeCachedUser({
       'id': 'user-1',
       'name': 'Offline User',
@@ -115,8 +116,7 @@ void main() {
     final client = MockClient((_) async {
       throw http.ClientException('No internet connection');
     });
-    final app = AppState(api: Api(client: client), autoInit: false)
-      ..api.token = 'offline-account-token';
+    final app = AppState(api: Api(client: client), autoInit: false);
     // Use the same mocked secure store and token scope as the previous API.
     await app.init();
     expect(app.ready, isTrue);
