@@ -6741,8 +6741,14 @@ class _ChatState extends State<Chat> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            'Image upload or send failed. Attachments are not queued offline. '
+            'Check the conversation before retrying to avoid duplicates. '
+            'Details: $error',
+          ),
+          duration: const Duration(seconds: 6),
+        ));
       }
     }
   }
