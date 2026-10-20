@@ -7,28 +7,31 @@ export const PLATFORM_FEE_BASIS_POINTS = 50; // 0.50% of the pre-fee amount.
 
 // M-Pesa amounts are whole KSh. Round the disclosed fee up to the next shilling
 // so the platform never silently charges less than the configured 0.50% rate.
-export function calculatePlatformFee(amount) {
+export function calculatePlatformFee(amount, feeRate = 0.5) {
   if (!Number.isSafeInteger(amount) || amount < 1) throw new Error('Fee base must be a positive whole KSh amount');
-  return Math.ceil((amount * PLATFORM_FEE_BASIS_POINTS) / 10000);
+  if (!Number.isFinite(feeRate) || feeRate < 0 || feeRate > 5) throw new Error('Platform fee rate must be between 0 and 5 percent');
+  if (feeRate === 0) return 0;
+  // Convert the percentage to basis points and round up to a whole KSh for M-Pesa.
+  return Math.ceil((amount * feeRate * 100) / 10000);
 }
 
 // Calculate the amount payable for a category that explicitly opts into the platform fee.
  // Personal transfers must call this with applicable:false (or use no fee fields).
-export function calculatePaymentTotal(amount, {applicable = true} = {}) {
+export function calculatePaymentTotal(amount, {applicable = true, feeRate = 0.5} = {}) {
   if (!Number.isSafeInteger(amount) || amount < 1 || amount > MAX_PAYMENT_AMOUNT) {
     throw new Error(`Payment base must be a positive whole-KSh amount no greater than KSh ${MAX_PAYMENT_AMOUNT}`);
   }
   // Keep ordinary transfers fee-free; Safaricom's own charges are separate provider charges.
-  if (!applicable) {
+  if (!applicable || feeRate === 0) {
     return {baseAmount: amount, platformFee: 0, totalAmount: amount, platformFeeRate: 0, platformFeeStatus: 'NOT_APPLICABLE'};
   }
-  // Only opted-in business/school-fee workflows calculate the platform's 0.5% fee.
-  const platformFee = calculatePlatformFee(amount);
+  // Only opted-in business/school-fee workflows calculate the configured platform fee.
+  const platformFee = calculatePlatformFee(amount, feeRate);
   const totalAmount = amount + platformFee;
   if (!Number.isSafeInteger(totalAmount) || totalAmount > MAX_PAYMENT_AMOUNT) {
     throw new Error(`Amount plus the 0.5% platform fee must not exceed KSh ${MAX_PAYMENT_AMOUNT}`);
   }
-  return {baseAmount: amount, platformFee, totalAmount, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_PAYMENT'};
+  return {baseAmount: amount, platformFee, totalAmount, platformFeeRate: feeRate, platformFeeStatus: 'PENDING_PAYMENT'};
 }
 
 export function normalizeMpesaPhone(value) {
