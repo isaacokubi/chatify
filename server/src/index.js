@@ -26,6 +26,7 @@ import {registerBusinessCustomerImportRoutes} from './business-customer-import.j
 import {registerBusinessPublicApiRoutes} from './business-public-api.js';
 import {registerPublicStatusRoute} from './service-status.js';
 import {registerSchoolRoutes} from './school.js';
+import {createPlatformFeeCollector} from './platform-fee-collection.js';
 import {unhideConversationForUser} from './conversation-visibility.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
@@ -40,6 +41,7 @@ const emailProvider=createEmailProvider({smtpUrl:process.env.SMTP_URL,from:proce
 const storageProvider=createStorageProvider({cloudinaryUrl:process.env.CLOUDINARY_URL,production:process.env.NODE_ENV==='production'});
 const notificationProvider=createNotificationProvider({fcmProjectId:process.env.FCM_PROJECT_ID,serviceAccountJson:process.env.FIREBASE_SERVICE_ACCOUNT_JSON,production});
 const mpesaProvider=resolveMpesaProvider(process.env);
+// The platform fee collector uses separate platform-owned Daraja credentials; it never reuses a merchant or school's shortcode.
 const app=express(); app.set('trust proxy', 1); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb',verify:(req,res,buffer)=>{if(req.originalUrl?.startsWith('/api/business/payments/stripe/webhook')||req.originalUrl?.startsWith('/api/business/billing/webhook'))req.rawBody=Buffer.from(buffer);}})); app.use(rateLimit({windowMs:900000,max:300,standardHeaders:true,legacyHeaders:false}));
 const authRateLimitHandler=(_req,res)=>res.status(429).json({error:'Too many authentication attempts. Please wait before trying again.'});
 const loginRateLimit=rateLimit({windowMs:15*60*1000,max:10,standardHeaders:true,legacyHeaders:false,handler:authRateLimitHandler});
@@ -48,6 +50,7 @@ const recoveryRateLimit=rateLimit({windowMs:15*60*1000,max:5,standardHeaders:tru
 const verificationRateLimit=rateLimit({windowMs:15*60*1000,max:20,standardHeaders:true,legacyHeaders:false,handler:authRateLimitHandler});
 // MongoDB schemas below describe the durable records used by the app.
 const O=mongoose.Schema.Types.ObjectId;
+const platformFeeCollector=createPlatformFeeCollector({mongoose,env:process.env});
 // User accounts include password hashes, profile/privacy settings, blocked users and push-notification tokens.
 const User=mongoose.model('User',new mongoose.Schema({name:{type:String,required:true,trim:true,maxlength:80},email:{type:String,unique:true,lowercase:true,trim:true,required:true},sessionVersion:{type:Number,default:0},phone:String,encryptionPublicKey:{type:String,select:true},passwordHash:{type:String,required:true},emailVerified:{type:Boolean,default:true},emailVerificationTokenHash:String,emailVerificationExpiresAt:Date,profileImage:String,status:{type:String,default:'active'},role:{type:String,enum:['user','admin'],default:'user',index:true},demoSeedKey:{type:String,select:false},lastSeen:Date,privacy:{lastSeen:{type:Boolean,default:true},readReceipts:{type:Boolean,default:true}},blockedUsers:[O],pushTokens:{type:[String],default:[]},notificationPreferences:{messages:{type:Boolean,default:true},mentions:{type:Boolean,default:true},memories:{type:Boolean,default:true}}},{timestamps:true}));
 User.schema.index({name:'text',email:'text'});
@@ -75,7 +78,7 @@ const PasswordReset=mongoose.model('PasswordReset',new mongoose.Schema({userId:{
 // Payment records track requester/payer, amount, provider references and lifecycle status.
 const Payment=mongoose.model('Payment',new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},requesterId:{type:O,required:true,index:true},payerId:{type:O,required:true,index:true},conversationId:{type:O,index:true},amount:{type:Number,required:true,min:1,max:150000},baseAmount:{type:Number,min:1,max:150000},platformFee:{type:Number,min:0,max:750,default:0},totalAmount:{type:Number,min:1,max:150000},platformFeeRate:{type:Number,default:0},platformFeeStatus:{type:String,enum:['NOT_APPLICABLE','PENDING_PAYMENT','PENDING_SETTLEMENT','SETTLED','FAILED'],default:'NOT_APPLICABLE'},recipientPhone:{type:String},payerPhone:{type:String},phone:{type:String},businessOrganizationId:{type:O,index:true},businessDocumentId:{type:O,index:true},description:{type:String,required:true,maxlength:80},purpose:{type:String,enum:['REQUEST','SELF_STK'],default:'REQUEST'},status:{type:String,enum:PAYMENT_STATUSES,default:'PENDING',index:true},provider:{type:String,required:true},checkoutRequestId:{type:String,sparse:true,index:true},merchantRequestId:String,resultCode:Number,resultDescription:String,requestedAt:{type:Date,required:true},initiating:{type:Boolean,default:false},initiatedAt:Date,completedAt:Date,callbackProcessedAt:Date,dismissedBy:{type:[O],default:[]}},{timestamps:true}));
 Payment.schema.index({checkoutRequestId:1,merchantRequestId:1},{unique:true,sparse:true});
-const PlatformFeeLedger=mongoose.models.PlatformFeeLedger||mongoose.model('PlatformFeeLedger',new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},source:{type:String,enum:['personal_request','business_checkout','business_pos'],required:true},businessOrganizationId:{type:O,index:true},baseAmount:{type:Number,required:true,min:1},feeAmount:{type:Number,required:true,min:1},totalAmount:{type:Number,required:true,min:1},currency:{type:String,default:'KES'},status:{type:String,enum:['PENDING_SETTLEMENT','SETTLED','REVERSED'],default:'PENDING_SETTLEMENT',index:true},providerReceipt:{type:String,default:null},confirmedAt:{type:Date,required:true}},{timestamps:true}));
+const PlatformFeeLedger=mongoose.models.PlatformFeeLedger||mongoose.model('PlatformFeeLedger',new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},source:{type:String,enum:['personal_request','business_checkout','business_pos','school_fee'],required:true},businessOrganizationId:{type:O,index:true},baseAmount:{type:Number,required:true,min:1},feeAmount:{type:Number,required:true,min:1},totalAmount:{type:Number,required:true,min:1},currency:{type:String,default:'KES'},status:{type:String,enum:['PENDING_SETTLEMENT','SETTLED','REVERSED'],default:'PENDING_SETTLEMENT',index:true},providerReceipt:{type:String,default:null},confirmedAt:{type:Date,required:true}},{timestamps:true}));
 async function recordPlatformFee(payment,source='personal_request',providerReceipt=null){if(!payment||!payment.platformFee||payment.platformFeeStatus==='NOT_APPLICABLE')return;await Payment.updateOne({paymentId:payment.paymentId,status:'SUCCESS'},{$set:{platformFeeStatus:'PENDING_SETTLEMENT'}});await PlatformFeeLedger.updateOne({paymentId:payment.paymentId},{$setOnInsert:{paymentId:payment.paymentId,source,businessOrganizationId:payment.businessOrganizationId||undefined,baseAmount:payment.baseAmount??payment.amount,feeAmount:payment.platformFee,totalAmount:payment.totalAmount??payment.amount,currency:'KES',status:'PENDING_SETTLEMENT',providerReceipt,confirmedAt:payment.completedAt||new Date()}},{upsert:true});}
 const safe=u=>({id:String(u._id),name:u.name,email:u.email,emailVerified:u.emailVerified!==false,phone:u.phone,encryptionPublicKey:u.encryptionPublicKey,profileImage:u.profileImage,status:u.status,role:u.role||'user',lastSeen:u.lastSeen,privacy:u.privacy,notificationPreferences:u.notificationPreferences});
 const visibleUser=u=>{const value=u.toObject?u.toObject():{...u};if(value.privacy?.lastSeen===false)delete value.lastSeen;return value;};
@@ -89,9 +92,9 @@ const server=http.createServer(app); const io=new Server(server,{cors:{origin:co
 const revokeUserSockets=userId=>io.in('user:'+String(userId)).disconnectSockets(true);
 // Register Business routes only after auth and Socket.IO exist. Registering earlier hits
 // JavaScript's temporal-dead-zone for these const bindings and prevents the API from booting.
-registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io,mpesaProvider});
+registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io,mpesaProvider,platformFeeCollector});
 // In-person merchant checkout routes depend on the organization model created above.
-registerBusinessPosRoutes({app,auth,mongoose,mpesaProvider});
+registerBusinessPosRoutes({app,auth,mongoose,mpesaProvider,platformFeeCollector});
 // Register additional enterprise tools only after the core Business models and auth are available.
 registerBusinessEnterpriseRoutes({app,auth,mongoose});
 registerBusinessSearchRoutes({app,auth,mongoose});
@@ -105,7 +108,7 @@ registerBusinessReviewRoutes({app,auth,mongoose});
 registerBusinessCustomerImportRoutes({app,auth,mongoose});
 registerBusinessPublicApiRoutes({app,auth,mongoose});
 registerPublicStatusRoute({app,mongoose});
-registerSchoolRoutes({app,auth,mongoose,User,emailProvider});
+registerSchoolRoutes({app,auth,mongoose,User,emailProvider,platformFeeCollector});
 io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);const account=await User.findOne({_id:s.user.sub,status:'active'}).select('sessionVersion').lean();if(!account||Number(s.user.sv??0)!==Number(account.sessionVersion??0))throw new Error('Inactive or revoked session');n();}catch{n(new Error('Unauthorized'));}});
 const onlineUsers=new Set();
 const leaveUserConversation=(userId,conversationId)=>io.in('user:'+String(userId)).socketsLeave(String(conversationId));
@@ -240,6 +243,8 @@ const PlatformFeeSettings=mongoose.models.PlatformFeeSettings||mongoose.model('P
   accountReference:{type:String,default:'CHATIFY-FEE'},
   updatedBy:{type:O,default:null},
 },{timestamps:true}));
+// Platform-owned STK callback: only the collector's exact request IDs, expected fee amount, payer phone and receipt can settle a fee.
+app.post('/api/payments/platform-fee/callback',async(q,r)=>{try{const result=await platformFeeCollector.processCallback(q.body?.Body?.stkCallback);if(result.error==='malformed')return r.status(400).json({error:'Malformed platform fee callback'});return r.json({ok:true,...result});}catch(error){console.error('Platform fee callback processing failed');return r.status(500).json({error:'Could not process platform fee callback'});}});
 app.get('/api/admin/platform-fee-settings',auth,requireAdmin,async(q,r)=>{
   const settings=await PlatformFeeSettings.findOne({key:'global'}).lean();
   // A saved destination is not proof that Daraja can automatically collect platform fees.
