@@ -21,6 +21,8 @@ jobs:
           node-version: 22
       # Use the committed lockfile so CI validates the exact dependency graph.
       - run: npm ci
+      # Fail CI on known high/critical advisories before releasing dependency changes.
+      - run: npm audit --audit-level=high
       - run: npm test
       - run: npm run lint
       - name: Validate backup and recovery shell scripts
