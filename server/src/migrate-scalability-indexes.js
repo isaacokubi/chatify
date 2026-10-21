@@ -51,6 +51,11 @@ const indexes=[
     keys:{participants:1,updatedAt:-1,_id:-1},
     options:{name:'participant_recent_conversations_v1'},
   },
+  {
+    collection:'sparks',
+    keys:{authorId:1,createdAt:-1,expiresAt:1},
+    options:{name:'spark_feed_author_created_expiry_v1'},
+  },
 ];
 
 try{
