@@ -91,6 +91,9 @@ const Spark=mongoose.models.Spark||mongoose.model('Spark',new mongoose.Schema({
   mediaUrl:{type:String,default:'',maxlength:12000000},
   expiresAt:{type:Date,required:true,index:{expires:0}},
 },{timestamps:true}));
+// Feed queries filter by author and expiry while sorting newest-first. This additive
+// compound index keeps contact-based Spark reads bounded as the collection grows.
+Spark.schema.index({authorId:1,createdAt:-1,expiresAt:1},{name:'spark_feed_author_created_expiry_v1'});
 
 SavedContact.schema.index({userId:1,contactUserId:1},{unique:true});
 // Durable idempotent push-notification outbox shared by API replicas.
