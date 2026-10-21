@@ -2894,6 +2894,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
+  // Retained for compatibility with the legacy platform-fee settings API; it is intentionally not shown because new transactions use workspace subscriptions, not percentage commissions.
+  // ignore: unused_element
   Widget _feeWalletSection(ThemeData theme) {
     final walletNeedsPhone = feeWalletType == 'mpesa_phone';
     final walletNeedsPaybill = feeWalletType == 'mpesa_paybill';
