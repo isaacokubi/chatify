@@ -894,9 +894,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         throw error;
       }
       if (!confirmed) return res.json({ ok: true, duplicate: true });
-      // The school receives only its school-fee amount; Chatify collects its fee in a separate platform-owned STK prompt.
-
-      catch (error) { console.error('School fee succeeded but separate Chatify fee collection could not start', {paymentReference:confirmed.paymentReference,stage:error?.stage||'configuration_or_unknown'}); }
+      // Chatify monetizes school workspaces through setup and subscription fees.
+      // Do not initiate a percentage-based second STK prompt for school-fee payments.
       res.json({ ok: true });
       deliverSchoolReceipt(confirmed._id).catch(error => console.error('School receipt delivery processing failed', { paymentReference: confirmed.paymentReference, message: String(error?.message || 'unknown').slice(0, 160) }));
       return;
