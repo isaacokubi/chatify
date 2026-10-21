@@ -69,6 +69,24 @@ test('API boots and Business endpoints return JSON auth errors', {timeout: 35000
   assert.match(response.headers.get('content-type') || '', /application\/json/i);
   assert.deepEqual(await response.json(), {error: 'Authentication required'});
 
+  // The Spark endpoint must exist on the API deployment. Without a token it should
+  // return the normal auth error, not a misleading "endpoint not found" response.
+  const sparksResponse = await fetch(`http://127.0.0.1:${port}/api/sparks`, {
+    signal: AbortSignal.timeout(1000),
+  });
+  assert.equal(sparksResponse.status, 401);
+  assert.match(sparksResponse.headers.get('content-type') || '', /application\/json/i);
+  assert.deepEqual(await sparksResponse.json(), {error: 'Authentication required'});
+
+  // The readiness endpoint must not report a disconnected database as healthy.
+  const healthResponse = await fetch(`http://127.0.0.1:${port}/api/health`, {
+    signal: AbortSignal.timeout(1000),
+  });
+  assert.equal(healthResponse.status, 503);
+  const health = await healthResponse.json();
+  assert.equal(health.ok, false);
+  assert.equal(health.database, 'disconnected');
+
   // Enterprise routes must also mount after the shared auth middleware and fail closed.
   const enterpriseResponse = await fetch(`http://127.0.0.1:${port}/api/business/organizations/000000000000000000000000/enterprise/overview`, {
     signal: AbortSignal.timeout(1000),
