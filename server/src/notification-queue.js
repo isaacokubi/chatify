@@ -5,7 +5,10 @@ export function notificationRetryDelayMs(attempts) {
   // Clamp exponent growth independently of the retry-count policy so the five-minute
   // ceiling is reachable and malformed/high attempt counts cannot overflow the exponent.
   const attempt = Math.max(1, Math.min(20, Number(attempts) || 1));
-  return Math.min(5 * 60_000, 1_000 * (2 ** attempt));
+  const delay = 1_000 * (2 ** attempt);
+  // The final allowed retry reaches the configured ceiling even when the raw
+  // exponential delay (256 seconds at attempt 8) falls just below five minutes.
+  return attempt >= MAX_NOTIFICATION_ATTEMPTS ? 5 * 60_000 : Math.min(5 * 60_000, delay);
 }
 
 // Retain completed/terminal queue metadata for 30 days for incident investigation.
