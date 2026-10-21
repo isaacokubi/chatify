@@ -43,7 +43,16 @@ const storageProvider=createStorageProvider({cloudinaryUrl:process.env.CLOUDINAR
 const notificationProvider=createNotificationProvider({fcmProjectId:process.env.FCM_PROJECT_ID,serviceAccountJson:process.env.FIREBASE_SERVICE_ACCOUNT_JSON,production});
 const mpesaProvider=resolveMpesaProvider(process.env);
 // The platform fee collector uses separate platform-owned Daraja credentials; it never reuses a merchant or school's shortcode.
-const app=express(); app.set('trust proxy', 1); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb',verify:(req,res,buffer)=>{if(req.originalUrl?.startsWith('/api/business/payments/stripe/webhook')||req.originalUrl?.startsWith('/api/business/billing/webhook'))req.rawBody=Buffer.from(buffer);}})); app.use(rateLimit({windowMs:900000,max:300,standardHeaders:true,legacyHeaders:false}));
+const app=express();
+// Lightweight deployment probe: lets clients/operators distinguish an outdated backend
+// from a missing authenticated endpoint without exposing secrets or user data.
+app.get('/api/health',(_req,res)=>res.json({
+  ok:true,
+  service:'chatify-api',
+  release:process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'main',
+  features:{sparks:true},
+}));
+app.set('trust proxy', 1); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb',verify:(req,res,buffer)=>{if(req.originalUrl?.startsWith('/api/business/payments/stripe/webhook')||req.originalUrl?.startsWith('/api/business/billing/webhook'))req.rawBody=Buffer.from(buffer);}})); app.use(rateLimit({windowMs:900000,max:300,standardHeaders:true,legacyHeaders:false}));
 const authRateLimitHandler=(_req,res)=>res.status(429).json({error:'Too many authentication attempts. Please wait before trying again.'});
 const loginRateLimit=rateLimit({windowMs:15*60*1000,max:10,standardHeaders:true,legacyHeaders:false,handler:authRateLimitHandler});
 const registrationRateLimit=rateLimit({windowMs:60*60*1000,max:5,standardHeaders:true,legacyHeaders:false,handler:authRateLimitHandler});
@@ -318,7 +327,10 @@ app.post('/api/users/:id/block',auth,async(q,r)=>{if(String(q.params.id)===Strin
 app.delete('/api/users/:id/block',auth,async(q,r)=>{q.user.blockedUsers.pull(q.params.id);await q.user.save();r.json({ok:true});});
 app.get('/api/users/blocked',auth,async(q,r)=>r.json({users:await User.find({_id:{$in:q.user.blockedUsers}}).select('name email profileImage')}));
 // CONTACT ROUTES: manage saved contacts while filtering inactive, self and blocked accounts.
-// Sparks: authenticated text updates visible to the author and their saved contacts.
+// Sparks endpoints are registered in this server entrypoint (not a separate router):
+// GET lists visible active Sparks; POST creates text/image/video Sparks; DELETE is owner-only.
+// All Spark requests require the normal bearer-token auth middleware.
+// Sparks: authenticated updates visible to the author and their saved contacts.
 app.get('/api/sparks',auth,async(q,r)=>{
   const contacts=await SavedContact.find({userId:q.user._id}).select('contactUserId').lean();
   const visibleIds=[q.user._id,...contacts.map(item=>item.contactUserId)];
