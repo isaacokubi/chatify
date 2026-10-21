@@ -54,7 +54,7 @@ export function createPlatformFeeCollector({ mongoose, env = process.env }) {
     }
     if (shortcode !== walletNumber) throw new Error('PLATFORM_FEE_MPESA_SHORTCODE must match the configured platform wallet number');
     if (env.NODE_ENV === 'production' && mode !== 'production') throw new Error('Production fee collection requires PLATFORM_FEE_MPESA_ENV=production');
-    return createDarajaProvider({mode, consumerKey, consumerSecret, shortcode, passkey, callbackUrl(), transactionType:settings.walletType === 'mpesa_till' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline'});
+    return createDarajaProvider({mode, consumerKey, consumerSecret, shortcode, passkey, callbackUrl:callbackUrl(), transactionType:settings.walletType === 'mpesa_till' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline'});
   };
 
   async function collect({paymentId, source, payerPhone, baseAmount, feeAmount}) {
