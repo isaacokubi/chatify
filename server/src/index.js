@@ -24,7 +24,7 @@ import {registerBusinessCustomerPortalRoutes} from './business-customer-portal.j
 import {registerBusinessReviewRoutes} from './business-reviews.js';
 import {registerBusinessCustomerImportRoutes} from './business-customer-import.js';
 import {registerBusinessPublicApiRoutes} from './business-public-api.js';
-import {registerPublicStatusRoute} from './service-status.js';
+import {registerPublicStatusRoute,buildHealthResponse} from './service-status.js';
 import {registerSchoolRoutes} from './school.js';
 import {createPlatformFeeCollector} from './platform-fee-collection.js';
 import {registerWorkspaceBillingRoutes,applyWorkspaceBillingPayment} from './workspace-billing.js';
@@ -46,12 +46,15 @@ const mpesaProvider=resolveMpesaProvider(process.env);
 const app=express();
 // Lightweight deployment probe: lets clients/operators distinguish an outdated backend
 // from a missing authenticated endpoint without exposing secrets or user data.
-app.get('/api/health',(_req,res)=>res.json({
-  ok:true,
-  service:'chatify-api',
-  release:process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'main',
-  features:{sparks:true},
-}));
+app.get('/api/health',(_req,res)=>{
+  // Readiness must reflect the database dependency; a live process with a disconnected
+  // database cannot safely accept normal application traffic.
+  const health=buildHealthResponse({
+    databaseReady:mongoose.connection.readyState===1,
+    release:process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'main',
+  });
+  res.status(health.statusCode).set('Cache-Control','no-store').json(health.body);
+});
 app.set('trust proxy', 1); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb',verify:(req,res,buffer)=>{if(req.originalUrl?.startsWith('/api/business/payments/stripe/webhook')||req.originalUrl?.startsWith('/api/business/billing/webhook'))req.rawBody=Buffer.from(buffer);}})); app.use(rateLimit({windowMs:900000,max:300,standardHeaders:true,legacyHeaders:false}));
 const authRateLimitHandler=(_req,res)=>res.status(429).json({error:'Too many authentication attempts. Please wait before trying again.'});
 const loginRateLimit=rateLimit({windowMs:15*60*1000,max:10,standardHeaders:true,legacyHeaders:false,handler:authRateLimitHandler});
