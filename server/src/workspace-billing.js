@@ -2,6 +2,7 @@
 // Uses the existing Payment lifecycle so STK prompts, idempotency and Safaricom callbacks
 // continue through the same payment state machine as the rest of Chatify.
 import { newPaymentId } from './payments.js';
+import { getWorkspaceBillingStatus } from './workspace-billing-access.js';
 
 const monthFrom = value => {
   const start = new Date(value);
@@ -142,15 +143,9 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
     const workspace = await findWorkspace(req.params.type, req.params.workspaceId, req.user._id);
     if (!workspace) return res.status(404).json({ error: 'Workspace not found or you are not its owner' });
     const settings = await Settings.findOne({ key: 'global' }).lean() || {};
-    const billing = workspace.billing || {};
-    const expiresAt = billing.subscriptionExpiresAt ? new Date(billing.subscriptionExpiresAt) : null;
-    const graceDays = Number(settings.gracePeriodDays ?? 3);
-    const graceEnd = expiresAt ? new Date(expiresAt.getTime() + graceDays * 86400000) : null;
-    const locked = billing.billingEnforced === true && (!billing.setupFeePaid || !expiresAt || graceEnd <= new Date());
+    const billingStatus = getWorkspaceBillingStatus(workspace, Number(settings.gracePeriodDays ?? 3));
     res.json({ workspace: { id: String(workspace._id), name: workspace.name, type: workspace.type }, billing: {
-      setupFeePaid: Boolean(billing.setupFeePaid), subscriptionExpiresAt: expiresAt,
-      status: !billing.billingEnforced ? 'LEGACY_GRANDFATHERED' : !billing.setupFeePaid ? 'SETUP_PAYMENT_REQUIRED' : !expiresAt ? 'SUBSCRIPTION_REQUIRED' : locked ? 'SUBSCRIPTION_EXPIRED' : 'ACTIVE',
-      locked, gracePeriodDays: graceDays,
+      ...billingStatus,
       prices: { setupFee: Number(settings[workspace.type + 'SetupFee'] ?? (workspace.type === 'business' ? 1000 : 5000)), monthlyFee: Number(settings[workspace.type + 'MonthlyFee'] ?? (workspace.type === 'business' ? 500 : 2500)) }
     }});
   });
