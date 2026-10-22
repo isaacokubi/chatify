@@ -8,6 +8,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -6684,6 +6685,9 @@ class _ChatState extends State<Chat> {
   String? typingUser;
   bool searching = false;
   bool sending = false;
+  // Keep the mutation ID for a failed draft so retrying after a timeout cannot duplicate it.
+  String? _pendingMutationId;
+  String? _pendingMutationText;
   final Set<String> onlineIds = {};
   io.Socket? socket;
   bool loading = true;
@@ -7220,6 +7224,12 @@ class _ChatState extends State<Chat> {
     } catch (_) {}
   }
 
+  String _newClientMutationId() {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
+    final random = math.Random.secure();
+    return List.generate(32, (_) => alphabet[random.nextInt(alphabet.length)]).join();
+  }
+
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
@@ -7229,12 +7239,18 @@ class _ChatState extends State<Chat> {
       return;
     }
     _stopTyping();
+    final clientMutationId = _pendingMutationText == text && _pendingMutationId != null
+        ? _pendingMutationId!
+        : _newClientMutationId();
+    _pendingMutationText = text;
+    _pendingMutationId = clientMutationId;
     setState(() => sending = true);
     try {
       final encrypted = await _encryptTextPayload(text);
       final result = await app.api.call(
           'POST', '/api/conversations/${widget.conversation['_id']}/messages', {
         ...encrypted,
+        'clientMutationId': clientMutationId,
         'expiryType': expiry,
         'expiresInSeconds': expiry == 'AFTER_TIME' ? 3600 : null,
         'replyTo': reply,
@@ -7252,6 +7268,10 @@ class _ChatState extends State<Chat> {
       });
       unawaited(_persistConversationMessages());
       input.clear();
+      if (_pendingMutationId == clientMutationId) {
+        _pendingMutationId = null;
+        _pendingMutationText = null;
+      }
       _scrollToLatestMessage();
       // Sent messages can contain useful reminders or personal details too.
       _detectMemoryForMessage(sent);
