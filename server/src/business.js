@@ -8,6 +8,22 @@ import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMes
 // This module deliberately keeps payment confirmation server-owned: a screenshot or
 // client-submitted "paid" flag is never accepted as proof of payment.
 
+export function sanitizeBusinessOrganization(org) {
+  const source = typeof org?.toObject === 'function' ? org.toObject() : {...(org || {})};
+  const safe = {...source};
+  if (source.settings && typeof source.settings === 'object') {
+    safe.settings = {...source.settings};
+    // Merchant credentials are decrypted only inside the server-side POS payment flow.
+    delete safe.settings.posDarajaCredentialsEncrypted;
+  }
+  if (source.billing && typeof source.billing === 'object') {
+    safe.billing = {...source.billing};
+    // Idempotency receipts are internal bookkeeping, not workspace/member API data.
+    delete safe.billing.appliedPaymentIds;
+  }
+  return safe;
+}
+
 const ROLES = Object.freeze(['owner', 'admin', 'manager', 'sales', 'finance', 'support', 'fulfilment', 'viewer']);
 const TAX_MODES = Object.freeze(['exclusive','inclusive','none']);
 const INDUSTRIES = Object.freeze(['retail', 'wholesale', 'consulting', 'tourism', 'hospitality', 'logistics', 'construction', 'salon', 'education', 'agriculture', 'real_estate', 'health_admin', 'legal', 'automotive', 'events', 'other']);
@@ -427,15 +443,15 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const name = shortText(req.body?.name, 120); const slug = slugifyBusinessName(req.body?.slug || name);
       if (!name || !slug) return res.status(400).json({error: 'Business name is required'});
       const org = await Organization.create({name, slug, ownerId: req.user._id, industry: INDUSTRIES.includes(req.body?.industry) ? req.body.industry : 'other', description: shortText(req.body?.description, 2000), email: shortText(req.body?.email, 200), phone: shortText(req.body?.phone, 40), website: shortText(req.body?.website, 500), country: shortText(req.body?.country, 2) || 'KE', currency: shortText(req.body?.currency, 3) || 'KES', timezone: shortText(req.body?.timezone, 80) || 'Africa/Nairobi', members: [{userId: req.user._id, role: 'owner'}], billing: {billingEnforced: true, setupFeePaid: false, subscriptionExpiresAt: null, status: 'SETUP_PAYMENT_REQUIRED'}});
-      await recordAudit(org, req.user._id, 'organization.created', 'organization', org._id, 'Created business workspace'); res.status(201).json({organization: org});
+      await recordAudit(org, req.user._id, 'organization.created', 'organization', org._id, 'Created business workspace'); res.status(201).json({organization: sanitizeBusinessOrganization(org)});
     } catch (error) { safeError(res, error); }
   });
   app.get('/api/business/organizations', auth, async (req, res) => {
     const organizations = await Organization.find({$or: [{ownerId: req.user._id}, {'members.userId': req.user._id}]}).sort({updatedAt: -1}).limit(100);
-    res.json({organizations});
+    res.json({organizations: organizations.map(sanitizeBusinessOrganization)});
   });
   app.get('/api/business/organizations/:orgId', auth, async (req, res) => {
-    const org = await requireOrg(req, res); if (org) res.json({organization: org});
+    const org = await requireOrg(req, res); if (org) res.json({organization: sanitizeBusinessOrganization(org)});
   });
   app.patch('/api/business/organizations/:orgId', auth, async (req, res) => {
     const org = await requireOrg(req, res); if (!org || !requireManager(org, req, res)) return;
@@ -445,6 +461,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     if (req.body?.settings && typeof req.body.settings === 'object' && !Array.isArray(req.body.settings)) {
       const settings = {...req.body.settings};
       delete settings.taxProfile;
+      // Credential ciphertext is writable only through the dedicated server-side POS credential endpoint.
+      delete settings.posDarajaCredentialsEncrypted;
       // Sellers may choose a payout/contact M-Pesa number. Empty resets to the registered account number.
       if (Object.prototype.hasOwnProperty.call(settings, 'mpesaRecipientPhone')) {
         const selectedPhone = String(settings.mpesaRecipientPhone || '').trim();
@@ -460,7 +478,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       }
       org.settings = {...org.settings, ...settings};
     }
-    await org.save(); res.json({organization: org});
+    await org.save(); res.json({organization: sanitizeBusinessOrganization(org)});
   });
   app.post('/api/business/organizations/:orgId/members', auth, async (req, res) => {
     const org = await requireOrg(req, res); if (!org || !requireManager(org, req, res)) return;
