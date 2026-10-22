@@ -28,7 +28,7 @@ import {registerBusinessPublicApiRoutes} from './business-public-api.js';
 import {registerPublicStatusRoute,buildHealthResponse} from './service-status.js';
 import {registerSchoolRoutes} from './school.js';
 import {createPlatformFeeCollector} from './platform-fee-collection.js';
-import {registerWorkspaceBillingRoutes,applyWorkspaceBillingPayment} from './workspace-billing.js';
+import {registerWorkspaceBillingRoutes,applyWorkspaceBillingPayment,reconcileWorkspaceBillingPayments} from './workspace-billing.js';
 import {processDarajaCallback} from './daraja-callback.js';
 import {unhideConversationForUser} from './conversation-visibility.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
@@ -203,6 +203,18 @@ app.put('/api/users/me/encryption-key',auth,async(q,r)=>{const key=q.body?.publi
  * the client cannot grant itself privileges by changing a submitted JSON field.
  */
 const requireAdmin=createAdminMiddleware();
+app.post('/api/admin/workspace-billing/reconcile',auth,requireAdmin,async(q,r)=>{
+  const requested=Number.parseInt(q.body?.limit,10);
+  const limit=Number.isInteger(requested)?Math.max(1,Math.min(500,requested)):100;
+  try{
+    const report=await reconcileWorkspaceBillingPayments({mongoose,Payment,limit});
+    r.json({ok:report.failed===0,...report});
+  }catch(error){
+    console.error('Workspace billing reconciliation query failed');
+    r.status(500).json({error:'Workspace billing reconciliation failed'});
+  }
+});
+
 app.get('/api/admin/overview',auth,requireAdmin,async(q,r)=>{
   const since=new Date(Date.now()-24*60*60*1000);
   const optionalCount=(model,filter={})=>model?model.countDocuments(filter):Promise.resolve(0);
