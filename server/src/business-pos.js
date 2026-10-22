@@ -1,6 +1,6 @@
 // Chatify in-person POS payment intents for shops, supermarkets, malls and hospitality.
 import {randomUUID, createCipheriv, createDecipheriv, randomBytes} from 'node:crypto';
-import {createDarajaProvider, normalizeMpesaPhone, calculatePaymentTotal} from './payments.js';
+import {createDarajaProvider, normalizeMpesaPhone} from './payments.js';
 
 // Merchant Daraja secrets are encrypted at rest with a deployment-managed 32-byte key.
 function posEncryptionKey() {
