@@ -17,7 +17,7 @@ export function calculatePlatformFee(amount, feeRate = 0.5) {
 
 // Calculate the amount payable for a category that explicitly opts into the platform fee.
  // Personal transfers must call this with applicable:false (or use no fee fields).
-export function calculatePaymentTotal(amount, {applicable = true, feeRate = 0.5} = {}) {
+export function calculatePaymentTotal(amount, {applicable = false, feeRate = 0.5} = {}) {
   if (!Number.isSafeInteger(amount) || amount < 1 || amount > MAX_PAYMENT_AMOUNT) {
     throw new Error(`Payment base must be a positive whole-KSh amount no greater than KSh ${MAX_PAYMENT_AMOUNT}`);
   }
