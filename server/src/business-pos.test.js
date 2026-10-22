@@ -12,6 +12,10 @@ test('validates Till profile and creates a customer-readable payment QR payload'
   assert.equal(charge.platformFee, 0);
   assert.equal(charge.totalAmount, 450);
   assert.equal(charge.platformFeeStatus, 'NOT_APPLICABLE');
+  assert.equal(charge.platformFeeRate, 0);
+  assert.equal(charge.feeCollectionMode, 'separate');
+  assert.equal(qr.platformFee, 0);
+  assert.equal(qr.platformFeeRate, 0);
   assert.equal(qr.paymentId, charge.paymentId);
   assert.equal(qr.description, 'Groceries');
   assert.equal(qr.tillNumber, '1234567');
