@@ -97,6 +97,32 @@ void main() {
     otherAccount.client.close();
   });
 
+  test('outgoing encrypted messages persist only in secure storage and can be removed', () async {
+    SharedPreferences.setMockInitialValues({});
+    final api = Api()..token = 'outbox-account-token';
+    const mutationId = '0123456789abcdef_ABC';
+    await api.enqueueOutgoingMessage('conversation-1', {
+      'clientMutationId': mutationId,
+      'createdAt': '2026-10-22T04:00:00.000Z',
+      'body': {
+        'encryptionVersion': 1,
+        'encryptedPayload': 'encrypted-envelope-not-plaintext',
+        'clientMutationId': mutationId,
+      },
+    });
+    final queued = await api.readOutgoingMessageOutbox('conversation-1');
+    expect(queued.single['clientMutationId'], mutationId);
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.getKeys().where((key) => key.startsWith('chatify_secure_outbox_v1_')),
+      isEmpty,
+      reason: 'The offline outbox must not store private message payloads in plaintext preferences.',
+    );
+    await api.removeOutgoingMessageFromOutbox('conversation-1', mutationId);
+    expect(await api.readOutgoingMessageOutbox('conversation-1'), isEmpty);
+    api.client.close();
+  });
+
   test('offline mutation storage scope changes with the authenticated account',
       () {
     final first = Api()..token = 'account-one-token';
