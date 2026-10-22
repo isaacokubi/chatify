@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {workspaceBillingLock, isWorkspaceBillingActive} from './workspace-billing-access.js';
+import {workspaceBillingLock, isWorkspaceBillingActive, getWorkspaceBillingStatus} from './workspace-billing-access.js';
 
 function mongooseWithGracePeriod(gracePeriodDays = 3) {
   return {models:{WorkspaceBillingSettings:{findOne:()=>({select:()=>({lean:async()=>({gracePeriodDays})})})}}};
@@ -49,4 +49,24 @@ test('public marketplace visibility follows the same workspace billing grace-per
   assert.equal(isWorkspaceBillingActive({billing:{}}, 3, now), true);
   assert.equal(isWorkspaceBillingActive({billing:{billingEnforced:true,setupFeePaid:true,subscriptionExpiresAt:'2026-10-20T00:00:00.000Z'}}, 3, now), false);
   assert.equal(isWorkspaceBillingActive({billing:{billingEnforced:true,setupFeePaid:false,subscriptionExpiresAt:'2026-12-01T00:00:00.000Z'}}, 3, now), false);
+});
+
+
+test('owner billing status locks malformed subscription dates instead of reporting ACTIVE', () => {
+  const result = getWorkspaceBillingStatus({billing:{billingEnforced:true,setupFeePaid:true,subscriptionExpiresAt:'not-a-date'}}, 3, new Date('2026-10-22T00:00:00.000Z'));
+  assert.equal(result.locked, true);
+  assert.equal(result.status, 'SUBSCRIPTION_REQUIRED');
+  assert.equal(result.subscriptionExpiresAt, null);
+});
+
+test('owner billing status agrees with the route gate at expiry and during grace', () => {
+  const workspace = {billing:{billingEnforced:true,setupFeePaid:true,subscriptionExpiresAt:'2026-10-20T00:00:00.000Z'}};
+  assert.equal(getWorkspaceBillingStatus(workspace, 3, new Date('2026-10-22T00:00:00.000Z')).locked, false);
+  assert.equal(getWorkspaceBillingStatus(workspace, 3, new Date('2026-10-24T00:00:00.000Z')).locked, true);
+});
+
+test('owner billing status clamps invalid configured grace periods', () => {
+  const result = getWorkspaceBillingStatus({billing:{billingEnforced:true,setupFeePaid:true,subscriptionExpiresAt:'2026-10-20T00:00:00.000Z'}}, 999, new Date('2026-10-22T00:00:00.000Z'));
+  assert.equal(result.gracePeriodDays, 3);
+  assert.equal(result.locked, false);
 });
