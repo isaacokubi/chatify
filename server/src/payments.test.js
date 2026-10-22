@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveMpesaProvider, canCancelPayment, resolveCallbackOutcome, canTransitionPayment, calculatePlatformFee, calculatePaymentTotal} from './payments.js';
+import {resolveMpesaProvider, canCancelPayment, resolveCallbackOutcome, canTransitionPayment, calculatePaymentTotal} from './payments.js';
 
 test('production can explicitly use the clearly labelled mock provider for a demo', () => {
   const provider = resolveMpesaProvider({NODE_ENV: 'production', MPESA_ENV: 'mock'});
@@ -199,10 +199,6 @@ test('payment totals are commission-free by default', () => {
 });
 
 test('legacy fee options cannot re-enable a transaction commission', () => {
-  // The math helper remains available for reviewing historical records, but
-  // payment totals must ignore legacy applicable/rate flags.
-  assert.equal(calculatePlatformFee(1000), 5);
-  assert.equal(calculatePlatformFee(450), 3);
   assert.deepEqual(calculatePaymentTotal(1000, {applicable:true, feeRate:0.5}), {
     baseAmount:1000, platformFee:0, totalAmount:1000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'
   });
