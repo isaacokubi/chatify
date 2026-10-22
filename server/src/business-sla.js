@@ -1,3 +1,4 @@
+import {rejectLockedWorkspace} from './workspace-billing-access.js';
 // Tenant-scoped support SLA calculations and a secret-protected escalation job.
 const DEFAULT_RESPONSE_MINUTES=Object.freeze({urgent:30,high:120,normal:480,low:1440});
 const ACTIVE_CASE_STATUSES=['open','waiting_customer','waiting_team'];
@@ -35,6 +36,7 @@ export function registerBusinessSlaRoutes({app,auth,mongoose}) {
     if(!mongoose.isValidObjectId(req.params.orgId)) {res.status(404).json({error:'Business workspace not found'});return null;}
     const org=await Organization.findOne({_id:req.params.orgId,$or:[{ownerId:req.user._id},{'members.userId':req.user._id}]});
     if(!org) {res.status(404).json({error:'Business workspace not found'});return null;}
+    if(await rejectLockedWorkspace(mongoose,org,res))return null;
     const member=(org.members||[]).find(m=>String(m.userId)===String(req.user._id));
     req.slaRole=String(org.ownerId)===String(req.user._id)?'owner':(member?.role||'viewer');
     return org;
