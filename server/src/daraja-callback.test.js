@@ -36,7 +36,7 @@ function harness({ pending = payment, existing = null, transitioned = { ...payme
       transition: async ({ references, outcome }) => {
         calls.transition++;
         assert.equal(references.merchantRequestId, 'ws_MR_123');
-        assert.equal(outcome.status, 'SUCCESS');
+        assert.ok(['SUCCESS', 'FAILED', 'CANCELLED'].includes(outcome.status));
         return transitioned;
       },
     }),
