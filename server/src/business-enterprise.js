@@ -1,4 +1,5 @@
 import {createHash, randomBytes} from 'node:crypto';
+import {rejectLockedWorkspace} from './workspace-billing-access.js';
 import {BUSINESS_PLAN_LIMITS, planQuotaStatus} from './business-entitlements.js';
 
 // CHATIFY BUSINESS ENTERPRISE EXTENSIONS
@@ -110,6 +111,7 @@ export function registerBusinessEnterpriseRoutes({app, auth, mongoose}) {
       $or: [{ownerId: req.user._id}, {'members.userId': req.user._id}],
     });
     if (!org) { res.status(404).json({error: 'Business workspace not found'}); return null; }
+    if (await rejectLockedWorkspace(mongoose, org, res)) return null;
     const member = (org.members || []).find(item => String(item.userId) === String(req.user._id));
     req.businessEnterpriseRole = String(org.ownerId) === String(req.user._id) ? 'owner' : (member?.role || 'viewer');
     return org;
