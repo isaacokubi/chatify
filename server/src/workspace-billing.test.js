@@ -137,3 +137,16 @@ test('monthly renewal preserves calendar month-end dates without overflowing int
   assert.equal(result.applied, true);
   assert.equal(new Date(h.workspace.billing.subscriptionExpiresAt).toISOString(), '2027-02-28T00:00:00.000Z');
 });
+test('month-end renewals remain at month end across short and leap-year February', async () => {
+  for (const [expiry, expected] of [
+    ['2027-02-28T00:00:00.000Z', '2027-03-31T00:00:00.000Z'],
+    ['2028-02-29T00:00:00.000Z', '2028-03-31T00:00:00.000Z'],
+  ]) {
+    const h = billingHarness({ setupPaid: true, expiresAt: new Date(expiry) });
+    h.payment.billingType = 'workspace_subscription';
+    const result = await applyWorkspaceBillingPayment(h);
+    assert.equal(result.applied, true, `renewal from ${expiry} should apply`);
+    assert.equal(new Date(h.workspace.billing.subscriptionExpiresAt).toISOString(), expected);
+  }
+});
+
