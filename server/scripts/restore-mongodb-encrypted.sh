@@ -20,5 +20,5 @@ command -v mongorestore >/dev/null 2>&1 || { echo "mongorestore is required." >&
 # Verify the encrypted bytes before decrypting. Plaintext is streamed to mongorestore
 # rather than written to a temporary file; no --drop option is ever used.
 (cd "$(dirname "$ARCHIVE")" && sha256sum --check "$(basename "$ARCHIVE").sha256")
-age --decrypt --identity "$BACKUP_AGE_IDENTITY" "$ARCHIVE" | mongorestore --uri="$RESTORE_TARGET_URI" --archive=- --gzip
+age --decrypt --identity "$BACKUP_AGE_IDENTITY" "$ARCHIVE" | mongorestore --uri="$RESTORE_TARGET_URI" --archive --gzip
 printf 'Encrypted restore command completed. Validate collections, counts, indexes, and app smoke tests before any cutover.\n'
