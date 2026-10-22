@@ -7,9 +7,18 @@ import { getWorkspaceBillingStatus } from './workspace-billing-access.js';
 const monthFrom = value => {
   const start = new Date(value);
   const day = start.getUTCDate();
-  start.setUTCMonth(start.getUTCMonth() + 1);
-  // Avoid JavaScript's month-end rollover (e.g. Jan 31 becoming Mar 3).
-  if (start.getUTCDate() < day) start.setUTCDate(0);
+  const sourceYear = start.getUTCFullYear();
+  const sourceMonth = start.getUTCMonth();
+  const sourceMonthLastDay = new Date(Date.UTC(sourceYear, sourceMonth + 1, 0)).getUTCDate();
+  const wasMonthEnd = day === sourceMonthLastDay;
+
+  // Move from day one to avoid JavaScript overflowing dates such as Jan 31 into March.
+  start.setUTCDate(1);
+  start.setUTCMonth(sourceMonth + 1);
+
+  const targetLastDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();
+  // Preserve end-of-month renewals (Jan 31 -> Feb 28/29 -> Mar 31).
+  start.setUTCDate(wasMonthEnd ? targetLastDay : Math.min(day, targetLastDay));
   return start;
 };
 
