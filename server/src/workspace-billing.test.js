@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyWorkspaceBillingPayment } from './workspace-billing.js';
 
-function billingHarness({ type = 'business', setupPaid = false, expiresAt = null, ownerMatches = true, updateMatches = true } = {}) {
+function billingHarness({ type = 'business', setupPaid = false, expiresAt = null, ownerMatches = true, updateMatches = true, paymentMarkFailures = 0 } = {}) {
   const workspace = { billing: { billingEnforced: true, setupFeePaid: setupPaid, subscriptionExpiresAt: expiresAt, status: setupPaid ? 'SUBSCRIPTION_REQUIRED' : 'SETUP_PAYMENT_REQUIRED', appliedPaymentIds: [] } };
   const storedPayment = { _id: 'payment-1', paymentId: 'payment-1', status: 'SUCCESS', billingAppliedAt: undefined };
+  let remainingPaymentMarkFailures = paymentMarkFailures;
   const Workspace = {
     findOne: (filter) => ({ select: () => ({ lean: async () => {
       if (!ownerMatches) return null;
@@ -41,6 +42,10 @@ function billingHarness({ type = 'business', setupPaid = false, expiresAt = null
   };
   const Payment = {
     updateOne: async (_filter, update) => {
+      if (update.$set?.billingAppliedAt && remainingPaymentMarkFailures > 0) {
+        remainingPaymentMarkFailures -= 1;
+        throw new Error('simulated payment marker write failure');
+      }
       if (update.$set?.billingAppliedAt) storedPayment.billingAppliedAt = update.$set.billingAppliedAt;
       if (update.$unset?.billingAppliedAt) delete storedPayment.billingAppliedAt;
       return { matchedCount: 1 };
@@ -94,6 +99,17 @@ test('a failed entitlement write releases the payment claim for safe callback re
   const h = billingHarness({ ownerMatches: false });
   await assert.rejects(() => applyWorkspaceBillingPayment(h), /owner did not match/);
   assert.equal(h.storedPayment.billingAppliedAt, undefined);
+});
+
+test('retry after workspace update but before payment marker does not extend subscription twice', async () => {
+  const h = billingHarness({ setupPaid: true, expiresAt: new Date('2026-11-01T00:00:00.000Z'), paymentMarkFailures: 1 });
+  h.payment.billingType = 'workspace_subscription';
+  await assert.rejects(() => applyWorkspaceBillingPayment(h), /simulated payment marker write failure/);
+  assert.equal(new Date(h.workspace.billing.subscriptionExpiresAt).toISOString(), '2026-12-01T00:00:00.000Z');
+  const retry = await applyWorkspaceBillingPayment(h);
+  assert.equal(retry.duplicate, true);
+  assert.equal(new Date(h.workspace.billing.subscriptionExpiresAt).toISOString(), '2026-12-01T00:00:00.000Z');
+  assert.ok(h.storedPayment.billingAppliedAt instanceof Date);
 });
 
 test('subscription payment cannot activate before setup has been paid', async () => {
