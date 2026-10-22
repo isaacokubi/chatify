@@ -214,7 +214,9 @@ export function resolveCallbackOutcome(callback, payment) {
   const items = Array.isArray(callback.CallbackMetadata?.Item) ? callback.CallbackMetadata.Item : [];
   const value = name => items.find(item => item?.Name === name)?.Value;
   const code = Number(callback.ResultCode);
-  const expectedAmount = payment.feeCollectionMode === 'separate' ? (payment.baseAmount ?? payment.amount) : (payment.totalAmount ?? payment.amount);
+  // The customer pays the original payment amount only. Workspace setup/subscription fees
+  // are billed separately; legacy totalAmount/platformFee fields must never add a second charge.
+  const expectedAmount = payment.amount ?? payment.baseAmount;
   let receipt;
   if (code === 0) {
     const callbackPhone = normalizeMpesaPhone(String(value('PhoneNumber') ?? ''));
