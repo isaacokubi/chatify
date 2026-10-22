@@ -118,9 +118,12 @@ void main() {
       isEmpty,
       reason: 'The offline outbox must not store private message payloads in plaintext preferences.',
     );
+    final otherAccount = Api()..token = 'another-outbox-account-token';
+    expect(await otherAccount.readOutgoingMessageOutbox('conversation-1'), isEmpty);
     await api.removeOutgoingMessageFromOutbox('conversation-1', mutationId);
     expect(await api.readOutgoingMessageOutbox('conversation-1'), isEmpty);
     api.client.close();
+    otherAccount.client.close();
   });
 
   test('offline mutation storage scope changes with the authenticated account',
