@@ -7416,6 +7416,7 @@ class _ChatState extends State<Chat> {
             _scrollToLatestMessage();
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                 content: Text('No connection. Your encrypted message is saved securely and will send when you reconnect.')));
+            if (socket?.connected == true) unawaited(_flushOutgoingMessages());
           }
         } catch (queueError) {
           if (mounted) {
