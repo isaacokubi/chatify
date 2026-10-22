@@ -52,7 +52,7 @@ app.get('/api/health',(_req,res)=>{
   // database cannot safely accept normal application traffic.
   const health=buildHealthResponse({
     databaseReady:mongoose.connection.readyState===1,
-    release:process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'main',
+    release:process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'unknown',
   });
   res.status(health.statusCode).set('Cache-Control','no-store').json(health.body);
 });
