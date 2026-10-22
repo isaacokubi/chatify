@@ -60,9 +60,9 @@ export function registerBusinessMarketplaceRoutes({app, mongoose}) {
       }
       const organizations = await Organization.find(organizationFilter)
         .select('name slug description logo industry country currency website phone branches billing')
+        .sort({name: 1}).limit(1000).lean();
       const graceDays = await getBillingGraceDays();
       const activeOrganizations = organizations.filter(org => isWorkspaceBillingActive(org, graceDays));
-        .sort({name: 1}).limit(1000).lean();
       // Count active catalogue entries in one aggregation instead of issuing one query per store.
       const counts = await CatalogItem.aggregate([
         {$match: {active: true, organizationId: {$in: activeOrganizations.map(org => org._id)}}},
