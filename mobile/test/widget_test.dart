@@ -77,6 +77,12 @@ void main() {
     await first.writeConversationSnapshot('conversation-1', [
       {'_id': 'message-1', 'text': 'Saved encrypted history'}
     ]);
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.getKeys().where((key) => key.startsWith('chatify_secure_messages_v1_')),
+      isEmpty,
+      reason: 'Private conversation snapshots must not be persisted as plaintext preferences.',
+    );
     expect(
       (await first.readConversationSnapshot('conversation-1'))!.single['_id'],
       'message-1',
