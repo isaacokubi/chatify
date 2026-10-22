@@ -68,8 +68,38 @@ const indexes=[
   },
 ];
 
+// Check all unique-index candidates before creating any indexes. This avoids leaving a
+// half-applied migration when older data contains duplicate provider receipts or IDs.
+// The report includes only duplicate key values and counts needed for manual cleanup.
+const uniquePreflights=[
+  {collection:'messages',name:'message_sender_mutation_unique_v1',match:{clientMutationId:{$type:'string'}},keys:{senderId:'$senderId',clientMutationId:'$clientMutationId'}},
+  {collection:'notificationjobs',name:'notification_job_dedupe_v1',match:{recipientId:{$exists:true},messageId:{$exists:true}},keys:{recipientId:'$recipientId',messageId:'$messageId'}},
+  {collection:'payments',name:'payment_provider_receipt_unique_v1',match:{providerReceipt:{$type:'string'}},keys:{providerReceipt:'$providerReceipt'}},
+];
+
+async function preflightUniqueIndexes(){
+  const conflicts=[];
+  for(const index of uniquePreflights){
+    const duplicates=await mongoose.connection.collection(index.collection).aggregate([
+      {$match:index.match},
+      {$group:{_id:index.keys,count:{$sum:1}}},
+      {$match:{count:{$gt:1}}},
+      {$limit:6},
+    ]).toArray();
+    if(duplicates.length){
+      conflicts.push({index:index.name,collection:index.collection,examples:duplicates.map(row=>({key:row._id,count:row.count}))});
+    }
+  }
+  if(conflicts.length){
+    const error=new Error('Unique-index preflight found duplicate existing data. No indexes were created; resolve these records and rerun.');
+    error.conflicts=conflicts;
+    throw error;
+  }
+}
+
 try{
   await mongoose.connect(uri,options);
+  await preflightUniqueIndexes();
   for(const index of indexes){
     await mongoose.connection.collection(index.collection).createIndex(index.keys,index.options);
     console.log('Ensured index',index.collection,index.options.name);
