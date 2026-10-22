@@ -19,9 +19,10 @@ export function registerBusinessReviewRoutes({app,auth,mongoose}) {
   status:{type:String,enum:['pending','approved','rejected'],default:'pending',index:true},
   moderatedBy:O,moderatedAt:Date,
  },{timestamps:true}));
- const publicSlug=async slug=>Organization.findOne({slug:String(slug||'').toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('_id name slug');
+ const publicSlug=async slug=>Organization.findOne({slug:String(slug||'').toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('_id name slug billing');
  app.get('/api/storefront/:slug/reviews',async(req,res)=>{
   const org=await publicSlug(req.params.slug);if(!org)return res.status(404).json({error:'Storefront not found'});
+  if(await rejectLockedWorkspace(mongoose,org,res))return;
   const reviews=await Review.find({organizationId:org._id,status:'approved'}).sort({createdAt:-1}).limit(100).select('rating title comment createdAt').lean();
   const count=reviews.length;const average=count?Math.round(reviews.reduce((sum,r)=>sum+r.rating,0)/count*100)/100:0;
   return res.json({business:{name:org.name,slug:org.slug},averageRating:average,reviewCount:count,reviews});
