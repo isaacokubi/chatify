@@ -169,7 +169,8 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
     const amount = Number(settings[priceField] ?? fallback);
     if (!Number.isSafeInteger(amount) || amount < 0) return res.status(503).json({ error: 'Workspace billing price is not configured correctly' });
     if (amount === 0) {
-      const payment = { status: 'SUCCESS', billingType: type, billingWorkspaceType: workspace.type, billingWorkspaceId: workspace._id, requesterId: req.user._id };
+      const freePeriod = type === 'workspace_subscription' ? new Date().toISOString().slice(0, 7) : 'once';
+      const payment = { paymentId: 'free-' + type + '-' + String(workspace._id) + '-' + freePeriod, status: 'SUCCESS', billingType: type, billingWorkspaceType: workspace.type, billingWorkspaceId: workspace._id, requesterId: req.user._id };
       await applyWorkspaceBillingPayment({ mongoose, payment });
       return res.json({ paid: true, amount: 0, notice: 'This workspace billing item is free under the current administrator pricing.' });
     }
