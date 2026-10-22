@@ -12,6 +12,10 @@ This file records code changes made directly on `main` after the commercial-read
 - Retrying an older payment creates a commission-free payment record and uses the original amount.
 - Workspace setup and monthly subscription billing remain the intended Chatify monetization model. Safaricom/provider fees remain separate from Chatify's platform commission.
 
+### Retry-safe messaging and billing
+- Chat message creation accepts a validated client mutation ID. A unique partial index prevents duplicate messages when a client retries after an ambiguous network timeout; a reused ID cannot be applied to a different conversation.
+- The Flutter chat composer retains the same mutation ID for retries of the same failed draft during the current screen session. This is not yet a durable outbox across app restarts; that remains a release gate.
+
 ### Offline cache privacy
 - Private API responses, conversation metadata and message snapshots now use Flutter Secure Storage as the only persistent cache store.
 - Legacy plaintext SharedPreferences cache entries are migrated only when secure storage accepts them, then removed; if secure storage is unavailable, private cache writes are skipped rather than copied into browser local storage.
