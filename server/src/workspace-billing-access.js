@@ -1,6 +1,33 @@
 // Shared server-side gate for business routes outside the core Business router.
 // Billing is enforced only for workspaces explicitly marked by the subscription rollout;
 // older workspaces remain grandfathered in. Billing endpoints themselves must stay reachable.
+export function getWorkspaceBillingStatus(workspace, gracePeriodDays = 3, now = new Date()) {
+  const billing = workspace?.billing || {};
+  const enforced = billing.billingEnforced === true;
+  const graceDays = Number.isInteger(gracePeriodDays) && gracePeriodDays >= 0 && gracePeriodDays <= 30
+    ? gracePeriodDays : 3;
+  const rawExpiry = billing.subscriptionExpiresAt;
+  const expiresAt = rawExpiry ? new Date(rawExpiry) : null;
+  const validExpiry = Boolean(expiresAt && Number.isFinite(expiresAt.getTime()));
+  const graceEnd = validExpiry ? new Date(expiresAt.getTime() + graceDays * 86400000) : null;
+  const locked = enforced && (
+    billing.setupFeePaid !== true ||
+    !validExpiry ||
+    graceEnd <= now
+  );
+  const status = !enforced ? 'LEGACY_GRANDFATHERED'
+    : billing.setupFeePaid !== true ? 'SETUP_PAYMENT_REQUIRED'
+      : !validExpiry ? 'SUBSCRIPTION_REQUIRED'
+        : locked ? 'SUBSCRIPTION_EXPIRED' : 'ACTIVE';
+  return {
+    status,
+    locked,
+    setupFeePaid: billing.setupFeePaid === true,
+    subscriptionExpiresAt: validExpiry ? expiresAt : null,
+    gracePeriodDays: graceDays,
+  };
+}
+
 export function isWorkspaceBillingActive(workspace, gracePeriodDays = 3, now = new Date()) {
   const billing = workspace?.billing;
   if (billing?.billingEnforced !== true) return true;
