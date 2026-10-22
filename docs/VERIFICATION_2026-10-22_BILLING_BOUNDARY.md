@@ -10,22 +10,38 @@ This change adds a regression test for the exact instant a workspace subscriptio
 - Checks the workspace is accessible one millisecond before the grace-period boundary.
 - Checks both the route-level billing gate and public marketplace billing helper lock access at the boundary itself.
 
-## Expected verification commands
+## Verified CI evidence
+
+The full **Chatify CI** workflow completed successfully for the tested branch commit `b0ee679832d825bd2949f7767547715688b84005` (the same source changes were merged to `main` as `3102dc9a437b1555a9070645cba02af47efbcbfe`).
+
+- [Full CI run — success](https://github.com/isaacokubi/chatify/actions/runs/39735038381)
+- Backend: `npm ci`, dependency audit, `npm test`, `npm run lint`, backup/recovery script validation, and production-URI restore guard passed.
+- Mobile: Flutter dependency resolution, analysis, tests, web build, and Android debug APK build passed.
+- The successful branch CI verifies the merged source contents; post-merge workflows on `main` are tracked separately below and must finish before the latest main-run status is declared final.
+
+## Reproduction commands
 
 Run from the repository root:
 
 ```bash
 cd server
+npm ci
 npm test
 npm run lint
+cd ../mobile
+flutter pub get
+flutter analyze --no-fatal-infos
+flutter test
+flutter build web --dart-define=CHATIFY_API=https://chatify-api-c1eh.onrender.com
 ```
 
-The CI workflow must run these commands on the branch before this change is described as passing. This document intentionally does not claim that tests passed merely because the test was added.
+For the Android debug APK, use the repository's committed Gradle configuration and the same Android SDK setup as the CI workflow.
 
 ## Acceptance / remaining checks
 
-- [ ] GitHub Actions backend quality workflow passes on the commit containing this test.
-- [ ] Full mobile/web CI remains green for the same branch commit.
+- [x] Full Chatify CI passed for the source commit containing the boundary regression test.
+- [ ] Post-merge Chatify CI on `main` completes successfully: [run](https://github.com/isaacokubi/chatify/actions/runs/39735691645).
+- [ ] Post-merge Chatify quality checks on `main` complete successfully: [run](https://github.com/isaacokubi/chatify/actions/runs/39735691385).
 - [ ] Validate live billing-provider callbacks and renewals in a safe sandbox; unit tests cannot prove production payment delivery.
 - [ ] Verify the deployed API is running the intended commit before enabling billing enforcement for real tenants.
 
