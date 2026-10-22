@@ -58,6 +58,12 @@ export function createPlatformFeeCollector({ mongoose, env = process.env }) {
   };
 
   async function collect({paymentId, source, payerPhone, baseAmount, feeAmount}) {
+    // Chatify's current pricing policy is workspace setup + monthly subscriptions, not
+    // transaction commissions. Keep legacy collection code available only for an explicit,
+    // temporary migration opt-in; old database settings must not silently restart fees.
+    if (String(env.ENABLE_LEGACY_PLATFORM_FEES || '').trim().toLowerCase() !== 'true') {
+      return {paymentId, source, status:'NOT_APPLICABLE', feeAmount:0, baseAmount};
+    }
     const phone = normalizeMpesaPhone(String(payerPhone || ''));
     if (!phone) throw new Error('A verified Kenyan payer phone is required for the separate platform-fee prompt');
     if (!Number.isSafeInteger(baseAmount) || baseAmount < 1 || (feeAmount !== undefined && (!Number.isSafeInteger(feeAmount) || feeAmount < 1))) throw new Error('Invalid platform fee collection amount');
