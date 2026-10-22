@@ -208,14 +208,24 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
     if (pendingAssessment.action === 'reuse') {
       return res.status(200).json({ payment: pendingAssessment.payment, reused: true });
     }
-    const payment = await Payment.create({
+    let payment;
+    try {
+      payment = await Payment.create({
       paymentId: newPaymentId(), requesterId: req.user._id, payerId: req.user._id,
       amount, baseAmount: amount, platformFee: 0, totalAmount: amount, platformFeeRate: 0,
       platformFeeStatus: 'NOT_APPLICABLE', feeCollectionMode: 'separate',
       billingType: type, billingWorkspaceType: workspace.type, billingWorkspaceId: workspace._id,
       description: type === 'workspace_setup' ? 'Chatify workspace setup' : 'Chatify monthly subscription',
       purpose: 'SELF_STK', provider: mpesaProvider.name, requestedAt: new Date()
-    });
+      });
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const racedPending = await Payment.findOne({requesterId: req.user._id, billingType: type, billingWorkspaceType: workspace.type, billingWorkspaceId: workspace._id, status: 'PENDING', billingAppliedAt: {$exists: false}}).sort({createdAt: -1});
+      if (!racedPending) throw error;
+      const racedAssessment = assessPendingWorkspaceBillingPayment(racedPending, amount);
+      if (racedAssessment.action === 'conflict') return res.status(409).json(racedAssessment);
+      return res.status(200).json({payment: racedAssessment.payment, reused: true});
+    }
     res.status(201).json({ payment: { paymentId: payment.paymentId, amount: payment.amount, status: payment.status, billingType: payment.billingType, initiatedAt: payment.initiatedAt || null }, next: 'Call POST /api/payments/' + payment.paymentId + '/initiate with the payer phone to send the M-Pesa prompt.' });
   });
 }
