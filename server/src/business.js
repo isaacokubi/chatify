@@ -305,7 +305,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       // Apply search to public display fields only; never expose internal settings, owner IDs or customer records.
       const stores = activeOrganizations
         .filter(org => !term || [org.name, org.description, org.industry].some(value => String(value || '').toLowerCase().includes(term)))
-        .map(org => ({...org, itemCount: countById.get(String(org._id)) || 0}));
+        .map(org => { const {billing, ...publicOrg} = org; return {...publicOrg, itemCount: countById.get(String(org._id)) || 0}; });
       res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
       res.json({stores});
     } catch (error) { safeError(res, error); }
