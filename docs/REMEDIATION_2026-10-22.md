@@ -69,3 +69,20 @@ The repository cannot safely complete these without the owner's provider account
 - No destructive database migration was run.
 - New schema indexes are declared in the explicit index migration; operators must run it against the intended database under their normal change-control process.
 - Mark each external acceptance item complete only after collecting the relevant live evidence.
+
+## Verification update — 2026-10-22
+
+After the commission-free callback and legacy POS regression fixes, GitHub Actions passed on source revision `9521e832cd88a3b5d5598fc6d5f4d0b50fd95041`:
+
+- Backend: **190 tests passed, 0 failed**.
+- Backend lint/syntax checks: passed.
+- `npm audit --audit-level=high`: passed; 0 vulnerabilities reported.
+- Backup/restore shell syntax and restore-safety regression checks: passed.
+- Flutter analysis and Flutter tests: passed.
+- Flutter web build: passed.
+- Android debug APK build: passed.
+- Full CI and quality-check workflows: both passed.
+
+Evidence: [full CI](https://github.com/isaacokubi/chatify/actions/runs/39733758117), [quality checks](https://github.com/isaacokubi/chatify/actions/runs/39733758201), and [detailed verification record](VERIFICATION_2026-10-22.md).
+
+These are automated checks, not a claim that production is deployed or every feature is accepted. Vercel reported a deployment rate limit for this revision; live Daraja payments, signed Android release, production migration/restore, full offline acceptance, full E2EE protocol requirements and 100-million-user load testing remain open. See the detailed verification record for the complete release gates.
