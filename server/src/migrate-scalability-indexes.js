@@ -56,6 +56,11 @@ const indexes=[
     keys:{authorId:1,createdAt:-1,expiresAt:1},
     options:{name:'spark_feed_author_created_expiry_v1'},
   },
+  {
+    collection:'payments',
+    keys:{providerReceipt:1},
+    options:{name:'payment_provider_receipt_unique_v1',unique:true,sparse:true},
+  },
 ];
 
 try{
