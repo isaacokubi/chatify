@@ -29,6 +29,7 @@ import {registerPublicStatusRoute,buildHealthResponse} from './service-status.js
 import {registerSchoolRoutes} from './school.js';
 import {createPlatformFeeCollector} from './platform-fee-collection.js';
 import {registerWorkspaceBillingRoutes,applyWorkspaceBillingPayment} from './workspace-billing.js';
+import {processDarajaCallback} from './daraja-callback.js';
 import {unhideConversationForUser} from './conversation-visibility.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
@@ -491,7 +492,40 @@ app.post('/api/payments/:id/reopen',auth,async(q,r)=>{const payment=await Paymen
 app.post('/api/payments/:id/reject',auth,async(q,r)=>{const payment=await Payment.findOne({paymentId:q.params.id});if(!await paymentAllowed(payment,q.user._id))return r.status(404).json({error:'Payment not found'});if(!canCancelPayment(payment,q.user._id,true))return r.status(409).json({error:'This request can only be rejected before an M-Pesa prompt is initiated. If a prompt was already sent, close it for yourself and cancel it on your phone if it is still open.'});const byPayer=String(q.user._id)===String(payment.payerId);const updated=await Payment.findOneAndUpdate({_id:payment._id,status:'PENDING',initiatedAt:{$exists:false},initiating:{$ne:true}},{$set:{status:'CANCELLED',resultDescription:byPayer?'Request rejected by payer':'Request withdrawn by requester',completedAt:new Date(),callbackProcessedAt:new Date()},$addToSet:{dismissedBy:q.user._id}},{new:true});if(!updated)return r.status(409).json({error:'This request has already started or has been closed'});emitPayment(updated);r.json({payment:updated});});
 app.post('/api/payments/:id/mock-result',auth,async(q,r)=>{if(!mpesaProvider.isMock)return r.status(404).json({error:'Payment not found'});if(!['SUCCESS','FAILED','CANCELLED'].includes(q.body?.status))return r.status(400).json({error:'Choose SUCCESS, FAILED or CANCELLED'});const payment=await Payment.findOne({paymentId:q.params.id});if(!payment||String(payment.payerId)!==String(q.user._id)||!payment.initiatedAt||!await paymentAllowed(payment,q.user._id))return r.status(404).json({error:'Payment not found'});const changed=await Payment.findOneAndUpdate({paymentId:payment.paymentId,status:'PENDING',provider:'mock'},{$set:{status:q.body.status,resultCode:q.body.status==='SUCCESS'?0:1,resultDescription:'Local mock result; not a Safaricom transaction',completedAt:new Date(),callbackProcessedAt:new Date()}},{new:true});if(!changed)return r.status(409).json({error:'Payment is already complete'});emitPayment(changed);if(changed.status==='SUCCESS'&&changed.billingType&&changed.billingWorkspaceId){try{await applyWorkspaceBillingPayment({mongoose,payment:changed});}catch(error){console.error('Mock workspace billing entitlement update failed',{paymentId:changed.paymentId});}}r.json({payment:changed,mock:true});});
 app.post('/api/payments/:id/retry',auth,async(q,r)=>{const previous=await Payment.findOne({paymentId:q.params.id});if(!previous||!canRetryPayment(previous,q.user._id,await paymentAllowed(previous,q.user._id)))return r.status(404).json({error:'Retry is unavailable for this payment'});const payment=await Payment.create({paymentId:newPaymentId(),...buildPaymentRetryFields(previous,mpesaProvider.name)});emitPayment(payment);r.status(201).json({payment});});
-app.post('/api/payments/daraja/callback',async(q,r)=>{const cb=q.body?.Body?.stkCallback;if(!cb||typeof cb.CheckoutRequestID!=='string'||typeof cb.MerchantRequestID!=='string')return r.status(400).json({error:'Malformed callback'});const payment=await Payment.findOne({checkoutRequestId:cb.CheckoutRequestID,merchantRequestId:cb.MerchantRequestID,provider:{$in:['daraja-sandbox','daraja-production']},status:'PENDING',callbackProcessedAt:{$exists:false}});if(!payment){const completed=await Payment.findOne({checkoutRequestId:cb.CheckoutRequestID,merchantRequestId:cb.MerchantRequestID,provider:{$in:['daraja-sandbox','daraja-production']},status:'SUCCESS'});if(completed&&completed.billingType&&completed.billingWorkspaceId)await applyWorkspaceBillingPayment({mongoose,payment:completed});return r.json({ok:true,duplicate:true});}if(!canTransitionPayment(payment.status,payment.callbackProcessedAt))return r.json({ok:true,duplicate:true});const outcome=resolveCallbackOutcome(cb,payment);if(outcome.error==='malformed')return r.status(400).json({error:'Malformed callback'});if(outcome.error==='mismatch')return r.status(400).json({error:'Callback details did not match the initiated payment'});const updated=await Payment.findOneAndUpdate({_id:payment._id,status:'PENDING',callbackProcessedAt:{$exists:false},checkoutRequestId:cb.CheckoutRequestID,merchantRequestId:cb.MerchantRequestID},{$set:{status:outcome.status,resultCode:outcome.resultCode,resultDescription:outcome.description,...(outcome.receipt?{providerReceipt:outcome.receipt}:{}),completedAt:new Date(),callbackProcessedAt:new Date(),...(payment.platformFee?{platformFeeStatus:outcome.status==='SUCCESS'?'PENDING_SETTLEMENT':'FAILED'}:{})}},{new:true});if(updated){emitPayment(updated);if(updated.status==='SUCCESS'){if (updated.billingType && updated.billingWorkspaceId) { try { await applyWorkspaceBillingPayment({Payment, mongoose, payment: updated}); } catch (error) { console.error('Workspace billing payment confirmed but entitlement update failed', {paymentId: updated.paymentId}); } }}if(updated.status==='SUCCESS'&&updated.businessDocumentId&&mongoose.models.BusinessDocument){const BusinessDocument=mongoose.models.BusinessDocument;const paymentRecord={amount:updated.amount,method:'mpesa',reference:updated.paymentId,verified:true,recordedAt:new Date(),recordedBy:updated.requesterId};const nextPaid={$round:[{$add:[{$ifNull:['$paidAmount',0]},updated.amount]},2]};const document=await BusinessDocument.findOneAndUpdate({_id:updated.businessDocumentId,organizationId:updated.businessOrganizationId,'paymentRecords.reference':{$ne:updated.paymentId}},[{$set:{paymentRecords:{$concatArrays:[{$ifNull:['$paymentRecords',[]]},[paymentRecord]]},paidAmount:{$min:['$total',nextPaid]},status:{$cond:[{$gte:[nextPaid,'$total']},'paid','part_paid']}}}],{new:true});if(document)io.to(String(document.conversationId||'')).emit('business:document-updated',{documentId:String(document._id),number:document.number,status:document.status,total:document.total,paidAmount:document.paidAmount});}}r.json({ok:true});});
+app.post('/api/payments/daraja/callback',async(q,r)=>{
+  const result=await processDarajaCallback({
+    callback:q.body?.Body?.stkCallback,
+    findPending:({checkoutRequestId,merchantRequestId})=>Payment.findOne({
+      checkoutRequestId,merchantRequestId,
+      provider:{$in:['daraja-sandbox','daraja-production']},
+      status:'PENDING',callbackProcessedAt:{$exists:false}
+    }),
+    findExisting:({checkoutRequestId,merchantRequestId})=>Payment.findOne({
+      checkoutRequestId,merchantRequestId,
+      provider:{$in:['daraja-sandbox','daraja-production']}
+    }),
+    transition:({payment,references,outcome})=>Payment.findOneAndUpdate({
+      _id:payment._id,status:'PENDING',callbackProcessedAt:{$exists:false},
+      checkoutRequestId:references.checkoutRequestId,
+      merchantRequestId:references.merchantRequestId
+    },{$set:{
+      status:outcome.status,resultCode:outcome.resultCode,resultDescription:outcome.description,
+      ...(outcome.receipt?{providerReceipt:outcome.receipt}:{}),
+      completedAt:new Date(),callbackProcessedAt:new Date(),
+      ...(payment.platformFee?{platformFeeStatus:outcome.status==='SUCCESS'?'PENDING_SETTLEMENT':'FAILED'}:{})
+    }},{new:true})
+  });
+  if(result.statusCode!==200)return r.status(result.statusCode).json(result.body);
+  if(result.body.duplicate){
+    const completed=result.body.payment;
+    if(completed?.status==='SUCCESS'&&completed.billingType&&completed.billingWorkspaceId){
+      try{await applyWorkspaceBillingPayment({Payment,mongoose,payment:completed});}
+      catch(error){console.error('Duplicate workspace billing callback reconciliation failed',{paymentId:completed.paymentId});}
+    }
+    return r.json({ok:true,duplicate:true});
+  }
+  const updated=result.body.payment;
+  if(updated){emitPayment(updated);if(updated.status==='SUCCESS'){if (updated.billingType && updated.billingWorkspaceId) { try { await applyWorkspaceBillingPayment({Payment, mongoose, payment: updated}); } catch (error) { console.error('Workspace billing payment confirmed but entitlement update failed', {paymentId: updated.paymentId}); } }}if(updated.status==='SUCCESS'&&updated.businessDocumentId&&mongoose.models.BusinessDocument){const BusinessDocument=mongoose.models.BusinessDocument;const paymentRecord={amount:updated.amount,method:'mpesa',reference:updated.paymentId,verified:true,recordedAt:new Date(),recordedBy:updated.requesterId};const nextPaid={$round:[{$add:[{$ifNull:['$paidAmount',0]},updated.amount]},2]};const document=await BusinessDocument.findOneAndUpdate({_id:updated.businessDocumentId,organizationId:updated.businessOrganizationId,'paymentRecords.reference':{$ne:updated.paymentId}},[{$set:{paymentRecords:{$concatArrays:[{$ifNull:['$paymentRecords',[]]},[paymentRecord]]},paidAmount:{$min:['$total',nextPaid]},status:{$cond:[{$gte:[nextPaid,'$total']},'paid','part_paid']}}}],{new:true});if(document)io.to(String(document.conversationId||'')).emit('business:document-updated',{documentId:String(document._id),number:document.number,status:document.status,total:document.total,paidAmount:document.paidAmount});}}r.json({ok:true});});
 // MEMORY ROUTES: suggest structured candidates, then manage records owned by the current user.
 // Claim a source message as seen before displaying a suggestion. A unique per-user/source ledger prevents repeats across app restarts and devices.
 app.post('/api/memories/seen',auth,async(q,r)=>{
