@@ -1,3 +1,4 @@
+import {isWorkspaceBillingActive} from './workspace-billing-access.js';
 // Public multi-business discovery for Chatify's commercial marketplace.
 // This module deliberately exposes only published catalogue data and public business profile fields.
 // All search text is escaped before it is used in a MongoDB regular expression.
@@ -29,6 +30,12 @@ export function matchesMarketplaceLocation(organization, location = '') {
 export function registerBusinessMarketplaceRoutes({app, mongoose}) {
   const Organization = mongoose.models.BusinessOrganization;
   const CatalogItem = mongoose.models.BusinessCatalogItem;
+  const getBillingGraceDays = async () => {
+    const settings = await mongoose.models.WorkspaceBillingSettings
+      ?.findOne({key: 'global'}).select('gracePeriodDays').lean();
+    const days = Number(settings?.gracePeriodDays ?? 3);
+    return Number.isInteger(days) && days >= 0 && days <= 30 ? days : 3;
+  };
 
   // GET /api/marketplace supports keyword, category, country, location and pagination filters.
   app.get('/api/marketplace', async (req, res) => {
@@ -52,15 +59,17 @@ export function registerBusinessMarketplaceRoutes({app, mongoose}) {
         organizationFilter._id = {$in: itemOrganizationIds};
       }
       const organizations = await Organization.find(organizationFilter)
-        .select('name slug description logo industry country currency website phone branches')
+        .select('name slug description logo industry country currency website phone branches billing')
         .sort({name: 1}).limit(1000).lean();
+      const graceDays = await getBillingGraceDays();
+      const activeOrganizations = organizations.filter(org => isWorkspaceBillingActive(org, graceDays));
       // Count active catalogue entries in one aggregation instead of issuing one query per store.
       const counts = await CatalogItem.aggregate([
-        {$match: {active: true, organizationId: {$in: organizations.map(org => org._id)}}},
+        {$match: {active: true, organizationId: {$in: activeOrganizations.map(org => org._id)}}},
         {$group: {_id: '$organizationId', itemCount: {$sum: 1}}},
       ]);
       const countById = new Map(counts.map(row => [String(row._id), row.itemCount]));
-      const eligible = organizations.flatMap(organization => {
+      const eligible = activeOrganizations.flatMap(organization => {
         if (!matchesMarketplaceLocation(organization, filters.location)) return [];
         const itemCount = countById.get(String(organization._id)) || 0;
         if (!itemCount) return [];
@@ -102,9 +111,35 @@ export function registerBusinessMarketplaceRoutes({app, mongoose}) {
       const organizations = await Organization.find({
         _id: {$in: orgIds},
         'settings.storefrontPublished': {$ne: false},
-        ...(filters.country ? {country: new RegExp('^' + escapeMarketplaceRegex(filters.country) + '$', 'i')} : {}),
-      }).select('name slug country currency branches').lean();
-      const byId = new Map(organizations.map(org => [String(org._id), org]));
+        ...(filters.country ? {country: new RegExp('^' + escapeMarketplaceRegex(filters.country) + '
+      const results = items.flatMap(item => {
+        const organization = byId.get(String(item.organizationId));
+        if (!organization || !matchesMarketplaceLocation(organization, filters.location)) return [];
+        return [{
+          id: String(item._id), name: item.name, description: item.description || '',
+          price: item.price, currency: item.currency || organization.currency || 'KES',
+          images: (item.images || []).slice(0, 8), category: item.category || '',
+          type: item.type || 'product', inStock: Number(item.stock) > 0,
+          business: {name: organization.name, slug: organization.slug, country: organization.country || 'KE'},
+        }];
+      });
+      const total = results.length;
+      const start = (filters.page - 1) * filters.pageSize;
+      res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+      return res.json({filters, products: results.slice(start, start + filters.pageSize), pagination: {
+        page: filters.page, pageSize: filters.pageSize, total, totalPages: Math.ceil(total / filters.pageSize),
+      }});
+    } catch (error) {
+      console.error('Public marketplace product search failed:', error?.message || 'unknown error');
+      return res.status(500).json({error: 'Unable to search marketplace products right now'});
+    }
+  });
+}
+, 'i')} : {}),
+      }).select('name slug country currency branches billing').lean();
+      const graceDays = await getBillingGraceDays();
+      const activeOrganizations = organizations.filter(org => isWorkspaceBillingActive(org, graceDays));
+      const byId = new Map(activeOrganizations.map(org => [String(org._id), org]));
       const results = items.flatMap(item => {
         const organization = byId.get(String(item.organizationId));
         if (!organization || !matchesMarketplaceLocation(organization, filters.location)) return [];
