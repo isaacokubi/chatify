@@ -70,3 +70,14 @@ test('owner billing status clamps invalid configured grace periods', () => {
   assert.equal(result.gracePeriodDays, 3);
   assert.equal(result.locked, false);
 });
+
+
+test('workspace locks at the exact subscription-expiry-plus-grace boundary', async () => {
+  const expiry = '2026-10-20T00:00:00.000Z';
+  const workspace = {billing:{billingEnforced:true,setupFeePaid:true,subscriptionExpiresAt:expiry}};
+  const graceEnd = new Date('2026-10-23T00:00:00.000Z');
+  assert.equal(await workspaceBillingLock(mongooseWithGracePeriod(3), workspace, new Date(graceEnd.getTime() - 1)), null);
+  assert.equal((await workspaceBillingLock(mongooseWithGracePeriod(3), workspace, graceEnd)).code, 'WORKSPACE_BILLING_REQUIRED');
+  assert.equal(isWorkspaceBillingActive(workspace, 3, new Date(graceEnd.getTime() - 1)), true);
+  assert.equal(isWorkspaceBillingActive(workspace, 3, graceEnd), false);
+});

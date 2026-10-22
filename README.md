@@ -36,6 +36,7 @@ It does not represent reconciled settlements, refunds, provider fees, or tax acc
 - [Business platform guide](docs/BUSINESS_PLATFORM.md) — organization workspaces, CRM, catalogues, quotations, payment reconciliation, tasks, shared inbox handover, suppliers, workflows, audit logs and storefront APIs.
 - [Commercial readiness acceptance matrix](docs/COMMERCIAL_READINESS.md) — evidence-based status of commercial modules, acceptance gates, and known production blockers.
 - [Remediation log (2026-10-22)](docs/REMEDIATION_2026-10-22.md) — commission-free billing policy, payment callback safeguards, and remaining production acceptance gates.
+- [Billing boundary verification record (2026-10-22)](docs/VERIFICATION_2026-10-22_BILLING_BOUNDARY.md) — regression test scope and the CI evidence required before claiming it passed.
 
 ## Core innovations
 - **Remember:** deterministic local extraction identifies event, task, payment, place and note candidates that users can save as Memory Cards.
