@@ -223,10 +223,13 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const days = Number(settings?.gracePeriodDays ?? 3);
     return Number.isInteger(days) && days >= 0 && days <= 30 ? days : 3;
   };
-  const getPublicBillingStatus = async (org, graceDays) => getWorkspaceBillingStatus(
-    org,
-    Number.isInteger(graceDays) && graceDays >= 0 && graceDays <= 30 ? graceDays : await getBillingGraceDays()
-  );
+  const getPublicBillingStatus = async (org, graceDays) => {
+    // Avoid an extra settings query for grandfathered workspaces.
+    if (org?.billing?.billingEnforced !== true) return getWorkspaceBillingStatus(org, 3);
+    const configuredGraceDays = Number.isInteger(graceDays) && graceDays >= 0 && graceDays <= 30
+      ? graceDays : await getBillingGraceDays();
+    return getWorkspaceBillingStatus(org, configuredGraceDays);
+  };
   const getOrg = async (orgId, userId) => {
     if (!mongoose.isValidObjectId(orgId)) return null;
     return Organization.findOne({_id: orgId, $or: [{ownerId: userId}, {'members.userId': userId}]});
