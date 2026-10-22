@@ -12,6 +12,10 @@ This file records code changes made directly on `main` after the commercial-read
 - Retrying an older payment creates a commission-free payment record and uses the original amount.
 - Workspace setup and monthly subscription billing remain the intended Chatify monetization model. Safaricom/provider fees remain separate from Chatify's platform commission.
 
+### Offline cache privacy
+- Private API responses, conversation metadata and message snapshots now use Flutter Secure Storage as the only persistent cache store.
+- Legacy plaintext SharedPreferences cache entries are migrated only when secure storage accepts them, then removed; if secure storage is unavailable, private cache writes are skipped rather than copied into browser local storage.
+
 ### Payment callback integrity
 - A successful Daraja callback must include the expected amount, normalized payer phone, and a valid M-Pesa receipt reference.
 - The receipt is persisted on the payment record.
