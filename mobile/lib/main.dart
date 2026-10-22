@@ -424,6 +424,9 @@ class Api {
 
   Future<void> enqueueOutgoingMessage(
       String conversationId, Map<String, dynamic> item) async {
+    if (token == null || token!.isEmpty) {
+      throw StateError('Sign in before saving an outgoing message for retry.');
+    }
     final mutationId = item['clientMutationId']?.toString() ?? '';
     if (mutationId.length < 16 || mutationId.length > 100) {
       throw ArgumentError('A stable message ID is required for offline queuing.');
