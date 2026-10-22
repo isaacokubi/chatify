@@ -15,7 +15,7 @@ This file records code changes made directly on `main` after the commercial-read
 ### Retry-safe messaging and billing
 - Chat message creation accepts a validated client mutation ID. A unique partial index prevents duplicate messages when a client retries after an ambiguous network timeout; a reused ID cannot be applied to a different conversation.
 - The Flutter app now stores encrypted outgoing message envelopes in an account-scoped Flutter Secure Storage outbox (up to 50 queued messages per conversation), displays the queued message locally, and retries after the chat socket reconnects. Queue writes fail closed if secure storage is unavailable; no plaintext preferences fallback is used.
-- The outbox is at-least-once delivery with server-side deduplication. Multi-device outbox synchronization, explicit per-message retry/delete controls, and broader conflict/recovery tests remain release gates.
+- The outbox is at-least-once delivery with server-side deduplication and now exposes per-message retry/discard controls. Multi-device outbox synchronization and broader conflict/recovery tests remain release gates.
 
 ### Offline cache privacy
 - Private API responses, conversation metadata and message snapshots now use Flutter Secure Storage as the only persistent cache store.
