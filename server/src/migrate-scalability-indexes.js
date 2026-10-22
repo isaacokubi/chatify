@@ -107,6 +107,7 @@ try{
   console.log('Index migration complete. No existing indexes or records were removed.');
 }catch(error){
   console.error('Index migration failed:',error.message);
+  if(Array.isArray(error.conflicts)) console.error(JSON.stringify(error.conflicts,null,2));
   process.exitCode=1;
 }finally{
   await mongoose.disconnect();
