@@ -318,23 +318,62 @@ class Api {
   String _cacheKey(String path) =>
       'chatify_offline_v1_${_cacheScope()}_${Uri.encodeComponent(path)}';
 
+  // Private API and conversation caches may contain personal messages and records.
+  // Migrate old plaintext preference entries only when secure storage accepts the
+  // value, then remove the legacy copy. If secure storage is unavailable, do not
+  // expose cached private data through plaintext SharedPreferences/localStorage.
+  Future<String?> _readPrivateCacheValue(String key) async {
+    try {
+      final secure = await _secureStorage.read(key: key);
+      if (secure != null && secure.isNotEmpty) {
+        try {
+          await (await SharedPreferences.getInstance()).remove(key);
+        } catch (_) {}
+        return secure;
+      }
+    } catch (_) {
+      // Try one-time migration of a legacy plaintext cache below.
+    }
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final legacy = preferences.getString(key);
+      if (legacy == null || legacy.isEmpty) return null;
+      try {
+        await _secureStorage.write(key: key, value: legacy);
+        await preferences.remove(key);
+        return legacy;
+      } catch (_) {
+        // Never return plaintext cached conversations when secure storage fails.
+        await preferences.remove(key);
+        return null;
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writePrivateCacheValue(String key, String value) async {
+    try {
+      await _secureStorage.write(key: key, value: value);
+    } catch (_) {
+      // Offline cache is optional; a secure-storage failure must not write
+      // private records into plaintext browser storage.
+    }
+    try {
+      // Remove any old plaintext copy, even if the secure write failed.
+      await (await SharedPreferences.getInstance()).remove(key);
+    } catch (_) {}
+  }
+
   Future<Map<String, dynamic>?> _readCachedResponse(String path) async {
     if (token == null || token!.isEmpty) return null;
-    final key = _cacheKey(path);
-    // Secure storage is preferred; browser storage can be unavailable in some
-    // contexts, so try the persistent preferences store as a fallback.
-    for (final read in <Future<String?> Function()>[
-      () => _secureStorage.read(key: key),
-      () async => (await SharedPreferences.getInstance()).getString(key),
-    ]) {
-      try {
-        final cached = await read();
-        if (cached == null || cached.isEmpty) continue;
-        final decoded = jsonDecode(cached);
-        if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      } catch (_) {
-        // Try the next store; a corrupt cache must never break the app.
-      }
+    try {
+      final cached = await _readPrivateCacheValue(_cacheKey(path));
+      if (cached == null || cached.isEmpty) return null;
+      final decoded = jsonDecode(cached);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      // A corrupt cache must never break the app.
     }
     return null;
   }
@@ -345,21 +384,9 @@ class Api {
     try {
       final encoded = jsonEncode(response);
       // Keep individual entries bounded so large histories do not exhaust
-      // browser local storage or make a small mobile device unresponsive.
+      // secure storage or make a small device unresponsive.
       if (encoded.length > 700000) return;
-      final key = _cacheKey(path);
-      var secureWriteSucceeded = false;
-      try {
-        await _secureStorage.write(key: key, value: encoded);
-        secureWriteSucceeded = true;
-      } catch (_) {
-        // Some browser contexts do not expose working secure storage.
-      }
-      // Web needs a durable fallback so cached chats survive reloads and
-      // temporary loss of browser crypto storage. Native stays secure-first.
-      if (kIsWeb || !secureWriteSucceeded) {
-        await (await SharedPreferences.getInstance()).setString(key, encoded);
-      }
+      await _writePrivateCacheValue(_cacheKey(path), encoded);
     } catch (_) {
       // Caching is best-effort and must never break a successful API request.
     }
@@ -373,19 +400,13 @@ class Api {
 
   Future<Map<String, dynamic>?> readConversationMetadata(
       String conversationId) async {
-    final key = _conversationMetadataKey(conversationId);
-    for (final read in <Future<String?> Function()>[
-      () => _secureStorage.read(key: key),
-      () async => (await SharedPreferences.getInstance()).getString(key),
-    ]) {
-      try {
-        final encoded = await read();
-        if (encoded == null || encoded.isEmpty) continue;
-        final decoded = jsonDecode(encoded);
-        if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      } catch (_) {
-        // Continue to the other store if one is unavailable or corrupt.
-      }
+    try {
+      final encoded = await _readPrivateCacheValue(_conversationMetadataKey(conversationId));
+      if (encoded == null || encoded.isEmpty) return null;
+      final decoded = jsonDecode(encoded);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      // A corrupt cache must not block online use.
     }
     return null;
   }
@@ -395,15 +416,7 @@ class Api {
     try {
       final encoded = jsonEncode(conversation);
       if (encoded.length <= 200000) {
-        final key = _conversationMetadataKey(conversationId);
-        var secureWriteSucceeded = false;
-        try {
-          await _secureStorage.write(key: key, value: encoded);
-          secureWriteSucceeded = true;
-        } catch (_) {}
-        if (kIsWeb || !secureWriteSucceeded) {
-          await (await SharedPreferences.getInstance()).setString(key, encoded);
-        }
+        await _writePrivateCacheValue(_conversationMetadataKey(conversationId), encoded);
       }
     } catch (_) {
       // Do not let local cache failures affect normal messaging.
@@ -411,19 +424,13 @@ class Api {
   }
 
   Future<List<dynamic>?> readConversationSnapshot(String conversationId) async {
-    final key = _conversationSnapshotKey(conversationId);
-    for (final read in <Future<String?> Function()>[
-      () => _secureStorage.read(key: key),
-      () async => (await SharedPreferences.getInstance()).getString(key),
-    ]) {
-      try {
-        final encoded = await read();
-        if (encoded == null || encoded.isEmpty) continue;
-        final decoded = jsonDecode(encoded);
-        if (decoded is List) return List<dynamic>.from(decoded);
-      } catch (_) {
-        // Try the fallback store; a corrupt cache must not block online use.
-      }
+    try {
+      final encoded = await _readPrivateCacheValue(_conversationSnapshotKey(conversationId));
+      if (encoded == null || encoded.isEmpty) return null;
+      final decoded = jsonDecode(encoded);
+      if (decoded is List) return List<dynamic>.from(decoded);
+    } catch (_) {
+      // A corrupt cache must not block online use.
     }
     return null;
   }
@@ -431,22 +438,13 @@ class Api {
   Future<void> writeConversationSnapshot(
       String conversationId, List<dynamic> messages) async {
     try {
-      final encoded = jsonEncode(messages);
       // Avoid storing an unbounded history in one secure-storage value.
       final bounded = messages.length > 300
           ? messages.sublist(messages.length - 300)
           : messages;
-      final value = bounded == messages ? encoded : jsonEncode(bounded);
+      final value = jsonEncode(bounded);
       if (value.length > 900000) return;
-      final key = _conversationSnapshotKey(conversationId);
-      var secureWriteSucceeded = false;
-      try {
-        await _secureStorage.write(key: key, value: value);
-        secureWriteSucceeded = true;
-      } catch (_) {}
-      if (kIsWeb || !secureWriteSucceeded) {
-        await (await SharedPreferences.getInstance()).setString(key, value);
-      }
+      await _writePrivateCacheValue(_conversationSnapshotKey(conversationId), value);
     } catch (_) {
       // Local persistence is best-effort and must not interrupt chat delivery.
     }
