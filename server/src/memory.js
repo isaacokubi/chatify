@@ -2,6 +2,22 @@
 // This intentionally uses transparent local heuristics: suggestions are never saved automatically.
 const TYPES = new Set(['EVENT', 'PAYMENT', 'PLACE', 'TASK', 'NOTE']);
 
+// Select only a conversation member; callers must resolve the display name
+// from their trusted user store rather than accepting a client-supplied name.
+export function attributedPersonId({participantIds = [], currentUserId, conversationType, sourceSenderId, requestedPersonId} = {}) {
+  const members = participantIds.map(String);
+  const self = String(currentUserId ?? '');
+  if (requestedPersonId != null) {
+    const requested = String(requestedPersonId);
+    if (requested !== self && members.includes(requested)) return requested;
+  }
+  if (conversationType === 'direct') return members.find(id => id !== self) ?? null;
+  if (sourceSenderId != null && String(sourceSenderId) !== self && members.includes(String(sourceSenderId))) {
+    return String(sourceSenderId);
+  }
+  return null;
+}
+
 function clean(value) {
   return value.replace(/\s+/g, ' ').trim().replace(/[.!?]+$/, '');
 }

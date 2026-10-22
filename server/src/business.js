@@ -66,6 +66,13 @@ export function resolveSellerMpesaPhone(settings = {}, ownerPhone = '', business
     normalizeMpesaPhone(businessPhone);
 }
 
+export function applyExplicitMessagingConsent(customer, confirmed, now = new Date()) {
+  if (customer?.messagingConsent === true || confirmed !== true) return false;
+  customer.messagingConsent = true;
+  customer.consentCapturedAt = now;
+  return true;
+}
+
 export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []) {
   if (!Array.isArray(requestedItems) || requestedItems.length < 1 || requestedItems.length > 50) {
     throw new Error('Choose between 1 and 50 products');
@@ -371,7 +378,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
           businessOrganizationId: org._id, businessDocumentId: document._id,
           description: ('Order ' + number).slice(0, 80), provider: mpesaProvider.name, requestedAt: new Date(),
         });
-        res.status(201).json({order: document, payment: {paymentId: payment.paymentId, amount: payment.amount, baseAmount: payment.baseAmount, platformFee: payment.platformFee, totalAmount: payment.totalAmount, platformFeeRate: payment.platformFeeRate, platformFeeStatus: payment.platformFeeStatus, status: payment.status, provider: payment.provider}, notice: 'Order created. Review the 0.5% platform fee and total before authorizing the M-Pesa prompt.'});
+        res.status(201).json({order: document, payment: {paymentId: payment.paymentId, amount: payment.amount, baseAmount: payment.baseAmount, platformFee: payment.platformFee, totalAmount: payment.totalAmount, platformFeeRate: payment.platformFeeRate, platformFeeStatus: payment.platformFeeStatus, status: payment.status, provider: payment.provider}, notice: 'Order created. The M-Pesa prompt will request the order amount; Safaricom may apply its standard charges.'});
       } catch (error) {
         await BusinessDocument.deleteOne({_id: document._id, organizationId: org._id});
         throw error;
@@ -627,7 +634,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     if(document.currency!=='KES')return res.status(400).json({error:'M-Pesa STK is currently supported for KES invoices only'});
     const baseAmount=Math.round((document.total-document.paidAmount)*100)/100;
     if(!Number.isSafeInteger(baseAmount)||!validPaymentAmount(baseAmount))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
-    try{return res.json({...calculatePaymentTotal(baseAmount),currency:'KES',feeNotice:'The 0.5% platform fee is pending settlement and is not automatically transferred to Chatify.'});}
+    try{return res.json({...calculatePaymentTotal(baseAmount),currency:'KES',feeNotice:'Chatify adds no M-Pesa commission. Safaricom may apply its standard M-Pesa charges.'});}
     catch(error){return res.status(400).json({error:error.message});}
   });
   app.post('/api/business/organizations/:orgId/documents/:documentId/mpesa-stk', auth, async (req,res)=>{
@@ -640,12 +647,11 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const outstanding=Math.round((document.total-document.paidAmount)*100)/100;
     if(!Number.isSafeInteger(outstanding)||!validPaymentAmount(outstanding))return res.status(400).json({error:'M-Pesa requires a whole KSh outstanding balance between 1 and 150000'});
     let fee;try{fee=calculatePaymentTotal(outstanding);}catch(error){return res.status(400).json({error:error.message});}
-    if(req.body?.feeAcknowledged!==true)return res.status(400).json({error:'Confirm the disclosed 0.5% platform fee before sending an invoice STK prompt',baseAmount:fee.baseAmount,platformFee:fee.platformFee,totalAmount:fee.totalAmount,platformFeeRate:fee.platformFeeRate});
     const phone=normalizeMpesaPhone(req.body?.phone);if(!phone)return res.status(400).json({error:'Enter a valid Kenyan customer M-Pesa phone number'});
     const pending=await Payment.findOne({businessDocumentId:document._id,status:'PENDING',initiatedAt:{$exists:true}});
     if(pending)return res.status(409).json({error:'An M-Pesa request is already pending for this invoice',paymentId:pending.paymentId});
     const payment=await Payment.create({paymentId:newPaymentId(),requesterId:req.user._id,payerId:req.user._id,businessOrganizationId:org._id,businessDocumentId:document._id,amount:outstanding,...fee,recipientPhone:normalizeMpesaPhone(org.phone)||phone,payerPhone:phone,phone,description:('Invoice '+document.number).slice(0,80),provider:mpesaProvider.name,requestedAt:new Date(),initiating:true});
-    try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.totalAmount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
+    try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.amount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
     catch(error){payment.status='FAILED';payment.initiating=false;payment.completedAt=new Date();payment.callbackProcessedAt=new Date();payment.resultDescription='Provider initiation failed';await payment.save();console.error('Invoice M-Pesa initiation failed',{stage:error?.stage||'unknown'});res.status(503).json({error:'M-Pesa request could not be initiated. Check provider configuration and retry.'});}
   });
 
@@ -766,7 +772,31 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   // Consent-gated communications: recipients must be customers in this workspace with recorded
   // opt-in. Message text and provider credentials are never written to audit logs.
   app.patch('/api/business/organizations/:orgId/customers/:customerId/messaging-consent', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;if(typeof req.body?.consent!=='boolean')return res.status(400).json({error:'consent must be true or false'});const customer=await Customer.findOne({_id:req.params.customerId,organizationId:org._id});if(!customer)return res.status(404).json({error:'Customer not found'});customer.messagingConsent=req.body.consent;customer.consentCapturedAt=req.body.consent?new Date():undefined;await customer.save();await recordAudit(org,req.user._id,'customer.messaging_consent_changed','customer',customer._id,req.body.consent?'Customer opted in':'Customer opt-in withdrawn');res.json({customer:{id:String(customer._id),messagingConsent:customer.messagingConsent,consentCapturedAt:customer.consentCapturedAt}});});
-  app.post('/api/business/organizations/:orgId/communications/send', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org||!requireManager(org,req,res))return;const customer=await Customer.findOne({_id:req.body?.customerId,organizationId:org._id});if(!customer)return res.status(404).json({error:'Customer not found'});if(!customer.messagingConsent)return res.status(403).json({error:'Record the customer opt-in before sending a business message'});const channel=req.body?.channel;const message=shortText(req.body?.message,1500);if(!message)return res.status(400).json({error:'Message is required'});try{let delivery;if(channel==='whatsapp')delivery=await messaging.sendWhatsApp({to:customer.phone,text:message});else if(channel==='sms')delivery=await messaging.sendSms({to:customer.phone,text:message});else return res.status(400).json({error:'Channel must be whatsapp or sms'});await recordAudit(org,req.user._id,'customer.message_sent','customer',customer._id,'Sent '+channel+' message via configured provider');res.status(202).json({delivery,notice:'Provider accepted the message request; delivery is not guaranteed until provider status confirms it.'});}catch(error){console.error('Business messaging failed',{channel:String(channel||''),status:error?.status||'unconfigured'});res.status(503).json({error:'Messaging provider is unavailable or rejected the request. Check provider configuration.'});}});
+  app.post('/api/business/organizations/:orgId/communications/send', auth, async (req, res) => {
+    const org = await requireOrg(req, res);
+    if (!org || !requireManager(org, req, res)) return;
+    const customer = await Customer.findOne({ _id: req.body?.customerId, organizationId: org._id });
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    const channel = req.body?.channel;
+    const message = shortText(req.body?.message, 1500);
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+    if (!['whatsapp', 'sms'].includes(channel)) return res.status(400).json({ error: 'Channel must be whatsapp or sms' });
+    if (applyExplicitMessagingConsent(customer, req.body?.consentConfirmed)) {
+      await customer.save();
+      await recordAudit(org, req.user._id, 'customer.messaging_consent_changed', 'customer', customer._id, 'Customer opt-in confirmed before message');
+    }
+    if (!customer.messagingConsent) return res.status(403).json({ error: 'Record the customer opt-in before sending a business message' });
+    try {
+      const delivery = channel === 'whatsapp'
+        ? await messaging.sendWhatsApp({ to: customer.phone, text: message })
+        : await messaging.sendSms({ to: customer.phone, text: message });
+      await recordAudit(org, req.user._id, 'customer.message_sent', 'customer', customer._id, 'Sent ' + channel + ' message via configured provider');
+      return res.status(202).json({ delivery, notice: 'Provider accepted the message request; delivery is not guaranteed until provider status confirms it.' });
+    } catch (error) {
+      console.error('Business messaging failed', { channel, status: error?.status || 'unconfigured' });
+      return res.status(503).json({ error: 'Messaging provider is unavailable or rejected the request. Check provider configuration.' });
+    }
+  });
   app.post('/api/business/organizations/:orgId/translate', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org)return;if(req.body?.consent!==true)return res.status(400).json({error:'Explicit consent is required before sending content to the configured translation provider'});try{const result=await language.translateText({text:req.body?.text,targetLanguage:req.body?.targetLanguage,sourceLanguage:req.body?.sourceLanguage});res.json(result);}catch(error){res.status(error.message?.includes('not configured')?503:400).json({error:error.message||'Translation failed'});}});
   app.post('/api/business/organizations/:orgId/voice-translate', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org)return;if(req.body?.consent!==true)return res.status(400).json({error:'Explicit consent is required before sending audio to the configured speech provider'});try{const result=await language.transcribeAndTranslate({audioBase64:req.body?.audioBase64,mimeType:req.body?.mimeType,targetLanguage:req.body?.targetLanguage});res.json(result);}catch(error){res.status(error.message?.includes('not configured')?503:400).json({error:error.message||'Voice translation failed'});}});
   app.post('/api/business/organizations/:orgId/memory-candidates', auth, async(req,res)=>{const org=await requireOrg(req,res);if(!org)return;const source=typeof req.body?.text==='string'?req.body.text:'';if(!source.trim()||source.length>5000)return res.status(400).json({error:'Provide business text up to 5000 characters'});res.json({candidates:extractBusinessMemoryCandidates(source),notice:'Suggestions only. Review before saving to Memory Cards or creating a task.'});});

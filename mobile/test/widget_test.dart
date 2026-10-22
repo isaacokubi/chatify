@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:chatify/main.dart';
@@ -9,6 +10,48 @@ import 'package:http/testing.dart';
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
+  test('sparkle memory extraction works locally on decrypted message text', () {
+    final candidates = extractMemoryCandidatesLocally(
+        'Please remind me to call the clinic tomorrow at 10:30 AM.');
+    expect(candidates, isNotEmpty);
+    expect(candidates.any((item) => item['type'] == 'TASK'), isTrue);
+    expect(candidates.any((item) => item['type'] == 'EVENT'), isTrue);
+    final event = candidates.firstWhere((item) => item['type'] == 'EVENT');
+    expect(event['date'], isNotNull);
+    expect(event['time'], '10:30 AM');
+  });
+
+  test('memory date extraction validates explicit dates and relative dates',
+      () {
+    expect(memoryDateFromText('Meeting tomorrow', now: DateTime(2026, 10, 23)),
+        DateTime(2026, 10, 24));
+    expect(memoryDateFromText('Meet on 31 February 2027'), isNull);
+    expect(
+        memoryDateFromText('Meet on 24 October 2026'), DateTime(2026, 10, 24));
+  });
+
+  test(
+      'dark mode is the first-run default and saved light preference is preserved',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final firstRun = AppState(
+      api: Api(client: MockClient((_) async => http.Response('{}', 200))),
+      autoInit: false,
+    );
+    await firstRun.init();
+    expect(firstRun.themeMode, ThemeMode.dark);
+    await firstRun.setDarkMode(false);
+
+    final returningUser = AppState(
+      api: Api(client: MockClient((_) async => http.Response('{}', 200))),
+      autoInit: false,
+    );
+    await returningUser.init();
+    expect(returningUser.themeMode, ThemeMode.light);
+    firstRun.dispose();
+    returningUser.dispose();
+  });
 
   test('Business API reports HTML responses as a readable API error', () async {
     final api = Api(
@@ -46,6 +89,9 @@ void main() {
     final firstApi = Api(client: firstClient)..token = 'offline-test-token';
     final online = await firstApi.call('GET', '/api/conversations');
     expect((online['conversations'] as List).single['_id'], 'conversation-1');
+    final cachedWithoutNetwork = await firstApi.cachedGet('/api/conversations');
+    expect((cachedWithoutNetwork?['conversations'] as List).single['_id'],
+        'conversation-1');
     firstClient.close();
 
     final offlineClient = MockClient((_) async {
@@ -335,6 +381,84 @@ void main() {
     state.dispose();
   });
 
+  testWidgets('school learner register table shows parent contact columns',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.binding.setSurfaceSize(const Size(900, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final requestedPaths = <String>[];
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      requestedPaths.add('${request.url.path}?${request.url.query}');
+      if (path == '/api/schools') {
+        return http.Response(
+          '{"schools":[{"id":"school-1","name":"Demo School","role":"admin","isOwner":true}]}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (path == '/api/schools/verification-requests') {
+        return http.Response('{"reviewer":false,"requests":[]}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/messages')) {
+        return http.Response('{"messages":[],"total":0}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/members')) {
+        return http.Response('{"members":[],"total":0}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (path.endsWith('/students')) {
+        final page = request.url.queryParameters['page'];
+        final learner = page == '2'
+            ? '{"_id":"student-2","admissionNumber":"A-105","fullName":"Test Page Two","className":"Grade 5","guardianName":"Test Guardian Two","guardianPhone":"0700000002","guardianEmail":"guardian-two@example.test"}'
+            : '{"_id":"student-1","admissionNumber":"A-104","fullName":"Amina Otieno","className":"Grade 4","guardianName":"Ruth Otieno","guardianPhone":"0712345678","guardianEmail":"ruth@example.test"}';
+        return http.Response(
+          '{"students":[$learner],"total":21}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{"error":"Unexpected request"}', 404,
+          headers: {'content-type': 'application/json'});
+    });
+    final state = AppState(api: Api(client: client), autoInit: false)
+      ..api.token = 'school-admin-token'
+      ..user = {'id': 'admin-1'};
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: state,
+      child: const MaterialApp(home: SchoolWorkspacePage()),
+    ));
+    await tester.pumpAndSettle();
+    final studentsTab = find.widgetWithText(ChoiceChip, 'Students');
+    await tester.ensureVisible(studentsTab);
+    await tester.tap(studentsTab);
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -900));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DataTable), findsOneWidget,
+        reason: 'Requested API paths: ${requestedPaths.join(', ')}');
+    expect(find.text('Parent / guardian'), findsWidgets);
+    expect(find.text('Phone'), findsOneWidget);
+    expect(find.text('Email'), findsOneWidget);
+    expect(find.text('Ruth Otieno'), findsOneWidget);
+    expect(find.text('0712345678'), findsOneWidget);
+    expect(find.text('ruth@example.test'), findsOneWidget);
+    expect(find.text('Page 1 of 2 · 21 records'), findsOneWidget);
+    await tester.tap(find.byTooltip('Next page'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -900));
+    await tester.pumpAndSettle();
+    expect(requestedPaths,
+        contains('/api/schools/school-1/students?page=2&limit=20'));
+    expect(find.text('Test Page Two'), findsOneWidget);
+
+    client.close();
+    state.dispose();
+  });
+
   testWidgets(
       'admin control center exposes overview, people, payments and health',
       (tester) async {
@@ -390,6 +514,159 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Payment operations'), findsOneWidget);
     expect(find.text('Order payment'), findsOneWidget);
+    client.close();
+    state.dispose();
+  });
+
+  testWidgets('Sparks persist after viewing and memory items expose delete',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+    var activeSpark = <String, dynamic>{};
+    final deletedMemories = <String>{};
+    var viewCalls = 0;
+    var openedMemoryConversation = false;
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      if (request.method == 'GET' && path == '/api/conversations')
+        return http.Response('{"conversations":[],"total":0}', 200);
+      if (request.method == 'GET' && path == '/api/contacts')
+        return http.Response(
+            jsonEncode({
+              'contacts': [
+                {
+                  'id': 'contact-1',
+                  'userId': 'contact-user-1',
+                  'name': 'Ari Contact',
+                  'phone': '254712345678',
+                  'email': 'ari@example.test'
+                }
+              ],
+              'total': 1
+            }),
+            200);
+      if (request.method == 'GET' && path == '/api/sparks')
+        return http.Response(
+            jsonEncode({
+              'sparks': activeSpark.isEmpty ? [] : [activeSpark]
+            }),
+            200);
+      if (request.method == 'POST' && path == '/api/sparks') {
+        activeSpark = {
+          '_id': 'spark-1',
+          'text': 'A shared moment',
+          'hasViewed': false,
+          'owner': {'id': 'user-1', 'name': 'Miriam', 'isOwn': true}
+        };
+        return http.Response(jsonEncode({'spark': activeSpark}), 201);
+      }
+      if (request.method == 'POST' && path == '/api/sparks/spark-1/view') {
+        viewCalls++;
+        activeSpark['hasViewed'] = true;
+        return http.Response('{"ok":true}', 200);
+      }
+      if (request.method == 'GET' && path == '/api/memories')
+        return http.Response(
+            jsonEncode({
+              'memories': [
+                {
+                  '_id': 'memory-1',
+                  'type': 'TASK',
+                  'title': 'Project meeting',
+                  'description': 'Tomorrow',
+                  'personName': 'Ari Contact',
+                  'conversationId': 'conversation-1',
+                  'date': '2026-10-24T00:00:00.000Z',
+                  'time': '10:00 AM',
+                  'location': 'Nairobi',
+                  'completed': false
+                },
+                {
+                  '_id': 'memory-swipe',
+                  'type': 'TASK',
+                  'title': 'Swipe task',
+                  'description': 'Review notes',
+                  'completed': false
+                }
+              ]
+                  .where((memory) => !deletedMemories.contains(memory['_id']))
+                  .toList(),
+              'total': 2 - deletedMemories.length
+            }),
+            200);
+      if (request.method == 'GET' &&
+          path == '/api/conversations/conversation-1') {
+        openedMemoryConversation = true;
+        return http.Response(
+            '{"conversation":{"_id":"conversation-1","type":"direct","participants":[]}}',
+            200);
+      }
+      if (request.method == 'DELETE' && path.startsWith('/api/memories/')) {
+        deletedMemories.add(path.split('/').last);
+        return http.Response('', 204);
+      }
+      return http.Response('{"error":"Unexpected request"}', 404);
+    });
+    final state = AppState(api: Api(client: client), autoInit: false)
+      ..api.token = 'test-session'
+      ..user = {'id': 'user-1', 'name': 'Miriam'};
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: state,
+        child: MaterialApp(
+            theme: ThemeData(platform: TargetPlatform.android),
+            home: const Home())));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Your Spark'));
+    await tester.pumpAndSettle();
+    expect(find.text('Text Spark'), findsOneWidget);
+    expect(find.text('Photo Spark'), findsOneWidget);
+    expect(find.text('Video Spark'), findsOneWidget);
+    await tester.tap(find.text('Text Spark'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'A shared moment');
+    await tester.tap(find.text('Share for 24 hours'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Your Spark'));
+    // Sparkle particles intentionally animate continuously while a Spark is open.
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(find.text('A shared moment'), findsNWidgets(2));
+    await tester.tap(find.byTooltip('Close Spark'));
+    await tester.pumpAndSettle();
+    expect(viewCalls, 1);
+    expect(find.text('Your Spark'), findsOneWidget);
+    await tester.tap(find.text('Memories'));
+    await tester.pumpAndSettle();
+    expect(find.text('With Ari Contact'), findsOneWidget);
+    expect(find.text('Time: 10:00 AM'), findsOneWidget);
+    expect(find.text('Place: Nairobi'), findsOneWidget);
+    expect(find.text('Open conversation'), findsOneWidget);
+    expect(find.text('Mark complete'), findsNWidgets(2));
+    expect(find.text('Project meeting'), findsOneWidget);
+    await tester.tap(find.text('Open conversation'));
+    await tester.pumpAndSettle();
+    expect(openedMemoryConversation, isTrue);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Delete saved memory').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+    expect(find.text('Project meeting'), findsNothing);
+    expect(find.text('Swipe task'), findsOneWidget);
+    await tester.drag(find.text('Swipe task'), const Offset(350, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+    expect(find.text('Swipe task'), findsNothing);
+    await tester.tap(find.text('Contacts'));
+    await tester.pumpAndSettle();
+    expect(find.text('Ari Contact'), findsOneWidget);
+    expect(find.text('M-Pesa: 254712345678\nEmail: ari@example.test'),
+        findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
     client.close();
     state.dispose();
   });

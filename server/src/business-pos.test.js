@@ -7,11 +7,11 @@ test('validates Till profile and creates a customer-readable payment QR payload'
   const charge = buildPosCharge({organization: {_id: 'org-1', name: 'Sample Supermarket'}, amount: 450, description: 'Groceries', reference: 'SALE-1', profile});
   const qr = JSON.parse(charge.qrPayload);
   assert.equal(charge.status, 'PENDING');
-  assert.equal(qr.amount, 453);
+  assert.equal(qr.amount, 450);
   assert.equal(charge.baseAmount, 450);
-  assert.equal(charge.platformFee, 3);
-  assert.equal(charge.totalAmount, 453);
-  assert.equal(charge.platformFeeStatus, 'PENDING_PAYMENT');
+  assert.equal(charge.platformFee, 0);
+  assert.equal(charge.totalAmount, 450);
+  assert.equal(charge.platformFeeStatus, 'NOT_APPLICABLE');
   assert.equal(qr.paymentId, charge.paymentId);
   assert.equal(qr.description, 'Groceries');
   assert.equal(qr.tillNumber, '1234567');
@@ -101,13 +101,13 @@ test('STK callback maps user cancellation and provider failure without marking a
 });
 
 
-test('business checkout adds the 0.5% fee on top and rejects totals above the provider cap', () => {
+test('business checkout adds no Chatify commission and permits the full M-Pesa amount limit', () => {
   const profile = normalizeMerchantPaymentProfile({method: 'mpesa_till', tillNumber: '1234567'});
   const charge = buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 1000, description: 'Checkout', profile});
   assert.equal(charge.baseAmount, 1000);
-  assert.equal(charge.platformFee, 5);
+  assert.equal(charge.platformFee, 0);
   assert.equal(charge.amount, 1000);
-  assert.equal(charge.totalAmount, 1005);
-  assert.equal(JSON.parse(charge.qrPayload).amount, 1005);
-  assert.throws(() => buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 150000, description: 'Checkout', profile}), /0.5% platform fee/);
+  assert.equal(charge.totalAmount, 1000);
+  assert.equal(JSON.parse(charge.qrPayload).amount, 1000);
+  assert.equal(buildPosCharge({organization: {_id: 'org-fee', name: 'Fee Test'}, amount: 150000, description: 'Checkout', profile}).totalAmount, 150000);
 });

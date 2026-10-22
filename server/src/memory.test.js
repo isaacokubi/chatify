@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {candidate} from './memory.js';
+import {attributedPersonId, candidate} from './memory.js';
+
+test('memory attribution selects the direct chat contact and never trusts a supplied display name', () => {
+  assert.equal(attributedPersonId({participantIds:['owner','contact'],currentUserId:'owner',conversationType:'direct',sourceSenderId:'owner'}),'contact');
+  assert.equal(attributedPersonId({participantIds:['owner','member'],currentUserId:'owner',conversationType:'group',sourceSenderId:'member'}),'member');
+  assert.equal(attributedPersonId({participantIds:['owner','member'],currentUserId:'owner',conversationType:'group',requestedPersonId:'outsider',sourceSenderId:'owner'}),null);
+  assert.equal(attributedPersonId({participantIds:['owner','member'],currentUserId:'owner',conversationType:'group',requestedPersonId:'member'}),'member');
+});
 
 test('memory extraction captures useful first-person context with descriptive titles', () => {
   const items = candidate('I work as a software developer at Acme and my goal is to launch a small business.');

@@ -89,7 +89,7 @@ export function normalizeMerchantPaymentProfile(input = {}) {
 
 export function buildPosCharge({organization, amount, description, reference, profile}) {
   const baseAmount = Number(amount);
-  if (!Number.isSafeInteger(baseAmount) || baseAmount < 1 || baseAmount > 150000) throw new Error('Amount must be a whole number between KSh 1 and KSh 150,000 before the platform fee');
+  if (!Number.isSafeInteger(baseAmount) || baseAmount < 1 || baseAmount > 150000) throw new Error('Amount must be a whole number between KSh 1 and KSh 150,000');
   const fee = calculatePaymentTotal(baseAmount);
   const total = fee.totalAmount;
   const title = String(description || '').trim().replace(/\s+/g, ' ').slice(0, 120);
@@ -102,8 +102,8 @@ export function buildPosCharge({organization, amount, description, reference, pr
     ? {method: 'mpesa_till', tillNumber: profile.tillNumber}
     : {method: 'mpesa_paybill', paybillNumber: profile.paybillNumber, accountNumber: paymentReference};
   const paymentId = randomUUID();
-  const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: total, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, description: title, currency: 'KES', ...destination};
-  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_PAYMENT', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
+  const qr = {version: 1, type: 'chatify_pos_payment', paymentId, merchantId: String(organization._id), merchantName: String(organization.name), reference: paymentReference, amount: total, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0, description: title, currency: 'KES', ...destination};
+  return {paymentId, organizationId: organization._id, reference: paymentReference, amount: baseAmount, baseAmount, platformFee: fee.platformFee, totalAmount: total, platformFeeRate: 0, platformFeeStatus: 'NOT_APPLICABLE', currency: 'KES', description: title, method: profile.method, destination, qrPayload: JSON.stringify(qr), status: 'PENDING', confirmationSource: null};
 }
 
 export function canUsePosRole(role) {
@@ -121,10 +121,10 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
     reference: {type: String, required: true},
     amount: {type: Number, required: true, min: 1, max: 150000},
     baseAmount: {type: Number, required: true, min: 1, max: 150000},
-    platformFee: {type: Number, required: true, min: 1, max: 750},
+    platformFee: {type: Number, required: true, min: 0, max: 750},
     totalAmount: {type: Number, required: true, min: 1, max: 150000},
-    platformFeeRate: {type: Number, default: 0.5},
-    platformFeeStatus: {type: String, enum: ['PENDING_PAYMENT', 'PENDING_SETTLEMENT', 'SETTLED', 'FAILED'], default: 'PENDING_PAYMENT', index: true},
+    platformFeeRate: {type: Number, default: 0},
+    platformFeeStatus: {type: String, enum: ['NOT_APPLICABLE', 'PENDING_PAYMENT', 'PENDING_SETTLEMENT', 'SETTLED', 'FAILED'], default: 'NOT_APPLICABLE', index: true},
     currency: {type: String, enum: ['KES'], default: 'KES'},
     description: {type: String, required: true, maxlength: 120},
     method: {type: String, enum: POS_METHODS, required: true},
@@ -174,9 +174,6 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       if (!encrypted) {
         return res.status(409).json({error: 'This business must configure its own authorized Daraja credentials before customer STK checkout is available'});
       }
-      if (req.body?.feeAcknowledged !== true) {
-        return res.status(400).json({error: 'Review and accept the disclosed 0.5% Chatify fee before requesting an STK prompt'});
-      }
       const phone = normalizeMpesaPhone(String(req.body?.phone || ''));
       if (!phone) return res.status(400).json({error: 'Enter a valid Kenyan M-Pesa phone number'});
       const expectedMerchantNumber = profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber;
@@ -208,7 +205,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       const saved = await Charge.create(charge);
       try {
         const result = await provider.initiate({
-          paymentId: saved.paymentId, amount: saved.totalAmount ?? saved.amount, phone,
+          paymentId: saved.paymentId, amount: saved.amount, phone,
           description: saved.description,
         });
         saved.checkoutRequestId = result.checkoutRequestId;
@@ -349,7 +346,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       if (!org) return;
       const charge = await Charge.findOne({organizationId: org._id, paymentId: String(req.params.paymentId || ''), status: 'PENDING'});
       if (!charge) return res.status(404).json({error: 'Pending POS payment not found'});
-      if (charge.platformFee > 0 && req.body?.feeAcknowledged !== true) return res.status(400).json({error: 'Confirm the disclosed 0.5% fee before sending the customer STK prompt', baseAmount: charge.baseAmount ?? charge.amount, platformFee: charge.platformFee, totalAmount: charge.totalAmount ?? charge.amount, platformFeeRate: charge.platformFeeRate ?? 0.5});
+
       const encrypted = org.settings?.posDarajaCredentialsEncrypted;
       if (!encrypted) return res.status(409).json({error: 'Configure authorized merchant-specific Daraja credentials before sending STK Push'});
       const callbackToken = String(process.env.POS_STK_CALLBACK_TOKEN || '').trim();
@@ -370,11 +367,11 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider}) 
       });
       // Claim the charge before contacting Daraja to prevent concurrent duplicate prompts.
       const claimed = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}, confirmationSource: {$in: [null, '']}},
-        {$set: {stkPhone: phone, confirmationSource: 'daraja_stk_pending'}}, {new: true});
+        {$set: {stkPhone: phone, confirmationSource: 'daraja_stk_pending', baseAmount: charge.amount, platformFee: 0, totalAmount: charge.amount, platformFeeRate: 0, platformFeeStatus: 'NOT_APPLICABLE'}}, {new: true});
       if (!claimed) return res.status(409).json({error: 'Another STK request is already in progress'});
       let result;
       try {
-        result = await provider.initiate({paymentId: charge.paymentId, amount: charge.totalAmount ?? charge.amount, phone, description: charge.description});
+        result = await provider.initiate({paymentId: charge.paymentId, amount: charge.amount, phone, description: charge.description});
       } catch (error) {
         // A transport timeout is ambiguous: Daraja may have accepted the request even if
         // our server never received its response. Keep the claim locked in that case so a

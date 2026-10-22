@@ -64,6 +64,31 @@ test('Daraja provider reports OAuth transport failures without leaking secrets',
   );
 });
 
+test('Daraja providers share one in-flight OAuth token for identical credentials', async () => {
+  const {createDarajaProvider} = await import('./payments.js');
+  let oauthRequests = 0;
+  const transport = async url => {
+    if (url.includes('/oauth/')) {
+      oauthRequests++;
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return {ok: true, json: async () => ({access_token: 'shared-test-token', expires_in: 3600})};
+    }
+    return {ok: true, json: async () => ({ResponseCode: '0', CheckoutRequestID: 'checkout', MerchantRequestID: 'merchant'})};
+  };
+  const config = {
+    mode: 'sandbox', consumerKey: 'shared-key', consumerSecret: 'shared-secret',
+    shortcode: '123456', passkey: 'test-passkey',
+    callbackUrl: 'https://api.example.org/api/payments/daraja/callback',
+  };
+  const first = createDarajaProvider(config, transport);
+  const second = createDarajaProvider(config, transport);
+  await Promise.all([
+    first.initiate({paymentId: 'payment-one', amount: 10, phone: '254712345678', description: 'Test'}),
+    second.initiate({paymentId: 'payment-two', amount: 20, phone: '254712345678', description: 'Test'}),
+  ]);
+  assert.equal(oauthRequests, 1);
+});
+
 test('Daraja provider distinguishes a rejected STK request from transport failures', async () => {
   const {createDarajaProvider} = await import('./payments.js');
   const provider = createDarajaProvider({
@@ -179,20 +204,20 @@ test('payment state transitions are one-time and reject already processed callba
 });
 
 
-test('platform fee is 0.5%, rounded up to whole KSh, with the provider total capped', () => {
-  assert.equal(calculatePlatformFee(1000), 5);
-  assert.equal(calculatePlatformFee(450), 3);
-  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_PAYMENT'});
-  assert.throws(() => calculatePaymentTotal(150000), /must not exceed KSh 150000/);
+test('M-Pesa requests add no Chatify commission and allow the full provider amount limit', () => {
+  assert.equal(calculatePlatformFee(1000), 0);
+  assert.equal(calculatePlatformFee(450), 0);
+  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:0, totalAmount:1000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'});
+  assert.deepEqual(calculatePaymentTotal(150000), {baseAmount:150000, platformFee:0, totalAmount:150000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'});
 });
 
-test('M-Pesa callback matches the total including the disclosed platform fee', () => {
-  const payment = {amount:1000, totalAmount:1005, phone:'254712345678'};
+test('M-Pesa callback validates the requested amount without a Chatify commission', () => {
+  const payment = {amount:1000, totalAmount:1000, platformFee:0, phone:'254712345678'};
   const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
-    {Name:'Amount',Value:1005}, {Name:'PhoneNumber',Value:254712345678},
+    {Name:'Amount',Value:1000}, {Name:'PhoneNumber',Value:254712345678},
   ]}};
   assert.equal(resolveCallbackOutcome(callback,payment).status,'SUCCESS');
   assert.equal(resolveCallbackOutcome({...callback,CallbackMetadata:{Item:[
-    {Name:'Amount',Value:1000}, {Name:'PhoneNumber',Value:254712345678},
+    {Name:'Amount',Value:1005}, {Name:'PhoneNumber',Value:254712345678},
   ]}},payment).error,'mismatch');
 });

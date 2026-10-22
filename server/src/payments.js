@@ -1,24 +1,20 @@
-import {randomUUID} from 'node:crypto';
+import {createHash, randomUUID} from 'node:crypto';
 import {isIP} from 'node:net';
 
 export const PAYMENT_STATUSES = Object.freeze(['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED']);
 export const MAX_PAYMENT_AMOUNT = 150000;
-export const PLATFORM_FEE_BASIS_POINTS = 50; // 0.50% of the pre-fee amount.
-
-// M-Pesa amounts are whole KSh. Round the disclosed fee up to the next shilling
-// so the platform never silently charges less than the configured 0.50% rate.
+// Reuse short-lived OAuth tokens across provider instances (school, POS and
+// general checkout) without retaining credentials or mixing tenants.
+const darajaTokenCaches = new WeakMap();
+// Legacy API retained for stored payment compatibility. Chatify adds no M-Pesa commission.
 export function calculatePlatformFee(amount) {
   if (!Number.isSafeInteger(amount) || amount < 1) throw new Error('Fee base must be a positive whole KSh amount');
-  return Math.ceil((amount * PLATFORM_FEE_BASIS_POINTS) / 10000);
+  return 0;
 }
 
 export function calculatePaymentTotal(amount) {
-  const platformFee = calculatePlatformFee(amount);
-  const totalAmount = amount + platformFee;
-  if (!Number.isSafeInteger(totalAmount) || totalAmount > MAX_PAYMENT_AMOUNT) {
-    throw new Error(`Amount plus the 0.5% platform fee must not exceed KSh ${MAX_PAYMENT_AMOUNT}`);
-  }
-  return {baseAmount: amount, platformFee, totalAmount, platformFeeRate: 0.5, platformFeeStatus: 'PENDING_PAYMENT'};
+  if (!validPaymentAmount(amount)) throw new Error(`Amount must be a whole KSh amount between 1 and ${MAX_PAYMENT_AMOUNT}`);
+  return {baseAmount: amount, platformFee: 0, totalAmount: amount, platformFeeRate: 0, platformFeeStatus: 'NOT_APPLICABLE'};
 }
 
 export function normalizeMpesaPhone(value) {
@@ -65,26 +61,51 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
   const host = mode === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke';
   const type = config.transactionType || 'CustomerPayBillOnline';
   if (!['CustomerPayBillOnline', 'CustomerBuyGoodsOnline'].includes(type)) throw new Error('Invalid Daraja transaction type');
-  let cachedToken;
-  let tokenExpiry = 0;
+  let tokenCache = darajaTokenCaches.get(transport);
+  if (!tokenCache) {
+    tokenCache = new Map();
+    darajaTokenCaches.set(transport, tokenCache);
+  }
+  const tokenKey = createHash('sha256')
+    .update(`${host}\0${config.consumerKey}\0${config.consumerSecret}`)
+    .digest('hex');
   async function token() {
-    if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
-    const basic = Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64');
-    let response;
+    for (const [key, entry] of tokenCache) {
+      if (!entry.promise && (!entry.token || Date.now() >= entry.expiresAt)) tokenCache.delete(key);
+    }
+    while (tokenCache.size > 100) {
+      const oldest = tokenCache.keys().next().value;
+      if (!oldest || oldest === tokenKey) break;
+      tokenCache.delete(oldest);
+    }
+    const current = tokenCache.get(tokenKey);
+    if (current?.token && Date.now() < current.expiresAt) return current.token;
+    if (current?.promise) return current.promise;
+    const promise = (async () => {
+      const basic = Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64');
+      let response;
+      try {
+        response = await transport(`${host}/oauth/v1/generate?grant_type=client_credentials`, {
+          headers: {Authorization: `Basic ${basic}`}, signal: AbortSignal.timeout(10000),
+        });
+      } catch {
+        throw Object.assign(new Error('Daraja OAuth network request failed'), {stage: 'oauth_transport'});
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || typeof data.access_token !== 'string' || !data.access_token) {
+        throw Object.assign(new Error('Daraja authentication failed'), {stage: 'oauth_auth'});
+      }
+      const expiresAt = Date.now() + Math.max(0, Number(data.expires_in || 0) - 30) * 1000;
+      tokenCache.set(tokenKey, {token: data.access_token, expiresAt});
+      return data.access_token;
+    })();
+    tokenCache.set(tokenKey, {promise});
     try {
-      response = await transport(`${host}/oauth/v1/generate?grant_type=client_credentials`, {
-        headers: {Authorization: `Basic ${basic}`}, signal: AbortSignal.timeout(10000),
-      });
-    } catch {
-      throw Object.assign(new Error('Daraja OAuth network request failed'), {stage: 'oauth_transport'});
+      return await promise;
+    } catch (error) {
+      if (tokenCache.get(tokenKey)?.promise === promise) tokenCache.delete(tokenKey);
+      throw error;
     }
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || typeof data.access_token !== 'string') {
-      throw Object.assign(new Error('Daraja authentication failed'), {stage: 'oauth_auth'});
-    }
-    cachedToken = data.access_token;
-    tokenExpiry = Date.now() + Math.max(0, Number(data.expires_in || 0) - 30) * 1000;
-    return cachedToken;
   }
   return {
     name: `daraja-${mode}`,

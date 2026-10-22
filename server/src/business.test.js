@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {slugifyBusinessName, offlineCreateId, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines, resolveSellerMpesaPhone} from './business.js';
+import {slugifyBusinessName, offlineCreateId, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines, resolveSellerMpesaPhone, applyExplicitMessagingConsent} from './business.js';
+
+test('explicit messaging opt-in is captured once and never inferred', () => {
+  const capturedAt = new Date('2026-10-23T08:00:00.000Z');
+  const customer = {messagingConsent: false};
+  assert.equal(applyExplicitMessagingConsent(customer, false, capturedAt), false);
+  assert.equal(customer.messagingConsent, false);
+  assert.equal(applyExplicitMessagingConsent(customer, true, capturedAt), true);
+  assert.equal(customer.messagingConsent, true);
+  assert.equal(customer.consentCapturedAt, capturedAt);
+  assert.equal(applyExplicitMessagingConsent(customer, true, new Date()), false);
+  const optedOut = {messagingConsent: false};
+  assert.equal(applyExplicitMessagingConsent(optedOut, undefined), false);
+});
 
 test('offline create IDs are stable per organization and mutation and isolated across organizations', () => {
   const first = offlineCreateId('org-1', 'mobile:customer:operation-1');
