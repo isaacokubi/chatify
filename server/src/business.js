@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {normalizeMpesaPhone, validPaymentAmount, newPaymentId} from './payments.js';
 import {planQuotaStatus} from './business-entitlements.js';
+import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
 import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMessagingProviders, createLanguageProvider, createEtimsProvider, createStripeProvider, createPayPalProvider, createIdempotencyKey, detectOfflineConflict, newIntegrationRequestId} from './business-integrations.js';
 // CHATIFY BUSINESS PLATFORM
 // Business records live beside chat records, with organization-level authorization.
@@ -217,6 +218,10 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     offers: {type: [{supplierId: O, amount: Number, leadTime: String, notes: String, createdAt: Date}], default: []},
     status: {type: String, enum: ['open', 'quoted', 'awarded', 'cancelled'], default: 'open'},
   }, {timestamps: true}));
+  const getPublicBillingStatus = async org => {
+    const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean();
+    return getWorkspaceBillingStatus(org, Number(settings?.gracePeriodDays ?? 3));
+  };
   const getOrg = async (orgId, userId) => {
     if (!mongoose.isValidObjectId(orgId)) return null;
     return Organization.findOne({_id: orgId, $or: [{ownerId: userId}, {'members.userId': userId}]});
@@ -224,9 +229,12 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   const requireOrg = async (req, res) => {
     const org = await getOrg(req.params.orgId, req.user._id);
     if (!org) { res.status(404).json({error: 'Business workspace not found'}); return null; }
-    // New workspaces must pay setup and subscription charges before business operations are enabled.
-    // Legacy workspaces without billingEnforced are grandfathered in rather than locked unexpectedly.
-    if (org.billing?.billingEnforced === true) { const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = org.billing.subscriptionExpiresAt ? new Date(org.billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!org.billing.setupFeePaid || !lockAt || lockAt <= new Date()) { res.status(402).json({error: 'This workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: {setupFeePaid: Boolean(org.billing.setupFeePaid), subscriptionExpiresAt: org.billing.subscriptionExpiresAt || null, gracePeriodDays: graceDays}}); return null; } }
+    // Core business operations and owner billing status share one strict calculation.
+    const billingStatus = await getPublicBillingStatus(org);
+    if (billingStatus.locked) {
+      res.status(402).json({error: 'This workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: billingStatus});
+      return null;
+    }
     // Cache the authenticated member's role for subsequent route-level write checks.
     req.businessRole = String(org.ownerId) === String(req.user._id) ? 'owner' : (org.members.find(member => String(member.userId) === String(req.user._id))?.role || 'viewer');
     return org;
@@ -296,8 +304,9 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   app.get('/api/storefront/:slug', async (req, res) => {
     try {
       const slug = slugifyBusinessName(req.params.slug);
-      const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}}).select('name slug description logo website phone currency country ownerId settings');
+      const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}}).select('name slug description logo website phone currency country ownerId settings billing');
       if (!org) return res.status(404).json({error: 'Storefront not found'});
+       if ((await getPublicBillingStatus(org)).locked) return res.status(404).json({error: 'Storefront not found'});
       const owner = await User.findById(org.ownerId).select('phone');
       // Prefer the seller's explicitly chosen M-Pesa number; otherwise use their registered account phone.
       const sellerMpesaPhone = resolveSellerMpesaPhone(org.settings, owner?.phone, org.phone);
@@ -326,8 +335,10 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const stores = await Organization.find({
         ownerId: sellerUserId,
         'settings.storefrontPublished': {$ne: false},
-      }).select('slug settings.posPaymentProfile').limit(2).lean();
-      if (!stores.length) return res.status(404).json({error: 'No published business storefront found'});
+      }).select('slug settings.posPaymentProfile billing').limit(2).lean();
+      const activeStores = [];
+       for (const store of stores) if (!(await getPublicBillingStatus(store)).locked) activeStores.push(store);
+       if (!activeStores.length) return res.status(404).json({error: 'No published business storefront found'});
       if (stores.length > 1) return res.status(409).json({error: 'This seller has multiple storefronts. Open the intended business storefront to load its payment details.'});
       const profile = stores[0].settings?.posPaymentProfile || null;
       const paymentProfile = profile && ['mpesa_till', 'mpesa_paybill'].includes(profile.method)
@@ -338,7 +349,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
             accountNumber: profile.method === 'mpesa_paybill' ? String(profile.accountNumber || '') : '',
           }
         : null;
-      return res.json({slug: stores[0].slug, paymentProfile});
+      return res.json({slug: activeStores[0].slug, paymentProfile});
     } catch (error) { safeError(res, error); }
   });
 
@@ -349,7 +360,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     try {
       const slug = slugifyBusinessName(req.params.slug);
       const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}});
-      if (!org) return res.status(404).json({error: 'Storefront not found'});
+      if (!org || (await getPublicBillingStatus(org)).locked) return res.status(404).json({error: 'Storefront not found'});
       if (!await canCreateWithinPlan(org, 'documents', BusinessDocument, res)) return;
       if (String(org.ownerId) === String(req.user._id)) return res.status(400).json({error: 'Use a separate customer account to test a purchase from your own store'});
       const phone = normalizeMpesaPhone(String(req.body?.phone || req.user.phone || ''));
@@ -653,8 +664,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     res.setHeader('Content-Disposition', 'attachment; filename="chatify-business-' + org.slug + '-' + new Date().toISOString().slice(0,10) + '.json"');
     res.json(archive);
   });
-  app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('name slug description industry country currency phone website');if(!org)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);res.json({business:org,items});});
-  app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('_id');if(!org)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
+  app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('name slug description industry country currency phone website billing');if(!org||(await getPublicBillingStatus(org)).locked)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);res.json({business:org,items});});
+  app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('_id billing');if(!org||(await getPublicBillingStatus(org)).locked)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
   // Only platform administrators may manage global tax rates. Rates are selected by each
   // workspace's country/currency and applied consistently to business documents.
   app.get('/api/admin/tax-rates', auth, async (req,res)=>{
