@@ -6747,6 +6747,7 @@ class _ChatState extends State<Chat> {
   io.Socket? socket;
   bool loading = true;
   bool _socketConnectedOnce = false;
+  bool _flushingOutbox = false;
   String? _socketToken;
   String? loadError;
   bool showingOfflineData = false;
@@ -7101,6 +7102,52 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> _flushOutgoingMessages() async {
+    final conversationId = widget.conversation['_id']?.toString();
+    if (_flushingOutbox || conversationId == null || conversationId.isEmpty ||
+        app.api.token == null || app.api.token!.isEmpty) return;
+    _flushingOutbox = true;
+    var sentAny = false;
+    try {
+      final queued = await app.api.readOutgoingMessageOutbox(conversationId);
+      for (final item in queued) {
+        final mutationId = item['clientMutationId']?.toString();
+        final rawBody = item['body'];
+        if (mutationId == null || rawBody is! Map) continue;
+        try {
+          // Reusing the same mutation ID makes a retry safe even if the server
+          // accepted the message but the original HTTP response was lost.
+          final body = Map<String, dynamic>.from(rawBody);
+          final result = await app.api.call(
+              'POST', '/api/conversations/$conversationId/messages', body);
+          await app.api.removeOutgoingMessageFromOutbox(conversationId, mutationId);
+          messages.removeWhere((message) =>
+              message is Map && message['_id']?.toString() == 'local_$mutationId');
+          if (result['message'] is Map) {
+            final sent = await _decryptMessage(
+                Map<String, dynamic>.from(result['message']));
+            if (mounted) setState(() => messages = mergeMessages(messages, [sent]));
+          }
+          sentAny = true;
+        } catch (_) {
+          // Preserve the item and stop. The next connection/retry will resume
+          // from the same idempotency key instead of losing or duplicating it.
+          break;
+        }
+      }
+      if (sentAny && mounted) {
+        unawaited(_persistConversationMessages());
+        unawaited(load());
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Queued messages sent successfully.')));
+      }
+    } catch (_) {
+      // Secure storage errors never fall back to plaintext or discard queued data.
+    } finally {
+      _flushingOutbox = false;
+    }
+  }
+
   void connect() {
     socket?.dispose();
     final token = app.api.token;
@@ -7120,6 +7167,7 @@ class _ChatState extends State<Chat> {
     );
     socket!.onConnect((_) {
       socket!.emit('conversation:join', widget.conversation['_id']);
+      unawaited(_flushOutgoingMessages());
       // A long-idle socket can reconnect after messages were sent on another
       // device. Fetch the durable server history after reconnect to fill gaps.
       // Also refresh on the first successful connection after starting offline;
