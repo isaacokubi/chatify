@@ -29,7 +29,7 @@ It does not represent reconciled settlements, refunds, provider fees, or tax acc
 - mobile/ — Flutter/Dart client
 - server/ — Node.js/Express/Socket.IO API
 - docs/ — architecture, API, database, development, security and demo notes
-- [Latest verification record (2026-10-22)](docs/VERIFICATION_2026-10-22.md) — verified CI results for backend tests/lint, dependency audit, Flutter analysis/tests, web build and Android debug APK, plus explicit production blockers. Check this before repeating unchanged checks.
+- [Latest verification record (2026-10-22)](docs/VERIFICATION_2026-10-22.md) — latest confirmed CI on `04286915efc84a3ec53f27c09c7e5a355032cd8f`: 192 backend tests passed, zero failed; quality and full CI workflows passed, including Flutter analysis/tests, web build and Android debug APK. Production release gates are listed separately.
 - [Demo setup and account register](docs/DEMO.md) — safe repeatable seed instructions, current sample data coverage and demo credentials configuration.
 - [Project walkthrough](docs/PROJECT_WALKTHROUGH.md) — plain-language guide to how the system works, how the main features connect, security concepts, code navigation, and tutor-defense preparation.
 - [Code walkthrough](docs/CODE_WALKTHROUGH.md) — code-reading guide with focused flow explanations.

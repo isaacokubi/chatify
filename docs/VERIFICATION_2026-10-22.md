@@ -3,7 +3,7 @@
 ## Scope and source revision
 
 This record documents automated checks observed in GitHub Actions for source revision
-`9521e832cd88a3b5d5598fc6d5f4d0b50fd95041` on `main`. It records CI evidence only; it does not claim live production services, credentials, or payment providers were tested.
+`04286915efc84a3ec53f27c09c7e5a355032cd8f` on `main`. It records CI evidence only; it does not claim live production services, credentials, or payment providers were tested.
 
 - [Full CI run — backend, Flutter, web and Android debug build](https://github.com/isaacokubi/chatify/actions/runs/39733758117)
 - [Quality checks — backend tests/lint and Flutter analysis/tests](https://github.com/isaacokubi/chatify/actions/runs/39733758201)
@@ -13,7 +13,7 @@ This record documents automated checks observed in GitHub Actions for source rev
 
 | Check | Result | Evidence / notes |
 | --- | --- | --- |
-| Backend Node.js test suite (`cd server && npm test`) | **PASS — 190 tests, 190 passed, 0 failed** | Full CI backend job log. |
+| Backend Node.js test suite (`cd server && npm test`) | **PASS — 192 tests, 192 passed, 0 failed** | Full CI backend job log. |
 | Backend syntax/lint (`cd server && npm run lint`) | **PASS** | Full CI backend job completed successfully. |
 | Dependency security audit (`npm audit --audit-level=high`) | **PASS — 0 vulnerabilities reported** | Full CI backend job log. |
 | Backup/restore shell syntax | **PASS** | CI ran `bash -n` for the configured backup and restore scripts. |
@@ -25,9 +25,12 @@ This record documents automated checks observed in GitHub Actions for source rev
 | GitHub Actions full CI workflow | **PASS** | Both backend and mobile jobs completed successfully. |
 | GitHub Actions quality workflow | **PASS** | Both Node API tests/syntax and Flutter analysis/tests jobs completed successfully. |
 
-The backend test summary was `# tests 190`, `# pass 190`, `# fail 0`.
+The latest backend test summary was `# tests 192`, `# pass 192`, `# fail 0`.
 The dependency audit reported `found 0 vulnerabilities`. Both workflows above completed
-successfully for the source revision listed above.
+successfully for the source revision listed above. The full CI mobile job confirmed successful
+Flutter analysis, Flutter tests, Flutter Web compilation (`✓ Built build/web`), and Android debug
+APK compilation (`✓ Built build/app/outputs/flutter-apk/app-debug.apk`). The quality workflow also
+passed for this source revision.
 
 ## Non-blocking warnings observed
 
@@ -42,7 +45,7 @@ Node dependency logs also emitted deprecation warnings for `punycode` and `url.p
 
 Passing automated tests and builds does **not** mean every feature or deployment is production-ready. The following are not proven by these CI results:
 
-1. **Vercel deployment:** GitHub reported a Vercel deployment-rate-limit failure for this revision, with retry requested after 24 hours. A successful deployment and live web smoke test have not been confirmed.
+1. **Vercel deployment:** A prior deployment-rate-limit failure was reported. The successful GitHub CI run does not confirm a new Vercel deployment; verify the current deployment and run a live web smoke test before release.
 2. **Live M-Pesa/Daraja:** No live STK Push, callback delivery, settlement reconciliation, refund/reversal, or production-credential test was performed by this CI run.
 3. **Signed Android release:** Only the debug APK was built. Production signing configuration and a signed release APK/AAB are not verified.
 4. **End-to-end encryption:** Current client-side text encryption is not a fully audited messenger protocol. Encrypted attachments and Memory Cards, forward secrecy, verified identity keys, and secure multi-device recovery remain gaps. See [E2EE limitations](E2EE.md).
