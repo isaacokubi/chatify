@@ -57,33 +57,11 @@ export function createPlatformFeeCollector({ mongoose, env = process.env }) {
     return createDarajaProvider({mode, consumerKey, consumerSecret, shortcode, passkey, callbackUrl:callbackUrl(), transactionType:settings.walletType === 'mpesa_till' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline'});
   };
 
-  async function collect({paymentId, source, payerPhone, baseAmount, feeAmount}) {
-    // Chatify's current pricing policy is workspace setup + monthly subscriptions, not
-    // transaction commissions. Keep legacy collection code available only for an explicit,
-    // temporary migration opt-in; old database settings must not silently restart fees.
-    if (String(env.ENABLE_LEGACY_PLATFORM_FEES || '').trim().toLowerCase() !== 'true') {
-      return {paymentId, source, status:'NOT_APPLICABLE', feeAmount:0, baseAmount};
-    }
-    const phone = normalizeMpesaPhone(String(payerPhone || ''));
-    if (!phone) throw new Error('A verified Kenyan payer phone is required for the separate platform-fee prompt');
-    if (!Number.isSafeInteger(baseAmount) || baseAmount < 1 || (feeAmount !== undefined && (!Number.isSafeInteger(feeAmount) || feeAmount < 1))) throw new Error('Invalid platform fee collection amount');
-    const existing = await Collection.findOne({paymentId});
-    if (existing) return existing.toObject();
-    const settings = await providerConfig();
-    if (!settings || settings.enabled === false) throw new Error('Platform fee collection is disabled');
-    const fee = feeAmount === undefined ? Math.ceil(baseAmount * Number(settings.feeRate ?? 0.5) / 100) : feeAmount;
-    if (!Number.isSafeInteger(fee) || fee < 1) return {paymentId, status:'NOT_APPLICABLE', feeAmount:0};
-    const walletNumber = settings.walletType === 'mpesa_paybill' ? settings.paybillNumber : settings.walletType === 'mpesa_till' ? settings.tillNumber : '';
-    const record = await Collection.create({paymentId, source, payerPhone:phone, baseAmount, feeAmount:fee, walletType:settings.walletType, walletNumber, accountReference:settings.accountReference || 'CHATIFY-FEE'});
-    try {
-      const provider = providerFor(settings);
-      const refs = await provider.initiate({paymentId:('FEE'+paymentId).replace(/[^A-Za-z0-9]/g,'').slice(-12), amount:fee, phone, description:'Chatify fee'});
-      const updated = await Collection.findOneAndUpdate({_id:record._id,status:'PENDING_INITIATION'},{$set:{status:'PENDING',checkoutRequestId:refs.checkoutRequestId,merchantRequestId:refs.merchantRequestId}},{new:true});
-      return updated?.toObject() || record.toObject();
-    } catch (error) {
-      await Collection.updateOne({_id:record._id,status:'PENDING_INITIATION'},{$set:{status:'FAILED',resultDescription:String(error?.message || 'Fee STK initiation failed').slice(0,160)}});
-      throw error;
-    }
+  // Chatify monetizes workspaces through setup and recurring subscription fees.
+  // New business, school and POS payments never trigger a separate platform-fee STK prompt.
+  // Keep this compatibility method so older route modules can call it without charging.
+  async function collect({paymentId, source, baseAmount}) {
+    return {paymentId, source, status:'NOT_APPLICABLE', feeAmount:0, baseAmount};
   }
 
   async function processCallback(callback) {
