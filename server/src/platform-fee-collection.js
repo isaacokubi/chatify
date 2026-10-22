@@ -4,7 +4,8 @@
 import { normalizeMpesaPhone } from './payments.js';
 
 export function createPlatformFeeCollector({ mongoose }) {
-  const Collection = mongoose.models.PlatformFeeCollection || mongoose.model('PlatformFeeCollection', new mongoose.Schema({
+  const existingCollection = mongoose.models.PlatformFeeCollection;
+  const Collection = existingCollection || mongoose.model('PlatformFeeCollection', new mongoose.Schema({
     paymentId: {type:String, required:true, unique:true, index:true},
     source: {type:String, enum:['business_checkout','business_pos','school_fee'], required:true},
     payerPhone: {type:String, required:true},
@@ -21,7 +22,7 @@ export function createPlatformFeeCollector({ mongoose }) {
     resultDescription: {type:String, maxlength:160},
     callbackProcessedAt: Date,
   }, {timestamps:true}));
-  Collection.schema.index({status:1, createdAt:-1});
+  if (!existingCollection) Collection.schema.index({status:1, createdAt:-1});
 
   // Chatify monetizes workspaces through setup and recurring subscription fees.
   // New business, school and POS payments never trigger a separate platform-fee STK prompt.
