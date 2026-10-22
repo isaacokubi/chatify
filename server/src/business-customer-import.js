@@ -1,3 +1,4 @@
+import {rejectLockedWorkspace} from './workspace-billing-access.js';
 // Tenant-safe CSV customer import. Preview and commit use the same parser and validation rules.
 import {planQuotaStatus} from './business-entitlements.js';
 const MAX_ROWS=500,MAX_BYTES=1_000_000;
@@ -52,7 +53,8 @@ export function registerBusinessCustomerImportRoutes({app,auth,mongoose}) {
  const getOrg=async(req,res)=>{
   if(!mongoose.isValidObjectId(req.params.orgId)){res.status(404).json({error:'Business workspace not found'});return null;}
   const org=await Organization.findOne({_id:req.params.orgId,$or:[{ownerId:req.user._id},{'members.userId':req.user._id}]});
-  if(!org){res.status(404).json({error:'Business workspace not found'});return null;}
+  if(!org){res.status(404).json({error:'Business workspace not found'});return null;
+  if(await rejectLockedWorkspace(mongoose,org,res))return null;
   const member=(org.members||[]).find(m=>String(m.userId)===String(req.user._id));
   const role=String(org.ownerId)===String(req.user._id)?'owner':(member?.role||'viewer');
   if(!['owner','admin','manager'].includes(role)){res.status(403).json({error:'Manager permission required for customer imports'});return null;}
