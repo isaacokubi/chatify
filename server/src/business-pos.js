@@ -49,7 +49,8 @@ export function resolvePosStkCallbackOutcome(callback, charge) {
   const amount = Number(value('Amount'));
   const phone = normalizeMpesaPhone(String(value('PhoneNumber') || ''));
   const receipt = String(value('MpesaReceiptNumber') || '').trim().toUpperCase();
-  const expectedAmount = charge.feeCollectionMode === 'separate' ? (charge.baseAmount ?? charge.amount) : (charge.totalAmount ?? charge.amount);
+  // POS checkout charges only the sale amount; legacy totalAmount/fee fields cannot add a commission.
+  const expectedAmount = charge.amount ?? charge.baseAmount;
   if (amount !== expectedAmount || !phone || phone !== charge.stkPhone || !/^[A-Z0-9]{6,40}$/.test(receipt)) return {error: 'mismatch'};
   return {status: 'SUCCESS', resultCode: 0, phone, receipt, description: String(callback.ResultDesc || '').slice(0, 160)};
 }
