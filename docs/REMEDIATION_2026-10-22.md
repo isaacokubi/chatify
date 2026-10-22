@@ -102,3 +102,10 @@ The full CI and quality workflows have now both completed successfully for sourc
 - [Full CI workflow](https://github.com/isaacokubi/chatify/actions/runs/39736401352) and [quality workflow](https://github.com/isaacokubi/chatify/actions/runs/39736401343): both passed.
 
 The test and build statements above apply to this tested source revision. This documentation-only follow-up will trigger CI again; its own result must be checked before claiming the newest documentation commit has passed. Passing CI does not certify live Vercel deployment, live Daraja settlement, full end-to-end encryption, complete offline behavior, production restore readiness, or 100-million-user scale. Keep those release gates open until independently tested.
+
+
+## Daraja callback reconciliation follow-up
+
+The follow-up branch `test/daraja-callback-reconciliation` extracts the callback state transition into `server/src/daraja-callback.js` so the route and automated tests use the same validation and idempotency boundary. Regression tests cover valid success, malformed request references, malformed result codes, amount/phone/receipt mismatches, failed/cancelled results, duplicate completed callbacks, and a callback that loses the atomic transition race. The new helper is included in the backend syntax/lint command.
+
+These tests use controlled provider payloads and a fake persistence boundary. They do **not** prove that Safaricom credentials work, that a real STK prompt reaches a handset, or that the deployed Render service is running this branch. Live sandbox testing, deployment health/release confirmation, and a real database reconciliation remain separate release gates. Do not claim production payment acceptance is complete until those checks are actually run.
