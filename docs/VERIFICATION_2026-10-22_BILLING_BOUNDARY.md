@@ -57,3 +57,8 @@ For the Android debug APK, use the repository's committed Gradle configuration a
 ## Policy reminder
 
 Chatify's transaction commission remains disabled. Workspace setup fees and recurring subscriptions are the intended monetization path. Never mark a workspace payment successful based only on STK initiation or a client-side claim.
+
+## CI workflow reliability follow-up
+
+The full CI workflow previously used `cancel-in-progress: true`, which could cancel verification when several commits were pushed close together. This was changed to `cancel-in-progress: false` in commit `448239c98a54bef49d9f05ec213a086aabde53b6`, so runs are serialized instead of cancelling the in-progress build. The quality workflow passed for that commit: [quality run](https://github.com/isaacokubi/chatify/actions/runs/39776344673). The associated full CI run was still in progress when this note was prepared: [full CI run](https://github.com/isaacokubi/chatify/actions/runs/39776344671). Do not mark that run passed until GitHub reports a successful conclusion.
+

@@ -103,6 +103,14 @@ Before enabling this in the API deployment, configure these private environment 
 
 A school administrator must enter that school's Daraja consumer key, consumer secret, passkey and matching Paybill/Till. Live deployments reject sandbox credentials. Keep all real credentials in the private API environment or the authenticated school setup form over HTTPS, never in source control. Bank transfer remains a manual-verification workflow; it does not trigger an M-Pesa prompt.
 
+## Automated verification — 2026-10-22
+
+The billing renewal regression coverage and the CI reliability change are tracked separately from live payment acceptance. The verified source commit `951e4417b49e0afa40acdd92b2933b4ca2e4aff3` passed the full [Chatify CI workflow](https://github.com/isaacokubi/chatify/actions/runs/39739597321) and [quality checks](https://github.com/isaacokubi/chatify/actions/runs/39739597328): 193 backend tests passed with 0 failures; dependency audit, backend lint/syntax checks, backup/restore safety checks, Flutter analysis/tests, web build and Android debug APK build passed.
+
+The CI workflow now queues runs instead of cancelling an in-progress run when rapid commits arrive. The change is on commit `448239c98a54bef49d9f05ec213a086aabde53b6`; its [quality workflow passed](https://github.com/isaacokubi/chatify/actions/runs/39776344673). The full CI run for that workflow change was still running when this verification note was prepared: [full CI run](https://github.com/isaacokubi/chatify/actions/runs/39776344671). This status must be updated from the actual workflow result rather than assumed.
+
+Automated CI does not prove successful live Safaricom Daraja delivery, production callback configuration, deployed API state, or production billing enforcement. Those remain explicit release gates.
+
 ## Security
 Passwords are bcrypt-hashed. JWTs protect REST and Socket.IO. Server-side membership/admin checks protect conversations and groups. Helmet, CORS and rate limiting are enabled. Secrets are excluded by Git ignore rules. New text-message bodies are encrypted on the client, but legacy messages, attachments, Memory Cards, multi-device recovery and forward secrecy are not yet covered; do not claim the whole system is fully end-to-end encrypted. Message expiration is application-level removal/hiding and is not cryptographic secure deletion. See [docs/E2EE.md](docs/E2EE.md) for the threat model and production gates.
 
