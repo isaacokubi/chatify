@@ -27,6 +27,8 @@ jobs:
       - run: npm run lint
       - name: Validate backup and recovery shell scripts
         run: bash -n scripts/backup-mongodb.sh scripts/restore-mongodb.sh scripts/backup-mongodb-encrypted-offsite.sh scripts/restore-mongodb-encrypted.sh
+      - name: Test restore scripts refuse configured production URIs
+        run: bash scripts/test-restore-safety.sh
 
   mobile:
     runs-on: ubuntu-latest
