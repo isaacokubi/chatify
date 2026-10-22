@@ -1,6 +1,17 @@
 // Shared server-side gate for business routes outside the core Business router.
 // Billing is enforced only for workspaces explicitly marked by the subscription rollout;
 // older workspaces remain grandfathered in. Billing endpoints themselves must stay reachable.
+export function isWorkspaceBillingActive(workspace, gracePeriodDays = 3, now = new Date()) {
+  const billing = workspace?.billing;
+  if (billing?.billingEnforced !== true) return true;
+  const graceDays = Number.isInteger(gracePeriodDays) && gracePeriodDays >= 0 && gracePeriodDays <= 30
+    ? gracePeriodDays : 3;
+  const expiresAt = billing.subscriptionExpiresAt ? new Date(billing.subscriptionExpiresAt) : null;
+  return billing.setupFeePaid === true &&
+    Boolean(expiresAt && Number.isFinite(expiresAt.getTime())) &&
+    new Date(expiresAt.getTime() + graceDays * 86400000) > now;
+}
+
 export async function workspaceBillingLock(mongoose, workspace, now = new Date()) {
   const billing = workspace?.billing;
   if (billing?.billingEnforced !== true) return null;
