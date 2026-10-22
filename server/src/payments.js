@@ -24,6 +24,7 @@ export function buildPaymentRetryFields(previous, provider, requestedAt = new Da
   if (!previous || !validPaymentAmount(previous.amount) || !provider) {
     throw new Error('A valid previous payment and provider are required to retry payment');
   }
+  const payerPhone = previous.payerPhone || previous.phone;
   return {
     requesterId: previous.requesterId,
     payerId: previous.payerId,
@@ -36,8 +37,8 @@ export function buildPaymentRetryFields(previous, provider, requestedAt = new Da
     platformFeeStatus: 'NOT_APPLICABLE',
     feeCollectionMode: 'separate',
     recipientPhone: previous.recipientPhone,
-    payerPhone: previous.payerPhone,
-    phone: previous.payerPhone,
+    payerPhone,
+    phone: payerPhone,
     businessOrganizationId: previous.businessOrganizationId,
     businessDocumentId: previous.businessDocumentId,
     billingType: previous.billingType,
