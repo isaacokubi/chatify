@@ -66,6 +66,11 @@ const indexes=[
     keys:{providerReceipt:1},
     options:{name:'payment_provider_receipt_unique_v1',unique:true,sparse:true},
   },
+  {
+    collection:'payments',
+    keys:{requesterId:1,billingWorkspaceType:1,billingWorkspaceId:1,billingType:1},
+    options:{name:'workspace_billing_pending_unique_v1',unique:true,partialFilterExpression:{status:'PENDING',billingWorkspaceId:{$type:'objectId'},billingType:{$type:'string'}}},
+  },
 ];
 
 // Check all unique-index candidates before creating any indexes. This avoids leaving a
@@ -78,6 +83,7 @@ const uniquePreflights=[
   {collection:'notificationjobs',name:'notification_job_dedupe_v1',match:{},keys:{recipientId:'$recipientId',messageId:'$messageId'}},
   // A sparse index includes explicit nulls; only documents missing the field entirely are excluded.
   {collection:'payments',name:'payment_provider_receipt_unique_v1',match:{providerReceipt:{$exists:true}},keys:{providerReceipt:'$providerReceipt'}},
+  {collection:'payments',name:'workspace_billing_pending_unique_v1',match:{status:'PENDING',billingWorkspaceId:{$type:'objectId'},billingType:{$type:'string'}},keys:{requesterId:'$requesterId',billingWorkspaceType:'$billingWorkspaceType',billingWorkspaceId:'$billingWorkspaceId',billingType:'$billingType'}},
 ];
 
 async function preflightUniqueIndexes(){
