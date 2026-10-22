@@ -1,3 +1,4 @@
+import {rejectLockedWorkspace} from './workspace-billing-access.js';
 // Customer financial statements are computed from organization-owned document snapshots.
 // This module exposes no private statement data to the public storefront.
 export function buildCustomerStatement(documents, {from = null, to = null, now = new Date()} = {}) {
@@ -48,8 +49,9 @@ export function registerBusinessStatementRoutes({app, auth, mongoose}) {
       const org = await Organization.findOne({
         _id: req.params.orgId,
         $or: [{ownerId: req.user._id}, {'members.userId': req.user._id}],
-      }).select('_id ownerId members').lean();
+      }).select('_id ownerId members billing').lean();
       if (!org) return res.status(404).json({error: 'Business workspace not found'});
+      if (await rejectLockedWorkspace(mongoose, org, res)) return;
       const role = String(org.ownerId) === String(req.user._id)
         ? 'owner'
         : (org.members || []).find(member => String(member.userId) === String(req.user._id))?.role || 'viewer';
