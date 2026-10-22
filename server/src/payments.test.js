@@ -198,13 +198,17 @@ test('payment totals are commission-free by default', () => {
   });
 });
 
-test('legacy fee calculation is available only when explicitly requested by a caller', () => {
+test('legacy fee options cannot re-enable a transaction commission', () => {
+  // The math helper remains available for reviewing historical records, but
+  // payment totals must ignore legacy applicable/rate flags.
   assert.equal(calculatePlatformFee(1000), 5);
   assert.equal(calculatePlatformFee(450), 3);
-  assert.deepEqual(calculatePaymentTotal(1000, {applicable:true}), {
-    baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_PAYMENT'
+  assert.deepEqual(calculatePaymentTotal(1000, {applicable:true, feeRate:0.5}), {
+    baseAmount:1000, platformFee:0, totalAmount:1000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'
   });
-  assert.throws(() => calculatePaymentTotal(150000, {applicable:true}), /must not exceed KSh 150000/);
+  assert.deepEqual(calculatePaymentTotal(150000, {applicable:true, feeRate:5}), {
+    baseAmount:150000, platformFee:0, totalAmount:150000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'
+  });
 });
 
 test('ordinary user-to-user transfers do not receive a Chatify platform fee', () => {
@@ -213,13 +217,12 @@ test('ordinary user-to-user transfers do not receive a Chatify platform fee', ()
   });
 });
 
-test('eligible business payments respect the administrator-configured fee rate', () => {
-  assert.deepEqual(calculatePaymentTotal(1000, {applicable:true, feeRate:0.25}), {
-    baseAmount:1000, platformFee:3, totalAmount:1003, platformFeeRate:0.25, platformFeeStatus:'PENDING_PAYMENT'
-  });
-  assert.deepEqual(calculatePaymentTotal(1000, {applicable:true, feeRate:0}), {
-    baseAmount:1000, platformFee:0, totalAmount:1000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'
-  });
+test('business and school payment totals stay commission-free regardless of legacy settings', () => {
+  for (const amount of [100, 1000, 150000]) {
+    assert.deepEqual(calculatePaymentTotal(amount, {applicable:true, feeRate:0.25}), {
+      baseAmount:amount, platformFee:0, totalAmount:amount, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'
+    });
+  }
 });
 
 test('legacy separate-mode payment callback still matches only the original base amount', () => {
