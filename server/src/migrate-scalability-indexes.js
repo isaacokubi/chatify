@@ -27,6 +27,11 @@ const indexes=[
     options:{name:'message_expiry_sweep_v1'},
   },
   {
+    collection:'messages',
+    keys:{senderId:1,clientMutationId:1},
+    options:{name:'message_sender_mutation_unique_v1',unique:true,partialFilterExpression:{clientMutationId:{$type:'string'}}},
+  },
+  {
     collection:'memories',
     keys:{userId:1,createdAt:-1,_id:-1},
     options:{name:'user_memory_history_cursor_v1'},
