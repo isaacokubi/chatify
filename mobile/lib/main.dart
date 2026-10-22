@@ -7063,6 +7063,9 @@ class _ChatState extends State<Chat> {
         _scrollToLatestMessage();
         // Inspect recent text messages automatically; users do not need the manual-save menu.
         _scanRecentMessagesForMemory(fetched);
+        // A successful history refresh is also a recovery opportunity for any
+        // securely queued messages whose previous retry was interrupted.
+        unawaited(_flushOutgoingMessages());
       }
 
       // Payment history is supplementary. Do not keep the whole conversation
