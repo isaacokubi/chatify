@@ -7299,17 +7299,20 @@ class _ChatState extends State<Chat> {
         : _newClientMutationId();
     _pendingMutationText = text;
     _pendingMutationId = clientMutationId;
+    Map<String, dynamic>? queuedBody;
     setState(() => sending = true);
     try {
       final encrypted = await _encryptTextPayload(text);
-      final result = await app.api.call(
-          'POST', '/api/conversations/${widget.conversation['_id']}/messages', {
+      final body = <String, dynamic>{
         ...encrypted,
         'clientMutationId': clientMutationId,
         'expiryType': expiry,
         'expiresInSeconds': expiry == 'AFTER_TIME' ? 3600 : null,
         'replyTo': reply,
-      });
+      };
+      queuedBody = body;
+      final result = await app.api.call(
+          'POST', '/api/conversations/${widget.conversation['_id']}/messages', body);
       if (!mounted) return;
       final sent = await _decryptMessage(Map<String, dynamic>.from(result['message']));
       final sentId = sent['_id']?.toString();
@@ -7328,10 +7331,48 @@ class _ChatState extends State<Chat> {
         _pendingMutationText = null;
       }
       _scrollToLatestMessage();
-      // Sent messages can contain useful reminders or personal details too.
       _detectMemoryForMessage(sent);
     } catch (error) {
-      if (mounted) {
+      final shouldQueue = queuedBody != null &&
+          (error is! ApiException || error.statusCode >= 500);
+      if (shouldQueue) {
+        try {
+          final conversationId = widget.conversation['_id'].toString();
+          final createdAt = DateTime.now().toUtc().toIso8601String();
+          await app.api.enqueueOutgoingMessage(conversationId, {
+            'clientMutationId': clientMutationId,
+            'body': queuedBody,
+            'createdAt': createdAt,
+          });
+          final pendingMessage = <String, dynamic>{
+            ...queuedBody,
+            '_id': 'local_$clientMutationId',
+            'conversationId': conversationId,
+            'senderId': app.user?['id']?.toString(),
+            'createdAt': createdAt,
+            'pending': true,
+          };
+          final decryptedPending = await _decryptMessage(pendingMessage);
+          if (mounted) {
+            setState(() {
+              messages = mergeMessages(messages, [decryptedPending]);
+              reply = null;
+            });
+            input.clear();
+            _pendingMutationId = null;
+            _pendingMutationText = null;
+            unawaited(_persistConversationMessages());
+            _scrollToLatestMessage();
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('No connection. Your encrypted message is saved securely and will send when you reconnect.')));
+          }
+        } catch (queueError) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text('Message could not be sent or safely queued: $queueError')));
+          }
+        }
+      } else if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(error.toString())));
       }
