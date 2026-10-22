@@ -238,3 +238,31 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
     res.status(201).json({ payment: { paymentId: payment.paymentId, amount: payment.amount, status: payment.status, billingType: payment.billingType, initiatedAt: payment.initiatedAt || null }, next: 'Call POST /api/payments/' + payment.paymentId + '/initiate with the payer phone to send the M-Pesa prompt.' });
   });
 }
+
+/**
+ * Repair confirmed workspace payments whose entitlement update did not finish.
+ * The query is intentionally bounded so an administrator-triggered reconciliation
+ * cannot load an unbounded payment history into memory.
+ */
+export async function reconcileWorkspaceBillingPayments({ mongoose, Payment, limit = 100 }) {
+  const batchSize = Number.isInteger(limit) ? Math.max(1, Math.min(500, limit)) : 100;
+  const payments = await Payment.find({
+    status: 'SUCCESS',
+    billingType: { $in: ['workspace_setup', 'workspace_subscription'] },
+    billingWorkspaceId: { $exists: true, $ne: null },
+    billingAppliedAt: { $in: [null] },
+  }).sort({ completedAt: 1, _id: 1 }).limit(batchSize);
+
+  const summary = { scanned: payments.length, applied: 0, alreadyApplied: 0, failed: 0, failures: [] };
+  for (const payment of payments) {
+    try {
+      const result = await applyWorkspaceBillingPayment({ mongoose, payment });
+      if (result.applied) summary.applied++;
+      else if (result.duplicate || result.alreadyApplied) summary.alreadyApplied++;
+    } catch {
+      summary.failed++;
+      summary.failures.push({ paymentId: String(payment.paymentId || ''), reason: 'ENTITLEMENT_RECONCILIATION_FAILED' });
+    }
+  }
+  return summary;
+}
