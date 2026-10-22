@@ -311,7 +311,7 @@ app.put('/api/admin/platform-fee-settings',auth,requireAdmin,async(q,r)=>{
   if(walletType==='mpesa_phone'&&!/^254[17][0-9]{8}$/.test(walletPhone))return r.status(400).json({error:'Enter the platform wallet phone in 254XXXXXXXXX format'});
   if(walletType==='mpesa_paybill'&&!/^[0-9]{5,10}$/.test(paybillNumber))return r.status(400).json({error:'Enter a valid platform Paybill number'});
   if(walletType==='mpesa_till'&&!/^[0-9]{5,10}$/.test(tillNumber))return r.status(400).json({error:'Enter a valid platform Till number'});
-  const settings=await PlatformFeeSettings.findOneAndUpdate({key:'global'},{$set:{enabled:body.enabled!==false,feeRate,walletType,walletPhone:walletType==='mpesa_phone'?walletPhone:'',paybillNumber:walletType==='mpesa_paybill'?paybillNumber:'',tillNumber:walletType==='mpesa_till'?tillNumber:'',accountReference,updatedBy:q.user._id}},{new:true,upsert:true,runValidators:true,setDefaultsOnInsert:true});
+  const settings=await PlatformFeeSettings.findOneAndUpdate({key:'global'},{$set:{enabled:false,feeRate:0,walletType,walletPhone:walletType==='mpesa_phone'?walletPhone:'',paybillNumber:walletType==='mpesa_paybill'?paybillNumber:'',tillNumber:walletType==='mpesa_till'?tillNumber:'',accountReference,updatedBy:q.user._id}},{new:true,upsert:true,runValidators:true,setDefaultsOnInsert:true});
   r.json({settings});
 });
 app.post('/api/auth/forgot-password',recoveryRateLimit,async(q,r)=>{
