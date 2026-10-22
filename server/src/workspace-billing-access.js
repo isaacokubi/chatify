@@ -6,15 +6,11 @@ export async function workspaceBillingLock(mongoose, workspace, now = new Date()
   if (billing?.billingEnforced !== true) return null;
 
   let configuredGraceDays = 3;
-  try {
-    const settings = await mongoose.models.WorkspaceBillingSettings
-      ?.findOne({ key: 'global' }).select('gracePeriodDays').lean();
-    const candidate = Number(settings?.gracePeriodDays ?? 3);
-    if (Number.isInteger(candidate) && candidate >= 0 && candidate <= 30) {
-      configuredGraceDays = candidate;
-    }
-  } catch {
-    // Fail closed below if billing state is invalid; use the conservative default grace period.
+  const settings = await mongoose.models.WorkspaceBillingSettings
+    ?.findOne({ key: 'global' }).select('gracePeriodDays').lean();
+  const candidate = Number(settings?.gracePeriodDays ?? 3);
+  if (Number.isInteger(candidate) && candidate >= 0 && candidate <= 30) {
+    configuredGraceDays = candidate;
   }
 
   const expiresAt = billing.subscriptionExpiresAt ? new Date(billing.subscriptionExpiresAt) : null;
