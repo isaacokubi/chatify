@@ -1,3 +1,4 @@
+import {rejectLockedWorkspace} from './workspace-billing-access.js';
 // Verified-purchase reviews: only a buyer with a paid/fulfilled order can submit a review.
 const text=(value,max)=>typeof value==='string'?value.trim().slice(0,max):'';
 export function normalizeReview(input={}) {
@@ -45,6 +46,7 @@ export function registerBusinessReviewRoutes({app,auth,mongoose}) {
   if(!mongoose.isValidObjectId(req.params.orgId))return null;
   const org=await Organization.findOne({_id:req.params.orgId,$or:[{ownerId:req.user._id},{'members.userId':req.user._id}]});
   if(!org)return null;
+  if(await rejectLockedWorkspace(mongoose,org,res))return null;
   const member=(org.members||[]).find(m=>String(m.userId)===String(req.user._id));
   const role=String(org.ownerId)===String(req.user._id)?'owner':(member?.role||'viewer');
   return ['owner','admin','manager'].includes(role)?org:null;
