@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeMpesaPhone,validPaymentAmount,calculatePlatformFee,calculatePaymentTotal,createMockMpesaProvider,createDarajaProvider,resolveMpesaProvider,resolveCallbackOutcome,canTransitionPayment,canAccessPayment,canRetryPayment} from '../src/payments.js';
+import {normalizeMpesaPhone,validPaymentAmount,calculatePaymentTotal,createMockMpesaProvider,createDarajaProvider,resolveMpesaProvider,resolveCallbackOutcome,canTransitionPayment,canAccessPayment,canRetryPayment} from '../src/payments.js';
 
 test('validates whole KSh amounts and Kenyan Safaricom numbers', () => {
   assert.equal(validPaymentAmount(1), true);
@@ -64,14 +64,14 @@ test('callback outcomes verify successful amount and phone and map failure/cance
   assert.equal(resolveCallbackOutcome({ResultCode:null},payment).error,'malformed');
 });
 
-test('callback validates the buyer-paid total including the platform fee', () => {
-  const payment = {amount: 1000, totalAmount: 1005, phone: '254712345678'};
+test('callback validates only the original payment amount and ignores legacy fee totals', () => {
+  const payment = {amount: 1000, baseAmount: 1000, totalAmount: 1005, platformFee: 5, phone: '254712345678'};
   const success = {ResultCode: 0, ResultDesc: 'Success', CallbackMetadata: {Item: [
-    {Name: 'Amount', Value: 1005}, {Name: 'PhoneNumber', Value: 254712345678},
+    {Name: 'Amount', Value: 1000}, {Name: 'PhoneNumber', Value: 254712345678},
   ]}};
   assert.equal(resolveCallbackOutcome(success, payment).status, 'SUCCESS');
   assert.equal(resolveCallbackOutcome({...success, CallbackMetadata: {Item: [
-    {Name: 'Amount', Value: 1000}, {Name: 'PhoneNumber', Value: 254712345678},
+    {Name: 'Amount', Value: 1005}, {Name: 'PhoneNumber', Value: 254712345678},
   ]}}, payment).error, 'mismatch');
 });
 
@@ -93,11 +93,13 @@ test('payment reads require a requester or payer and current conversation member
 });
 
 
-test('platform fee is disclosed, rounded to whole KSh, and total is capped', () => {
-  assert.equal(calculatePlatformFee(100), 1);
-  assert.equal(calculatePlatformFee(1000), 5);
-  assert.equal(calculatePlatformFee(150000), 750);
-  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_PAYMENT'});
-  assert.throws(() => calculatePaymentTotal(150000), /must not exceed KSh 150000/);
-  assert.throws(() => calculatePlatformFee(0), /positive whole KSh amount/);
+test('payment total never adds a transaction commission and preserves the amount cap', () => {
+  assert.deepEqual(calculatePaymentTotal(1000), {
+    baseAmount:1000, platformFee:0, totalAmount:1000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE',
+  });
+  assert.deepEqual(calculatePaymentTotal(150000), {
+    baseAmount:150000, platformFee:0, totalAmount:150000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE',
+  });
+  assert.throws(() => calculatePaymentTotal(150001), /no greater than KSh 150000/);
+  assert.throws(() => calculatePaymentTotal(0), /positive whole-KSh amount/);
 });
