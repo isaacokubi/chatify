@@ -206,8 +206,14 @@ export function resolveCallbackOutcome(callback, payment) {
   const value = name => items.find(item => item?.Name === name)?.Value;
   const code = Number(callback.ResultCode);
   const expectedAmount = payment.feeCollectionMode === 'separate' ? (payment.baseAmount ?? payment.amount) : (payment.totalAmount ?? payment.amount);
-  if (code === 0 && (Number(value('Amount')) !== expectedAmount || String(value('PhoneNumber')) !== payment.phone)) return {error:'mismatch'};
-  return {resultCode:code,status:code === 0 ? 'SUCCESS' : code === 1032 ? 'CANCELLED' : 'FAILED',description:String(callback.ResultDesc || '').slice(0,160)};
+  let receipt;
+  if (code === 0) {
+    const callbackPhone = normalizeMpesaPhone(String(value('PhoneNumber') ?? ''));
+    receipt = String(value('MpesaReceiptNumber') ?? '').trim().toUpperCase();
+    if (Number(value('Amount')) !== expectedAmount || callbackPhone !== normalizeMpesaPhone(String(payment.phone ?? ''))) return {error:'mismatch'};
+    if (!/^[A-Z0-9]{6,40}$/.test(receipt)) return {error:'malformed'};
+  }
+  return {resultCode:code,status:code === 0 ? 'SUCCESS' : code === 1032 ? 'CANCELLED' : 'FAILED',description:String(callback.ResultDesc || '').slice(0,160),...(receipt?{receipt}:{})};
 }
 
 export const canTransitionPayment = (status, callbackProcessedAt) => status === 'PENDING' && !callbackProcessedAt;
