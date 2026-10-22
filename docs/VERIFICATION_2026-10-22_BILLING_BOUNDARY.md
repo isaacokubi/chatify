@@ -13,14 +13,15 @@ This change adds a regression test for the exact instant a workspace subscriptio
 
 ## Verified CI evidence
 
-The full **Chatify CI** workflow completed successfully for the billing-boundary branch commit `b0ee679832d825bd2949f7767547715688b84005` (merged as `3102dc9a437b1555a9070645cba02af47efbcbfe`). A follow-up month-end renewal regression test was added on `main` in commit `dfe0ec01676fe835279ceda9dec0b81d9517890b`.
+The full **Chatify CI** workflow completed successfully on `main` at commit `04286915efc84a3ec53f27c09c7e5a355032cd8f`. The billing-boundary change was merged via PR #71 as `3102dc9a437b1555a9070645cba02af47efbcbfe`; the follow-up month-end renewal regression test was added in commit `dfe0ec01676fe835279ceda9dec0b81d9517890b`. The final documentation commit also has successful quality and full CI runs.
 
 - [Full CI run for billing-boundary change — success](https://github.com/isaacokubi/chatify/actions/runs/39735038381)
-- [Follow-up quality checks including month-end test](https://github.com/isaacokubi/chatify/actions/runs/39736274225) — **passed** for both backend tests/syntax checks and Flutter analysis/tests on commit `dfe0ec01676fe835279ceda9dec0b81d9517890b`.
-- [Follow-up full CI](https://github.com/isaacokubi/chatify/actions/runs/39736274262) — pending at the last check.
-- Backend: `npm ci`, dependency audit, `npm test`, `npm run lint`, backup/recovery script validation, and production-URI restore guard passed.
-- Mobile: Flutter dependency resolution, analysis, tests, web build, and Android debug APK build passed.
-- The successful branch CI verifies the merged source contents; post-merge workflows on `main` are tracked separately below and must finish before the latest main-run status is declared final.
+- [Quality checks including month-end test — success](https://github.com/isaacokubi/chatify/actions/runs/39736274225) — backend tests/syntax checks and Flutter analysis/tests passed on `dfe0ec01676fe835279ceda9dec0b81d9517890b`.
+- [Latest `main` quality workflow — success](https://github.com/isaacokubi/chatify/actions/runs/39736401343) on `04286915efc84a3ec53f27c09c7e5a355032cd8f`.
+- [Latest `main` full CI workflow — success](https://github.com/isaacokubi/chatify/actions/runs/39736401352) on the same SHA; backend and mobile jobs completed successfully, including web and Android debug builds.
+- Backend: `npm ci`, dependency audit, `npm test`, `npm run lint`, backup/recovery script validation, and production-URI restore guard passed in full CI.
+- Mobile: Flutter dependency resolution, analysis, tests, web build, and Android debug APK build passed in full CI.
+- Latest `main` quality and full CI workflows are now complete and successful. The two links above identify the exact commit tested.
 
 ## Reproduction commands
 
@@ -45,9 +46,10 @@ For the Android debug APK, use the repository's committed Gradle configuration a
 - [x] Full Chatify CI passed for the source commit containing the billing-boundary regression test.
 - [x] Backend tests and syntax checks passed for the follow-up month-end renewal regression test in commit `dfe0ec01676fe835279ceda9dec0b81d9517890b`.
 - [x] Follow-up quality checks passed for the month-end test commit: [quality checks](https://github.com/isaacokubi/chatify/actions/runs/39736274225).
-- [ ] Full CI for the latest `main` commit completes successfully, including web and Android builds; the prior run was cancelled when documentation was updated: [latest CI runs](https://github.com/isaacokubi/chatify/actions).
-- [ ] Validate live billing-provider callbacks and renewals in a safe sandbox; unit tests cannot prove production payment delivery.
-- [ ] Verify the deployed API is running the intended commit before enabling billing enforcement for real tenants.
+- [x] Full CI for latest `main` commit `04286915efc84a3ec53f27c09c7e5a355032cd8f` completed successfully, including backend and mobile jobs, web build, and Android debug APK: [full CI](https://github.com/isaacokubi/chatify/actions/runs/39736401352).
+- [x] Latest `main` quality workflow completed successfully: [quality checks](https://github.com/isaacokubi/chatify/actions/runs/39736401343).
+- [ ] Run end-to-end Daraja sandbox tests for STK initiation, valid/invalid/duplicate callbacks, reconciliation, and subscription renewal/expiry; unit and CI tests cannot prove external payment delivery.
+- [ ] Verify the deployed API is running the intended commit and validate real environment configuration before enabling billing enforcement for tenants.
 
 ## Policy reminder
 
