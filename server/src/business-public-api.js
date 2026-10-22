@@ -66,8 +66,9 @@ export function registerBusinessPublicApiRoutes({app,auth,mongoose}) {
   const key=await ApiKey.findOne({keyHash:hashApiKey(token)}).select('+keyHash');
   if(!hasApiScope(key,'catalog:read'))return res.status(401).json({error:'API key is invalid, expired or revoked'});
   const slug=String(req.params.slug||'').toLowerCase();
-  const org=await Organization.findOne({_id:key.organizationId,slug,'settings.storefrontPublished':{$ne:false}}).select('name slug currency country');
+  const org=await Organization.findOne({_id:key.organizationId,slug,'settings.storefrontPublished':{$ne:false}}).select('name slug currency country billing');
   if(!org)return res.status(404).json({error:'Published storefront not found'});
+  if(await rejectLockedWorkspace(mongoose,org,res))return;
   const page=Math.max(1,Math.min(100000,Number.parseInt(req.query.page,10)||1));
   const pageSize=Math.max(1,Math.min(50,Number.parseInt(req.query.pageSize,10)||20));
   const filter={organizationId:org._id,active:true};
