@@ -112,6 +112,9 @@ void main() {
     });
     final queued = await api.readOutgoingMessageOutbox('conversation-1');
     expect(queued.single['clientMutationId'], mutationId);
+    final restoredApi = Api()..token = 'outbox-account-token';
+    expect((await restoredApi.readOutgoingMessageOutbox('conversation-1')).single['clientMutationId'], mutationId,
+        reason: 'A new API instance for the same account must recover the durable outbox.');
     final preferences = await SharedPreferences.getInstance();
     expect(
       preferences.getKeys().where((key) => key.startsWith('chatify_secure_outbox_v1_')),
@@ -123,6 +126,7 @@ void main() {
     await api.removeOutgoingMessageFromOutbox('conversation-1', mutationId);
     expect(await api.readOutgoingMessageOutbox('conversation-1'), isEmpty);
     api.client.close();
+    restoredApi.client.close();
     otherAccount.client.close();
   });
 
