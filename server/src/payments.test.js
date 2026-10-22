@@ -154,9 +154,10 @@ test('Daraja STK request respects AccountReference and TransactionDesc length li
 test('M-Pesa success callbacks must match the original amount and phone', () => {
   const payment = {amount: 450, phone: '254712345678'};
   const callback = {ResultCode: 0, ResultDesc: 'Success', CallbackMetadata: {Item: [
-    {Name: 'Amount', Value: 450}, {Name: 'PhoneNumber', Value: 254712345678},
+    {Name: 'Amount', Value: 450}, {Name: 'PhoneNumber', Value: 254712345678}, {Name: 'MpesaReceiptNumber', Value: 'QWERTY1234'},
   ]}};
   assert.equal(resolveCallbackOutcome(callback, payment).status, 'SUCCESS');
+  assert.equal(resolveCallbackOutcome(callback, payment).receipt, 'QWERTY1234');
   assert.equal(resolveCallbackOutcome({...callback, CallbackMetadata: {Item: [
     {Name: 'Amount', Value: 451}, {Name: 'PhoneNumber', Value: 254712345678},
   ]}}, payment).error, 'mismatch');
@@ -224,7 +225,7 @@ test('eligible business payments respect the administrator-configured fee rate',
 test('merchant payment callback matches the base amount while the platform fee is collected separately', () => {
   const payment = {amount:1000, baseAmount:1000, totalAmount:1005, feeCollectionMode:'separate', phone:'254712345678'};
   const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
-    {Name:'Amount',Value:1000}, {Name:'PhoneNumber',Value:254712345678}, {Name:'MpesaReceiptNumber',Value:'QWERTY1234'},
+    {Name:'Amount',Value:1000}, {Name:'PhoneNumber',Value:254712345678}, {Name:'MpesaReceiptNumber',Value:'QWERTY1234'}, {Name:'MpesaReceiptNumber',Value:'QWERTY1234'},
   ]}};
   assert.equal(resolveCallbackOutcome(callback,payment).status,'SUCCESS');
   assert.equal(resolveCallbackOutcome({...callback,CallbackMetadata:{Item:[
