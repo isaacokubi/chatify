@@ -20,6 +20,36 @@ export function normalizeMpesaPhone(value) {
   return null;
 }
 
+export function buildPaymentRetryFields(previous, provider, requestedAt = new Date()) {
+  if (!previous || !validPaymentAmount(previous.amount) || !provider) {
+    throw new Error('A valid previous payment and provider are required to retry payment');
+  }
+  return {
+    requesterId: previous.requesterId,
+    payerId: previous.payerId,
+    conversationId: previous.conversationId,
+    amount: previous.amount,
+    baseAmount: previous.amount,
+    platformFee: 0,
+    totalAmount: previous.amount,
+    platformFeeRate: 0,
+    platformFeeStatus: 'NOT_APPLICABLE',
+    feeCollectionMode: 'separate',
+    recipientPhone: previous.recipientPhone,
+    payerPhone: previous.payerPhone,
+    phone: previous.payerPhone,
+    businessOrganizationId: previous.businessOrganizationId,
+    businessDocumentId: previous.businessDocumentId,
+    billingType: previous.billingType,
+    billingWorkspaceType: previous.billingWorkspaceType,
+    billingWorkspaceId: previous.billingWorkspaceId,
+    description: previous.description,
+    purpose: previous.purpose || 'REQUEST',
+    provider,
+    requestedAt
+  };
+}
+
 export function validPaymentAmount(value) {
   return Number.isSafeInteger(value) && value > 0 && value <= MAX_PAYMENT_AMOUNT;
 }
