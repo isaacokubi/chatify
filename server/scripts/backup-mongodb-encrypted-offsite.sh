@@ -13,6 +13,7 @@ command -v mongodump >/dev/null 2>&1 || { echo "mongodump is required." >&2; exi
 command -v age >/dev/null 2>&1 || { echo "age is required for encrypted backups." >&2; exit 127; }
 command -v aws >/dev/null 2>&1 || { echo "AWS CLI is required for off-site upload." >&2; exit 127; }
 [[ "$BACKUP_S3_URI" =~ ^s3://[A-Za-z0-9._-]+(/.*)?$ ]] || { echo "BACKUP_S3_URI must be an s3:// bucket/prefix URI." >&2; exit 2; }
+BACKUP_S3_URI="${BACKUP_S3_URI%/}"
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
@@ -29,7 +30,7 @@ trap 'rm -f "$temporary"' EXIT
 
 # Stream directly from mongodump into age so an unencrypted archive is not
 # written to disk. The encrypted temporary file is atomically renamed on success.
-mongodump --uri="$MONGODB_URI" --archive=- --gzip | age --recipient "$BACKUP_AGE_RECIPIENT" > "$temporary"
+mongodump --uri="$MONGODB_URI" --archive --gzip | age --recipient "$BACKUP_AGE_RECIPIENT" > "$temporary"
 test -s "$temporary"
 mv "$temporary" "$final"
 (cd "$BACKUP_DIR" && sha256sum "$(basename "$final")" > "$(basename "$final").sha256")
