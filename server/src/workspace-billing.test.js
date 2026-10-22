@@ -3,12 +3,18 @@ import assert from 'node:assert/strict';
 import { applyWorkspaceBillingPayment } from './workspace-billing.js';
 
 function billingHarness({ type = 'business', setupPaid = false, expiresAt = null, ownerMatches = true, updateMatches = true } = {}) {
-  const workspace = { billing: { billingEnforced: true, setupFeePaid: setupPaid, subscriptionExpiresAt: expiresAt, status: setupPaid ? 'SUBSCRIPTION_REQUIRED' : 'SETUP_PAYMENT_REQUIRED' } };
-  const storedPayment = { _id: 'payment-1', status: 'SUCCESS', billingAppliedAt: undefined };
+  const workspace = { billing: { billingEnforced: true, setupFeePaid: setupPaid, subscriptionExpiresAt: expiresAt, status: setupPaid ? 'SUBSCRIPTION_REQUIRED' : 'SETUP_PAYMENT_REQUIRED', appliedPaymentIds: [] } };
+  const storedPayment = { _id: 'payment-1', paymentId: 'payment-1', status: 'SUCCESS', billingAppliedAt: undefined };
   const Workspace = {
-    findOne: () => ({ select: () => ({ lean: async () => ownerMatches ? { billing: { ...workspace.billing } } : null }) }),
-    updateOne: async (_filter, update) => {
-      if (!updateMatches) return { matchedCount: 0 };
+    findOne: (filter) => ({ select: () => ({ lean: async () => {
+      if (!ownerMatches) return null;
+      if (filter?.['billing.appliedPaymentIds']?.$ne && workspace.billing.appliedPaymentIds.includes(filter['billing.appliedPaymentIds'].$ne)) return null;
+      return { billing: { ...workspace.billing, appliedPaymentIds: [...workspace.billing.appliedPaymentIds] } };
+    } }) }),
+    updateOne: async (filter, update) => {
+      if (!updateMatches || !ownerMatches) return { matchedCount: 0 };
+      const excludedPayment = filter?.['billing.appliedPaymentIds']?.$ne;
+      if (excludedPayment && workspace.billing.appliedPaymentIds.includes(excludedPayment)) return { matchedCount: 0 };
       for (const [key, value] of Object.entries(update.$set || {})) {
         const path = key.split('.');
         let target = workspace;
@@ -19,16 +25,23 @@ function billingHarness({ type = 'business', setupPaid = false, expiresAt = null
         }
         target[path[0]] = value;
       }
+      for (const [key, value] of Object.entries(update.$addToSet || {})) {
+        const path = key.split('.');
+        let target = workspace;
+        while (path.length > 1) {
+          const part = path.shift();
+          target[part] ??= {};
+          target = target[part];
+        }
+        target[path[0]] ??= [];
+        if (!target[path[0]].includes(value)) target[path[0]].push(value);
+      }
       return { matchedCount: 1 };
     }
   };
   const Payment = {
-    findOneAndUpdate: async (filter, update) => {
-      if (storedPayment.status !== filter.status || storedPayment.billingAppliedAt !== undefined) return null;
-      storedPayment.billingAppliedAt = update.$set.billingAppliedAt;
-      return { ...storedPayment };
-    },
     updateOne: async (_filter, update) => {
+      if (update.$set?.billingAppliedAt) storedPayment.billingAppliedAt = update.$set.billingAppliedAt;
       if (update.$unset?.billingAppliedAt) delete storedPayment.billingAppliedAt;
       return { matchedCount: 1 };
     }
@@ -41,6 +54,7 @@ function billingHarness({ type = 'business', setupPaid = false, expiresAt = null
   };
   const payment = {
     ...storedPayment,
+    paymentId: 'payment-1',
     status: 'SUCCESS',
     billingType: 'workspace_setup',
     billingWorkspaceType: type,
