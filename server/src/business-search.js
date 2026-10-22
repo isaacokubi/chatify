@@ -1,3 +1,4 @@
+import {rejectLockedWorkspace} from './workspace-billing-access.js';
 // Permission-aware, tenant-scoped search across Chatify Business records.
 // Only a workspace owner/member can search it, and responses intentionally expose
 // a small safe summary rather than returning full customer, payment, or document objects.
@@ -25,8 +26,9 @@ export function registerBusinessSearchRoutes({app, auth, mongoose}) {
     const organization = await Organization.findOne({
       _id: req.params.orgId,
       $or: [{ownerId: req.user._id}, {'members.userId': req.user._id}],
-    }).select('_id').lean();
+    }).select('_id billing').lean();
     if (!organization) return res.status(404).json({error: 'Business workspace not found'});
+    if (await rejectLockedWorkspace(mongoose, organization, res)) return;
 
     const regex = new RegExp(escapeSearchRegex(query), 'i');
     const models = [
