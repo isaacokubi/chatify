@@ -22,7 +22,7 @@ The billing-boundary change was merged via PR #71 as `3102dc9a437b1555a9070645cb
 - [Latest `main` full CI workflow — success](https://github.com/isaacokubi/chatify/actions/runs/39736401352) on the same SHA; backend and mobile jobs completed successfully, including web and Android debug builds.
 - Backend: `npm ci`, dependency audit, `npm test`, `npm run lint`, backup/recovery script validation, and production-URI restore guard passed in full CI.
 - Mobile: Flutter dependency resolution, analysis, tests, web build, and Android debug APK build passed in full CI.
-- Latest `main` quality and full CI workflows are now complete and successful. The two links above identify the exact commit tested.
+- The latest source quality workflow is confirmed successful on `a5462c09f4b4930485a27f970ff1077a498ddb85`. The most recent confirmed full CI (including web and Android debug builds) is successful on `ba17852243221b6eef07ca8940f404fd40ef6ad1`. A full CI run was started for the newer source, but its web-build step had not completed at the time of this record; do not mark that newer full CI as passed without a successful run result.
 
 ## Reproduction commands
 
