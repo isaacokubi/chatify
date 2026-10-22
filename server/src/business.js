@@ -290,9 +290,11 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const organizations = await Organization.find({
         _id: {$in: counts.map(row => row._id)},
         'settings.storefrontPublished': {$ne: false},
-      }).select('name slug description logo industry country currency website').sort({name: 1}).lean();
+      }).select('name slug description logo industry country currency website billing').sort({name: 1}).lean();
+      const activeOrganizations = [];
+      for (const organization of organizations) if (!(await getPublicBillingStatus(organization)).locked) activeOrganizations.push(organization);
       // Apply search to public display fields only; never expose internal settings, owner IDs or customer records.
-      const stores = organizations
+      const stores = activeOrganizations
         .filter(org => !term || [org.name, org.description, org.industry].some(value => String(value || '').toLowerCase().includes(term)))
         .map(org => ({...org, itemCount: countById.get(String(org._id)) || 0}));
       res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
@@ -335,7 +337,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const stores = await Organization.find({
         ownerId: sellerUserId,
         'settings.storefrontPublished': {$ne: false},
-      }).select('slug settings.posPaymentProfile billing').limit(2).lean();
+      }).select('slug settings.posPaymentProfile billing').limit(100).lean();
       const activeStores = [];
        for (const store of stores) if (!(await getPublicBillingStatus(store)).locked) activeStores.push(store);
        if (!activeStores.length) return res.status(404).json({error: 'No published business storefront found'});
