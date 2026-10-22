@@ -3,6 +3,7 @@
 // A fee receipt is available only after an authorized staff member verifies payment.
 import { randomUUID, randomBytes, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
 import { createDarajaProvider, normalizeMpesaPhone, resolveCallbackOutcome } from './payments.js';
+import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
 
 export function encryptSchoolSecret(value, secret = process.env.SCHOOL_PAYMENT_ENCRYPTION_KEY) {
   if (typeof secret !== 'string' || secret.trim().length < 32) throw new Error('School payment encryption is not configured');
@@ -186,7 +187,11 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const member = await membership(req, schoolId);
       if (!member) return res.status(403).json({ error: 'You are not a member of this school' });
       const billingSchool = await School.findById(schoolId).select('billing').lean();
-      if (billingSchool?.billing?.billingEnforced === true) { const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = billingSchool.billing.subscriptionExpiresAt ? new Date(billingSchool.billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!billingSchool.billing.setupFeePaid || !lockAt || lockAt <= new Date()) return res.status(402).json({error: 'This school workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: {setupFeePaid: Boolean(billingSchool.billing.setupFeePaid), subscriptionExpiresAt: billingSchool.billing.subscriptionExpiresAt || null, gracePeriodDays: graceDays}}); }
+      if (billingSchool?.billing?.billingEnforced === true) {
+        const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean();
+        const status = getWorkspaceBillingStatus(billingSchool, Number(settings?.gracePeriodDays ?? 3));
+        if (status.locked) return res.status(402).json({error: 'This school workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code: 'WORKSPACE_BILLING_REQUIRED', billing: status});
+      }
       if (!roles.includes(member.role)) return res.status(403).json({ error: 'Your school role cannot perform this action' });
       // A role value alone must never grant control of another person's workspace.
       // Only the account that created the school may use administrator-only actions.
