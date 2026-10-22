@@ -150,3 +150,42 @@ test('month-end renewals remain at month end across short and leap-year February
   }
 });
 
+
+test('reconciliation selects only successful unapplied workspace billing payments and applies them idempotently', async () => {
+  const h = billingHarness();
+  const selected = [
+    { ...h.payment, paymentId: 'payment-1', status: 'SUCCESS', billingType: 'workspace_setup', billingWorkspaceId: 'workspace-1' },
+  ];
+  const query = {
+    sort(sort) { assert.deepEqual(sort, { completedAt: 1, _id: 1 }); return this; },
+    limit(limit) { assert.equal(limit, 25); return Promise.resolve(selected); },
+  };
+  const Payment = { find(filter) {
+    assert.equal(filter.status, 'SUCCESS');
+    assert.deepEqual(filter.billingType.$in, ['workspace_setup', 'workspace_subscription']);
+    assert.deepEqual(filter.billingAppliedAt.$in, [null]);
+    return query;
+  }};
+  const { reconcileWorkspaceBillingPayments } = await import('./workspace-billing.js');
+  const result = await reconcileWorkspaceBillingPayments({ mongoose: h.mongoose, Payment, limit: 25 });
+  assert.equal(result.scanned, 1);
+  assert.equal(result.applied, 1);
+  assert.equal(result.failed, 0);
+  assert.equal(h.workspace.billing.setupFeePaid, true);
+});
+
+test('reconciliation caps batches and reports failures without exposing exception text', async () => {
+  const { reconcileWorkspaceBillingPayments } = await import('./workspace-billing.js');
+  const query = {
+    sort() { return this; },
+    limit(limit) { assert.equal(limit, 500); return Promise.resolve([{ paymentId: 'bad-payment' }]); },
+  };
+  const result = await reconcileWorkspaceBillingPayments({
+    mongoose: { models: {} },
+    Payment: { find: () => query },
+    limit: 10000,
+  });
+  assert.equal(result.scanned, 1);
+  assert.equal(result.failed, 1);
+  assert.deepEqual(result.failures, [{ paymentId: 'bad-payment', reason: 'ENTITLEMENT_RECONCILIATION_FAILED' }]);
+});
