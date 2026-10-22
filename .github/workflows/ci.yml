@@ -3,10 +3,11 @@ on:
   push:
   pull_request:
 
-# Keep only the newest CI run per branch; feature work may be committed in several small steps.
+# Serialize CI runs per branch without cancelling an in-progress verification run.
+# This preserves a definitive result for every pushed commit, including documentation-only updates.
 concurrency:
   group: chatify-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   backend:
