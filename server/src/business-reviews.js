@@ -29,6 +29,7 @@ export function registerBusinessReviewRoutes({app,auth,mongoose}) {
  });
  app.post('/api/storefront/:slug/reviews',auth,async(req,res)=>{
   const org=await publicSlug(req.params.slug);if(!org)return res.status(404).json({error:'Storefront not found'});
+  if(await rejectLockedWorkspace(mongoose,org,res))return;
   let input;try{input=normalizeReview(req.body);}catch(error){return res.status(400).json({error:error.message});}
   const orderId=String(req.body?.orderId||'');
   if(!mongoose.isValidObjectId(orderId))return res.status(400).json({error:'A valid order ID is required'});
