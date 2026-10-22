@@ -218,10 +218,15 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     offers: {type: [{supplierId: O, amount: Number, leadTime: String, notes: String, createdAt: Date}], default: []},
     status: {type: String, enum: ['open', 'quoted', 'awarded', 'cancelled'], default: 'open'},
   }, {timestamps: true}));
-  const getPublicBillingStatus = async org => {
+  const getBillingGraceDays = async () => {
     const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean();
-    return getWorkspaceBillingStatus(org, Number(settings?.gracePeriodDays ?? 3));
+    const days = Number(settings?.gracePeriodDays ?? 3);
+    return Number.isInteger(days) && days >= 0 && days <= 30 ? days : 3;
   };
+  const getPublicBillingStatus = async (org, graceDays) => getWorkspaceBillingStatus(
+    org,
+    Number.isInteger(graceDays) && graceDays >= 0 && graceDays <= 30 ? graceDays : await getBillingGraceDays()
+  );
   const getOrg = async (orgId, userId) => {
     if (!mongoose.isValidObjectId(orgId)) return null;
     return Organization.findOne({_id: orgId, $or: [{ownerId: userId}, {'members.userId': userId}]});
@@ -292,7 +297,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
         'settings.storefrontPublished': {$ne: false},
       }).select('name slug description logo industry country currency website billing').sort({name: 1}).lean();
       const activeOrganizations = [];
-      for (const organization of organizations) if (!(await getPublicBillingStatus(organization)).locked) activeOrganizations.push(organization);
+      const graceDays = await getBillingGraceDays();
+      for (const organization of organizations) if (!(await getPublicBillingStatus(organization, graceDays)).locked) activeOrganizations.push(organization);
       // Apply search to public display fields only; never expose internal settings, owner IDs or customer records.
       const stores = activeOrganizations
         .filter(org => !term || [org.name, org.description, org.industry].some(value => String(value || '').toLowerCase().includes(term)))
@@ -339,10 +345,11 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
         'settings.storefrontPublished': {$ne: false},
       }).select('slug settings.posPaymentProfile billing').limit(100).lean();
       const activeStores = [];
-       for (const store of stores) if (!(await getPublicBillingStatus(store)).locked) activeStores.push(store);
+       const graceDays = await getBillingGraceDays();
+       for (const store of stores) if (!(await getPublicBillingStatus(store, graceDays)).locked) activeStores.push(store);
        if (!activeStores.length) return res.status(404).json({error: 'No published business storefront found'});
-      if (stores.length > 1) return res.status(409).json({error: 'This seller has multiple storefronts. Open the intended business storefront to load its payment details.'});
-      const profile = stores[0].settings?.posPaymentProfile || null;
+      if (activeStores.length > 1) return res.status(409).json({error: 'This seller has multiple storefronts. Open the intended business storefront to load its payment details.'});
+      const profile = activeStores[0].settings?.posPaymentProfile || null;
       const paymentProfile = profile && ['mpesa_till', 'mpesa_paybill'].includes(profile.method)
         ? {
             method: profile.method,
