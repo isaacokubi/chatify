@@ -32,14 +32,14 @@ export function registerPublicStatusRoute({app, mongoose}) {
  * Build the lightweight liveness/readiness response without exposing configuration.
  * HTTP 200 means the API process and its required database dependency are ready.
  */
-export function buildHealthResponse({databaseReady, release = 'main'}) {
+export function buildHealthResponse({databaseReady, release = 'unknown'}) {
   const ready = databaseReady === true;
   return {
     statusCode: ready ? 200 : 503,
     body: {
       ok: ready,
       service: 'chatify-api',
-      release: String(release || 'main').slice(0, 80),
+      release: String(release || 'unknown').slice(0, 80),
       database: ready ? 'connected' : 'disconnected',
       features: {sparks: true},
     },
