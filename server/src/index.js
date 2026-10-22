@@ -6,6 +6,7 @@
 // user IDs, payment outcomes, or conversation membership without checking them on the server.
 
 import 'dotenv/config';
+import {validateClientMutationId} from './message-idempotency.js';
 import {resolveMpesaProvider,normalizeMpesaPhone,validPaymentAmount,newPaymentId,PAYMENT_STATUSES,resolveCallbackOutcome,calculatePaymentTotal,canAccessPayment,canRetryPayment,canTransitionPayment,canCancelPayment} from './payments.js';
 import {createAuthMiddleware,createAdminMiddleware} from './auth.js';
 import {isValidEncryptedPayload} from './e2ee.js';
