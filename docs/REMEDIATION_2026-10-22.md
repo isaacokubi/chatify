@@ -20,6 +20,7 @@ This file records code changes made directly on `main` after the commercial-read
 - A successful Daraja callback must include the expected amount, normalized payer phone, and a valid M-Pesa receipt reference.
 - The receipt is persisted on the payment record.
 - A sparse unique receipt index is declared and included in the explicit index migration to prevent the same provider receipt being assigned to multiple payment records.
+- Workspace setup/subscription application now records each stable payment ID atomically on the workspace. If the server crashes after applying the entitlement but before updating the payment marker, a retry repairs the marker without extending the subscription a second time. Zero-priced billing periods use deterministic IDs so repeated checkout requests cannot repeatedly renew the same period.
 - Regression tests cover missing receipts, amount/phone mismatches, fee-free defaults, and POS metadata.
 
 ### Existing CI and reliability work
