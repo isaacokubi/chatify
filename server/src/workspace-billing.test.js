@@ -129,3 +129,11 @@ test('workspace checkout reuses a pending payment only when its price still matc
   assert.equal(changed.code,'WORKSPACE_BILLING_PRICE_CHANGED_PENDING');
   assert.equal(changed.payment.amount,500);
 });
+
+test('monthly renewal preserves calendar month-end dates without overflowing into March', async () => {
+  const h = billingHarness({ setupPaid: true, expiresAt: new Date('2027-01-31T00:00:00.000Z') });
+  h.payment.billingType = 'workspace_subscription';
+  const result = await applyWorkspaceBillingPayment(h);
+  assert.equal(result.applied, true);
+  assert.equal(new Date(h.workspace.billing.subscriptionExpiresAt).toISOString(), '2027-02-28T00:00:00.000Z');
+});
