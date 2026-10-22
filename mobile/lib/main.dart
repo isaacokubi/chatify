@@ -956,7 +956,7 @@ class _AsyncActionButtonState extends State<AsyncActionButton> {
 // Shared app state. Screens listen to this object and rebuild after login, chat, contact, memory, or payment data changes.
 class AppState extends ChangeNotifier {
   final Api api;
-  ThemeMode themeMode = ThemeMode.light;
+  ThemeMode themeMode = ThemeMode.dark;
   bool ready = false;
   bool authRequested = false;
   bool startRegistration = false;
@@ -993,9 +993,10 @@ class AppState extends ChangeNotifier {
     try {
       final preferences = await SharedPreferences.getInstance()
           .timeout(const Duration(seconds: 3));
-      themeMode = preferences.getBool('chatify_dark_mode') == true
-          ? ThemeMode.dark
-          : ThemeMode.light;
+      // New installs default to dark; an explicit saved preference keeps light mode.
+      themeMode = preferences.getBool('chatify_dark_mode') == false
+          ? ThemeMode.light
+          : ThemeMode.dark;
     } catch (error) {
       restoreError ??= 'Could not load local preferences: $error';
     }
@@ -4082,6 +4083,76 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
+  Future<void> editStudent(Map<String, dynamic> student) async {
+    final fields = <String, TextEditingController>{
+      'fullName': TextEditingController(text: '${student['fullName'] ?? ''}'),
+      'className': TextEditingController(text: '${student['className'] ?? ''}'),
+      'guardianName': TextEditingController(text: '${student['guardianName'] ?? ''}'),
+      'guardianPhone': TextEditingController(text: '${student['guardianPhone'] ?? ''}'),
+      'guardianEmail': TextEditingController(text: '${student['guardianEmail'] ?? ''}'),
+    };
+    try {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: const Text('Edit learner and parent details'),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            for (final entry in fields.entries)
+              TextField(controller: entry.value, decoration: InputDecoration(labelText: switch (entry.key) {
+                'fullName' => 'Learner name', 'className' => 'Class / grade',
+                'guardianName' => 'Parent / guardian', 'guardianPhone' => 'Parent phone',
+                _ => 'Parent email',
+              })),
+          ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Save')),
+          ],
+        ),
+      );
+      if (saved != true || !mounted) return;
+      await app.api.call('PATCH', '/api/schools/$schoolId/students/${student['_id']}',
+          fields.map((key, value) => MapEntry(key, value.text.trim())));
+      await loadSection();
+    } finally {
+      for (final controller in fields.values) { controller.dispose(); }
+    }
+  }
+
+  Widget _studentTable({required bool editable}) {
+    final rows = students.map((raw) {
+      final s = Map<String, dynamic>.from(raw as Map);
+      return DataRow(cells: [
+        DataCell(Text('${s['admissionNumber'] ?? ''}')),
+        DataCell(Text('${s['fullName'] ?? ''}')),
+        DataCell(Text('${s['className'] ?? ''}')),
+        DataCell(Text('${s['guardianName'] ?? 'Not recorded'}')),
+        DataCell(Text('${s['guardianPhone'] ?? 'Not recorded'}')),
+        DataCell(Text('${s['guardianEmail'] ?? 'Not recorded'}')),
+        if (editable) DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(tooltip: 'Edit learner', onPressed: () => editStudent(s), icon: const Icon(Icons.edit_outlined)),
+          IconButton(tooltip: 'Archive learner', onPressed: () => _removeSchoolRecord(label: 'student', endpoint: 'students/${s['_id']}'), icon: const Icon(Icons.archive_outlined)),
+        ])),
+      ]);
+    }).toList();
+    return Card(child: SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columnSpacing: 22,
+        columns: [
+          const DataColumn(label: Text('Admission no.')),
+          const DataColumn(label: Text('Learner')),
+          const DataColumn(label: Text('Class / grade')),
+          const DataColumn(label: Text('Parent / guardian')),
+          const DataColumn(label: Text('Parent phone')),
+          const DataColumn(label: Text('Parent email')),
+          if (editable) const DataColumn(label: Text('Actions')),
+        ],
+        rows: rows,
+      ),
+    ));
+  }
+
   Future<void> saveAttendance() async {
     final id = schoolId;
     if (id == null || attendanceStudentId.isEmpty) return;
@@ -4753,15 +4824,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             if (students.isEmpty) const Padding(
                       padding: EdgeInsets.all(16), child: Text(
                           'No student records yet. School staff can register students above.')),
-            ...students.map((s) => _swipeSchoolRecord(
-                    id: s['_id'].toString(),
-                    label: 'student',
-                    endpoint: 'students/${s['_id']}',
-                    child: Card(
-                        child: ListTile(
-                            leading: const CircleAvatar(
-                                child: Icon(Icons.school_outlined)), title: Text((s['fullName'] ?? 'Student').toString()), subtitle: Text(
-                                '${s['admissionNumber'] ?? ''} • ${s['className'] ?? ''}\n${s['guardianName'] ?? 'Guardian not recorded'} ${s['guardianPhone'] ?? ''}'), isThreeLine: true)))),
+            if (students.isNotEmpty) _studentTable(editable: role != 'parent'),
             _schoolPager(),
           ],
           if (section == 6) ...[
