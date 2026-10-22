@@ -399,6 +399,61 @@ class Api {
   String _conversationMetadataKey(String conversationId) =>
       'chatify_secure_conversation_v1_${_cacheScope()}_${_stableCacheHash(conversationId)}';
 
+  String _outgoingMessageOutboxKey(String conversationId) =>
+      'chatify_secure_outbox_v1_${_cacheScope()}_${_stableCacheHash(conversationId)}';
+
+  // The outbox contains encrypted envelopes and retry metadata only. Never
+  // fall back to plaintext preferences if secure storage is unavailable.
+  Future<List<Map<String, dynamic>>> readOutgoingMessageOutbox(
+      String conversationId) async {
+    if (token == null || token!.isEmpty) return [];
+    final encoded = await _secureStorage.read(
+        key: _outgoingMessageOutboxKey(conversationId));
+    if (encoded == null || encoded.isEmpty) return [];
+    final decoded = jsonDecode(encoded);
+    if (decoded is! List) {
+      throw StateError('The secure outgoing-message queue is invalid.');
+    }
+    return decoded
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where((item) =>
+            item['clientMutationId'] is String && item['body'] is Map)
+        .toList();
+  }
+
+  Future<void> enqueueOutgoingMessage(
+      String conversationId, Map<String, dynamic> item) async {
+    final mutationId = item['clientMutationId']?.toString() ?? '';
+    if (mutationId.length < 16 || mutationId.length > 100) {
+      throw ArgumentError('A stable message ID is required for offline queuing.');
+    }
+    final queued = await readOutgoingMessageOutbox(conversationId);
+    if (queued.any((entry) => entry['clientMutationId'] == mutationId)) return;
+    if (queued.length >= 50) {
+      throw StateError('The secure outgoing queue is full. Connect and send queued messages before adding more.');
+    }
+    queued.add(item);
+    final encoded = jsonEncode(queued);
+    if (encoded.length > 700000) {
+      throw StateError('The secure outgoing queue is full. Connect and send queued messages before adding more.');
+    }
+    await _secureStorage.write(
+        key: _outgoingMessageOutboxKey(conversationId), value: encoded);
+  }
+
+  Future<void> removeOutgoingMessageFromOutbox(
+      String conversationId, String mutationId) async {
+    final key = _outgoingMessageOutboxKey(conversationId);
+    final queued = await readOutgoingMessageOutbox(conversationId);
+    queued.removeWhere((item) => item['clientMutationId'] == mutationId);
+    if (queued.isEmpty) {
+      await _secureStorage.delete(key: key);
+    } else {
+      await _secureStorage.write(key: key, value: jsonEncode(queued));
+    }
+  }
+
   Future<Map<String, dynamic>?> readConversationMetadata(
       String conversationId) async {
     try {
