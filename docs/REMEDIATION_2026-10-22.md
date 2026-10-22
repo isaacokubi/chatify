@@ -29,6 +29,11 @@ This file records code changes made directly on `main` after the commercial-read
 - Workspace setup/subscription application now records each stable payment ID atomically on the workspace. If the server crashes after applying the entitlement but before updating the payment marker, a retry repairs the marker without extending the subscription a second time. Zero-priced billing periods use deterministic IDs so repeated checkout requests cannot repeatedly renew the same period.
 - Regression tests cover missing receipts, amount/phone mismatches, fee-free defaults, and POS metadata.
 
+### Encrypted backup and restore tooling
+- Added `server/scripts/backup-mongodb-encrypted-offsite.sh`: streams `mongodump` through `age` so plaintext archives are not written to disk, checksums the encrypted archive, uploads archive and checksum to an S3 destination, and retains a bounded local copy.
+- Added `server/scripts/restore-mongodb-encrypted.sh`: verifies the checksum, decrypts directly into `mongorestore` without a plaintext temporary archive, and requires explicit confirmation of a non-production target. It never uses `--drop`.
+- CI now syntax-checks both new scripts. They are tooling only; they have not been run against production, scheduled, or configured with the owner's backup recipient, AWS credentials, S3 destination, or retention lifecycle policy.
+
 ### Existing CI and reliability work
 - API health readiness reports database disconnection as HTTP 503.
 - A regression test checks the Sparks route is mounted and authenticated rather than returning a false endpoint-not-found response.
