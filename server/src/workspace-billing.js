@@ -13,6 +13,28 @@ const monthFrom = value => {
   return start;
 };
 
+export function assessPendingWorkspaceBillingPayment(pending, expectedAmount) {
+  if (!pending) return {action: 'create'};
+  if (pending.amount !== expectedAmount) {
+    return {
+      action: 'conflict',
+      code: 'WORKSPACE_BILLING_PRICE_CHANGED_PENDING',
+      message: 'An unfinished workspace payment exists at a different price. Check its status before starting another payment.',
+      payment: {paymentId: pending.paymentId, amount: pending.amount, status: pending.status},
+    };
+  }
+  return {
+    action: 'reuse',
+    payment: {
+      paymentId: pending.paymentId,
+      amount: pending.amount,
+      status: pending.status,
+      billingType: pending.billingType,
+      initiatedAt: pending.initiatedAt || null,
+    },
+  };
+}
+
 export async function applyWorkspaceBillingPayment({ mongoose, payment }) {
   if (!payment?.billingType || !payment?.billingWorkspaceId || payment.status !== 'SUCCESS') return { applied: false };
   if (!['workspace_setup', 'workspace_subscription'].includes(payment.billingType)) return { applied: false };
@@ -179,14 +201,12 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
       status: 'PENDING',
       billingAppliedAt: { $exists: false }
     }).sort({ createdAt: -1 });
-    if (pending) {
-      return res.status(200).json({ payment: {
-        paymentId: pending.paymentId,
-        amount: pending.amount,
-        status: pending.status,
-        billingType: pending.billingType,
-        initiatedAt: pending.initiatedAt || null
-      }, reused: true });
+    const pendingAssessment = assessPendingWorkspaceBillingPayment(pending, amount);
+    if (pendingAssessment.action === 'conflict') {
+      return res.status(409).json(pendingAssessment);
+    }
+    if (pendingAssessment.action === 'reuse') {
+      return res.status(200).json({ payment: pendingAssessment.payment, reused: true });
     }
     const payment = await Payment.create({
       paymentId: newPaymentId(), requesterId: req.user._id, payerId: req.user._id,
