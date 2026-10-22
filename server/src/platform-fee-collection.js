@@ -1,11 +1,9 @@
-// Collect Chatify's disclosed platform fee separately from the merchant/school payment.
-// Safaricom STK Push does not split one payment between two shortcodes, so this module
-// starts a second STK Push to the platform-owned Paybill/Till after the base payment succeeds.
-// Fees remain pending until this separate STK callback confirms amount, phone and receipt.
+// Compatibility boundary for legacy commission records.
+// New Chatify payments do not collect percentage fees; the callback handler remains only
+// to finish investigating records that were already in flight before the policy changed.
 import { normalizeMpesaPhone } from './payments.js';
 
-export function createPlatformFeeCollector({ mongoose, env = process.env }) {
-  const O = mongoose.Schema.Types.ObjectId;
+export function createPlatformFeeCollector({ mongoose }) {
   const Collection = mongoose.models.PlatformFeeCollection || mongoose.model('PlatformFeeCollection', new mongoose.Schema({
     paymentId: {type:String, required:true, unique:true, index:true},
     source: {type:String, enum:['business_checkout','business_pos','school_fee'], required:true},
