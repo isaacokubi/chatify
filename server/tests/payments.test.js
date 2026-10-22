@@ -55,7 +55,7 @@ test('provider errors do not look like accepted payments', async () => {
 
 test('callback outcomes verify successful amount and phone and map failure/cancellation', () => {
   const payment = {amount:500,phone:'254712345678'};
-  const success = {ResultCode:0,ResultDesc:'Success',CallbackMetadata:{Item:[{Name:'Amount',Value:500},{Name:'PhoneNumber',Value:254712345678}]}};
+  const success = {ResultCode:0,ResultDesc:'Success',CallbackMetadata:{Item:[{Name:'Amount',Value:500},{Name:'PhoneNumber',Value:254712345678},{Name:'MpesaReceiptNumber',Value:'QWERTY1234'}]}};
   assert.equal(resolveCallbackOutcome(success,payment).status,'SUCCESS');
   assert.equal(resolveCallbackOutcome({...success,CallbackMetadata:{Item:[{Name:'Amount',Value:100},{Name:'PhoneNumber',Value:254712345678}]}},payment).error,'mismatch');
   assert.equal(resolveCallbackOutcome({ResultCode:1032,ResultDesc:'Cancelled'},payment).status,'CANCELLED');
@@ -68,6 +68,7 @@ test('callback validates only the original payment amount and ignores legacy fee
   const payment = {amount: 1000, baseAmount: 1000, totalAmount: 1005, platformFee: 5, phone: '254712345678'};
   const success = {ResultCode: 0, ResultDesc: 'Success', CallbackMetadata: {Item: [
     {Name: 'Amount', Value: 1000}, {Name: 'PhoneNumber', Value: 254712345678},
+    {Name: 'MpesaReceiptNumber', Value: 'QWERTY1234'},
   ]}};
   assert.equal(resolveCallbackOutcome(success, payment).status, 'SUCCESS');
   assert.equal(resolveCallbackOutcome({...success, CallbackMetadata: {Item: [
