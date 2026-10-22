@@ -117,7 +117,8 @@ test('business checkout does not add a Chatify transaction commission', () => {
 });
 
 test('POS STK charges only the sale amount without a separate platform commission', () => {
-  const charge = {amount:450, baseAmount:450, totalAmount:450, platformFee:0, feeCollectionMode:'separate', stkPhone:'254712345678'};
+  // Simulate a legacy record whose totalAmount includes an obsolete commission.
+  const charge = {amount:450, baseAmount:450, totalAmount:453, platformFee:3, stkPhone:'254712345678'};
   const callback = {ResultCode:0, ResultDesc:'Success', CallbackMetadata:{Item:[
     {Name:'Amount',Value:450}, {Name:'PhoneNumber',Value:254712345678}, {Name:'MpesaReceiptNumber',Value:'QWERTY1234'},
   ]}};
