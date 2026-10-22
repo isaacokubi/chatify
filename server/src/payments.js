@@ -17,21 +17,13 @@ export function calculatePlatformFee(amount, feeRate = 0.5) {
 
 // Calculate the amount payable for a category that explicitly opts into the platform fee.
  // Personal transfers must call this with applicable:false (or use no fee fields).
-export function calculatePaymentTotal(amount, {applicable = false, feeRate = 0.5} = {}) {
+export function calculatePaymentTotal(amount) {
   if (!Number.isSafeInteger(amount) || amount < 1 || amount > MAX_PAYMENT_AMOUNT) {
     throw new Error(`Payment base must be a positive whole-KSh amount no greater than KSh ${MAX_PAYMENT_AMOUNT}`);
   }
-  // Keep ordinary transfers fee-free; Safaricom's own charges are separate provider charges.
-  if (!applicable || feeRate === 0) {
-    return {baseAmount: amount, platformFee: 0, totalAmount: amount, platformFeeRate: 0, platformFeeStatus: 'NOT_APPLICABLE'};
-  }
-  // Only opted-in business/school-fee workflows calculate the configured platform fee.
-  const platformFee = calculatePlatformFee(amount, feeRate);
-  const totalAmount = amount + platformFee;
-  if (!Number.isSafeInteger(totalAmount) || totalAmount > MAX_PAYMENT_AMOUNT) {
-    throw new Error(`Amount plus the 0.5% platform fee must not exceed KSh ${MAX_PAYMENT_AMOUNT}`);
-  }
-  return {baseAmount: amount, platformFee, totalAmount, platformFeeRate: feeRate, platformFeeStatus: 'PENDING_PAYMENT'};
+  // Chatify no longer charges transaction commissions. This helper intentionally
+  // ignores legacy fee options so stale clients/settings cannot add a second charge.
+  return {baseAmount: amount, platformFee: 0, totalAmount: amount, platformFeeRate: 0, platformFeeStatus: 'NOT_APPLICABLE'};
 }
 
 export function normalizeMpesaPhone(value) {
