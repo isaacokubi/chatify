@@ -1,6 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveMpesaProvider, canCancelPayment, resolveCallbackOutcome, canTransitionPayment, calculatePaymentTotal} from './payments.js';
+import {resolveMpesaProvider, canCancelPayment, resolveCallbackOutcome, canTransitionPayment, calculatePaymentTotal, buildPaymentRetryFields} from './payments.js';
+
+test('payment retry preserves workspace billing identity without adding commissions', () => {
+  const requestedAt = new Date('2026-10-22T00:00:00.000Z');
+  const fields = buildPaymentRetryFields({
+    requesterId: 'owner-1', payerId: 'owner-1', amount: 1000,
+    billingType: 'workspace_subscription', billingWorkspaceType: 'business',
+    billingWorkspaceId: 'workspace-1', description: 'Monthly subscription',
+    purpose: 'SELF_STK', payerPhone: '254712345678',
+  }, 'daraja-production', requestedAt);
+  assert.equal(fields.billingType, 'workspace_subscription');
+  assert.equal(fields.billingWorkspaceType, 'business');
+  assert.equal(fields.billingWorkspaceId, 'workspace-1');
+  assert.equal(fields.amount, 1000);
+  assert.equal(fields.totalAmount, 1000);
+  assert.equal(fields.platformFee, 0);
+  assert.equal(fields.provider, 'daraja-production');
+  assert.equal(fields.requestedAt, requestedAt);
+});
 
 test('production can explicitly use the clearly labelled mock provider for a demo', () => {
   const provider = resolveMpesaProvider({NODE_ENV: 'production', MPESA_ENV: 'mock'});
