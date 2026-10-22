@@ -73,8 +73,11 @@ const indexes=[
 // The report includes only duplicate key values and counts needed for manual cleanup.
 const uniquePreflights=[
   {collection:'messages',name:'message_sender_mutation_unique_v1',match:{clientMutationId:{$type:'string'}},keys:{senderId:'$senderId',clientMutationId:'$clientMutationId'}},
-  {collection:'notificationjobs',name:'notification_job_dedupe_v1',match:{recipientId:{$exists:true},messageId:{$exists:true}},keys:{recipientId:'$recipientId',messageId:'$messageId'}},
-  {collection:'payments',name:'payment_provider_receipt_unique_v1',match:{providerReceipt:{$type:'string'}},keys:{providerReceipt:'$providerReceipt'}},
+  // The non-sparse notification index also indexes missing fields as null, so the
+  // preflight must include every document to mirror MongoDB's actual uniqueness rules.
+  {collection:'notificationjobs',name:'notification_job_dedupe_v1',match:{},keys:{recipientId:'$recipientId',messageId:'$messageId'}},
+  // A sparse index includes explicit nulls; only documents missing the field entirely are excluded.
+  {collection:'payments',name:'payment_provider_receipt_unique_v1',match:{providerReceipt:{$exists:true}},keys:{providerReceipt:'$providerReceipt'}},
 ];
 
 async function preflightUniqueIndexes(){
