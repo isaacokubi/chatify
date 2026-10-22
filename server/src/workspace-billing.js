@@ -15,67 +15,78 @@ const monthFrom = value => {
 export async function applyWorkspaceBillingPayment({ mongoose, payment }) {
   if (!payment?.billingType || !payment?.billingWorkspaceId || payment.status !== 'SUCCESS') return { applied: false };
   if (!['workspace_setup', 'workspace_subscription'].includes(payment.billingType)) return { applied: false };
+  if (!payment.paymentId) throw new Error('A stable payment ID is required for workspace billing idempotency');
   const modelName = payment.billingWorkspaceType === 'business' ? 'BusinessOrganization'
     : payment.billingWorkspaceType === 'school' ? 'SchoolWorkspace' : null;
   if (!modelName || !mongoose.models[modelName]) throw new Error('Billing workspace model is unavailable');
 
-  // Claim the confirmed payment once. A duplicate callback cannot extend a subscription twice.
-  let claimedPayment = null;
-  if (payment._id && mongoose.models.Payment) {
-    claimedPayment = await mongoose.models.Payment.findOneAndUpdate(
-      { _id: payment._id, status: 'SUCCESS', billingAppliedAt: { $exists: false } },
-      { $set: { billingAppliedAt: new Date() } },
-      { new: true }
-    );
-    if (!claimedPayment) return { applied: false, duplicate: true };
+  const Model = mongoose.models[modelName];
+  const id = payment.billingWorkspaceId;
+  const ownerField = payment.billingWorkspaceType === 'business' ? 'ownerId' : 'createdBy';
+  const ownerFilter = { _id: id, [ownerField]: payment.requesterId };
+  const workspace = await Model.findOne(ownerFilter).select('billing').lean();
+  if (!workspace) throw new Error('Billing workspace owner did not match the payment requester');
+
+  const billing = workspace.billing || {};
+  const appliedIds = Array.isArray(billing.appliedPaymentIds) ? billing.appliedPaymentIds.map(String) : [];
+  if (appliedIds.includes(String(payment.paymentId))) {
+    if (payment._id && mongoose.models.Payment) {
+      await mongoose.models.Payment.updateOne({ _id: payment._id, status: 'SUCCESS' }, { $set: { billingAppliedAt: new Date() } });
+    }
+    return { applied: false, duplicate: true, alreadyApplied: true };
   }
 
-  try {
-    const Model = mongoose.models[modelName];
-    const id = payment.billingWorkspaceId;
-    const ownerField = payment.billingWorkspaceType === 'business' ? 'ownerId' : 'createdBy';
-    const workspace = await Model.findOne({ _id: id, [ownerField]: payment.requesterId }).select('billing').lean();
-    if (!workspace) throw new Error('Billing workspace owner did not match the payment requester');
-    const billing = workspace.billing || {};
-
-    if (payment.billingType === 'workspace_setup') {
-      const updated = await Model.updateOne(
-        { _id: id, [ownerField]: payment.requesterId },
-        { $set: {
-          'billing.billingEnforced': true,
-          'billing.setupFeePaid': true,
-          'billing.status': billing.subscriptionExpiresAt && new Date(billing.subscriptionExpiresAt) > new Date()
-            ? 'ACTIVE' : 'SUBSCRIPTION_REQUIRED'
-        } }
-      );
-      if (!updated.matchedCount) throw new Error('Workspace setup billing update did not match a workspace');
-      return { applied: true, billingType: payment.billingType };
-    }
-
+  let update;
+  let result;
+  if (payment.billingType === 'workspace_setup') {
+    update = {
+      $set: {
+        'billing.billingEnforced': true,
+        'billing.setupFeePaid': true,
+        'billing.status': billing.subscriptionExpiresAt && new Date(billing.subscriptionExpiresAt) > new Date()
+          ? 'ACTIVE' : 'SUBSCRIPTION_REQUIRED'
+      },
+      $addToSet: { 'billing.appliedPaymentIds': String(payment.paymentId) }
+    };
+    result = await Model.updateOne({ ...ownerFilter, 'billing.appliedPaymentIds': { $ne: String(payment.paymentId) } }, update);
+  } else {
     if (!billing.setupFeePaid) throw new Error('Workspace setup fee must be paid before subscription activation');
     const now = new Date();
     const expiry = billing.subscriptionExpiresAt && new Date(billing.subscriptionExpiresAt) > now
       ? monthFrom(billing.subscriptionExpiresAt) : monthFrom(now);
-    const updated = await Model.updateOne(
-      { _id: id, [ownerField]: payment.requesterId },
-      { $set: {
+    update = {
+      $set: {
         'billing.billingEnforced': true,
         'billing.subscriptionExpiresAt': expiry,
         'billing.status': 'ACTIVE'
-      } }
-    );
-    if (!updated.matchedCount) throw new Error('Workspace subscription update did not match a workspace');
-    return { applied: true, billingType: payment.billingType, subscriptionExpiresAt: expiry };
-  } catch (error) {
-    // If applying the entitlement fails, release the claim so a retried callback can recover.
-    if (claimedPayment) {
-      await mongoose.models.Payment.updateOne(
-        { _id: claimedPayment._id, billingAppliedAt: claimedPayment.billingAppliedAt },
-        { $unset: { billingAppliedAt: 1 } }
-      );
-    }
-    throw error;
+      },
+      $addToSet: { 'billing.appliedPaymentIds': String(payment.paymentId) }
+    };
+    result = await Model.updateOne({ ...ownerFilter, 'billing.appliedPaymentIds': { $ne: String(payment.paymentId) } }, update);
   }
+
+  // The workspace update is the idempotency boundary. If the process crashes after
+  // this write but before the payment marker, a retry sees appliedPaymentIds and
+  // safely repairs the marker without extending the subscription again.
+  if (!result.matchedCount) {
+    const current = await Model.findOne(ownerFilter).select('billing').lean();
+    if (current?.billing?.appliedPaymentIds?.map(String).includes(String(payment.paymentId))) {
+      if (payment._id && mongoose.models.Payment) {
+        await mongoose.models.Payment.updateOne({ _id: payment._id, status: 'SUCCESS' }, { $set: { billingAppliedAt: new Date() } });
+      }
+      return { applied: false, duplicate: true, alreadyApplied: true };
+    }
+    throw new Error('Workspace billing update did not match a workspace');
+  }
+
+  if (payment._id && mongoose.models.Payment) {
+    await mongoose.models.Payment.updateOne({ _id: payment._id, status: 'SUCCESS' }, { $set: { billingAppliedAt: new Date() } });
+  }
+  return {
+    applied: true,
+    billingType: payment.billingType,
+    ...(payment.billingType === 'workspace_subscription' ? { subscriptionExpiresAt: update.$set['billing.subscriptionExpiresAt'] } : {})
+  };
 }
 
 export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, mpesaProvider }) {
