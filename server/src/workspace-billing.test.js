@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyWorkspaceBillingPayment } from './workspace-billing.js';
+import { applyWorkspaceBillingPayment, assessPendingWorkspaceBillingPayment } from './workspace-billing.js';
 
 function billingHarness({ type = 'business', setupPaid = false, expiresAt = null, ownerMatches = true, updateMatches = true, paymentMarkFailures = 0 } = {}) {
   const workspace = { billing: { billingEnforced: true, setupFeePaid: setupPaid, subscriptionExpiresAt: expiresAt, status: setupPaid ? 'SUBSCRIPTION_REQUIRED' : 'SETUP_PAYMENT_REQUIRED', appliedPaymentIds: [] } };
@@ -117,4 +117,15 @@ test('subscription payment cannot activate before setup has been paid', async ()
   h.payment.billingType = 'workspace_subscription';
   await assert.rejects(() => applyWorkspaceBillingPayment(h), /setup fee must be paid/);
   assert.equal(h.storedPayment.billingAppliedAt, undefined);
+});
+
+
+test('workspace checkout reuses a pending payment only when its price still matches', () => {
+  const pending = {paymentId:'payment-2',amount:500,status:'PENDING',billingType:'workspace_subscription',initiatedAt:null};
+  assert.equal(assessPendingWorkspaceBillingPayment(null,500).action,'create');
+  assert.equal(assessPendingWorkspaceBillingPayment(pending,500).action,'reuse');
+  const changed = assessPendingWorkspaceBillingPayment(pending,750);
+  assert.equal(changed.action,'conflict');
+  assert.equal(changed.code,'WORKSPACE_BILLING_PRICE_CHANGED_PENDING');
+  assert.equal(changed.payment.amount,500);
 });
