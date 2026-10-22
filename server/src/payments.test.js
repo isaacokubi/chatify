@@ -179,11 +179,22 @@ test('payment state transitions are one-time and reject already processed callba
 });
 
 
-test('platform fee is 0.5%, rounded up to whole KSh, with the provider total capped', () => {
+test('payment totals are commission-free by default', () => {
+  assert.deepEqual(calculatePaymentTotal(1000), {
+    baseAmount:1000, platformFee:0, totalAmount:1000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'
+  });
+  assert.deepEqual(calculatePaymentTotal(150000), {
+    baseAmount:150000, platformFee:0, totalAmount:150000, platformFeeRate:0, platformFeeStatus:'NOT_APPLICABLE'
+  });
+});
+
+test('legacy fee calculation is available only when explicitly requested by a caller', () => {
   assert.equal(calculatePlatformFee(1000), 5);
   assert.equal(calculatePlatformFee(450), 3);
-  assert.deepEqual(calculatePaymentTotal(1000), {baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_PAYMENT'});
-  assert.throws(() => calculatePaymentTotal(150000), /must not exceed KSh 150000/);
+  assert.deepEqual(calculatePaymentTotal(1000, {applicable:true}), {
+    baseAmount:1000, platformFee:5, totalAmount:1005, platformFeeRate:0.5, platformFeeStatus:'PENDING_PAYMENT'
+  });
+  assert.throws(() => calculatePaymentTotal(150000, {applicable:true}), /must not exceed KSh 150000/);
 });
 
 test('ordinary user-to-user transfers do not receive a Chatify platform fee', () => {
