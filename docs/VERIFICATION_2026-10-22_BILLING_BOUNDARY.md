@@ -62,3 +62,8 @@ Chatify's transaction commission remains disabled. Workspace setup fees and recu
 
 The full CI workflow previously used `cancel-in-progress: true`, which could cancel verification when several commits were pushed close together. This was changed to `cancel-in-progress: false` in commit `448239c98a54bef49d9f05ec213a086aabde53b6`, so runs are serialized instead of cancelling the in-progress build. The quality workflow passed for that commit: [quality run](https://github.com/isaacokubi/chatify/actions/runs/39776344673). The associated full CI run was still in progress when this note was prepared: [full CI run](https://github.com/isaacokubi/chatify/actions/runs/39776344671). Do not mark that run passed until GitHub reports a successful conclusion.
 
+
+
+## Final CI confirmation — 2026-10-22
+
+The follow-up CI reliability commit `448239c98a54bef49d9f05ec213a086aabde53b6` has now completed both workflows successfully. The quality workflow concluded `success` at [run 39776344673](https://github.com/isaacokubi/chatify/actions/runs/39776344673), and the full CI workflow concluded `success` at [run 39776344671](https://github.com/isaacokubi/chatify/actions/runs/39776344671). This resolves the earlier note above that the full CI run was still in progress. These are automated CI results; live Daraja sandbox, deployed API configuration, and production payment acceptance remain unverified and are not claimed as passed.
