@@ -63,7 +63,7 @@ const recoveryRateLimit=rateLimit({windowMs:15*60*1000,max:5,standardHeaders:tru
 const verificationRateLimit=rateLimit({windowMs:15*60*1000,max:20,standardHeaders:true,legacyHeaders:false,handler:authRateLimitHandler});
 // MongoDB schemas below describe the durable records used by the app.
 const O=mongoose.Schema.Types.ObjectId;
-const platformFeeCollector=createPlatformFeeCollector({mongoose,env:process.env});
+const platformFeeCollector=createPlatformFeeCollector({mongoose});
 // User accounts include password hashes, profile/privacy settings, blocked users and push-notification tokens.
 const User=mongoose.model('User',new mongoose.Schema({name:{type:String,required:true,trim:true,maxlength:80},email:{type:String,unique:true,lowercase:true,trim:true,required:true},sessionVersion:{type:Number,default:0},phone:String,encryptionPublicKey:{type:String,select:true},passwordHash:{type:String,required:true},emailVerified:{type:Boolean,default:true},emailVerificationTokenHash:String,emailVerificationExpiresAt:Date,profileImage:String,status:{type:String,default:'active'},role:{type:String,enum:['user','admin'],default:'user',index:true},demoSeedKey:{type:String,select:false},lastSeen:Date,privacy:{lastSeen:{type:Boolean,default:true},readReceipts:{type:Boolean,default:true}},blockedUsers:[O],pushTokens:{type:[String],default:[]},notificationPreferences:{messages:{type:Boolean,default:true},mentions:{type:Boolean,default:true},memories:{type:Boolean,default:true}}},{timestamps:true}));
 User.schema.index({name:'text',email:'text'});
