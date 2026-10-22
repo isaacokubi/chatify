@@ -32,7 +32,9 @@ This file records code changes made directly on `main` after the commercial-read
 ### Encrypted backup and restore tooling
 - Added `server/scripts/backup-mongodb-encrypted-offsite.sh`: streams `mongodump` through `age` so plaintext archives are not written to disk, checksums the encrypted archive, uploads archive and checksum to an S3 destination, and retains a bounded local copy.
 - Added `server/scripts/restore-mongodb-encrypted.sh`: verifies the checksum, decrypts directly into `mongorestore` without a plaintext temporary archive, and requires explicit confirmation of a non-production target. It never uses `--drop`.
-- CI now syntax-checks both new scripts. They are tooling only; they have not been run against production, scheduled, or configured with the owner's backup recipient, AWS credentials, S3 destination, or retention lifecycle policy.
+- Both restore scripts now refuse a target URI that exactly matches `PRODUCTION_MONGODB_URI` or `MONGODB_URI` when either is present in the environment, without printing credentials. This is an additional guard, not a substitute for independently verifying the target cluster and database.
+- The index migration now preflights the candidate unique indexes for duplicate message mutation IDs, notification deduplication keys, and M-Pesa provider receipts before creating any indexes. If conflicts exist, it reports bounded examples and exits before applying indexes.
+- Added `server/scripts/test-restore-safety.sh`; CI syntax-checks the scripts and tests that both restore paths reject matching configured production URIs without leaking them in error output. The backup/restore tooling has not been run against production, scheduled, or configured with the owner's backup recipient, AWS credentials, S3 destination, or retention lifecycle policy.
 
 ### Existing CI and reliability work
 - API health readiness reports database disconnection as HTTP 503.
