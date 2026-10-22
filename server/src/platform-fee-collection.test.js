@@ -20,8 +20,8 @@ test('legacy platform fee collection is disabled even when no fee settings are p
   });
 });
 
-test('legacy platform fee collection requires an explicit temporary opt-in', async () => {
-  const collector = createPlatformFeeCollector({mongoose, env: {ENABLE_LEGACY_PLATFORM_FEES: 'false'}});
+test('legacy platform fee collection cannot be re-enabled by environment flags', async () => {
+  const collector = createPlatformFeeCollector({mongoose, env: {ENABLE_LEGACY_PLATFORM_FEES: 'true'}});
   const result = await collector.collect({
     paymentId: 'commission-free-test-2',
     source: 'school_fee',
