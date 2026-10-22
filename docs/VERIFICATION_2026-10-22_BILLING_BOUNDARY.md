@@ -9,12 +9,15 @@ This change adds a regression test for the exact instant a workspace subscriptio
 - `workspace locks at the exact subscription-expiry-plus-grace boundary` in `server/src/workspace-billing-access.test.js`.
 - Checks the workspace is accessible one millisecond before the grace-period boundary.
 - Checks both the route-level billing gate and public marketplace billing helper lock access at the boundary itself.
+- Added a second regression test to ensure monthly renewal from January 31 resolves to February 28 instead of overflowing into March.
 
 ## Verified CI evidence
 
-The full **Chatify CI** workflow completed successfully for the tested branch commit `b0ee679832d825bd2949f7767547715688b84005` (the same source changes were merged to `main` as `3102dc9a437b1555a9070645cba02af47efbcbfe`).
+The full **Chatify CI** workflow completed successfully for the billing-boundary branch commit `b0ee679832d825bd2949f7767547715688b84005` (merged as `3102dc9a437b1555a9070645cba02af47efbcbfe`). A follow-up month-end renewal regression test was added on `main` in commit `dfe0ec01676fe835279ceda9dec0b81d9517890b`.
 
-- [Full CI run — success](https://github.com/isaacokubi/chatify/actions/runs/39735038381)
+- [Full CI run for billing-boundary change — success](https://github.com/isaacokubi/chatify/actions/runs/39735038381)
+- [Follow-up quality checks including month-end test](https://github.com/isaacokubi/chatify/actions/runs/39736274225) — backend tests and syntax checks passed; Flutter analysis was still running at the last check.
+- [Follow-up full CI](https://github.com/isaacokubi/chatify/actions/runs/39736274262) — pending at the last check.
 - Backend: `npm ci`, dependency audit, `npm test`, `npm run lint`, backup/recovery script validation, and production-URI restore guard passed.
 - Mobile: Flutter dependency resolution, analysis, tests, web build, and Android debug APK build passed.
 - The successful branch CI verifies the merged source contents; post-merge workflows on `main` are tracked separately below and must finish before the latest main-run status is declared final.
@@ -39,9 +42,9 @@ For the Android debug APK, use the repository's committed Gradle configuration a
 
 ## Acceptance / remaining checks
 
-- [x] Full Chatify CI passed for the source commit containing the boundary regression test.
-- [ ] Post-merge Chatify CI on `main` completes successfully: [run](https://github.com/isaacokubi/chatify/actions/runs/39735691645).
-- [ ] Post-merge Chatify quality checks on `main` complete successfully: [run](https://github.com/isaacokubi/chatify/actions/runs/39735691385).
+- [x] Full Chatify CI passed for the source commit containing the billing-boundary regression test.
+- [x] Backend tests and syntax checks passed for the follow-up month-end renewal regression test in commit `dfe0ec01676fe835279ceda9dec0b81d9517890b`.
+- [ ] Follow-up Flutter analysis/tests and full CI for the month-end test commit complete successfully: [quality checks](https://github.com/isaacokubi/chatify/actions/runs/39736274225), [full CI](https://github.com/isaacokubi/chatify/actions/runs/39736274262).
 - [ ] Validate live billing-provider callbacks and renewals in a safe sandbox; unit tests cannot prove production payment delivery.
 - [ ] Verify the deployed API is running the intended commit before enabling billing enforcement for real tenants.
 
