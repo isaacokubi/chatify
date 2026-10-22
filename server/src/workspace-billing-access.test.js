@@ -36,3 +36,9 @@ test('invalid settings fall back to the safe three-day grace period', async()=>{
   const result=await workspaceBillingLock(mongooseWithGracePeriod(999),{billing:{billingEnforced:true,setupFeePaid:true,subscriptionExpiresAt:'2026-10-20T00:00:00.000Z'}},new Date('2026-10-22T00:00:00.000Z'));
   assert.equal(result,null);
 });
+
+
+test('billing settings read failures do not silently grant workspace access', async()=>{
+  const mongoose={models:{WorkspaceBillingSettings:{findOne:()=>({select:()=>({lean:async()=>{throw new Error('settings unavailable');}})})}}};
+  await assert.rejects(()=>workspaceBillingLock(mongoose,{billing:{billingEnforced:true,setupFeePaid:true,subscriptionExpiresAt:'2026-12-01T00:00:00.000Z'}}),/settings unavailable/);
+});
