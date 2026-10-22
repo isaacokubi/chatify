@@ -1,6 +1,7 @@
 // Chatify in-person POS payment intents for shops, supermarkets, malls and hospitality.
 import {randomUUID, createCipheriv, createDecipheriv, randomBytes} from 'node:crypto';
 import {createDarajaProvider, normalizeMpesaPhone} from './payments.js';
+import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
 
 // Merchant Daraja secrets are encrypted at rest with a deployment-managed 32-byte key.
 function posEncryptionKey() {
@@ -152,7 +153,11 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
   async function authorize(req, res, write = false) {
     const org = await Organization.findById(req.params.orgId);
     if (!org) { res.status(404).json({error: 'Business workspace not found'}); return null; }
-    if (org.billing?.billingEnforced === true) { const billing = org.billing; const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = billing.subscriptionExpiresAt ? new Date(billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!billing.setupFeePaid || !lockAt || lockAt <= new Date()) { res.status(402).json({error:'This business workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code:'WORKSPACE_BILLING_REQUIRED'}); return null; } }
+    if (org.billing?.billingEnforced === true) {
+      const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean();
+      const billingStatus = getWorkspaceBillingStatus(org, Number(settings?.gracePeriodDays ?? 3));
+      if (billingStatus.locked) { res.status(402).json({error:'This business workspace is locked because its setup fee or monthly subscription is unpaid or expired.', code:'WORKSPACE_BILLING_REQUIRED', billing:billingStatus}); return null; }
+    }
     const isOwner = String(org.ownerId) === String(req.user._id);
     const member = (org.members || []).find(item => String(item.userId) === String(req.user._id));
     const role = isOwner ? 'owner' : String(member?.role || 'viewer');
@@ -166,7 +171,11 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
   // Never fall back to the platform shortcode: that would send money to the wrong recipient.
   async function initiateStorefrontStk(req, res, organization) {
     try {
-      if (organization?.billing?.billingEnforced === true) { const billing = organization.billing; const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean(); const graceDays = Number(settings?.gracePeriodDays ?? 3); const expires = billing.subscriptionExpiresAt ? new Date(billing.subscriptionExpiresAt) : null; const lockAt = expires ? new Date(expires.getTime() + graceDays * 86400000) : null; if (!billing.setupFeePaid || !lockAt || lockAt <= new Date()) return res.status(402).json({error:'This business storefront is temporarily unavailable because its workspace subscription is unpaid or expired.', code:'WORKSPACE_BILLING_REQUIRED'}); }
+      if (organization?.billing?.billingEnforced === true) {
+        const settings = await mongoose.models.WorkspaceBillingSettings?.findOne({key:'global'}).select('gracePeriodDays').lean();
+        const billingStatus = getWorkspaceBillingStatus(organization, Number(settings?.gracePeriodDays ?? 3));
+        if (billingStatus.locked) return res.status(402).json({error:'This business storefront is temporarily unavailable because its workspace subscription is unpaid or expired.', code:'WORKSPACE_BILLING_REQUIRED'});
+      }
       if (!organization || organization.settings?.storefrontPublished === false) {
         return res.status(404).json({error: 'This business storefront is not available for checkout'});
       }
