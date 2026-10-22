@@ -3,20 +3,6 @@ import {isIP} from 'node:net';
 
 export const PAYMENT_STATUSES = Object.freeze(['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED']);
 export const MAX_PAYMENT_AMOUNT = 150000;
-export const PLATFORM_FEE_BASIS_POINTS = 50; // 0.50% of the pre-fee amount.
-
-// M-Pesa amounts are whole KSh. Round the disclosed fee up to the next shilling
-// so the platform never silently charges less than the configured 0.50% rate.
-export function calculatePlatformFee(amount, feeRate = 0.5) {
-  if (!Number.isSafeInteger(amount) || amount < 1) throw new Error('Fee base must be a positive whole KSh amount');
-  if (!Number.isFinite(feeRate) || feeRate < 0 || feeRate > 5) throw new Error('Platform fee rate must be between 0 and 5 percent');
-  if (feeRate === 0) return 0;
-  // Convert the percentage to basis points and round up to a whole KSh for M-Pesa.
-  return Math.ceil((amount * feeRate * 100) / 10000);
-}
-
-// Calculate the amount payable for a category that explicitly opts into the platform fee.
- // Personal transfers must call this with applicable:false (or use no fee fields).
 export function calculatePaymentTotal(amount) {
   if (!Number.isSafeInteger(amount) || amount < 1 || amount > MAX_PAYMENT_AMOUNT) {
     throw new Error(`Payment base must be a positive whole-KSh amount no greater than KSh ${MAX_PAYMENT_AMOUNT}`);
