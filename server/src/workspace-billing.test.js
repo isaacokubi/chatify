@@ -178,7 +178,7 @@ test('reconciliation caps batches and reports failures without exposing exceptio
   const { reconcileWorkspaceBillingPayments } = await import('./workspace-billing.js');
   const query = {
     sort() { return this; },
-    limit(limit) { assert.equal(limit, 500); return Promise.resolve([{ paymentId: 'bad-payment' }]); },
+    limit(limit) { assert.equal(limit, 500); return Promise.resolve([{ paymentId: 'bad-payment', status: 'SUCCESS', billingType: 'workspace_setup', billingWorkspaceType: 'business', billingWorkspaceId: 'workspace-1', requesterId: 'owner-1' }]); },
   };
   const result = await reconcileWorkspaceBillingPayments({
     mongoose: { models: {} },
