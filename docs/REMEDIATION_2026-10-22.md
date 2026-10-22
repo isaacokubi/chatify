@@ -37,7 +37,7 @@ This file records code changes made directly on `main` after the commercial-read
 - Added `server/scripts/test-restore-safety.sh`; CI syntax-checks the scripts and tests that both restore paths reject matching configured production URIs without leaking them in error output. The backup/restore tooling has not been run against production, scheduled, or configured with the owner's backup recipient, AWS credentials, S3 destination, or retention lifecycle policy.
 
 ### Existing CI and reliability work
-- API health readiness reports database disconnection as HTTP 503.
+- API health readiness reports database disconnection as HTTP 503 and now reports the release as `unknown` when deployment metadata is absent, rather than falsely implying the `main` branch is the deployed release.
 - A regression test checks the Sparks route is mounted and authenticated rather than returning a false endpoint-not-found response.
 - The Spark feed index is included in the non-destructive index migration.
 - Notification retry backoff and malformed server syntax issues were repaired in the preceding implementation pass.
