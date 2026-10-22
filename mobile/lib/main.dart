@@ -9429,6 +9429,8 @@ class _ChatState extends State<Chat> {
                                                     .toString())
                                               else
                                                 Text(text),
+                                              if (message['pending'] == true)
+                                                const Text('Waiting to send · saved securely', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic)),
                                               if (message[
                                                           'deletedAt'] ==
                                                       null &&
