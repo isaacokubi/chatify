@@ -256,6 +256,48 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
   return Uint8List.fromList(utf8.encode(output.toString()));
 }
 
+
+/// Extracts a calendar date from simple reminder text.
+DateTime? memoryDateFromText(String text, {DateTime? now}) {
+  final reference = now ?? DateTime.now();
+  final normalized = text.toLowerCase();
+
+  if (RegExp(r'\btomorrow\b').hasMatch(normalized)) {
+    return DateTime(reference.year, reference.month, reference.day + 1);
+  }
+
+  const months = <String, int>{
+    'january': 1, 'february': 2, 'march': 3, 'april': 4,
+    'may': 5, 'june': 6, 'july': 7, 'august': 8,
+    'september': 9, 'october': 10, 'november': 11, 'december': 12,
+  };
+
+  final match = RegExp(
+    r'\b(\d{1,2})\s+'
+    r'(January|February|March|April|May|June|July|August|September|October|November|December)'
+    r'\s+(\d{4})\b',
+    caseSensitive: false,
+  ).firstMatch(text);
+
+  if (match == null) return null;
+
+  final day = int.parse(match.group(1)!);
+  final month = months[match.group(2)!.toLowerCase()];
+  final year = int.parse(match.group(3)!);
+
+  if (month == null || day < 1 || day > 31) return null;
+
+  final candidate = DateTime(year, month, day);
+  // DateTime normalizes invalid dates, so compare every component.
+  if (candidate.year != year ||
+      candidate.month != month ||
+      candidate.day != day) {
+    return null;
+  }
+
+  return candidate;
+}
+
 class ApiException implements Exception {
   final int statusCode;
   final String message;
@@ -548,6 +590,12 @@ class Api {
       await _secureStorage.delete(key: 'token');
     } catch (_) {}
     await (await SharedPreferences.getInstance()).remove('token');
+  }
+
+  /// Reads the securely cached GET response for this account and path.
+  /// Returns null when there is no cached response.
+  Future<Map<String, dynamic>?> cachedGet(String path) {
+    return _readCachedResponse(path);
   }
 
   Future<Map<String, dynamic>> call(String method, String path,
