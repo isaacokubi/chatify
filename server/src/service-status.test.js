@@ -36,3 +36,9 @@ test('health readiness returns 200 only when the database is connected', () => {
   assert.equal(result.body.ok, true);
   assert.equal(result.body.database, 'connected');
 });
+
+
+test('health response does not invent a release SHA when deployment metadata is absent', () => {
+  const result = buildHealthResponse({databaseReady: true});
+  assert.equal(result.body.release, 'unknown');
+});
