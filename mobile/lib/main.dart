@@ -8919,14 +8919,16 @@ class _ChatState extends State<Chat> {
     final id = message['_id']?.toString();
     if (id == null || id.isEmpty) return;
     final mine = message['senderId']?.toString() == app.user?['id']?.toString();
+    final pending = message['pending'] == true || id.startsWith('local_');
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
-        title: Text(
-            mine ? 'Delete message for everyone?' : 'Remove message for you?'),
-        content: Text(mine
-            ? 'This removes the message content for everyone in the conversation.'
-            : 'This hides the message only from your own chat history. Other participants keep their copies.'),
+        title: Text(pending ? 'Discard queued message?' : (mine ? 'Delete message for everyone?' : 'Remove message for you?')),
+        content: Text(pending
+            ? 'This encrypted message has not been sent yet. Discard it from the secure outgoing queue?'
+            : mine
+                ? 'This removes the message content for everyone in the conversation.'
+                : 'This hides the message only from your own chat history. Other participants keep their copies.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
@@ -8936,6 +8938,20 @@ class _ChatState extends State<Chat> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    if (pending) {
+      try {
+        final conversationId = widget.conversation['_id'].toString();
+        final mutationId = message['clientMutationId']?.toString() ?? id.replaceFirst('local_', '');
+        await app.api.removeOutgoingMessageFromOutbox(conversationId, mutationId);
+        if (!mounted) return;
+        setState(() => messages.removeWhere((item) => item is Map && item['_id']?.toString() == id));
+        unawaited(_persistConversationMessages());
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Queued message discarded.')));
+      } catch (error) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not discard queued message: $error')));
+      }
+      return;
+    }
     try {
       final result = await app.api
           .call('DELETE', '/api/messages/$id' + (mine ? '' : '?scope=me'), {});
@@ -9429,8 +9445,15 @@ class _ChatState extends State<Chat> {
                                                     .toString())
                                               else
                                                 Text(text),
-                                              if (message['pending'] == true)
+                                              if (message['pending'] == true) ...[
                                                 const Text('Waiting to send · saved securely', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic)),
+                                                TextButton.icon(
+                                                  onPressed: _flushOutgoingMessages,
+                                                  icon: const Icon(Icons.refresh, size: 14),
+                                                  label: const Text('Retry now'),
+                                                  style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 28), tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                                ),
+                                              ],
                                               if (message[
                                                           'deletedAt'] ==
                                                       null &&
