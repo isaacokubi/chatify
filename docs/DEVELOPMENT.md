@@ -10,7 +10,7 @@ npm test
 npm start
 ```
 
-For Flutter, run `cd mobile && flutter pub get && flutter analyze && flutter test`. Build releases with:
+For Flutter, run `cd mobile && flutter pub get && flutter analyze && flutter test`. The backend fee calculation tests are included in `npm test`; `npm run lint` checks the fee calculation module and tests alongside the existing API modules. Build releases with:
 
 ```sh
 flutter build web --release --dart-define=CHATIFY_API=https://chatify-api-c1eh.onrender.com
