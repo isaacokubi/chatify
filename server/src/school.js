@@ -5,6 +5,18 @@ import { randomUUID, randomBytes, createCipheriv, createDecipheriv, createHash }
 import { createDarajaProvider, normalizeMpesaPhone, resolveCallbackOutcome } from './payments.js';
 import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
 
+/**
+ * Parse a decimal currency amount into integer minor units (two decimal places).
+ * Returns null for negative, malformed, over-precision, or oversized values.
+ */
+export function schoolFeeAmountToMinor(value) {
+  const text = String(value ?? '').trim();
+  if (!/^\\d{1,7}(?:\\.\\d{1,2})?$/.test(text)) return null;
+  const [whole, fraction = ''] = text.split('.');
+  const minor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+  return Number.isSafeInteger(minor) && minor <= 999999999 ? minor : null;
+}
+
 export function encryptSchoolSecret(value, secret = process.env.SCHOOL_PAYMENT_ENCRYPTION_KEY) {
   if (typeof secret !== 'string' || secret.trim().length < 32) throw new Error('School payment encryption is not configured');
   const key = createHash('sha256').update(secret).digest();
@@ -193,16 +205,6 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     { schoolId: 1, classKey: 1, academicYear: 1, term: 1 },
     { unique: true, name: 'uniq_school_class_period_fee_structure' },
   );
-
-  // Convert money text to integer minor units before it enters the database. This
-  // avoids binary floating-point arithmetic for fee totals and rejects malformed input.
-  function feeAmountToMinor(value) {
-    const text = String(value ?? '').trim();
-    if (!/^\\d{1,7}(?:\\.\\d{1,2})?$/.test(text)) return null;
-    const [whole, fraction = ''] = text.split('.');
-    const minor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
-    return Number.isSafeInteger(minor) && minor <= 999999999 ? minor : null;
-  }
 
   function publicFeeStructure(item) {
     return {
@@ -816,7 +818,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       for (const raw of incoming) {
         const code = String(raw?.code || '').trim().toLowerCase();
         const description = String(raw?.description || '').trim();
-        const amountMinor = feeAmountToMinor(raw?.amount);
+        const amountMinor = schoolFeeAmountToMinor(raw?.amount);
         if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(code) || codes.has(code) ||
             !description || description.length > 160 || amountMinor === null) {
           return res.status(400).json({ error: 'Each fee item needs a unique code, description and non-negative amount with at most two decimal places.' });
