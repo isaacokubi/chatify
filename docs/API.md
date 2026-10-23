@@ -45,3 +45,6 @@ Socket events include `message:new`, `message:read`, `message:reaction`, `messag
 - `GET /api/schools/:schoolId/fee-balances` — admin/staff see the school's visible student charges; parents are restricted to linked learners. Only `CONFIRMED` payments linked to the same student, academic year and term reduce a balance.
 
 A fee structure edit archives the previous template and creates a new version. Issued `SchoolStudentCharge` snapshots remain unchanged. If a school has any active fee structures, a new parent payment request must match an active class/term structure and an issued student charge; amounts above the outstanding balance are rejected. Existing payment and receipt routes continue to use the current confirmation state machine; initiating an STK prompt does not count as payment.
+
+
+- `POST /api/schools/:schoolId/fees/:paymentReference/reverse` — school admin records a manually verified reversal using `{reversalReference, reason}`. Only confirmed payments can be reversed; repeated requests with the same reversal reference are idempotent. This endpoint records an audit event and does not automatically query Safaricom for reversals.
