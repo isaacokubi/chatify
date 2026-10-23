@@ -4529,6 +4529,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   // Local search and class filtering for school record views.
   String schoolSearchQuery = '';
   String schoolClassFilter = 'all';
+  final TextEditingController schoolSearchController = TextEditingController();
   static const int _recordPageSize = 20;
   final schoolName = TextEditingController(),
       schoolCode = TextEditingController(),
@@ -4653,6 +4654,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     ]) {
       c.dispose();
     }
+    schoolSearchController.dispose();
     super.dispose();
   }
 
@@ -4686,6 +4688,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     schoolId = s['id']?.toString();
     // A previous school's class/search filters must never leak into another workspace.
     schoolSearchQuery = '';
+    schoolSearchController.clear();
     schoolClassFilter = 'all';
     role = s['role']?.toString();
     isOwner = s['isOwner'] == true;
@@ -5875,26 +5878,64 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         .toSet()
         .toList()
       ..sort();
-    bool matchesSchoolRecord(dynamic raw) {
+    String searchableSchoolText(dynamic value) {
+      if (value == null) return '';
+      if (value is Map) {
+        return value.entries
+            .map((entry) =>
+                '${entry.key} ${searchableSchoolText(entry.value)}')
+            .join(' ')
+            .toLowerCase();
+      }
+      if (value is Iterable) {
+        return value.map(searchableSchoolText).join(' ').toLowerCase();
+      }
+      return value.toString().toLowerCase();
+    }
+
+    bool matchesSchoolRecord(dynamic raw, {bool applyClassFilter = true}) {
       if (raw is! Map) return false;
-      final rawClass = (raw['className'] ?? '').toString().trim();
-      if (schoolClassFilter != 'all' && rawClass != schoolClassFilter) {
-        final studentId = (raw['studentId'] ?? '').toString();
-        final studentName = (raw['studentName'] ?? '').toString();
-        final linked = students.whereType<Map>().where((student) =>
-            (student['_id'] ?? '').toString() == studentId ||
-            (student['fullName'] ?? '').toString() == studentName).toList();
-        if (linked.isEmpty ||
-            (linked.first['className'] ?? '').toString() != schoolClassFilter) {
-          return false;
+      if (applyClassFilter && schoolClassFilter != 'all') {
+        final rawClass = (raw['className'] ?? '').toString().trim();
+        if (rawClass != schoolClassFilter) {
+          final studentId = (raw['studentId'] ?? '').toString();
+          final studentName = (raw['studentName'] ?? '').toString().trim().toLowerCase();
+          final linked = students.whereType<Map>().where((student) =>
+              (studentId.isNotEmpty &&
+                  (student['_id'] ?? '').toString() == studentId) ||
+              (studentName.isNotEmpty &&
+                  (student['fullName'] ?? '').toString().trim().toLowerCase() ==
+                      studentName)).toList();
+          if (linked.isEmpty ||
+              (linked.first['className'] ?? '').toString().trim() !=
+                  schoolClassFilter) {
+            return false;
+          }
         }
       }
-      if (searchNeedle.isEmpty) return true;
-      return raw.values.any((value) =>
-          value != null && value.toString().toLowerCase().contains(searchNeedle));
+      return searchNeedle.isEmpty ||
+          searchableSchoolText(raw).contains(searchNeedle);
     }
-    List<dynamic> filterSchoolRecords(List<dynamic> records) =>
-        records.where(matchesSchoolRecord).toList();
+
+    List<dynamic> filterSchoolRecords(
+      List<dynamic> records, {
+      bool applyClassFilter = true,
+    }) =>
+        records
+            .where((record) => matchesSchoolRecord(
+                  record,
+                  applyClassFilter: applyClassFilter,
+                ))
+            .toList();
+
+    final visibleStudents = filterSchoolRecords(students);
+    final visibleMembers =
+        filterSchoolRecords(members, applyClassFilter: false);
+    final visibleFees = filterSchoolRecords(fees);
+    final visibleReceipts = visibleFees
+        .where((payment) => payment is Map && payment['status'] == 'CONFIRMED')
+        .toList();
+    final visibleFeeBalances = filterSchoolRecords(feeBalances);
     final visibleAttendance = filterSchoolRecords(
       role == 'parent' && attendanceStudentId.isNotEmpty
           ? attendance.where((item) => item is Map &&
@@ -6163,9 +6204,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     }),
               ]),
               const SizedBox(height: 12),
-              if (schoolId != null && [2, 5, 6, 7, 8].contains(section)) ...[
+              if (schoolId != null && [2, 3, 5, 6, 7, 8].contains(section)) ...[
                 TextField(
-                  key: const ValueKey('school-record-search'),
+                  key: ValueKey('school-record-search-$schoolId-$section'),
+                  controller: schoolSearchController,
                   onChanged: (value) => setState(() => schoolSearchQuery = value),
                   decoration: InputDecoration(
                     labelText: 'Search school records',
@@ -6175,13 +6217,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         ? null
                         : IconButton(
                             tooltip: 'Clear search',
-                            onPressed: () => setState(() => schoolSearchQuery = ''),
+                            onPressed: () {
+                              schoolSearchController.clear();
+                              setState(() => schoolSearchQuery = '');
+                            },
                             icon: const Icon(Icons.clear)),
                     border: const OutlineInputBorder(),
                     filled: true,
                   ),
                 ),
-                if (schoolClasses.isNotEmpty) ...[
+                if (section != 3 && schoolClasses.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     key: const ValueKey('school-record-class-filter'),
@@ -6441,7 +6486,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       const DataColumn(label: Text('Status')),
                       const DataColumn(label: Text('Actions')),
                     ],
-                    rows: fees.map((raw) {
+                    rows: visibleFees.map((raw) {
                       final payment = Map<String, dynamic>.from(raw as Map);
                       final status = payment['status']?.toString() ?? 'PENDING';
                       return DataRow(cells: [
@@ -6478,7 +6523,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     }).toList(),
                   ),
                 if (isAdmin)
-                  ...fees.where((p) => p['status'] == 'CONFIRMED').map((p) =>
+                  ...visibleReceipts.map((p) =>
                       actionButton(
                           'Retry receipt email • ${p['paymentReference']}',
                           () =>
@@ -6488,8 +6533,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               if (section == 2) ...[
                 const SizedBox(height: 18),
                 const Text('Issued student fee balances', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                if (feeBalances.isEmpty) const Text('No student charges have been issued yet. An administrator can configure fees in Fee setup and issue them to enrolled students.'),
-                if (feeBalances.isNotEmpty)
+                if (visibleFeeBalances.isEmpty) Text(schoolSearchQuery.isNotEmpty || schoolClassFilter != 'all'
+                    ? 'No fee balances match the current search / class filter.'
+                    : 'No student charges have been issued yet. An administrator can configure fees in Fee setup and issue them to enrolled students.'),
+                if (visibleFeeBalances.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: const [
                       DataColumn(label: Text('Student')),
@@ -6502,7 +6549,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       DataColumn(label: Text('Balance')),
                       DataColumn(label: Text('Status')),
                     ],
-                    rows: feeBalances.map((raw) {
+                    rows: visibleFeeBalances.map((raw) {
                       final balance = Map<String, dynamic>.from(raw as Map);
                       return DataRow(cells: [
                         DataCell(Text((balance['studentName'] ?? 'Student').toString())),
@@ -6525,15 +6572,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 const SizedBox(height: 6),
                 const Text(
                     'Receipts are available for confirmed payments only. Pending or failed payments cannot receive an official receipt.'),
-                if (fees
-                    .where((payment) => payment['status'] == 'CONFIRMED')
-                    .isEmpty)
+                if (visibleReceipts.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 18),
                     child: Text(
                         'No confirmed fee payments with receipts are available on this page yet. Check the Fees section or move to another page.'),
                   ),
-                if (fees.where((p) => p['status'] == 'CONFIRMED').isNotEmpty)
+                if (visibleReceipts.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: [
                       const DataColumn(label: Text('Receipt no.')),
@@ -6547,9 +6592,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       const DataColumn(label: Text('Status')),
                       const DataColumn(label: Text('Actions')),
                     ],
-                    rows: fees
-                        .where((p) => p['status'] == 'CONFIRMED')
-                        .map((raw) {
+                    rows: visibleReceipts.map((raw) {
                       final payment = Map<String, dynamic>.from(raw as Map);
                       final confirmedAt = payment['verifiedAt'] ??
                           payment['updatedAt'] ??
@@ -6626,7 +6669,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     hint: 'Exact names from the school register'),
                 actionButton('Add school member', addMember,
                     icon: Icons.person_add),
-                if (members.isNotEmpty)
+                if (visibleMembers.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: [
                       const DataColumn(label: Text('Member')),
@@ -6636,7 +6679,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       const DataColumn(label: Text('Status')),
                       if (isAdmin) const DataColumn(label: Text('Actions')),
                     ],
-                    rows: members.map((raw) {
+                    rows: visibleMembers.map((raw) {
                       final member = Map<String, dynamic>.from(raw as Map);
                       final id = member['id']?.toString() ?? '';
                       return DataRow(cells: [
@@ -6666,6 +6709,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       ]);
                     }).toList(),
                   ),
+                if (schoolSearchQuery.isNotEmpty && visibleMembers.isEmpty)
+                  const Padding(padding: EdgeInsets.all(12), child: Text('No members match your search.')),
                 _schoolPager()
               ],
               if (section == 5) ...[
@@ -6684,14 +6729,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   actionButton('Register student', registerStudent,
                       icon: Icons.person_add_alt_1),
                 ],
-                Text('Enrolled students: ${students.length}',
+                Text('Enrolled students: ${visibleStudents.length} of ${students.length} loaded',
                     style: const TextStyle(fontWeight: FontWeight.bold)),
-                if (students.isEmpty)
-                  const Padding(
+                if (visibleStudents.isEmpty)
+                  Padding(
                       padding: EdgeInsets.all(16),
-                      child: Text(
-                          'No student records yet. School staff can register students above.')),
-                if (students.isNotEmpty)
+                      child: Text(schoolSearchQuery.isNotEmpty || schoolClassFilter != 'all'
+                          ? 'No students match the current search / class filter.'
+                          : 'No student records yet. School staff can register students above.')),
+                if (visibleStudents.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: [
                       const DataColumn(label: Text('Admission no.')),
@@ -6703,7 +6749,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       if (role != 'parent')
                         const DataColumn(label: Text('Actions')),
                     ],
-                    rows: students.map((raw) {
+                    rows: visibleStudents.map((raw) {
                       final student = Map<String, dynamic>.from(raw as Map);
                       return DataRow(cells: [
                         DataCell(Text(
