@@ -4501,6 +4501,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       messages = [],
       conferences = [],
       fees = [],
+      feeStructures = [],
+      feeBalances = [],
       members = [],
       students = [],
       feeStudents = [],
@@ -4535,6 +4537,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       feeStudent = TextEditingController(),
       feeTerm = TextEditingController(),
       payerPhone = TextEditingController();
+  final feeStructureClass = TextEditingController(),
+      feeStructureYear = TextEditingController(text: DateTime.now().year.toString()),
+      feeStructureTerm = TextEditingController(text: 'Term 1'),
+      feeStructureItems = TextEditingController();
   final paybill = TextEditingController(),
       till = TextEditingController(),
       bank = TextEditingController(),
@@ -4603,6 +4609,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       feeStudent,
       feeTerm,
       payerPhone,
+      feeStructureClass,
+      feeStructureYear,
+      feeStructureTerm,
+      feeStructureItems,
       paybill,
       till,
       bank,
@@ -4812,6 +4822,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             await app.api.call('GET', '/api/schools/$id/conferences$pageQuery');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         conferences = List<dynamic>.from(r['conferences'] ?? []);
+      } else if (section == 9) {
+        final results = await Future.wait([
+          app.api.call('GET', '/api/schools/$id/fee-structures?page=1&limit=100&includeArchived=true'),
+          app.api.call('GET', '/api/schools/$id/fee-balances'),
+        ]);
+        feeStructures = List<dynamic>.from(results[0]['structures'] ?? []);
+        feeBalances = List<dynamic>.from(results[1]['balances'] ?? []);
+        recordTotal = feeStructures.length;
       } else if (section == 2 || section == 8) {
         final results = await Future.wait([
           app.api.call('GET', '/api/schools/$id/fees$pageQuery'),
@@ -4824,6 +4842,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         feePaymentOptions = r['paymentOptions'] is Map
             ? Map<String, dynamic>.from(r['paymentOptions'])
             : {};
+        if (section == 2) {
+          final balanceResult = await app.api.call('GET', '/api/schools/$id/fee-balances');
+          feeBalances = List<dynamic>.from(balanceResult['balances'] ?? []);
+        }
         if (section == 2 && role == 'parent') {
           final options = _parentFeePaymentOptions();
           if (!options
@@ -5975,6 +5997,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                           section = 3;
                           recordPage = 1;
                         });
+                        loadSection();
+                      }),
+                if (isAdmin)
+                  ChoiceChip(
+                      label: const Text('Fee setup'),
+                      selected: section == 9,
+                      onSelected: (_) {
+                        setState(() { section = 9; recordPage = 1; });
                         loadSection();
                       }),
                 if (isAdmin)
