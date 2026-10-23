@@ -19,7 +19,7 @@ export function normalizeFeeStructureInput(input = {}) {
   for (const raw of input.items) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
     const description = typeof raw.description === 'string' ? raw.description.trim() : '';
-    const code = String(raw.code || description).trim().toUpperCase().replace(/\s+/g, '_');
+    const code = String(raw.code || description).trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_/-]/g, '_').replace(/_+/g, '_');
     const amount = raw.amount;
     if (!/^[A-Z0-9_/-]{1,32}$/.test(code) || !description || description.length > 120 ||
         !Number.isSafeInteger(amount) || amount <= 0 || amount > 100000000 || seen.has(code)) return null;
