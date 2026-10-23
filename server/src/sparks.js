@@ -7,7 +7,7 @@ export function sparkExpiry(createdAt = new Date()) {
   return new Date(new Date(createdAt).getTime() + SPARK_LIFETIME_MS);
 }
 
-/** An author grants Spark visibility by saving the viewer as a contact. */
+/** A viewer can see Sparks from users they have saved as contacts. */
 export async function sparkAudienceOwnerIds({viewerId, SavedContact}) {
   const contacts = await SavedContact.find({userId: viewerId})
     .select('contactUserId').lean();
