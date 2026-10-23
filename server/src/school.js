@@ -178,6 +178,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   }, { timestamps: true }));
   FeePayment.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
   FeePayment.schema.index({ checkoutRequestId: 1, merchantRequestId: 1 }, { unique: true, sparse: true });
+  FeePayment.schema.index({ schoolId: 1, reversalReference: 1 }, { unique: true, partialFilterExpression: { reversalReference: { $type: 'string' } } });
 
   // Fee structures are versioned templates. Issued student charges copy the item
   // list and total so a later edit cannot silently rewrite historical liabilities.
@@ -1028,11 +1029,17 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         return res.status(409).json({ error: 'This payment was already reversed with a different reference.' });
       }
       if (payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Only a confirmed payment can be marked reversed.' });
-      const reversed = await FeePayment.findOneAndUpdate(
-        { _id: payment._id, status: 'CONFIRMED' },
-        { $set: { status: 'REVERSED', reversedAt: new Date(), reversedBy: req.user._id, reversalReference, reversalReason } },
-        { new: true, runValidators: true },
-      );
+      let reversed;
+      try {
+        reversed = await FeePayment.findOneAndUpdate(
+          { _id: payment._id, status: 'CONFIRMED' },
+          { $set: { status: 'REVERSED', reversedAt: new Date(), reversedBy: req.user._id, reversalReference, reversalReason } },
+          { new: true, runValidators: true },
+        );
+      } catch (error) {
+        if (error?.code === 11000) return res.status(409).json({ error: 'This reversal reference has already been recorded for another payment at this school.' });
+        throw error;
+      }
       if (!reversed) {
         const latest = await FeePayment.findById(payment._id);
         if (latest?.status === 'REVERSED' && latest.reversalReference === reversalReference) return res.json({ payment: latest, duplicate: true });
