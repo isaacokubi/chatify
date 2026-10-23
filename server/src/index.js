@@ -378,12 +378,17 @@ app.get('/api/sparks/:id',auth,async(q,r)=>{
 });
 app.post('/api/sparks',auth,async(q,r)=>{
   const text=typeof q.body?.text==='string'?q.body.text.trim():'';
-  const mediaType=['image','video'].includes(q.body?.mediaType)?q.body.mediaType:null;
+  // Accept both current Flutter field names and the conventional API aliases so
+  // older/newer clients can upload the same supported Spark media payload.
+  const requestedMediaType=q.body?.mediaType ?? q.body?.type;
+  const mediaType=['image','video'].includes(requestedMediaType)?requestedMediaType:null;
+  const mediaData=q.body?.mediaData ?? q.body?.mediaBase64;
+  const mimeType=typeof (q.body?.mimeType ?? q.body?.mediaMimeType)==='string'
+    ? (q.body?.mimeType ?? q.body?.mediaMimeType) : '';
   let mediaUrl='';
   if(text.length>500)return r.status(400).json({error:'Spark text must be 500 characters or fewer'});
-  if(q.body?.mediaData){
-    const data=typeof q.body.mediaData==='string'?q.body.mediaData:'';
-    const mimeType=typeof q.body.mimeType==='string'?q.body.mimeType:'';
+  if(mediaData){
+    const data=typeof mediaData==='string'?mediaData:'';
     const allowed=mediaType==='image'?['image/jpeg','image/png','image/webp']:['video/mp4','video/quicktime','video/webm'];
     if(!mediaType||!allowed.includes(mimeType)||data.length>11*1024*1024)return r.status(400).json({error:'Choose a supported image or video no larger than 8 MB'});
     try{
