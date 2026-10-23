@@ -35,7 +35,7 @@ export function normalizeFeeStructureInput(input = {}) {
  * Derive a balance from the issued charge snapshot and confirmed payment records.
  * Pending/failed/cancelled/reversed records never reduce the amount owed.
  */
-export function calculateSchoolFeeBalance({chargeAmount, payments = [], credits = 0}) {
+export function calculateSchoolFeeBalance({chargeAmount, payments = [], credits = 0, configured = true}) {
   if (typeof configured !== 'boolean' ||
       (configured && (!Number.isSafeInteger(chargeAmount) || chargeAmount < 0)) ||
       (!configured && chargeAmount != null &&
