@@ -4614,7 +4614,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   AppState get app => context.read<AppState>();
   List<dynamic> schools = [],
       messages = [],
-      conferences = [],
       fees = [],
       feeStructures = [],
       feeBalances = [],
@@ -4637,8 +4636,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   // Local search and class filtering for school record views.
   String schoolSearchQuery = '';
   String schoolClassFilter = 'all';
-  String conferenceAudienceFilter = 'all';
   String messageAudienceFilter = 'all';
+  bool scheduleSchoolEvent = false;
   final TextEditingController schoolSearchController = TextEditingController();
   static const int _recordPageSize = 50;
   final schoolName = TextEditingController(),
@@ -4800,7 +4799,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     schoolSearchQuery = '';
     schoolSearchController.clear();
     schoolClassFilter = 'all';
-    conferenceAudienceFilter = 'all';
     messageAudienceFilter = 'all';
     role = s['role']?.toString();
     isOwner = s['isOwner'] == true;
@@ -4945,11 +4943,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         final directory = await app.api
             .call('GET', '/api/schools/$id/members?page=1&limit=50${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}');
         members = List<dynamic>.from(directory['members'] ?? []);
-      } else if (section == 1) {
-        final r =
-            await app.api.call('GET', '/api/schools/$id/conferences$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}${conferenceAudienceFilter == 'all' ? '' : '&audience=$conferenceAudienceFilter'}');
-        recordTotal = (r['total'] as num?)?.toInt() ?? 0;
-        conferences = List<dynamic>.from(r['conferences'] ?? []);
       } else if (section == 9) {
         final results = await Future.wait([
           app.api.call('GET', '/api/schools/$id/fee-structures?page=$recordPage&limit=$_recordPageSize&includeArchived=true'),
@@ -5397,18 +5390,56 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   Future<void> sendMessage() async {
     final id = schoolId;
-    if (id == null || messageBody.text.trim().isEmpty) return;
+    if (id == null) return;
     final schoolInboxOnly = role == 'parent' || role == 'staff';
+    DateTime? startsAt;
+    DateTime? endsAt;
+    if (scheduleSchoolEvent) {
+      final dateText = conferenceDate.text.trim();
+      final startText = conferenceStartTime.text.trim();
+      final endText = conferenceEndTime.text.trim();
+      if (role != 'admin' || messageBody.text.trim().isNotEmpty ||
+          conferenceTitle.text.trim().isEmpty || conferenceAgenda.text.trim().isEmpty ||
+          !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dateText) ||
+          !RegExp(r'^\d{2}:\d{2}$').hasMatch(startText) ||
+          !RegExp(r'^\d{2}:\d{2}$').hasMatch(endText)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter an event title, agenda, date and valid start/end times.')));
+        return;
+      }
+      final d = dateText.split('-').map(int.parse).toList();
+      final st = startText.split(':').map(int.parse).toList();
+      final et = endText.split(':').map(int.parse).toList();
+      startsAt = DateTime(d[0], d[1], d[2], st[0], st[1]);
+      endsAt = DateTime(d[0], d[1], d[2], et[0], et[1]);
+      if (startsAt!.year != d[0] || startsAt!.month != d[1] || startsAt!.day != d[2] ||
+          st[0] > 23 || et[0] > 23 || st[1] > 59 || et[1] > 59 ||
+          !startsAt!.isAfter(DateTime.now()) || !endsAt!.isAfter(startsAt!)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose a valid future date and an end time after the start time.')));
+        return;
+      }
+    } else if (messageBody.text.trim().isEmpty) {
+      return;
+    }
     await _action(() async {
       await app.api.call('POST', '/api/schools/$id/messages', {
-        'body': messageBody.text.trim(),
-        'subject': messageSubject.text.trim(),
+        'body': scheduleSchoolEvent ? conferenceAgenda.text.trim() : messageBody.text.trim(),
+        'subject': scheduleSchoolEvent ? conferenceTitle.text.trim() : messageSubject.text.trim(),
         'audience': schoolInboxOnly ? 'school_inbox' : audience,
-        if (!schoolInboxOnly && audience == 'direct')
+        if (!schoolInboxOnly && audience == 'direct' && !scheduleSchoolEvent)
           'recipientId': recipientIdController.text.trim(),
+        if (scheduleSchoolEvent) ...{
+          'messageType': 'conference',
+          'startsAt': startsAt!.toUtc().toIso8601String(),
+          'endsAt': endsAt!.toUtc().toIso8601String(),
+          'location': conferenceLocation.text.trim(),
+        },
       });
       messageBody.clear();
       messageSubject.clear();
+      conferenceTitle.clear();
+      conferenceAgenda.clear();
+      conferenceLocation.clear();
+      setState(() => scheduleSchoolEvent = false);
       await loadSection();
     });
   }
@@ -5879,63 +5910,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     }
   }
 
-  Future<void> createConference() async {
-    final id = schoolId;
-    final dateText = conferenceDate.text.trim();
-    final startText = conferenceStartTime.text.trim();
-    final endText = conferenceEndTime.text.trim();
-    if (id == null ||
-        conferenceTitle.text.trim().isEmpty ||
-        conferenceAgenda.text.trim().isEmpty ||
-        !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dateText) ||
-        !RegExp(r'^\d{2}:\d{2}$').hasMatch(startText) ||
-        !RegExp(r'^\d{2}:\d{2}$').hasMatch(endText)) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text(
-                'Enter the conference title, agenda, date, start time and end time in the requested formats.')));
-      return;
-    }
-    DateTime? combine(String date, String time) {
-      final parts = date.split('-').map(int.parse).toList();
-      final clock = time.split(':').map(int.parse).toList();
-      if (parts[1] < 1 || parts[1] > 12 || clock[0] > 23 || clock[1] > 59)
-        return null;
-      final value = DateTime(parts[0], parts[1], parts[2], clock[0], clock[1]);
-      if (value.year != parts[0] ||
-          value.month != parts[1] ||
-          value.day != parts[2]) return null;
-      return value;
-    }
-
-    final startsAt = combine(dateText, startText);
-    final endsAt = combine(dateText, endText);
-    if (startsAt == null ||
-        endsAt == null ||
-        !endsAt.isAfter(startsAt) ||
-        !startsAt.isAfter(DateTime.now())) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text(
-                'Choose a valid future date and time; the end time must be after the start time.')));
-      return;
-    }
-    await _action(() async {
-      await app.api.call('POST', '/api/schools/$id/conferences', {
-        'title': conferenceTitle.text.trim(),
-        'agenda': conferenceAgenda.text.trim(),
-        'startsAt': startsAt.toUtc().toIso8601String(),
-        'endsAt': endsAt.toUtc().toIso8601String(),
-        'audience': 'all_parents',
-        'location': conferenceLocation.text.trim(),
-      });
-      conferenceTitle.clear();
-      conferenceAgenda.clear();
-      conferenceLocation.clear();
-      await loadSection();
-    });
-  }
-
   Widget field(TextEditingController c, String label,
           {String? hint, TextInputType? keyboard}) =>
       Padding(
@@ -6215,16 +6189,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       loadSection();
                     }),
                 ChoiceChip(
-                    label: const Text('Conferences'),
-                    selected: section == 1,
-                    onSelected: (_) {
-                      setState(() {
-                        section = 1;
-                        recordPage = 1;
-                      });
-                      loadSection();
-                    }),
-                ChoiceChip(
                     label: const Text('Fees'),
                     selected: section == 2,
                     onSelected: (_) {
@@ -6302,7 +6266,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     }),
               ]),
               const SizedBox(height: 12),
-              if (schoolId != null && [0, 1, 2, 3, 5, 6, 7, 8].contains(section)) ...[
+              if (schoolId != null && [0, 2, 3, 5, 6, 7, 8].contains(section)) ...[
                 TextField(
                   key: ValueKey('school-record-search-$schoolId-$section'),
                   controller: schoolSearchController,
@@ -6416,10 +6380,28 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                           .toList(),
                       onChanged: (v) =>
                           setState(() => recipientIdController.text = v ?? '')),
-                field(messageSubject, 'Subject (optional)'),
-                field(messageBody, 'Message'),
-                actionButton('Send message / announcement', sendMessage,
-                    icon: Icons.send),
+                if (!scheduleSchoolEvent) ...[
+                  field(messageSubject, 'Subject (optional)'),
+                  field(messageBody, 'Message'),
+                ],
+                if (role == 'admin')
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Schedule a school conference/event'),
+                    subtitle: const Text('Publish it inside Messages with date, time and location.'),
+                    value: scheduleSchoolEvent,
+                    onChanged: (value) => setState(() => scheduleSchoolEvent = value),
+                  ),
+                if (scheduleSchoolEvent && role == 'admin') ...[
+                  field(conferenceTitle, 'Event / conference title'),
+                  field(conferenceAgenda, 'Agenda / details'),
+                  field(conferenceDate, 'Event date (YYYY-MM-DD)', hint: '2026-10-25'),
+                  field(conferenceStartTime, 'Start time (24-hour HH:MM)', hint: '10:00'),
+                  field(conferenceEndTime, 'End time (24-hour HH:MM)', hint: '11:00'),
+                  field(conferenceLocation, 'Location (optional)'),
+                ],
+                actionButton(scheduleSchoolEvent ? 'Publish event in messages' : 'Send message / announcement', sendMessage,
+                    icon: scheduleSchoolEvent ? Icons.event : Icons.send),
                 ...messages.map((m) => _swipeSchoolRecord(
                     id: m['_id'].toString(),
                     label: 'message',
@@ -6430,50 +6412,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                 const Icon(Icons.mark_chat_unread_outlined),
                             title: Text(
                                 (m['subject'] ?? 'School message').toString()),
-                            subtitle: Text('${m['sender'] is Map ? (m['sender']['name'] ?? 'School member') : 'School member'}  •  ${(m['body'] ?? '').toString()}'),
+                            subtitle: Text([
+                              '${m['sender'] is Map ? (m['sender']['name'] ?? 'School member') : 'School member'}',
+                              if (m['messageType'] == 'conference') 'EVENT • ${m['startsAt'] ?? ''} – ${m['endsAt'] ?? ''}',
+                              if ((m['location'] ?? '').toString().isNotEmpty) m['location'].toString(),
+                              (m['body'] ?? '').toString(),
+                            ].where((line) => line.isNotEmpty).join(' • ')),
                             isThreeLine: true,
                             trailing: isAdmin && m['senderId'] != null && m['senderId'].toString() != app.user?['id']?.toString() ? IconButton(tooltip: 'Open private Chatify conversation', icon: const Icon(Icons.lock_outline), onPressed: () => _openPrivateParentChat(m['senderId'].toString())) : null)))),
-                _schoolPager(),
-              ],
-              if (section == 1) ...[
-                if (isAdmin) DropdownButtonFormField<String>(
-                  initialValue: conferenceAudienceFilter,
-                  decoration: const InputDecoration(labelText: 'Filter conferences by audience', border: OutlineInputBorder()),
-                  items: const [
-                    DropdownMenuItem(value: 'all', child: Text('All audiences')),
-                    DropdownMenuItem(value: 'all_parents', child: Text('Parents')),
-                    DropdownMenuItem(value: 'all_staff', child: Text('Staff')),
-                    DropdownMenuItem(value: 'all_school', child: Text('Whole school')),
-                  ],
-                  onChanged: (value) {
-                    setState(() { conferenceAudienceFilter = value ?? 'all'; recordPage = 1; });
-                    loadSection();
-                  },
-                ),
-                if (isAdmin) ...[
-                  field(conferenceTitle, 'Conference title'),
-                  field(conferenceAgenda, 'Important information / agenda'),
-                  field(conferenceDate, 'Event date (YYYY-MM-DD)',
-                      hint: '2026-10-21'),
-                  field(conferenceStartTime, 'Start time (24-hour HH:MM)',
-                      hint: '10:00'),
-                  field(conferenceEndTime, 'End time (24-hour HH:MM)',
-                      hint: '11:00'),
-                  field(conferenceLocation, 'Location (optional)'),
-                  actionButton('Schedule parent conference', createConference,
-                      icon: Icons.event)
-                ],
-                ...conferences.map((c) => _swipeSchoolRecord(
-                    id: c['_id'].toString(),
-                    label: 'conference',
-                    endpoint: 'conferences/${c['_id']}',
-                    child: Card(
-                        child: ListTile(
-                            leading: const Icon(Icons.event),
-                            title:
-                                Text((c['title'] ?? 'Conference').toString()),
-                            subtitle: Text(
-                                '${c['agenda'] ?? ''}\nStarts: ${c['startsAt'] ?? 'Not set'}\nEnds: ${c['endsAt'] ?? 'Not set'}\n${c['location'] ?? ''}'))))),
                 _schoolPager(),
               ],
               if (section == 2) ...[
