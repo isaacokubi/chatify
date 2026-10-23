@@ -11,7 +11,7 @@ import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
  */
 export function schoolFeeAmountToMinor(value) {
   const text = String(value ?? '').trim();
-  if (!/^\\d{1,7}(?:\\.\\d{1,2})?$/.test(text)) return null;
+  if (!/^\d{1,7}(?:\.\d{1,2})?$/.test(text)) return null;
   const [whole, fraction = ''] = text.split('.');
   const minor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
   return Number.isSafeInteger(minor) && minor <= 999999999 ? minor : null;
