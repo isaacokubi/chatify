@@ -315,11 +315,19 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     _progress.stop();
     _progress.value = 0;
-    await _video?.dispose();
+    // Capture the item and detach the previous controller before awaiting.
+    // Awaiting a nullable dispose future even when there is no controller
+    // yields before the first controller is created, which can leave a newly
+    // opened viewer without media during short route transitions.
+    final item = _item;
+    final previousVideo = _video;
     _video = null;
     _mediaError = false;
     _paused = false;
-    final item = _item;
+    if (previousVideo != null) {
+      await previousVideo.dispose();
+      if (!mounted) return;
+    }
     widget.onViewed(item);
     if (item['mediaType'] == 'video') {
       final url = item['mediaUrl']?.toString() ?? '';
