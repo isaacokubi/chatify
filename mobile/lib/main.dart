@@ -5877,7 +5877,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       if (schoolClassFilter != 'all' && rawClass != schoolClassFilter) {
         final studentId = (raw['studentId'] ?? '').toString();
         final studentName = (raw['studentName'] ?? '').toString();
-        final linked = filterSchoolRecords(students).whereType<Map>().where((student) =>
+        final linked = students.whereType<Map>().where((student) =>
             (student['_id'] ?? '').toString() == studentId ||
             (student['fullName'] ?? '').toString() == studentName).toList();
         if (linked.isEmpty ||
