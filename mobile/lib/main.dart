@@ -6685,7 +6685,44 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       child: Text(
                           'No attendance records have been recorded yet.')),
                 if (visibleAttendance.isNotEmpty)
-                  _attendanceMatrix(visibleAttendance),
+                  _responsiveSchoolTable(
+                    columns: [
+                      const DataColumn(label: Text('Student')),
+                      const DataColumn(label: Text('Admission no.')),
+                      const DataColumn(label: Text('Class / grade')),
+                      const DataColumn(label: Text('Date')),
+                      const DataColumn(label: Text('Status')),
+                      const DataColumn(label: Text('Note')),
+                      if (role != 'parent')
+                        const DataColumn(label: Text('Actions')),
+                    ],
+                    rows: visibleAttendance.whereType<Map>().map((raw) {
+                      final record = Map<String, dynamic>.from(raw);
+                      final date =
+                          record['date']?.toString().split('T').first ?? '—';
+                      return DataRow(cells: [
+                        DataCell(Text(
+                            (record['studentName'] ?? 'Student').toString())),
+                        DataCell(Text(
+                            (record['admissionNumber'] ?? '—').toString())),
+                        DataCell(
+                            Text((record['className'] ?? '—').toString())),
+                        DataCell(Text(date)),
+                        DataCell(Text(
+                            (record['status'] ?? '—').toString().toUpperCase())),
+                        DataCell(Text((record['note'] ?? '').toString())),
+                        if (role != 'parent')
+                          DataCell(IconButton(
+                            tooltip: 'Delete attendance record',
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => _removeSchoolRecord(
+                              label: 'attendance record',
+                              endpoint: 'attendance/${record['_id']}',
+                            ),
+                          )),
+                      ]);
+                    }).toList(),
+                  ),
                 _schoolPager(),
               ],
               if (section == 7) ...[
