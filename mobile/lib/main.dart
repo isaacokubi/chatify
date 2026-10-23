@@ -4638,7 +4638,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   String schoolSearchQuery = '';
   String schoolClassFilter = 'all';
   final TextEditingController schoolSearchController = TextEditingController();
-  static const int _recordPageSize = 20;
+  static const int _recordPageSize = 50;
   final schoolName = TextEditingController(),
       schoolCode = TextEditingController(),
       schoolCounty = TextEditingController(),
@@ -4935,7 +4935,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     try {
       if (section == 0) {
         final r =
-            await app.api.call('GET', '/api/schools/$id/messages$pageQuery');
+            await app.api.call('GET', '/api/schools/$id/messages$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         messages = List<dynamic>.from(r['messages'] ?? []);
         final directory = await app.api
@@ -4943,7 +4943,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         members = List<dynamic>.from(directory['members'] ?? []);
       } else if (section == 1) {
         final r =
-            await app.api.call('GET', '/api/schools/$id/conferences$pageQuery');
+            await app.api.call('GET', '/api/schools/$id/conferences$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         conferences = List<dynamic>.from(r['conferences'] ?? []);
       } else if (section == 9) {
@@ -6182,7 +6182,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             ],
             if (schoolId != null && isOwner) ...[
               const SizedBox(height: 12),
-              _schoolBillingCard(),
+              // Billing logic remains available for future settings screens, but the large billing banner is intentionally hidden.
             ],
             if (schoolId != null) ...[
               const SizedBox(height: 12),
@@ -6285,14 +6285,18 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     }),
               ]),
               const SizedBox(height: 12),
-              if (schoolId != null && [2, 3, 5, 6, 7, 8].contains(section)) ...[
+              if (schoolId != null && [0, 1, 2, 3, 5, 6, 7, 8].contains(section)) ...[
                 TextField(
                   key: ValueKey('school-record-search-$schoolId-$section'),
                   controller: schoolSearchController,
                   onChanged: (value) => setState(() => schoolSearchQuery = value),
+                  onSubmitted: (_) {
+                    setState(() => recordPage = 1);
+                    loadSection();
+                  },
                   decoration: InputDecoration(
-                    labelText: 'Search school records',
-                    hintText: 'Student, admission number, subject, status or receipt',
+                    labelText: section == 0 ? 'Search messages and parent/staff names' : section == 1 ? 'Search conferences by title, agenda or location' : 'Search school records',
+                    hintText: section == 0 ? 'Type a parent/staff name or message text, then submit' : section == 1 ? 'Type a conference title or topic, then submit' : 'Student, admission number, subject, status or receipt',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: schoolSearchQuery.isEmpty
                         ? null
@@ -6393,7 +6397,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                 const Icon(Icons.mark_chat_unread_outlined),
                             title: Text(
                                 (m['subject'] ?? 'School message').toString()),
-                            subtitle: Text((m['body'] ?? '').toString()),
+                            subtitle: Text('${m['sender'] is Map ? (m['sender']['name'] ?? 'School member') : 'School member'}  •  ${(m['body'] ?? '').toString()}'),
                             isThreeLine: true)))),
                 _schoolPager(),
               ],
