@@ -7,11 +7,41 @@ export function sparkExpiry(createdAt = new Date()) {
   return new Date(new Date(createdAt).getTime() + SPARK_LIFETIME_MS);
 }
 
+/** An author grants Spark visibility by saving the viewer as a contact. */
+export async function sparkAudienceOwnerIds({viewerId, SavedContact}) {
+  const contacts = await SavedContact.find({contactUserId: viewerId})
+    .select('userId').lean();
+  return [...new Set(contacts.map(contact => String(contact.userId)))];
+}
+
+export async function canViewSpark({
+  spark,
+  viewerId,
+  SavedContact,
+  User,
+  viewerBlockedIds = [],
+}) {
+  const authorId = String(spark?.authorId ?? '');
+  const viewer = String(viewerId);
+  if (!authorId || !viewer) return false;
+  if (authorId === viewer) return true;
+  if (viewerBlockedIds.some(id => String(id) === authorId)) return false;
+  if (User && await User.exists({_id: authorId, blockedUsers: viewer})) {
+    return false;
+  }
+  return Boolean(await SavedContact.exists({
+    userId: authorId,
+    contactUserId: viewer,
+  }));
+}
+
 export async function markSparkViewed({
   sparkId,
   viewerId,
   Spark,
   SavedContact,
+  User,
+  viewerBlockedIds = [],
   isValidObjectId,
   now = () => new Date(),
 }) {
@@ -26,11 +56,14 @@ export async function markSparkViewed({
   if (String(spark.authorId) === String(viewerId)) {
     return {statusCode: 200, body: {ok: true, hasViewed: false}};
   }
-  const isContact = await SavedContact.exists({
-    userId: spark.authorId,
-    contactUserId: viewerId,
+  const authorized = await canViewSpark({
+    spark,
+    viewerId,
+    SavedContact,
+    User,
+    viewerBlockedIds,
   });
-  if (!isContact) return {statusCode: 404, body: {error: 'Spark not found'}};
+  if (!authorized) return {statusCode: 404, body: {error: 'Spark not found'}};
   await Spark.updateOne(
     {_id: sparkId, expiresAt: {$gt: now()}},
     {$addToSet: {viewedBy: viewerId}},

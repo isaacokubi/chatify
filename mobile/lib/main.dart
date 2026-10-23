@@ -29,6 +29,63 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:video_player/video_player.dart';
 
+String _conversationParticipantId(Map participant) {
+  final nested = participant['user'];
+  final nestedId = nested is Map ? (nested['_id'] ?? nested['id']) : null;
+  return (participant['_id'] ??
+          participant['id'] ??
+          participant['userId'] ??
+          nestedId ??
+          '')
+      .toString();
+}
+
+String _authenticatedUserId(Map<String, dynamic>? user) =>
+    (user?['id'] ?? user?['_id'] ?? user?['userId'] ?? '').toString();
+
+List<Map<String, dynamic>> eligibleMentionParticipants(
+  Iterable<dynamic> rawParticipants, {
+  required String currentUserId,
+  String query = '',
+  int limit = 6,
+}) {
+  final normalizedQuery = query.trim().toLowerCase();
+  final candidates = <Map<String, dynamic>>[];
+  final seenIds = <String>{};
+  for (final raw in rawParticipants) {
+    if (raw is! Map) continue;
+    final participant = Map<String, dynamic>.from(raw);
+    final id = _conversationParticipantId(participant);
+    final name = participant['name']?.toString().trim() ?? '';
+    if (id.isEmpty ||
+        id == currentUserId ||
+        name.isEmpty ||
+        !seenIds.add(id) ||
+        !name.toLowerCase().contains(normalizedQuery)) {
+      continue;
+    }
+    candidates.add(participant);
+    if (candidates.length >= limit) break;
+  }
+  return candidates;
+}
+
+String _mentionDisambiguator(
+  Map<String, dynamic> participant,
+  Iterable<dynamic> participants,
+) {
+  final name = participant['name']?.toString().trim().toLowerCase() ?? '';
+  final duplicates = participants.where((raw) {
+    if (raw is! Map) return false;
+    return raw['name']?.toString().trim().toLowerCase() == name;
+  }).length;
+  if (duplicates < 2) return '';
+  final contact = (participant['email'] ?? participant['phone'])?.toString();
+  if (contact != null && contact.isNotEmpty) return contact;
+  final id = _conversationParticipantId(participant);
+  return id.length > 6 ? 'ID …${id.substring(id.length - 6)}' : 'ID $id';
+}
+
 // Swipe gestures are reserved for compact Android/iOS layouts. Laptop and desktop
 // users receive explicit delete buttons that work with a mouse or trackpad.
 bool _useSwipeToDelete(BuildContext context) {
@@ -40,7 +97,8 @@ bool _useSwipeToDelete(BuildContext context) {
 
 class _SparkVideoThumbnail extends StatefulWidget {
   final String url;
-  const _SparkVideoThumbnail({required this.url});
+  final VoidCallback? onTap;
+  const _SparkVideoThumbnail({required this.url, this.onTap});
 
   @override
   State<_SparkVideoThumbnail> createState() => _SparkVideoThumbnailState();
@@ -69,15 +127,23 @@ class _SparkVideoThumbnailState extends State<_SparkVideoThumbnail> {
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
-      return const Center(child: Icon(Icons.videocam_outlined));
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: const Center(child: Icon(Icons.videocam_outlined)),
+      );
     }
     final ratio = controller.value.aspectRatio;
-    return FittedBox(
-      fit: BoxFit.cover,
-      child: SizedBox(
-        width: ratio > 0 ? 50 * ratio : 50,
-        height: 50,
-        child: VideoPlayer(controller),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onTap,
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: ratio > 0 ? 50 * ratio : 50,
+          height: 50,
+          child: VideoPlayer(controller),
+        ),
       ),
     );
   }
@@ -317,6 +383,18 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
     }
   }
 
+  void _onContentTap() {
+    if (_item['mediaType'] == 'video') {
+      if (_mediaError) {
+        _loadItem();
+      } else {
+        _togglePause();
+      }
+      return;
+    }
+    _advance(1);
+  }
+
   double _currentProgress() {
     final video = _video;
     if (video != null &&
@@ -383,7 +461,18 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
           aspectRatio: controller.value.aspectRatio > 0
               ? controller.value.aspectRatio
               : 16 / 9,
-          child: VideoPlayer(controller),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              VideoPlayer(controller),
+              if (_paused || !controller.value.isPlaying)
+                IconButton.filled(
+                  tooltip: 'Resume Spark video',
+                  onPressed: _togglePause,
+                  icon: const Icon(Icons.play_arrow),
+                ),
+            ],
+          ),
         ),
       );
     }
@@ -465,7 +554,13 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
                         child: const SizedBox.expand(),
                       ),
                     ),
-                    const Spacer(),
+                    Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _onContentTap,
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
                     SizedBox(
                       width: MediaQuery.sizeOf(context).width * .24,
                       child: GestureDetector(
@@ -4940,6 +5035,82 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
+  Widget _attendanceMatrix(List<dynamic> records) {
+    final dates = records
+        .whereType<Map>()
+        .map((record) => record['date']?.toString().split('T').first ?? '')
+        .where((date) => date.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    final visibleStudents = students.whereType<Map>().toList();
+    final tableStudents = visibleStudents.isNotEmpty
+        ? visibleStudents
+        : records
+            .whereType<Map>()
+            .fold<Map<String, Map>>({}, (grouped, record) {
+              final id = record['studentId']?.toString() ?? '';
+              if (id.isNotEmpty) grouped[id] = record;
+              return grouped;
+            })
+            .values
+            .toList();
+    return _responsiveSchoolTable(
+      columns: [
+        const DataColumn(label: Text('Student')),
+        const DataColumn(label: Text('Admission no.')),
+        const DataColumn(label: Text('Class / grade')),
+        for (final date in dates) DataColumn(label: Text(date)),
+        if (role != 'parent') const DataColumn(label: Text('Actions')),
+      ],
+      rows: tableStudents.map((raw) {
+        final student = Map<String, dynamic>.from(raw);
+        final id = (student['_id'] ?? student['studentId'])?.toString() ?? '';
+        final studentRecords = records
+            .whereType<Map>()
+            .where(
+              (record) => record['studentId']?.toString() == id,
+            )
+            .toList();
+        return DataRow(cells: [
+          DataCell(Text(
+              (student['fullName'] ?? student['studentName'] ?? 'Student')
+                  .toString())),
+          DataCell(Text((student['admissionNumber'] ?? '').toString())),
+          DataCell(Text((student['className'] ?? '').toString())),
+          for (final date in dates)
+            DataCell(Text(_attendanceStatus(studentRecords, date))),
+          if (role != 'parent')
+            DataCell(Wrap(
+              spacing: 2,
+              children: [
+                for (final record in studentRecords)
+                  IconButton(
+                    tooltip:
+                        'Delete attendance for ${record['date']?.toString().split('T').first ?? ''}',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => _removeSchoolRecord(
+                      label: 'attendance record',
+                      endpoint: 'attendance/${record['_id']}',
+                    ),
+                  ),
+              ],
+            )),
+        ]);
+      }).toList(),
+    );
+  }
+
+  String _attendanceStatus(List<Map> records, String date) {
+    for (final record in records) {
+      if (record['date']?.toString().split('T').first == date) {
+        return record['status']?.toString().toUpperCase() ?? '—';
+      }
+    }
+    return '—';
+  }
+
   Future<void> _removeSchoolRecord(
       {required String label, required String endpoint}) async {
     final confirmed = await showDialog<bool>(
@@ -6071,29 +6242,55 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         startFeePayment,
                         icon: Icons.payment)
                 ],
-                ...fees.map((p) => Card(
-                    child: ListTile(
-                        leading: Icon(p['status'] == 'CONFIRMED'
-                            ? Icons.verified
-                            : Icons.pending_actions),
-                        title: Text(
-                            'KSh ${p['amount'] ?? ''} • ${p['studentName'] ?? ''}'),
-                        subtitle: Text(
-                            '${p['term'] ?? ''} • ${p['status'] ?? 'PENDING'} • Ref ${p['paymentReference'] ?? ''}'),
-                        trailing: isAdmin &&
-                                p['status'] == 'PENDING_VERIFICATION'
-                            ? IconButton(
-                                tooltip: 'Verify actual bank payment',
-                                icon: const Icon(Icons.verified_outlined),
-                                onPressed: () =>
-                                    verifyFee(Map<String, dynamic>.from(p)))
-                            : p['status'] == 'CONFIRMED'
-                                ? IconButton(
-                                    tooltip: 'Download printable receipt',
-                                    icon: const Icon(Icons.receipt_long),
-                                    onPressed: () => downloadSchoolFeeReceipt(
-                                        Map<String, dynamic>.from(p)))
-                                : null))),
+                if (fees.isNotEmpty)
+                  _responsiveSchoolTable(
+                    columns: [
+                      const DataColumn(label: Text('Student')),
+                      const DataColumn(label: Text('Parent / guardian')),
+                      const DataColumn(label: Text('Guardian phone')),
+                      const DataColumn(label: Text('Term')),
+                      const DataColumn(label: Text('Amount due')),
+                      const DataColumn(label: Text('Payment method')),
+                      const DataColumn(label: Text('Reference')),
+                      const DataColumn(label: Text('Status')),
+                      const DataColumn(label: Text('Actions')),
+                    ],
+                    rows: fees.map((raw) {
+                      final payment = Map<String, dynamic>.from(raw as Map);
+                      final status = payment['status']?.toString() ?? 'PENDING';
+                      return DataRow(cells: [
+                        DataCell(Text(
+                            (payment['studentName'] ?? 'Student').toString())),
+                        DataCell(Text(
+                            (payment['guardianName'] ?? 'Not recorded')
+                                .toString())),
+                        DataCell(
+                            Text((payment['guardianPhone'] ?? '—').toString())),
+                        DataCell(Text((payment['term'] ?? '').toString())),
+                        DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
+                        DataCell(
+                            Text((payment['paymentMethod'] ?? '—').toString())),
+                        DataCell(Text(
+                            (payment['paymentReference'] ?? '—').toString())),
+                        DataCell(Text(status)),
+                        DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                          if (isAdmin && status == 'PENDING_VERIFICATION')
+                            IconButton(
+                              tooltip: 'Verify actual bank payment',
+                              icon: const Icon(Icons.verified_outlined),
+                              onPressed: () => verifyFee(payment),
+                            ),
+                          if (status == 'CONFIRMED')
+                            IconButton(
+                              tooltip: 'Download printable receipt',
+                              icon: const Icon(Icons.receipt_long),
+                              onPressed: () =>
+                                  downloadSchoolFeeReceipt(payment),
+                            ),
+                        ])),
+                      ]);
+                    }).toList(),
+                  ),
                 if (isAdmin)
                   ...fees.where((p) => p['status'] == 'CONFIRMED').map((p) =>
                       actionButton(
@@ -6117,44 +6314,60 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     child: Text(
                         'No confirmed fee payments with receipts are available on this page yet. Check the Fees section or move to another page.'),
                   ),
-                ...fees
-                    .where((payment) => payment['status'] == 'CONFIRMED')
-                    .map((payment) => Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                    'Receipt • ${payment['paymentReference'] ?? ''}',
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 4),
-                                Text(
-                                    '${payment['studentName'] ?? 'Student'} • KSh ${payment['amount'] ?? ''}'),
-                                Text(
-                                    'Term: ${payment['term'] ?? 'Not specified'} • M-Pesa receipt: ${payment['mpesaReceipt'] ?? 'Confirmed'}'),
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: FilledButton.icon(
-                                    onPressed: () => downloadSchoolFeeReceipt(
-                                        Map<String, dynamic>.from(payment)),
-                                    icon: const Icon(Icons.download),
-                                    label: const Text('Download receipt (PDF)'),
-                                  ),
-                                ),
-                                if (isAdmin)
-                                  TextButton.icon(
-                                    onPressed: () => resendSchoolReceipt(
-                                        Map<String, dynamic>.from(payment)),
-                                    icon: const Icon(Icons.forward_to_inbox),
-                                    label: const Text('Resend receipt email'),
-                                  ),
-                              ],
-                            ),
+                if (fees.where((p) => p['status'] == 'CONFIRMED').isNotEmpty)
+                  _responsiveSchoolTable(
+                    columns: [
+                      const DataColumn(label: Text('Receipt no.')),
+                      const DataColumn(label: Text('Payment reference')),
+                      const DataColumn(label: Text('Student')),
+                      const DataColumn(label: Text('Parent / guardian')),
+                      const DataColumn(label: Text('Term')),
+                      const DataColumn(label: Text('Paid on')),
+                      const DataColumn(label: Text('Amount')),
+                      const DataColumn(label: Text('Method')),
+                      const DataColumn(label: Text('Status')),
+                      const DataColumn(label: Text('Actions')),
+                    ],
+                    rows: fees
+                        .where((p) => p['status'] == 'CONFIRMED')
+                        .map((raw) {
+                      final payment = Map<String, dynamic>.from(raw as Map);
+                      final confirmedAt = payment['verifiedAt'] ??
+                          payment['updatedAt'] ??
+                          payment['createdAt'];
+                      return DataRow(cells: [
+                        DataCell(
+                            Text((payment['mpesaReceipt'] ?? '—').toString())),
+                        DataCell(Text(
+                            (payment['paymentReference'] ?? '—').toString())),
+                        DataCell(Text(
+                            (payment['studentName'] ?? 'Student').toString())),
+                        DataCell(Text(
+                            (payment['guardianName'] ?? 'Not recorded')
+                                .toString())),
+                        DataCell(Text((payment['term'] ?? '—').toString())),
+                        DataCell(Text(
+                            confirmedAt?.toString().split('T').first ?? '—')),
+                        DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
+                        DataCell(
+                            Text((payment['paymentMethod'] ?? '—').toString())),
+                        DataCell(Text((payment['status'] ?? '').toString())),
+                        DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                          IconButton(
+                            tooltip: 'Download printable receipt',
+                            icon: const Icon(Icons.download),
+                            onPressed: () => downloadSchoolFeeReceipt(payment),
                           ),
-                        )),
+                          if (isAdmin)
+                            IconButton(
+                              tooltip: 'Resend receipt email',
+                              icon: const Icon(Icons.forward_to_inbox),
+                              onPressed: () => resendSchoolReceipt(payment),
+                            ),
+                        ])),
+                      ]);
+                    }).toList(),
+                  ),
                 _schoolPager(),
               ],
               if (section == 3 && (role == 'staff' || isAdmin)) ...[
@@ -6172,24 +6385,46 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     hint: 'Exact names from the school register'),
                 actionButton('Add school member', addMember,
                     icon: Icons.person_add),
-                ...members.map((m) => _swipeSchoolRecord(
-                    id: m['id'].toString(),
-                    label: 'member',
-                    endpoint: 'members/${m['id']}',
-                    child: Card(
-                        child: ListTile(
-                            title: Text((m['name'] ?? m['email'] ?? 'Member')
-                                .toString()),
-                            subtitle: Text(
-                                '${m['role'] ?? ''} • ${(m['studentNames'] ?? []).join(', ')}'),
-                            trailing: isAdmin &&
-                                    ['parent', 'staff'].contains(m['role'])
-                                ? IconButton(
-                                    tooltip: 'Edit linked pupil access',
-                                    icon: const Icon(Icons.edit_outlined),
-                                    onPressed: () => editParentPupilInfo(
-                                        Map<String, dynamic>.from(m)))
-                                : null)))),
+                if (members.isNotEmpty)
+                  _responsiveSchoolTable(
+                    columns: [
+                      const DataColumn(label: Text('Member')),
+                      const DataColumn(label: Text('Role')),
+                      const DataColumn(label: Text('Email')),
+                      const DataColumn(label: Text('Linked students')),
+                      const DataColumn(label: Text('Status')),
+                      if (isAdmin) const DataColumn(label: Text('Actions')),
+                    ],
+                    rows: members.map((raw) {
+                      final member = Map<String, dynamic>.from(raw as Map);
+                      final id = member['id']?.toString() ?? '';
+                      return DataRow(cells: [
+                        DataCell(Text((member['name'] ?? 'Member').toString())),
+                        DataCell(Text((member['role'] ?? '—').toString())),
+                        DataCell(Text((member['email'] ?? '—').toString())),
+                        DataCell(Text((member['studentNames'] is List
+                            ? (member['studentNames'] as List).join(', ')
+                            : '—'))),
+                        const DataCell(Text('Active')),
+                        if (isAdmin)
+                          DataCell(
+                              Row(mainAxisSize: MainAxisSize.min, children: [
+                            if (['parent', 'staff'].contains(member['role']))
+                              IconButton(
+                                tooltip: 'Edit linked pupil access',
+                                icon: const Icon(Icons.edit_outlined),
+                                onPressed: () => editParentPupilInfo(member),
+                              ),
+                            IconButton(
+                              tooltip: 'Remove school member',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _removeSchoolRecord(
+                                  label: 'member', endpoint: 'members/$id'),
+                            ),
+                          ])),
+                      ]);
+                    }).toList(),
+                  ),
                 _schoolPager()
               ],
               if (section == 5) ...[
@@ -6315,21 +6550,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       padding: EdgeInsets.all(16),
                       child: Text(
                           'No attendance records have been recorded yet.')),
-                ...visibleAttendance.map((a) => _swipeSchoolRecord(
-                    id: a['_id'].toString(),
-                    label: 'attendance record',
-                    endpoint: 'attendance/${a['_id']}',
-                    child: Card(
-                        child: ListTile(
-                            leading: Icon(a['status'] == 'present'
-                                ? Icons.check_circle
-                                : a['status'] == 'late'
-                                    ? Icons.schedule
-                                    : Icons.event_busy),
-                            title: Text(
-                                '${a['studentName'] ?? 'Student'} • ${(a['status'] ?? '').toString().toUpperCase()}'),
-                            subtitle: Text(
-                                '${a['className'] ?? ''} • ${a['date']?.toString().split('T').first ?? ''}${(a['note'] ?? '').toString().isEmpty ? '' : '\n${a['note']}'}'))))),
+                if (visibleAttendance.isNotEmpty)
+                  _attendanceMatrix(visibleAttendance),
                 _schoolPager(),
               ],
               if (section == 7) ...[
@@ -6382,18 +6604,47 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       padding: EdgeInsets.all(16),
                       child: Text(
                           'No assessment results have been recorded yet.')),
-                ...visibleAssessments.map((a) => _swipeSchoolRecord(
-                    id: a['_id'].toString(),
-                    label: 'assessment record',
-                    endpoint: 'academics/${a['_id']}',
-                    child: Card(
-                        child: ListTile(
-                            leading: const Icon(Icons.assessment_outlined),
-                            title: Text(
-                                '${a['studentName'] ?? 'Student'} • ${a['subject'] ?? ''}'),
-                            subtitle: Text(
-                                '${a['assessment'] ?? ''} • ${a['term'] ?? ''}\nScore: ${a['score'] ?? 0} / ${a['outOf'] ?? 100}${(a['teacherNote'] ?? '').toString().isEmpty ? '' : '\n${a['teacherNote']}'}'),
-                            isThreeLine: true)))),
+                if (visibleAssessments.isNotEmpty)
+                  _responsiveSchoolTable(
+                    columns: [
+                      const DataColumn(label: Text('Admission no.')),
+                      const DataColumn(label: Text('Student')),
+                      const DataColumn(label: Text('Class / grade')),
+                      const DataColumn(label: Text('Subject')),
+                      const DataColumn(label: Text('Term')),
+                      const DataColumn(label: Text('Assessment')),
+                      const DataColumn(label: Text('Score')),
+                      const DataColumn(label: Text('Teacher note')),
+                      if (role != 'parent')
+                        const DataColumn(label: Text('Actions')),
+                    ],
+                    rows: visibleAssessments.map((raw) {
+                      final record = Map<String, dynamic>.from(raw as Map);
+                      return DataRow(cells: [
+                        DataCell(
+                            Text((record['admissionNumber'] ?? '').toString())),
+                        DataCell(Text(
+                            (record['studentName'] ?? 'Student').toString())),
+                        DataCell(Text((record['className'] ?? '').toString())),
+                        DataCell(Text((record['subject'] ?? '').toString())),
+                        DataCell(Text((record['term'] ?? '').toString())),
+                        DataCell(Text((record['assessment'] ?? '').toString())),
+                        DataCell(Text(
+                            '${record['score'] ?? '—'} / ${record['outOf'] ?? '—'}')),
+                        DataCell(
+                            Text((record['teacherNote'] ?? '').toString())),
+                        if (role != 'parent')
+                          DataCell(IconButton(
+                            tooltip: 'Delete academic record',
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => _removeSchoolRecord(
+                              label: 'academic record',
+                              endpoint: 'academics/${record['_id']}',
+                            ),
+                          )),
+                      ]);
+                    }).toList(),
+                  ),
                 _schoolPager(),
               ],
               if (section == 4 && isAdmin) ...[
@@ -6802,7 +7053,10 @@ class _HomeState extends State<Home> {
                               child: ownSpark == null
                                   ? const Icon(Icons.auto_awesome_outlined,
                                       size: 28)
-                                  : _sparkPreview(ownSpark),
+                                  : _sparkPreview(
+                                      ownSpark,
+                                      onTap: () => _viewSpark(ownSpark),
+                                    ),
                             ),
                           ),
                         ),
@@ -6834,7 +7088,10 @@ class _HomeState extends State<Home> {
               final spark = Map<String, dynamic>.from(item as Map);
               final name = spark['authorName']?.toString() ?? 'Chatify user';
               final mediaType = spark['mediaType']?.toString();
-              final preview = _sparkPreview(spark);
+              final preview = _sparkPreview(
+                spark,
+                onTap: () => _viewSpark(spark),
+              );
               return SizedBox(
                 width: 76,
                 child: InkWell(
@@ -6888,7 +7145,7 @@ class _HomeState extends State<Home> {
     );
   }
 
-  Widget _sparkPreview(Map<String, dynamic> spark) {
+  Widget _sparkPreview(Map<String, dynamic> spark, {VoidCallback? onTap}) {
     final mediaUrl = spark['mediaUrl']?.toString() ?? '';
     final mediaType = spark['mediaType']?.toString();
     final text = spark['text']?.toString().trim() ?? '';
@@ -6907,7 +7164,7 @@ class _HomeState extends State<Home> {
       );
     }
     if (mediaType == 'video' && mediaUrl.startsWith('https://')) {
-      return _SparkVideoThumbnail(url: mediaUrl);
+      return _SparkVideoThumbnail(url: mediaUrl, onTap: onTap);
     }
     if (mediaType == 'video') return const Icon(Icons.play_circle_outline);
     if (text.isNotEmpty) {
@@ -9312,32 +9569,37 @@ class _ChatState extends State<Chat> {
   }
 
   Future<void> _chooseMention() async {
-    final currentId = app.user?['id']?.toString() ?? '';
-    final participants = List<dynamic>.from(
-            widget.conversation['participants'] ?? [])
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .where((item) => (item['_id'] ?? item['id'])?.toString() != currentId)
-        .toList();
+    final participants = eligibleMentionParticipants(
+      List<dynamic>.from(widget.conversation['participants'] ?? const []),
+      currentUserId: _authenticatedUserId(app.user),
+      limit: 50,
+    );
     final selected = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: ListView(
           shrinkWrap: true,
           children: participants
-              .map((person) => ListTile(
+              .map((person) {
+                final identifier = _mentionDisambiguator(
+                  person,
+                  List<dynamic>.from(
+                      widget.conversation['participants'] ?? const []),
+                );
+                return ListTile(
                     leading: const Icon(Icons.alternate_email),
                     title: Text(person['name']?.toString() ?? 'Chat member'),
+                    subtitle: identifier.isEmpty ? null : Text(identifier),
                     onTap: () => Navigator.pop(sheetContext, person),
-                  ))
-              .toList(),
+                  );
+              }).toList(),
         ),
       ),
     );
     if (selected == null || !mounted) return;
-    final id = (selected['_id'] ?? selected['id'])?.toString();
+    final id = _conversationParticipantId(selected);
     final name = selected['name']?.toString().trim() ?? '';
-    if (id == null || id.isEmpty || name.isEmpty) return;
+    if (id.isEmpty || name.isEmpty) return;
     final spacer = input.text.isEmpty || input.text.endsWith(' ') ? '' : ' ';
     final text = '${input.text}${spacer}@$name ';
     input.value = TextEditingValue(
@@ -9362,7 +9624,8 @@ class _ChatState extends State<Chat> {
     }
     final cursor = input.selection.extentOffset.clamp(0, value.length);
     final at = value.lastIndexOf('@', math.max(0, cursor - 1));
-    if (at < 0 || (at > 0 && !RegExp(r'[\s([{]').hasMatch(value[at - 1]))) {
+    if (at < 0 ||
+        (at > 0 && !RegExp(r'[\s([{!?,.;:]').hasMatch(value[at - 1]))) {
       if (_mentionSuggestions.isNotEmpty && mounted) {
         setState(() => _mentionSuggestions = []);
       }
@@ -9375,22 +9638,11 @@ class _ChatState extends State<Chat> {
       _mentionStart = -1;
       return;
     }
-    final currentId = app.user?['id']?.toString() ?? '';
-    final participants = List<dynamic>.from(
-      widget.conversation['participants'] ?? const [],
-    )
-        .whereType<Map>()
-        .map((raw) => Map<String, dynamic>.from(raw))
-        .where((p) {
-          final id = (p['_id'] ?? p['id'])?.toString() ?? '';
-          final name = p['name']?.toString() ?? '';
-          return id.isNotEmpty &&
-              id != currentId &&
-              name.isNotEmpty &&
-              name.toLowerCase().contains(query.toLowerCase());
-        })
-        .take(6)
-        .toList();
+    final participants = eligibleMentionParticipants(
+      List<dynamic>.from(widget.conversation['participants'] ?? const []),
+      currentUserId: _authenticatedUserId(app.user),
+      query: query,
+    );
     if (!listEquals(_mentionSuggestions, participants) ||
         _mentionStart != at ||
         _mentionCursor != cursor) {
@@ -9404,9 +9656,20 @@ class _ChatState extends State<Chat> {
   }
 
   void _selectMention(Map<String, dynamic> selected) {
-    final id = (selected['_id'] ?? selected['id'])?.toString();
+    final id = _conversationParticipantId(selected);
     final name = selected['name']?.toString().trim() ?? '';
-    if (id == null || id.isEmpty || name.isEmpty || _mentionStart < 0) return;
+    if (id.isEmpty || name.isEmpty || _mentionStart < 0) return;
+    final currentId = _authenticatedUserId(app.user);
+    final stillMember = eligibleMentionParticipants(
+      List<dynamic>.from(widget.conversation['participants'] ?? const []),
+      currentUserId: currentId,
+      query: name,
+      limit: 50,
+    ).any((participant) => _conversationParticipantId(participant) == id);
+    if (!stillMember) {
+      setState(() => _mentionSuggestions = []);
+      return;
+    }
     final cursor = input.selection.extentOffset.clamp(0, input.text.length);
     final suffix = input.text.substring(cursor);
     final prefix = input.text.substring(0, _mentionStart);
@@ -9431,7 +9694,7 @@ class _ChatState extends State<Chat> {
     ).whereType<Map>();
     final namesById = <String, String>{};
     for (final participant in participants) {
-      final id = (participant['_id'] ?? participant['id'])?.toString();
+      final id = _conversationParticipantId(participant);
       final name = participant['name']?.toString();
       if (id != null && name != null && name.isNotEmpty) namesById[id] = name;
     }
@@ -11889,11 +12152,17 @@ class _ChatState extends State<Chat> {
               itemCount: _mentionSuggestions.length,
               itemBuilder: (context, index) {
                 final person = _mentionSuggestions[index];
+                final identifier = _mentionDisambiguator(
+                  person,
+                  List<dynamic>.from(
+                      widget.conversation['participants'] ?? const []),
+                );
                 return ListTile(
                   dense: true,
                   selected: index == _mentionActiveIndex,
                   leading: const Icon(Icons.alternate_email, size: 18),
                   title: Text(person['name']?.toString() ?? 'Chat member'),
+                  subtitle: identifier.isEmpty ? null : Text(identifier),
                   onTap: () => _selectMention(person),
                 );
               },
