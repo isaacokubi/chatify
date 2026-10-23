@@ -9,9 +9,9 @@ export function sparkExpiry(createdAt = new Date()) {
 
 /** An author grants Spark visibility by saving the viewer as a contact. */
 export async function sparkAudienceOwnerIds({viewerId, SavedContact}) {
-  const contacts = await SavedContact.find({contactUserId: viewerId})
-    .select('userId').lean();
-  return [...new Set(contacts.map(contact => String(contact.userId)))];
+  const contacts = await SavedContact.find({userId: viewerId})
+    .select('contactUserId').lean();
+  return [...new Set(contacts.map(contact => String(contact.contactUserId)))];
 }
 
 export async function canViewSpark({
@@ -30,8 +30,8 @@ export async function canViewSpark({
     return false;
   }
   return Boolean(await SavedContact.exists({
-    userId: authorId,
-    contactUserId: viewer,
+    userId: viewer,
+    contactUserId: authorId,
   }));
 }
 
