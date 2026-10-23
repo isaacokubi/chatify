@@ -6489,7 +6489,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 field(feeStructureClass, 'Class / grade (must match the student register)'),
                 field(feeStructureYear, 'Academic year (for example 2027)'),
                 field(feeStructureTerm, 'Term / fee period (for example Term 1)'),
-                field(feeStructureItems, 'Fee items', hint: 'Tuition:12000\nTransport:2500\nActivities:1000'),
+                field(feeStructureItems, 'Fee items', hint: 'Tuition:12000\nTransport:2500\nActivities:1000', maxLines: 4),
                 actionButton('Save fee structure version', saveFeeStructure, icon: Icons.save_outlined),
                 const SizedBox(height: 12),
                 const Text('Existing fee structure versions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
