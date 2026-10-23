@@ -4950,12 +4950,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         conferences = List<dynamic>.from(r['conferences'] ?? []);
       } else if (section == 9) {
         final results = await Future.wait([
-          app.api.call('GET', '/api/schools/$id/fee-structures?page=1&limit=100&includeArchived=true'),
+          app.api.call('GET', '/api/schools/$id/fee-structures?page=$recordPage&limit=$_recordPageSize&includeArchived=true'),
           app.api.call('GET', '/api/schools/$id/fee-balances'),
         ]);
         feeStructures = List<dynamic>.from(results[0]['structures'] ?? []);
         feeBalances = List<dynamic>.from(results[1]['balances'] ?? []);
-        recordTotal = feeStructures.length;
+        recordTotal = (results[0]['total'] as num?)?.toInt() ?? feeStructures.length;
       } else if (section == 2 || section == 8) {
         final feesResult =
             await app.api.call('GET', '/api/schools/$id/fees$pageQuery');
@@ -6418,7 +6418,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 _schoolPager(),
               ],
               if (section == 1) ...[
-                DropdownButtonFormField<String>(
+                if (isAdmin) DropdownButtonFormField<String>(
                   initialValue: conferenceAudienceFilter,
                   decoration: const InputDecoration(labelText: 'Filter conferences by audience', border: OutlineInputBorder()),
                   items: const [
@@ -6808,6 +6808,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     trailing: structure['status'] == 'ACTIVE' ? IconButton(tooltip: 'Issue charges to students without existing charges', icon: const Icon(Icons.assignment_turned_in_outlined), onPressed: () => issueFeeStructure(structure)) : const Icon(Icons.history),
                   ));
                 }),
+                _schoolPager(),
               ],
               if (section == 3 && (role == 'staff' || isAdmin)) ...[
                 field(memberEmail, 'Existing Chatify account email'),
