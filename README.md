@@ -105,6 +105,12 @@ Before enabling this in the API deployment, configure these private environment 
 
 A school administrator must enter that school's Daraja consumer key, consumer secret, passkey and matching Paybill/Till. Live deployments reject sandbox credentials. Keep all real credentials in the private API environment or the authenticated school setup form over HTTPS, never in source control. Bank transfer remains a manual-verification workflow; it does not trigger an M-Pesa prompt.
 
+### Class-specific school fee structures
+
+The School workspace owner can open **Fee structures** and configure a separate set of fee items for each class/grade, academic year and term. Enter one item per line as `code | description | amount`; amounts are validated to two decimal places and stored as integer minor units. The backend scopes the configuration to the school, rejects duplicate class-period configurations, requires the current version when editing, and retains bounded snapshots of prior configurations. Staff can read configurations but only the owning school administrator can change them.
+
+**Important financial boundary:** configuration is not the same as a student charge. The existing fee payment records identify students by name and do not yet link payments to stable enrollment IDs or a specific fee-structure version. This change therefore does not calculate or rewrite student balances. Automatic balances require immutable, period-specific student charges and explicit payment allocations first; do not infer a student's amount owed from the current fee configuration alone. API and schema details are documented in [docs/API.md](docs/API.md) and [docs/DATABASE.md](docs/DATABASE.md).
+
 ## Automated verification — 2026-10-22
 
 The billing renewal regression coverage and the CI reliability change are tracked separately from live payment acceptance. The verified source commit `951e4417b49e0afa40acdd92b2933b4ca2e4aff3` passed the full [Chatify CI workflow](https://github.com/isaacokubi/chatify/actions/runs/39739597321) and [quality checks](https://github.com/isaacokubi/chatify/actions/runs/39739597328): 193 backend tests passed with 0 failures; dependency audit, backend lint/syntax checks, backup/restore safety checks, Flutter analysis/tests, web build and Android debug APK build passed.
