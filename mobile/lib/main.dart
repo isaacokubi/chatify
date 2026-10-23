@@ -307,7 +307,12 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   }
 
   Future<void> _loadItem() async {
-    final disableAnimations = MediaQuery.disableAnimationsOf(context);
+    // A dialog route can briefly build without an inherited MediaQuery in
+    // widget tests or unusual embedding contexts. Treat that as animations
+    // enabled instead of aborting media loading before the video controller is
+    // created.
+    final disableAnimations =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     _progress.stop();
     _progress.value = 0;
     await _video?.dispose();
@@ -4877,8 +4882,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           }
         }
         if (section == 2) {
-          final balanceResult = await app.api.call('GET', '/api/schools/$id/fee-balances');
-          feeBalances = List<dynamic>.from(balanceResult['balances'] ?? []);
+          // Fee balances are supplementary to the payment form. A failure to
+          // load them must not prevent parents from seeing configured payment
+          // methods or entering the phone used for an M-Pesa STK prompt.
+          try {
+            final balanceResult =
+                await app.api.call('GET', '/api/schools/$id/fee-balances');
+            feeBalances = List<dynamic>.from(balanceResult['balances'] ?? []);
+          } catch (_) {
+            feeBalances = [];
+          }
         }
         if (section == 2 && role == 'parent') {
           final options = _parentFeePaymentOptions();
