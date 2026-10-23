@@ -6348,19 +6348,20 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   DropdownButtonFormField<String>(
                       initialValue: audience,
                       decoration: const InputDecoration(labelText: 'Send to'),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'direct',
-                            child: Text('One parent or staff member')),
-                        DropdownMenuItem(
+                      items: [
+                        if (!scheduleSchoolEvent)
+                          const DropdownMenuItem(
+                              value: 'direct',
+                              child: Text('One parent or staff member')),
+                        const DropdownMenuItem(
                             value: 'all_parents', child: Text('All parents')),
-                        DropdownMenuItem(
+                        const DropdownMenuItem(
                             value: 'all_staff', child: Text('All staff')),
-                        DropdownMenuItem(
+                        const DropdownMenuItem(
                             value: 'all_school', child: Text('Whole school'))
                       ],
                       onChanged: (v) =>
-                          setState(() => audience = v ?? 'direct')),
+                          setState(() => audience = v ?? 'all_parents')),
                 if (role == 'admin' && audience == 'direct')
                   DropdownButtonFormField<String>(
                       initialValue: members.any((m) =>
