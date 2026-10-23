@@ -5867,7 +5867,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> _openPrivateParentChat(String userId) async {
-    if (!isAdmin || userId.isEmpty || userId == 'null') return;
+    if (!(role == 'admin' || isOwner) || userId.isEmpty || userId == 'null') return;
     try {
       final result = await app.api.call('POST', '/api/conversations/direct', {'userId': userId});
       if (!mounted) return;
