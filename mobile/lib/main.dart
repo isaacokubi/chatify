@@ -5115,6 +5115,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     return options;
   }
 
+  // ignore: unused_element
+  // Keep billing UI implementation available for a future compact settings screen while hiding the large banner.
   Widget _schoolBillingCard() {
     final prices = schoolBilling['prices'] is Map
         ? Map<String, dynamic>.from(schoolBilling['prices'] as Map)
@@ -5411,9 +5413,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final et = endText.split(':').map(int.parse).toList();
       startsAt = DateTime(d[0], d[1], d[2], st[0], st[1]);
       endsAt = DateTime(d[0], d[1], d[2], et[0], et[1]);
-      if (startsAt!.year != d[0] || startsAt!.month != d[1] || startsAt!.day != d[2] ||
+      if (startsAt.year != d[0] || startsAt.month != d[1] || startsAt.day != d[2] ||
           st[0] > 23 || et[0] > 23 || st[1] > 59 || et[1] > 59 ||
-          !startsAt!.isAfter(DateTime.now()) || !endsAt!.isAfter(startsAt!)) {
+          !startsAt.isAfter(DateTime.now()) || !endsAt.isAfter(startsAt)) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose a valid future date and an end time after the start time.')));
         return;
       }
