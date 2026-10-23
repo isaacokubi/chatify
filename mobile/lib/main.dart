@@ -4843,9 +4843,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       } else if (section == 2 || section == 8) {
         final results = await Future.wait([
           app.api.call('GET', '/api/schools/$id/fees$pageQuery'),
-          if (section == 2 && role == 'parent')
-            app.api.call('GET', '/api/schools/$id/students?page=1&limit=100'),
+          // Load only the caller-visible roster so fee/receipt class filters can
+          // resolve student-linked records without widening parent access.
+          app.api.call('GET', '/api/schools/$id/students?page=1&limit=100'),
         ]);
+        students = List<dynamic>.from(results[1]['students'] ?? []);
         final r = results.first;
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         fees = List<dynamic>.from(r['payments'] ?? []);
