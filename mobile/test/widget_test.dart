@@ -701,6 +701,21 @@ void main() {
             jsonEncode({
               'sparks': [
                 if (activeSpark.isNotEmpty) activeSpark,
+                if (activeSpark.isNotEmpty)
+                  {
+                    '_id': 'spark-older',
+                    'authorId': 'user-1',
+                    'authorName': 'Miriam',
+                    'text': 'An older own Spark',
+                    'isMine': true,
+                    'hasViewed': false,
+                    'createdAt': DateTime.now()
+                        .subtract(const Duration(hours: 1))
+                        .toIso8601String(),
+                    'expiresAt': DateTime.now()
+                        .add(const Duration(hours: 23))
+                        .toIso8601String(),
+                  },
                 otherSpark,
               ]
             }),
@@ -708,10 +723,16 @@ void main() {
       if (request.method == 'POST' && path == '/api/sparks') {
         activeSpark = {
           '_id': 'spark-1',
+          'authorId': 'user-1',
+          'authorName': 'Miriam',
+          'mediaType': 'text',
+          'mediaUrl': '',
           'text': 'A shared moment',
           'hasViewed': false,
           'isMine': true,
-          'owner': {'id': 'user-1', 'name': 'Miriam', 'isOwn': true}
+          'createdAt': DateTime.now().toIso8601String(),
+          'expiresAt':
+              DateTime.now().add(const Duration(hours: 24)).toIso8601String(),
         };
         return http.Response(jsonEncode({'spark': activeSpark}), 201);
       }
@@ -767,7 +788,8 @@ void main() {
             theme: ThemeData(platform: TargetPlatform.android),
             home: const Home())));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Your Spark'));
+    await tester.tapAt(
+        tester.getCenter(find.text('Your Spark')) + const Offset(0, -30));
     await tester.pumpAndSettle();
     expect(find.text('Text Spark'), findsOneWidget);
     expect(find.text('Photo Spark'), findsOneWidget);
@@ -776,6 +798,18 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'A shared moment');
     await tester.tap(find.text('Share Spark'));
+    await tester.pumpAndSettle();
+    await tester.tapAt(
+        tester.getCenter(find.text('Your Spark')) + const Offset(0, -30));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byTooltip('Close Spark viewer'), findsOneWidget,
+        reason: 'Tapping the active Your Spark circle should open the viewer.');
+    expect(find.text('A shared moment'), findsNWidgets(3),
+        reason:
+            'The shared text should appear in the preview and viewer content.');
+    expect(find.text('An older own Spark'), findsNothing,
+        reason: 'The owner viewer starts on the selected current Spark.');
+    await tester.tap(find.byTooltip('Close Spark viewer'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('A contact moment').first);
     // Sparkle particles intentionally animate continuously while a Spark is open.

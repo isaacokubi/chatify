@@ -184,11 +184,13 @@ class _SparkGlitterPainter extends CustomPainter {
 
 class _SparkStatusViewer extends StatefulWidget {
   final List<Map<String, dynamic>> items;
+  final int initialIndex;
   final ValueChanged<Map<String, dynamic>> onViewed;
   final ValueChanged<Map<String, dynamic>> onDelete;
 
   const _SparkStatusViewer({
     required this.items,
+    this.initialIndex = 0,
     required this.onViewed,
     required this.onDelete,
   });
@@ -214,6 +216,9 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   @override
   void initState() {
     super.initState();
+    _index = widget.items.isEmpty
+        ? 0
+        : widget.initialIndex.clamp(0, widget.items.length - 1);
   }
 
   @override
@@ -6673,10 +6678,23 @@ class _HomeState extends State<Home> {
   void _viewSpark(Map<String, dynamic> spark) {
     final isMine = spark['isMine'] == true;
     final authorId = spark['authorId']?.toString();
+    final selectedId = spark['_id']?.toString();
+    final expiresAt = DateTime.tryParse(spark['expiresAt']?.toString() ?? '');
+    if (expiresAt != null && !expiresAt.isAfter(DateTime.now())) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('This Spark has expired.')),
+        );
+      }
+      unawaited(loadSparks());
+      return;
+    }
     final sequence = sparks
         .whereType<Map>()
         .map((raw) => Map<String, dynamic>.from(raw))
         .where((item) {
+      final expiry = DateTime.tryParse(item['expiresAt']?.toString() ?? '');
+      if (expiry != null && !expiry.isAfter(DateTime.now())) return false;
       if (isMine) return item['isMine'] == true;
       return item['isMine'] != true &&
           (authorId == null || authorId.isEmpty
@@ -6684,9 +6702,19 @@ class _HomeState extends State<Home> {
               : item['authorId']?.toString() == authorId);
     }).toList()
       ..sort((a, b) => _sparkCreatedAt(a).compareTo(_sparkCreatedAt(b)));
-    if (!sequence
-        .any((item) => item['_id']?.toString() == spark['_id']?.toString())) {
+    if (!sequence.any((item) => item['_id']?.toString() == selectedId)) {
       sequence.add(spark);
+      sequence.sort((a, b) => _sparkCreatedAt(a).compareTo(_sparkCreatedAt(b)));
+    }
+    final initialIndex = sequence.indexWhere(
+      (item) => item['_id']?.toString() == selectedId,
+    );
+    if (sequence.isEmpty || initialIndex < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This Spark is unavailable.')),
+      );
+      unawaited(loadSparks());
+      return;
     }
     showGeneralDialog<void>(
       context: context,
@@ -6695,6 +6723,7 @@ class _HomeState extends State<Home> {
       transitionDuration: const Duration(milliseconds: 180),
       pageBuilder: (dialogContext, _, __) => _SparkStatusViewer(
         items: sequence,
+        initialIndex: initialIndex,
         onViewed: (item) {
           final id = item['_id']?.toString();
           if (item['isMine'] == true ||
