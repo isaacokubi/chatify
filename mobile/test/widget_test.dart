@@ -684,7 +684,7 @@ void main() {
             ? '{"_id":"student-2","admissionNumber":"A-105","fullName":"Test Page Two","className":"Grade 5","guardianName":"Test Guardian Two","guardianPhone":"0700000002","guardianEmail":"guardian-two@example.test"}'
             : '{"_id":"student-1","admissionNumber":"A-104","fullName":"Amina Otieno","className":"Grade 4","guardianName":"Ruth Otieno","guardianPhone":"0712345678","guardianEmail":"ruth@example.test"}';
         return http.Response(
-          '{"students":[$learner],"total":21}',
+          '{"students":[$learner],"total":51}',
           200,
           headers: {'content-type': 'application/json'},
         );
@@ -715,13 +715,13 @@ void main() {
     expect(find.text('Ruth Otieno'), findsOneWidget);
     expect(find.text('0712345678'), findsOneWidget);
     expect(find.text('ruth@example.test'), findsOneWidget);
-    expect(find.text('Page 1 of 2 · 21 records'), findsOneWidget);
+    expect(find.text('Page 1 of 2 · 51 records'), findsOneWidget);
     await tester.tap(find.byTooltip('Next page'));
     await tester.pumpAndSettle();
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -900));
     await tester.pumpAndSettle();
     expect(requestedPaths,
-        contains('/api/schools/school-1/students?page=2&limit=20'));
+        contains('/api/schools/school-1/students?page=2&limit=50'));
     expect(find.text('Test Page Two'), findsOneWidget);
 
     client.close();
