@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeSchoolPaymentProfile, encryptSchoolSecret, decryptSchoolSecret, resolveSchoolMessageDestination } from './school.js';
+import { normalizeSchoolPaymentProfile, encryptSchoolSecret, decryptSchoolSecret, resolveSchoolMessageDestination, schoolFeeAmountToMinor } from './school.js';
 import { createEmailProvider } from './providers.js';
 
 test('accepts a valid school Paybill profile and removes spaces', () => {
@@ -63,4 +63,15 @@ test('parents and staff can only address messages to their school inbox', () => 
 test('school administrators retain supported direct and announcement destinations', () => {
   assert.deepEqual(resolveSchoolMessageDestination('admin', 'direct', 'school-staff-id'), { audience: 'direct', recipientId: 'school-staff-id' });
   assert.deepEqual(resolveSchoolMessageDestination('admin', 'all_school', undefined), { audience: 'all_school', recipientId: undefined });
+});
+
+test('class fee amounts use integer minor units and reject invalid money text', () => {
+  assert.equal(schoolFeeAmountToMinor('0'), 0);
+  assert.equal(schoolFeeAmountToMinor('125'), 12500);
+  assert.equal(schoolFeeAmountToMinor('125.5'), 12550);
+  assert.equal(schoolFeeAmountToMinor('125.05'), 12505);
+  assert.equal(schoolFeeAmountToMinor('9999999.99'), 999999999);
+  for (const invalid of ['-1', '-0.01', '1.001', '1e3', 'NaN', '', '10000000', '1,200.00', null]) {
+    assert.equal(schoolFeeAmountToMinor(invalid), null, String(invalid));
+  }
 });
