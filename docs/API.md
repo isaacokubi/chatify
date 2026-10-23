@@ -35,3 +35,13 @@ Socket events include `message:new`, `message:read`, `message:reaction`, `messag
 ### Delete conversations from your chat list
 
 `POST /api/conversations/delete` accepts `{ "conversationIds": ["..."] }` for 1–100 conversations in which the authenticated user is a participant. This hides those conversations only for that user; it does not delete the other participants' history or erase stored messages. Hidden conversations are omitted from that user's conversation and message endpoints. A new message restores the conversation to the chat list.
+
+
+## School fee structures and balances
+
+- `GET /api/schools/:schoolId/fee-structures?page=1&limit=100&includeArchived=true` — school admin/staff read versioned class fee templates; archived versions are included only when requested.
+- `POST /api/schools/:schoolId/fee-structures` — school admin creates a version with `{className, academicYear, term, items:[{code?, description, amount}]}`. Amounts are positive whole KSh; the server calculates the total.
+- `POST /api/schools/:schoolId/fee-structures/:structureId/issue` — school admin issues the active template to currently enrolled students who do not already have a charge for that academic year and term. Repeated calls do not overwrite existing charges.
+- `GET /api/schools/:schoolId/fee-balances` — admin/staff see the school's visible student charges; parents are restricted to linked learners. Only `CONFIRMED` payments linked to the same student, academic year and term reduce a balance.
+
+A fee structure edit archives the previous template and creates a new version. Issued `SchoolStudentCharge` snapshots remain unchanged. If a school has any active fee structures, a new parent payment request must match an active class/term structure and an issued student charge; amounts above the outstanding balance are rejected. Existing payment and receipt routes continue to use the current confirmation state machine; initiating an STK prompt does not count as payment.
