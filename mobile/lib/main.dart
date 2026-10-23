@@ -5793,12 +5793,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Widget field(TextEditingController c, String label,
-          {String? hint, TextInputType? keyboard}) =>
+          {String? hint, TextInputType? keyboard, int maxLines = 1}) =>
       Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: TextField(
               controller: c,
               keyboardType: keyboard,
+              maxLines: maxLines,
               decoration: InputDecoration(
                   labelText: label,
                   hintText: hint,
