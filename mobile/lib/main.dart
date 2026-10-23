@@ -2005,7 +2005,6 @@ class AppState extends ChangeNotifier {
       if (senderId != null && senderId.isNotEmpty && senderId != currentId) {
         // One short platform alert for incoming messages, not outgoing messages.
         unawaited(SystemSound.play(SystemSoundType.alert).catchError((_) {}));
-        unawaited(SystemSound.play(SystemSoundType.alert));
       }
     });
     _presenceSocket!.on('presence:initial', (data) {
