@@ -4684,6 +4684,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   void _selectSchool(Map<String, dynamic> s) {
     schoolId = s['id']?.toString();
+    // A previous school's class/search filters must never leak into another workspace.
+    schoolSearchQuery = '';
+    schoolClassFilter = 'all';
     role = s['role']?.toString();
     isOwner = s['isOwner'] == true;
     schoolCode.text = (s['code'] ?? '').toString();
