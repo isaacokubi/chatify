@@ -158,7 +158,11 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     chargeId: { type: O, ref: 'SchoolStudentCharge', index: true },
     amount: { type: Number, required: true, min: 1, max: 150000 },
     term: { type: String, required: true, trim: true, maxlength: 80 },
-    status: { type: String, enum: ['PENDING_STK','PENDING_VERIFICATION','CONFIRMED','FAILED','CANCELLED','REJECTED'], default: 'PENDING_VERIFICATION', index: true },
+    status: { type: String, enum: ['PENDING_STK','PENDING_VERIFICATION','CONFIRMED','FAILED','CANCELLED','REJECTED','REVERSED'], default: 'PENDING_VERIFICATION', index: true },
+    reversedAt: Date,
+    reversedBy: O,
+    reversalReference: { type: String, trim: true, uppercase: true, maxlength: 40 },
+    reversalReason: { type: String, trim: true, maxlength: 500 },
     paymentMethod: { type: String, enum: ['mpesa_paybill','mpesa_till','mpesa_send_money','bank'] },
     destinationNumber: { type: String, trim: true },
     payerPhone: { type: String, trim: true },
@@ -174,6 +178,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   }, { timestamps: true }));
   FeePayment.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
   FeePayment.schema.index({ checkoutRequestId: 1, merchantRequestId: 1 }, { unique: true, sparse: true });
+  FeePayment.schema.index({ schoolId: 1, reversalReference: 1 }, { unique: true, partialFilterExpression: { reversalReference: { $type: 'string' } } });
 
   // Fee structures are versioned templates. Issued student charges copy the item
   // list and total so a later edit cannot silently rewrite historical liabilities.
@@ -904,7 +909,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           schoolId: req.params.schoolId, className: registeredStudent.className, term, status: 'ACTIVE',
           ...(requestedAcademicYear ? { academicYear: requestedAcademicYear } : {}),
         };
-        const structure = await SchoolFeeStructure.findOne(structureFilter).sort({ version: -1 }).lean();
+        const structure = await SchoolFeeStructure.findOne(structureFilter).sort({ academicYear: -1, version: -1 }).lean();
         if (!structure) return res.status(409).json({ error: 'No active fee structure is configured for this student’s class and term. Ask the school administrator to configure it first.' });
         const charge = await SchoolStudentCharge.findOne({
           schoolId: req.params.schoolId, studentId: registeredStudent._id,
@@ -1005,6 +1010,42 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         darajaConfigured: Boolean(profile?.darajaConfiguredAt),
       };
       return res.json({ payments: paymentsWithGuardians, paymentOptions, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  // Record a manually verified reversal without deleting the original payment or receipt metadata.
+  // This route does not query Safaricom automatically; the reversal must be reconciled first.
+  app.post('/api/schools/:schoolId/fees/:paymentReference/reverse', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const reversalReference = String(req.body?.reversalReference || '').trim().toUpperCase();
+      const reversalReason = String(req.body?.reason || '').trim();
+      if (!/^[A-Z0-9/-]{4,40}$/.test(reversalReference) || reversalReason.length < 5 || reversalReason.length > 500) {
+        return res.status(400).json({ error: 'Enter the verified reversal reference and a reason of 5–500 characters.' });
+      }
+      const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference });
+      if (!payment) return res.status(404).json({ error: 'Fee record not found' });
+      if (payment.status === 'REVERSED') {
+        if (payment.reversalReference === reversalReference) return res.json({ payment, duplicate: true });
+        return res.status(409).json({ error: 'This payment was already reversed with a different reference.' });
+      }
+      if (payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Only a confirmed payment can be marked reversed.' });
+      let reversed;
+      try {
+        reversed = await FeePayment.findOneAndUpdate(
+          { _id: payment._id, status: 'CONFIRMED' },
+          { $set: { status: 'REVERSED', reversedAt: new Date(), reversedBy: req.user._id, reversalReference, reversalReason } },
+          { new: true, runValidators: true },
+        );
+      } catch (error) {
+        if (error?.code === 11000) return res.status(409).json({ error: 'This reversal reference has already been recorded for another payment at this school.' });
+        throw error;
+      }
+      if (!reversed) {
+        const latest = await FeePayment.findById(payment._id);
+        if (latest?.status === 'REVERSED' && latest.reversalReference === reversalReference) return res.json({ payment: latest, duplicate: true });
+        return res.status(409).json({ error: 'Payment state changed while recording the reversal. Refresh and reconcile again.' });
+      }
+      return res.json({ payment: reversed, note: 'Reversal recorded. The payment no longer reduces the student balance; original receipt/payment metadata is retained for audit.' });
     } catch (error) { return next(error); }
   });
 
