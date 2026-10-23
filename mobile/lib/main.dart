@@ -5398,7 +5398,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final dateText = conferenceDate.text.trim();
       final startText = conferenceStartTime.text.trim();
       final endText = conferenceEndTime.text.trim();
-      if (role != 'admin' || messageBody.text.trim().isNotEmpty ||
+      if (role != 'admin' ||
           conferenceTitle.text.trim().isEmpty || conferenceAgenda.text.trim().isEmpty ||
           !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dateText) ||
           !RegExp(r'^\d{2}:\d{2}$').hasMatch(startText) ||
@@ -6391,7 +6391,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     title: const Text('Schedule a school conference/event'),
                     subtitle: const Text('Publish it inside Messages with date, time and location.'),
                     value: scheduleSchoolEvent,
-                    onChanged: (value) => setState(() => scheduleSchoolEvent = value),
+                    onChanged: (value) => setState(() {
+                      scheduleSchoolEvent = value;
+                      if (value && audience == 'direct') audience = 'all_parents';
+                    }),
                   ),
                 if (scheduleSchoolEvent && role == 'admin') ...[
                   field(conferenceTitle, 'Event / conference title'),
