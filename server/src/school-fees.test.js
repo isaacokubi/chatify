@@ -7,13 +7,13 @@ test('normalizes a class-specific fee structure and sums multiple items exactly'
     className: ' Grade 4 ', academicYear: '2027', term: 'Term 1',
     items: [
       {description: 'Tuition', amount: 12000},
-      {code: 'TRANSPORT', description: 'Transport', amount: 2500},
+      {description: 'Transport & activities', amount: 2500},
     ],
   }), {
     className: 'Grade 4', academicYear: '2027', term: 'Term 1',
     items: [
       {code: 'TUITION', description: 'Tuition', amount: 12000},
-      {code: 'TRANSPORT', description: 'Transport', amount: 2500},
+      {code: 'TRANSPORT_ACTIVITIES', description: 'Transport & activities', amount: 2500},
     ],
     totalAmount: 14500,
   });
