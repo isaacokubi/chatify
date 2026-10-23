@@ -4507,6 +4507,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       attendance = [],
       assessments = [],
       schoolVerificationRequests = [];
+  List<dynamic> feeStructures = [];
+  int? editingFeeStructureVersion;
   Map<String, dynamic> feePaymentOptions = {};
   String feeStudentName = '';
   String parentFeePaymentMethod = '';
@@ -4539,6 +4541,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       till = TextEditingController(),
       bank = TextEditingController(),
       account = TextEditingController();
+  final feeClassName = TextEditingController(),
+      feeAcademicYear = TextEditingController(text: DateTime.now().year.toString()),
+      feeStructureTerm = TextEditingController(text: 'Term 1'),
+      feeStructureItems = TextEditingController();
   final darajaConsumerKey = TextEditingController(),
       darajaConsumerSecret = TextEditingController(),
       darajaPasskey = TextEditingController();
@@ -4607,6 +4613,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       till,
       bank,
       account,
+      feeClassName,
+      feeAcademicYear,
+      feeStructureTerm,
+      feeStructureItems,
       darajaConsumerKey,
       darajaConsumerSecret,
       darajaPasskey,
@@ -4799,7 +4809,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
     final pageQuery = '?page=$recordPage&limit=$_recordPageSize';
     try {
-      if (section == 0) {
+      if (section == 9) {
+        final r = await app.api.call('GET', '/api/schools/$id/fee-structures$pageQuery');
+        feeStructures = List<dynamic>.from(r['feeStructures'] ?? []);
+        recordTotal = (r['total'] as num?)?.toInt() ?? feeStructures.length;
+      } else if (section == 0) {
         final r =
             await app.api.call('GET', '/api/schools/$id/messages$pageQuery');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
@@ -5623,6 +5637,55 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
+  Future<void> saveFeeStructure() async {
+    final id = schoolId;
+    if (id == null || role != 'admin' || !isOwner) return;
+    final className = feeClassName.text.trim();
+    final academicYear = feeAcademicYear.text.trim();
+    final term = feeStructureTerm.text.trim();
+    final items = <Map<String, dynamic>>[];
+    for (final line in feeStructureItems.text.split(RegExp(r'\r?\n'))) {
+      if (line.trim().isEmpty) continue;
+      final parts = line.split('|');
+      if (parts.length != 3) {
+        throw Exception('Each fee item must be code | description | amount, one item per line.');
+      }
+      items.add({'code': parts[0].trim(), 'description': parts[1].trim(),
+        'amount': parts[2].trim(), 'active': true});
+    }
+    if (className.isEmpty || academicYear.isEmpty || term.isEmpty || items.isEmpty) {
+      throw Exception('Enter class, academic year, term and at least one fee item.');
+    }
+    await _action(() async {
+      final body = <String, dynamic>{
+        'className': className, 'academicYear': academicYear, 'term': term, 'items': items,
+        if (editingFeeStructureVersion != null) 'expectedVersion': editingFeeStructureVersion,
+      };
+      final result = await app.api.call('PUT', '/api/schools/$id/fee-structures', body);
+      final saved = Map<String, dynamic>.from(result['feeStructure'] ?? {});
+      feeClassName.text = (saved['className'] ?? className).toString();
+      feeAcademicYear.text = (saved['academicYear'] ?? academicYear).toString();
+      feeStructureTerm.text = (saved['term'] ?? term).toString();
+      feeStructureItems.text = (saved['items'] as List? ?? const []).whereType<Map>()
+          .map((item) => '${item['code']} | ${item['description']} | ${item['amount']}').join('\n');
+      editingFeeStructureVersion = (saved['version'] as num?)?.toInt();
+      await loadSection();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result['message']?.toString() ?? 'Fee structure saved.')));
+    });
+  }
+
+  void editFeeStructure(Map<String, dynamic> structure) {
+    setState(() {
+      feeClassName.text = (structure['className'] ?? '').toString();
+      feeAcademicYear.text = (structure['academicYear'] ?? '').toString();
+      feeStructureTerm.text = (structure['term'] ?? '').toString();
+      feeStructureItems.text = (structure['items'] as List? ?? const []).whereType<Map>()
+          .map((item) => '${item['code']} | ${item['description']} | ${item['amount']}').join('\n');
+      editingFeeStructureVersion = (structure['version'] as num?)?.toInt();
+    });
+  }
+
   Future<void> saveAttendance() async {
     final id = schoolId;
     if (id == null || attendanceStudentId.isEmpty) return;
@@ -5984,6 +6047,18 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       onSelected: (_) {
                         setState(() => section = 4);
                       }),
+                if (isAdmin)
+                  ChoiceChip(
+                      label: const Text('Fee structures'),
+                      selected: section == 9,
+                      onSelected: (_) {
+                        setState(() {
+                          section = 9;
+                          recordPage = 1;
+                          editingFeeStructureVersion = null;
+                        });
+                        loadSection();
+                      }),
                 ChoiceChip(
                     label: const Text('Students'),
                     selected: section == 5,
@@ -6025,6 +6100,49 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 Text(error!,
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error)),
+              if (section == 9 && isAdmin) ...[
+                const Text(
+                  'Configure class fees for an academic year and term. Enter one item per line as code | description | amount. Editing saves a new version and does not rewrite existing payments or receipts.',
+                  style: TextStyle(fontSize: 13)),
+                const SizedBox(height: 12),
+                field(feeClassName, 'Class / grade'),
+                field(feeAcademicYear, 'Academic year', hint: '2026'),
+                field(feeStructureTerm, 'Term / fee period', hint: 'Term 1'),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: TextField(
+                    controller: feeStructureItems, minLines: 3, maxLines: 8,
+                    decoration: const InputDecoration(
+                      labelText: 'Fee items (one per line)',
+                      hintText: 'tuition | Tuition fee | 12000.00\nactivity | Activity fee | 1500.00',
+                      border: OutlineInputBorder()))),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  FilledButton.icon(onPressed: () => saveFeeStructure(),
+                    icon: const Icon(Icons.save_outlined), label: const Text('Save fee structure')),
+                  OutlinedButton(onPressed: () => setState(() {
+                    feeClassName.clear(); feeStructureItems.clear();
+                    editingFeeStructureVersion = null;
+                  }), child: const Text('New structure')),
+                ]),
+                const SizedBox(height: 14),
+                if (feeStructures.isEmpty && !loading)
+                  const Text('No fee structures configured for this school yet.'),
+                ...feeStructures.whereType<Map>().map((raw) {
+                  final item = Map<String, dynamic>.from(raw);
+                  final entries = (item['items'] as List? ?? const []).whereType<Map>()
+                    .map((fee) => '${fee['description']}: KES ${fee['amount']}${fee['active'] == false ? ' (inactive)' : ''}')
+                    .join(' • ');
+                  return Card(child: ListTile(
+                    leading: Icon(item['status'] == 'ACTIVE'
+                      ? Icons.receipt_long_outlined : Icons.warning_amber_outlined),
+                    title: Text('${item['className']} • ${item['academicYear']} • ${item['term']}'),
+                    subtitle: Text('Version ${item['version']} • ${item['status']}\n$entries'),
+                    isThreeLine: true,
+                    trailing: IconButton(tooltip: 'Edit fee structure',
+                      icon: const Icon(Icons.edit_outlined), onPressed: () => editFeeStructure(item))));
+                }),
+                _schoolPager(),
+              ],
               if (section == 0) ...[
                 if (role == 'parent' || role == 'staff')
                   const Padding(
