@@ -285,6 +285,7 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   int _index = 0;
   bool _paused = false;
   bool _mediaError = false;
+  bool _initialLoadStarted = false;
 
   Map<String, dynamic> get _item => widget.items[_index];
 
@@ -294,12 +295,18 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
     _index = widget.items.isEmpty
         ? 0
         : widget.initialIndex.clamp(0, widget.items.length - 1);
-    // Start media loading after the first frame so inherited media settings are
-    // available and video initialization is not dependent on a later dependency
-    // change being delivered by the dialog route.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_loadItem());
-    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The dialog's inherited MediaQuery is available here. Start exactly once
+    // when the viewer is attached to its route instead of relying on a queued
+    // post-frame callback during route transitions.
+    if (!_initialLoadStarted) {
+      _initialLoadStarted = true;
+      unawaited(_loadItem());
+    }
   }
 
   void _onProgressStatus(AnimationStatus status) {
