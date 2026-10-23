@@ -5115,8 +5115,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     return options;
   }
 
-  // ignore: unused_element
   // Keep billing UI implementation available for a future compact settings screen while hiding the large banner.
+  // ignore: unused_element
   Widget _schoolBillingCard() {
     final prices = schoolBilling['prices'] is Map
         ? Map<String, dynamic>.from(schoolBilling['prices'] as Map)
