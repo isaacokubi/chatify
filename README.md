@@ -1,5 +1,7 @@
 # Chatify — Chat. Remember. Let Go.
 
+> **Recovery verification status (2026-10-23):** The recovery merge is still in progress on `recovery/merge-school-improvements-20261023`. Latest local verification: backend 208 tests passed; Flutter 30 tests passed serially; backend syntax checks passed; Flutter analysis passed with informational lints. Business workspace billing UI and its requests have been removed; platform and School billing APIs remain. See the [reconciliation audit](docs/RECONCILIATION_AUDIT_2026-10-23.md) for scope, limitations, and outstanding acceptance gates. No push or deployment was performed.
+
 Chatify is a final-year-project mobile communication system built around real-time **Chat**, structured conversational **Memory**, and configurable message **Expiration**.
 
 ## Platform administrator

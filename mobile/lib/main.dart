@@ -20,23 +20,211 @@ import 'security/chatify_e2ee.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:video_player/video_player.dart';
 
 // Swipe gestures are reserved for compact Android/iOS layouts. Laptop and desktop
 // users receive explicit delete buttons that work with a mouse or trackpad.
 bool _useSwipeToDelete(BuildContext context) {
   final platform = Theme.of(context).platform;
-  return (platform == TargetPlatform.android || platform == TargetPlatform.iOS) &&
+  return (platform == TargetPlatform.android ||
+          platform == TargetPlatform.iOS) &&
       MediaQuery.sizeOf(context).shortestSide < 600;
 }
 
-// School workspace uses the shared authenticated API and URL launcher.
+class _SparkVideoThumbnail extends StatefulWidget {
+  final String url;
+  const _SparkVideoThumbnail({required this.url});
 
+  @override
+  State<_SparkVideoThumbnail> createState() => _SparkVideoThumbnailState();
+}
+
+class _SparkVideoThumbnailState extends State<_SparkVideoThumbnail> {
+  VideoPlayerController? _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _controller = controller;
+    controller.initialize().then((_) {
+      if (mounted) setState(() {});
+    }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const Center(child: Icon(Icons.videocam_outlined));
+    }
+    final ratio = controller.value.aspectRatio;
+    return FittedBox(
+      fit: BoxFit.cover,
+      child: SizedBox(
+        width: ratio > 0 ? 50 * ratio : 50,
+        height: 50,
+        child: VideoPlayer(controller),
+      ),
+    );
+  }
+}
+
+class _SparkGlitter extends StatefulWidget {
+  final Color color;
+  final bool animate;
+
+  const _SparkGlitter({super.key, required this.color, required this.animate});
+
+  @override
+  State<_SparkGlitter> createState() => _SparkGlitterState();
+}
+
+class _SparkGlitterState extends State<_SparkGlitter>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.animate) {
+      _controller.repeat();
+    } else {
+      _controller.value = .25;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _SparkGlitter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.animate == oldWidget.animate) return;
+    if (widget.animate) {
+      _controller.repeat();
+    } else {
+      _controller.stop();
+      _controller.value = .25;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+        painter: _SparkGlitterPainter(
+          progress: _controller.value,
+          color: widget.color,
+        ),
+        child: const SizedBox.expand(),
+      );
+}
+
+class _SparkGlitterPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  static const _stars = <(double, double, double, double)>[
+    (.08, .12, 5, .0),
+    (.34, .05, 3, .4),
+    (.83, .08, 5, .2),
+    (.96, .31, 3, .7),
+    (.93, .79, 5, .3),
+    (.72, .96, 3, .8),
+    (.26, .95, 5, .5),
+    (.05, .71, 3, .1),
+    (.04, .42, 4, .6),
+  ];
+
+  const _SparkGlitterPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final (x, y, radius, phase) in _stars) {
+      final twinkle =
+          .25 + .5 * (0.5 + .5 * math.sin((progress + phase) * math.pi * 2));
+      final paint = Paint()..color = color.withValues(alpha: twinkle);
+      final center = Offset(size.width * x, size.height * y);
+      final path = Path()
+        ..moveTo(center.dx, center.dy - radius)
+        ..lineTo(center.dx + radius * .24, center.dy - radius * .24)
+        ..lineTo(center.dx + radius, center.dy)
+        ..lineTo(center.dx + radius * .24, center.dy + radius * .24)
+        ..lineTo(center.dx, center.dy + radius)
+        ..lineTo(center.dx - radius * .24, center.dy + radius * .24)
+        ..lineTo(center.dx - radius, center.dy)
+        ..lineTo(center.dx - radius * .24, center.dy - radius * .24)
+        ..close();
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparkGlitterPainter oldDelegate) =>
+      progress != oldDelegate.progress || color != oldDelegate.color;
+}
+
+class _CreateSparkTextDialog extends StatefulWidget {
+  const _CreateSparkTextDialog();
+
+  @override
+  State<_CreateSparkTextDialog> createState() => _CreateSparkTextDialogState();
+}
+
+class _CreateSparkTextDialogState extends State<_CreateSparkTextDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Create a Spark'),
+        content: TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLength: 500,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'What would you like to share?',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _controller.text.trim()),
+            child: const Text('Share Spark'),
+          ),
+        ],
+      );
+}
+
+// School workspace uses the shared authenticated API and URL launcher.
 
 // Displays remote images from a small persistent cache first, so previously
 // viewed profile, catalogue and attachment images remain available offline.
@@ -169,7 +357,8 @@ class _OfflineCachedImageState extends State<OfflineCachedImage> {
       );
     }
     if (_failed && widget.errorBuilder != null) {
-      return widget.errorBuilder!(context, StateError('Image unavailable'), StackTrace.current);
+      return widget.errorBuilder!(
+          context, StateError('Image unavailable'), StackTrace.current);
     }
     return SizedBox(
       width: widget.width,
@@ -190,10 +379,17 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
       .replaceAll('(', r'\(')
       .replaceAll(')', r'\)');
 
-  final reference = payment['paymentReference'] ?? payment['reference'] ?? 'N/A';
+  final reference =
+      payment['paymentReference'] ?? payment['reference'] ?? 'N/A';
   final amount = payment['amount'] ?? payment['amountPaid'] ?? 'N/A';
-  final school = payment['schoolName'] ?? (payment['school'] is Map ? payment['school']['name'] : null) ?? 'School';
-  final paidAt = payment['paidAt'] ?? payment['confirmedAt'] ?? payment['updatedAt'] ?? payment['createdAt'] ?? DateTime.now().toIso8601String();
+  final school = payment['schoolName'] ??
+      (payment['school'] is Map ? payment['school']['name'] : null) ??
+      'School';
+  final paidAt = payment['paidAt'] ??
+      payment['confirmedAt'] ??
+      payment['updatedAt'] ??
+      payment['createdAt'] ??
+      DateTime.now().toIso8601String();
   final method = payment['paymentMethod'] ?? payment['method'];
   final lines = <String>[
     'CHATIFY - SCHOOL FEE RECEIPT',
@@ -215,7 +411,10 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
 
   final wrapped = <String>[];
   for (final line in lines) {
-    if (line.isEmpty) { wrapped.add(''); continue; }
+    if (line.isEmpty) {
+      wrapped.add('');
+      continue;
+    }
     var remaining = line;
     while (remaining.length > 78) {
       var cut = remaining.lastIndexOf(' ', 78);
@@ -238,7 +437,11 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
-    '<< /Length ' + utf8.encode(stream).length.toString() + ' >>\nstream\n' + stream + 'endstream',
+    '<< /Length ' +
+        utf8.encode(stream).length.toString() +
+        ' >>\nstream\n' +
+        stream +
+        'endstream',
   ];
   final output = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[0];
@@ -252,7 +455,11 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
   for (var i = 1; i < offsets.length; i++) {
     output.write(offsets[i].toString().padLeft(10, '0') + ' 00000 n \n');
   }
-  output.write('trailer\n<< /Size ' + (objects.length + 1).toString() + ' /Root 1 0 R >>\nstartxref\n' + xrefOffset.toString() + '\n%%EOF\n');
+  output.write('trailer\n<< /Size ' +
+      (objects.length + 1).toString() +
+      ' /Root 1 0 R >>\nstartxref\n' +
+      xrefOffset.toString() +
+      '\n%%EOF\n');
   return Uint8List.fromList(utf8.encode(output.toString()));
 }
 
@@ -268,7 +475,11 @@ class ApiException implements Exception {
 class Api {
   static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
   final http.Client client;
-  Api({http.Client? client}) : client = client ?? http.Client();
+  final DateTime Function() _now;
+  Api({http.Client? client, DateTime Function()? now})
+      : client = client ?? http.Client(),
+        _now = now ?? DateTime.now;
+  static const Duration _cachedResponseLifetime = Duration(days: 7);
   String get base => const String.fromEnvironment('CHATIFY_API',
       defaultValue: 'https://chatify-api-c1eh.onrender.com');
   String? token;
@@ -282,7 +493,27 @@ class Api {
   // Coalesce simultaneous identical GETs (for example multiple widgets loading
   // the same profile/conversation) into one network request.
   final Map<String, Future<Map<String, dynamic>>> _inFlightGets = {};
+  // Secure storage exposes whole-value writes, so serialize read/modify/write
+  // operations for each account and conversation to avoid losing concurrent
+  // queued messages.
+  final Map<String, Future<void>> _outboxOperations = {};
 
+  Future<T> _withOutboxLock<T>(
+      String key, Future<T> Function() operation) async {
+    final previous = _outboxOperations[key] ?? Future<void>.value();
+    final release = Completer<void>();
+    final current = previous.then((_) => release.future);
+    _outboxOperations[key] = current;
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release.complete();
+      if (identical(_outboxOperations[key], current)) {
+        _outboxOperations.remove(key);
+      }
+    }
+  }
 
   String _stableCacheHash(String value) {
     var hash = 2166136261;
@@ -316,8 +547,8 @@ class Api {
     return _stableCacheHash(currentToken);
   }
 
-  String _cacheKey(String path) =>
-      'chatify_offline_v1_${_cacheScope()}_${Uri.encodeComponent(path)}';
+  String _cacheKey(String path, {String? accountScope}) =>
+      'chatify_offline_v1_${accountScope ?? _cacheScope()}_${Uri.encodeComponent(path)}';
 
   // Private API and conversation caches may contain personal messages and records.
   // Migrate old plaintext preference entries only when secure storage accepts the
@@ -366,31 +597,74 @@ class Api {
     } catch (_) {}
   }
 
-  Future<Map<String, dynamic>?> _readCachedResponse(String path) async {
+  Future<Map<String, dynamic>?> _readCachedResponse(String path,
+      {String? accountScope}) async {
     if (token == null || token!.isEmpty) return null;
     try {
-      final cached = await _readPrivateCacheValue(_cacheKey(path));
+      final key = _cacheKey(path, accountScope: accountScope);
+      final cached = await _readPrivateCacheValue(key);
       if (cached == null || cached.isEmpty) return null;
       final decoded = jsonDecode(cached);
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      if (decoded is! Map ||
+          decoded['_chatifyCacheExpiresAt'] is! String ||
+          decoded['data'] is! Map) {
+        // Older cache entries had no expiry metadata. Drop them once so they
+        // cannot become an indefinitely stale fallback after an upgrade.
+        await _secureStorage.delete(key: key);
+        return null;
+      }
+      final expiresAt = DateTime.tryParse(
+          decoded['_chatifyCacheExpiresAt']?.toString() ?? '');
+      if (expiresAt == null || !_now().isBefore(expiresAt)) {
+        await _secureStorage.delete(key: key);
+        return null;
+      }
+      return Map<String, dynamic>.from(decoded['data'] as Map);
     } catch (_) {
       // A corrupt cache must never break the app.
     }
     return null;
   }
 
-  Future<void> _writeCachedResponse(
-      String path, Map<String, dynamic> response) async {
+  Future<void> _writeCachedResponse(String path, Map<String, dynamic> response,
+      {String? accountScope}) async {
     if (token == null || token!.isEmpty) return;
     try {
-      final encoded = jsonEncode(response);
+      final cachedAt = _now().toUtc();
+      final encoded = jsonEncode({
+        '_chatifyCacheCreatedAt': cachedAt.toIso8601String(),
+        '_chatifyCacheExpiresAt':
+            cachedAt.add(_cachedResponseLifetime).toIso8601String(),
+        'data': response,
+      });
       // Keep individual entries bounded so large histories do not exhaust
       // secure storage or make a small device unresponsive.
       if (encoded.length > 700000) return;
-      await _writePrivateCacheValue(_cacheKey(path), encoded);
+      await _writePrivateCacheValue(
+          _cacheKey(path, accountScope: accountScope), encoded);
     } catch (_) {
       // Caching is best-effort and must never break a successful API request.
     }
+  }
+
+  Future<void> _invalidateCachedResponses({String? accountScope}) async {
+    final prefix = 'chatify_offline_v1_${accountScope ?? _cacheScope()}_';
+    try {
+      final secureValues = await _secureStorage.readAll();
+      for (final key
+          in secureValues.keys.where((key) => key.startsWith(prefix))) {
+        await _secureStorage.delete(key: key);
+      }
+    } catch (_) {
+      // Invalidation is best-effort; the mutation result must remain visible.
+    }
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      for (final key
+          in preferences.getKeys().where((key) => key.startsWith(prefix))) {
+        await preferences.remove(key);
+      }
+    } catch (_) {}
   }
 
   String _conversationSnapshotKey(String conversationId) =>
@@ -399,16 +673,19 @@ class Api {
   String _conversationMetadataKey(String conversationId) =>
       'chatify_secure_conversation_v1_${_cacheScope()}_${_stableCacheHash(conversationId)}';
 
-  String _outgoingMessageOutboxKey(String conversationId) =>
-      'chatify_secure_outbox_v1_${_cacheScope()}_${_stableCacheHash(conversationId)}';
+  String _outgoingMessageOutboxKey(String conversationId,
+          {String? accountScope}) =>
+      'chatify_secure_outbox_v1_${accountScope ?? _cacheScope()}_${_stableCacheHash(conversationId)}';
 
   // The outbox contains encrypted envelopes and retry metadata only. Never
   // fall back to plaintext preferences if secure storage is unavailable.
   Future<List<Map<String, dynamic>>> readOutgoingMessageOutbox(
-      String conversationId) async {
+      String conversationId,
+      {String? accountScope}) async {
     if (token == null || token!.isEmpty) return [];
     final encoded = await _secureStorage.read(
-        key: _outgoingMessageOutboxKey(conversationId));
+        key: _outgoingMessageOutboxKey(conversationId,
+            accountScope: accountScope));
     if (encoded == null || encoded.isEmpty) return [];
     final decoded = jsonDecode(encoded);
     if (decoded is! List) {
@@ -417,8 +694,8 @@ class Api {
     return decoded
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
-        .where((item) =>
-            item['clientMutationId'] is String && item['body'] is Map)
+        .where(
+            (item) => item['clientMutationId'] is String && item['body'] is Map)
         .toList();
   }
 
@@ -429,38 +706,53 @@ class Api {
     }
     final mutationId = item['clientMutationId']?.toString() ?? '';
     if (mutationId.length < 16 || mutationId.length > 100) {
-      throw ArgumentError('A stable message ID is required for offline queuing.');
+      throw ArgumentError(
+          'A stable message ID is required for offline queuing.');
     }
-    final queued = await readOutgoingMessageOutbox(conversationId);
-    if (queued.any((entry) => entry['clientMutationId'] == mutationId)) return;
-    if (queued.length >= 50) {
-      throw StateError('The secure outgoing queue is full. Connect and send queued messages before adding more.');
-    }
-    queued.add(item);
-    final encoded = jsonEncode(queued);
-    if (encoded.length > 700000) {
-      throw StateError('The secure outgoing queue is full. Connect and send queued messages before adding more.');
-    }
-    await _secureStorage.write(
-        key: _outgoingMessageOutboxKey(conversationId), value: encoded);
+    final accountScope = _cacheScope();
+    final key =
+        _outgoingMessageOutboxKey(conversationId, accountScope: accountScope);
+    await _withOutboxLock(key, () async {
+      final queued = await readOutgoingMessageOutbox(conversationId,
+          accountScope: accountScope);
+      if (queued.any((entry) => entry['clientMutationId'] == mutationId))
+        return;
+      if (queued.length >= 50) {
+        throw StateError(
+            'The secure outgoing queue is full. Connect and send queued messages before adding more.');
+      }
+      queued.add(item);
+      final encoded = jsonEncode(queued);
+      if (encoded.length > 700000) {
+        throw StateError(
+            'The secure outgoing queue is full. Connect and send queued messages before adding more.');
+      }
+      await _secureStorage.write(key: key, value: encoded);
+    });
   }
 
   Future<void> removeOutgoingMessageFromOutbox(
-      String conversationId, String mutationId) async {
-    final key = _outgoingMessageOutboxKey(conversationId);
-    final queued = await readOutgoingMessageOutbox(conversationId);
-    queued.removeWhere((item) => item['clientMutationId'] == mutationId);
-    if (queued.isEmpty) {
-      await _secureStorage.delete(key: key);
-    } else {
-      await _secureStorage.write(key: key, value: jsonEncode(queued));
-    }
+      String conversationId, String mutationId,
+      {String? accountScope}) async {
+    final scope = accountScope ?? _cacheScope();
+    final key = _outgoingMessageOutboxKey(conversationId, accountScope: scope);
+    await _withOutboxLock(key, () async {
+      final queued =
+          await readOutgoingMessageOutbox(conversationId, accountScope: scope);
+      queued.removeWhere((item) => item['clientMutationId'] == mutationId);
+      if (queued.isEmpty) {
+        await _secureStorage.delete(key: key);
+      } else {
+        await _secureStorage.write(key: key, value: jsonEncode(queued));
+      }
+    });
   }
 
   Future<Map<String, dynamic>?> readConversationMetadata(
       String conversationId) async {
     try {
-      final encoded = await _readPrivateCacheValue(_conversationMetadataKey(conversationId));
+      final encoded = await _readPrivateCacheValue(
+          _conversationMetadataKey(conversationId));
       if (encoded == null || encoded.isEmpty) return null;
       final decoded = jsonDecode(encoded);
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
@@ -475,7 +767,8 @@ class Api {
     try {
       final encoded = jsonEncode(conversation);
       if (encoded.length <= 200000) {
-        await _writePrivateCacheValue(_conversationMetadataKey(conversationId), encoded);
+        await _writePrivateCacheValue(
+            _conversationMetadataKey(conversationId), encoded);
       }
     } catch (_) {
       // Do not let local cache failures affect normal messaging.
@@ -484,7 +777,8 @@ class Api {
 
   Future<List<dynamic>?> readConversationSnapshot(String conversationId) async {
     try {
-      final encoded = await _readPrivateCacheValue(_conversationSnapshotKey(conversationId));
+      final encoded = await _readPrivateCacheValue(
+          _conversationSnapshotKey(conversationId));
       if (encoded == null || encoded.isEmpty) return null;
       final decoded = jsonDecode(encoded);
       if (decoded is List) return List<dynamic>.from(decoded);
@@ -503,7 +797,8 @@ class Api {
           : messages;
       final value = jsonEncode(bounded);
       if (value.length > 900000) return;
-      await _writePrivateCacheValue(_conversationSnapshotKey(conversationId), value);
+      await _writePrivateCacheValue(
+          _conversationSnapshotKey(conversationId), value);
     } catch (_) {
       // Local persistence is best-effort and must not interrupt chat delivery.
     }
@@ -531,6 +826,7 @@ class Api {
       }
     }
   }
+
   Future<void> saveToken(String value) async {
     token = value;
     var secureWriteSucceeded = false;
@@ -542,6 +838,7 @@ class Api {
       await (await SharedPreferences.getInstance()).setString('token', value);
     }
   }
+
   Future<void> clearToken() async {
     token = null;
     try {
@@ -552,29 +849,42 @@ class Api {
 
   Future<Map<String, dynamic>> call(String method, String path,
       [Map<String, dynamic>? body]) {
-    if (method != 'GET') return _callUncoalesced(method, path, body);
-    final key = '${_cacheScope()}|$path';
+    final accountScope = _cacheScope();
+    if (method != 'GET') {
+      return _callUncoalesced(method, path, body, accountScope: accountScope);
+    }
+    final key = '$accountScope|$path';
     final existing = _inFlightGets[key];
     if (existing != null) return existing;
-    final request = _callUncoalesced(method, path, body);
+    final request =
+        _callUncoalesced(method, path, body, accountScope: accountScope);
     _inFlightGets[key] = request;
     return request.whenComplete(() {
       if (identical(_inFlightGets[key], request)) _inFlightGets.remove(key);
     });
   }
 
-  Future<Map<String, dynamic>> _callUncoalesced(String method, String path,
-      [Map<String, dynamic>? body]) async {
+  /// GET a resource, returning null only when the request fails and no secure
+  /// account-scoped cached response is available.
+  Future<Map<String, dynamic>?> cachedGet(String path) =>
+      _readCachedResponse(path);
+
+  Future<Map<String, dynamic>> _callUncoalesced(
+      String method, String path, Map<String, dynamic>? body,
+      {String? accountScope}) async {
+    final scope = accountScope ?? _cacheScope();
+    final requestToken = token;
     final h = {
       'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token'
+      if (requestToken != null) 'Authorization': 'Bearer $requestToken'
     };
     final u = Uri.parse('$base$path');
     // Check whether a previous response is available before waiting on the
     // network. A cached signed-in user should not wait through long API cold-start
     // timeouts just to open their saved chats while offline.
-    final cachedBeforeRequest =
-        method == 'GET' ? await _readCachedResponse(path) : null;
+    final cachedBeforeRequest = method == 'GET'
+        ? await _readCachedResponse(path, accountScope: scope)
+        : null;
     // Daraja may need one OAuth request followed by the STK request. Give
     // payment initiation enough time to finish so the UI doesn't report a
     // timeout while Safaricom may already be processing the prompt.
@@ -593,8 +903,8 @@ class Api {
       } else if (method == 'PUT') {
         return client.put(u, headers: h, body: jsonEncode(body ?? {}));
       } else if (method == 'DELETE') {
-        return client.delete(u, headers: h,
-            body: body == null ? null : jsonEncode(body));
+        return client.delete(u,
+            headers: h, body: body == null ? null : jsonEncode(body));
       }
       return client.get(u, headers: h);
     }
@@ -609,11 +919,11 @@ class Api {
       await Future<void>.delayed(const Duration(milliseconds: 500));
       try {
         r = await sendRequest().timeout(cachedBeforeRequest != null
-                ? const Duration(seconds: 5)
-                : const Duration(seconds: 25));
+            ? const Duration(seconds: 5)
+            : const Duration(seconds: 25));
       } catch (retryError) {
         if (method == 'GET') offlineDataMode = true;
-        final cached = await _readCachedResponse(path);
+        final cached = await _readCachedResponse(path, accountScope: scope);
         if (cached != null) {
           lastResponseFromCache = true;
           offlineDataMode = true;
@@ -630,7 +940,7 @@ class Api {
       // Never do this for POST/PATCH/PUT/DELETE, especially payment requests.
       if (method == 'GET') {
         offlineDataMode = true;
-        final cached = await _readCachedResponse(path);
+        final cached = await _readCachedResponse(path, accountScope: scope);
         if (cached != null) {
           lastResponseFromCache = true;
           offlineDataMode = true;
@@ -644,7 +954,7 @@ class Api {
     // Use cached data for reads only; authentication failures still surface.
     if (method == 'GET' && r.statusCode >= 500) {
       offlineDataMode = true;
-      final cached = await _readCachedResponse(path);
+      final cached = await _readCachedResponse(path, accountScope: scope);
       if (cached != null) {
         lastResponseFromCache = true;
         offlineDataMode = true;
@@ -695,7 +1005,9 @@ class Api {
         : <String, dynamic>{'data': decoded};
     if (method == 'GET') {
       offlineDataMode = false;
-      await _writeCachedResponse(path, result);
+      await _writeCachedResponse(path, result, accountScope: scope);
+    } else {
+      await _invalidateCachedResponses(accountScope: scope);
     }
     return result;
   }
@@ -844,6 +1156,18 @@ List<Map<String, dynamic>> extractMemoryCandidatesLocally(String input) {
   final text = input.replaceAll(RegExp(r'\s+'), ' ').trim();
   if (text.length < 8) return [];
   final candidates = <Map<String, dynamic>>[];
+  final date = memoryDateFromText(text);
+  final timeMatch = RegExp(
+    r'\b(?:at\s+)?(1[0-2]|0?[1-9])(?::([0-5]\d))?\s?(AM|PM)\b',
+    caseSensitive: false,
+  ).firstMatch(text);
+  final time = timeMatch
+      ?.group(0)
+      ?.replaceFirst(
+        RegExp(r'^at\s+', caseSensitive: false),
+        '',
+      )
+      .trim();
   if (RegExp(
     r'\b(meet(?:ing)?|appointment|doctor|interview|flight|deadline|due date|reservation|call with|scheduled|tomorrow|tonight|today|next week|this (?:morning|afternoon|evening)|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b',
     caseSensitive: false,
@@ -858,6 +1182,8 @@ List<Map<String, dynamic>> extractMemoryCandidatesLocally(String input) {
               ? 'Appointment'
               : 'Upcoming event',
       'description': text,
+      if (date != null) 'date': date.toIso8601String(),
+      if (time != null) 'time': time,
     });
   }
   final task = RegExp(
@@ -869,6 +1195,8 @@ List<Map<String, dynamic>> extractMemoryCandidatesLocally(String input) {
       'type': 'TASK',
       'title': 'Reminder',
       'description': task.group(1)!.trim(),
+      if (date != null) 'date': date.toIso8601String(),
+      if (time != null) 'time': time,
     });
   }
   final hasMoney = RegExp(
@@ -888,25 +1216,63 @@ List<Map<String, dynamic>> extractMemoryCandidatesLocally(String input) {
   ).hasMatch(text)) {
     candidates.add({
       'type': 'NOTE',
-      'title': RegExp(r'birthday|anniversary', caseSensitive: false).hasMatch(text)
-          ? 'Important date'
-          : RegExp(r'prefer|favorite|favourite', caseSensitive: false)
+      'title':
+          RegExp(r'birthday|anniversary', caseSensitive: false).hasMatch(text)
+              ? 'Important date'
+              : RegExp(r'prefer|favorite|favourite', caseSensitive: false)
                       .hasMatch(text)
-              ? 'Preference'
-              : RegExp(r'work|job', caseSensitive: false).hasMatch(text)
-                  ? 'Work detail'
-                  : 'Personal detail',
+                  ? 'Preference'
+                  : RegExp(r'work|job', caseSensitive: false).hasMatch(text)
+                      ? 'Work detail'
+                      : 'Personal detail',
       'description': text,
     });
   }
   final seen = <String>{};
   return candidates
       .where((item) {
-    final key = '${item['type']}:${item['title']}';
-    return seen.add(key);
+        final key = '${item['type']}:${item['title']}';
+        return seen.add(key);
       })
       .take(3)
       .toList();
+}
+
+/// Extracts only explicitly supported memory dates and validates calendar
+/// components before constructing a DateTime (which otherwise normalizes).
+DateTime? memoryDateFromText(String input, {DateTime? now}) {
+  final relative = RegExp(r'\btomorrow\b', caseSensitive: false);
+  if (relative.hasMatch(input)) {
+    final reference = now ?? DateTime.now();
+    return DateTime(reference.year, reference.month, reference.day + 1);
+  }
+  const months = <String, int>{
+    'january': 1,
+    'february': 2,
+    'march': 3,
+    'april': 4,
+    'may': 5,
+    'june': 6,
+    'july': 7,
+    'august': 8,
+    'september': 9,
+    'october': 10,
+    'november': 11,
+    'december': 12,
+  };
+  final match = RegExp(
+    r'\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b',
+    caseSensitive: false,
+  ).firstMatch(input);
+  if (match == null) return null;
+  final day = int.parse(match.group(1)!);
+  final month = months[match.group(2)!.toLowerCase()]!;
+  final year = int.parse(match.group(3)!);
+  final parsed = DateTime(year, month, day);
+  if (parsed.year != year || parsed.month != month || parsed.day != day) {
+    return null;
+  }
+  return parsed;
 }
 
 // Buttons that perform asynchronous work disable themselves while the action is running.
@@ -956,7 +1322,7 @@ class _AsyncActionButtonState extends State<AsyncActionButton> {
 // Shared app state. Screens listen to this object and rebuild after login, chat, contact, memory, or payment data changes.
 class AppState extends ChangeNotifier {
   final Api api;
-  ThemeMode themeMode = ThemeMode.light;
+  ThemeMode themeMode = ThemeMode.dark;
   bool ready = false;
   bool authRequested = false;
   bool startRegistration = false;
@@ -993,17 +1359,17 @@ class AppState extends ChangeNotifier {
     try {
       final preferences = await SharedPreferences.getInstance()
           .timeout(const Duration(seconds: 3));
-      themeMode = preferences.getBool('chatify_dark_mode') == true
-          ? ThemeMode.dark
-          : ThemeMode.light;
+      themeMode = preferences.getBool('chatify_dark_mode') == false
+          ? ThemeMode.light
+          : ThemeMode.dark;
     } catch (error) {
       restoreError ??= 'Could not load local preferences: $error';
     }
     if (api.token != null) {
       try {
         user = Map<String, dynamic>.from((await api
-                .call('GET', '/api/auth/me')
-                .timeout(const Duration(seconds: 8)))['user']);
+            .call('GET', '/api/auth/me')
+            .timeout(const Duration(seconds: 8)))['user']);
       } catch (error) {
         if (error is ApiException && error.statusCode == 401) {
           // Only a confirmed authentication rejection invalidates the saved token.
@@ -1064,11 +1430,13 @@ class AppState extends ChangeNotifier {
   /// Creates the device-local key on first use and registers only its public half.
   Future<String> ensureEncryptionKey() async {
     final accountId = user?['id']?.toString() ?? '';
-    if (accountId.isEmpty) throw StateError('Sign in before enabling encryption.');
+    if (accountId.isEmpty)
+      throw StateError('Sign in before enabling encryption.');
     final registered = user?['encryptionPublicKey']?.toString();
     final publicKey = await ChatifyE2EE.instance.publicKeyFor(
       accountId,
-      registeredPublicKey: (registered == null || registered.isEmpty) ? null : registered,
+      registeredPublicKey:
+          (registered == null || registered.isEmpty) ? null : registered,
     );
     if (registered == null || registered.isEmpty) {
       await api.call(
@@ -1367,7 +1735,8 @@ class ChatifyApp extends StatelessWidget {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFF7EDBD0), width: 1.6),
+              borderSide:
+                  const BorderSide(color: Color(0xFF7EDBD0), width: 1.6),
             ),
           ),
           navigationBarTheme: const NavigationBarThemeData(
@@ -1379,7 +1748,8 @@ class ChatifyApp extends StatelessWidget {
             behavior: SnackBarBehavior.floating,
             backgroundColor: const Color(0xFF273246),
             contentTextStyle: const TextStyle(color: Color(0xFFE9EDF7)),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           ),
         ),
         debugShowCheckedModeBanner: false,
@@ -2568,25 +2938,39 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Map<String, dynamic> overview = {};
   Map<String, dynamic> platformStatus = {};
   List<dynamic> users = [], payments = [];
-  bool loading = true, usersLoading = false, paymentsLoading = false, statusLoading = false;
+  bool loading = true,
+      usersLoading = false,
+      paymentsLoading = false,
+      statusLoading = false;
   String? error;
   String userQuery = '', paymentStatus = '';
   String? statusError;
   Map<String, dynamic> feeWalletSettings = {};
-  bool feeWalletLoading = false, feeWalletSaving = false, feeWalletEnabled = true;
+  bool feeWalletLoading = false,
+      feeWalletSaving = false,
+      feeWalletEnabled = true;
   String feeWalletType = 'mpesa_phone';
-  final TextEditingController feeRateController = TextEditingController(text: '0.5');
-  final TextEditingController feeWalletPhoneController = TextEditingController();
+  final TextEditingController feeRateController =
+      TextEditingController(text: '0.5');
+  final TextEditingController feeWalletPhoneController =
+      TextEditingController();
   final TextEditingController feePaybillController = TextEditingController();
   final TextEditingController feeTillController = TextEditingController();
-  final TextEditingController feeAccountReferenceController = TextEditingController(text: 'CHATIFY-FEE');
+  final TextEditingController feeAccountReferenceController =
+      TextEditingController(text: 'CHATIFY-FEE');
   Map<String, dynamic> workspaceBillingSettings = {};
-  bool workspaceBillingSettingsLoading = false, workspaceBillingSettingsSaving = false;
-  final TextEditingController businessSetupFeeController = TextEditingController(text: '1000');
-  final TextEditingController businessMonthlyFeeController = TextEditingController(text: '500');
-  final TextEditingController schoolSetupFeeController = TextEditingController(text: '5000');
-  final TextEditingController schoolMonthlyFeeController = TextEditingController(text: '2500');
-  final TextEditingController billingGraceDaysController = TextEditingController(text: '3');
+  bool workspaceBillingSettingsLoading = false,
+      workspaceBillingSettingsSaving = false;
+  final TextEditingController businessSetupFeeController =
+      TextEditingController(text: '1000');
+  final TextEditingController businessMonthlyFeeController =
+      TextEditingController(text: '500');
+  final TextEditingController schoolSetupFeeController =
+      TextEditingController(text: '5000');
+  final TextEditingController schoolMonthlyFeeController =
+      TextEditingController(text: '2500');
+  final TextEditingController billingGraceDaysController =
+      TextEditingController(text: '3');
   int userPage = 1, paymentPage = 1, userTotal = 0, paymentTotal = 0;
   DateTime? refreshedAt;
   _AdminSection section = _AdminSection.overview;
@@ -2602,13 +2986,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
         overview = Map<String, dynamic>.from(result['stats'] ?? {});
         users = List<dynamic>.from(result['recentUsers'] ?? []);
         payments = List<dynamic>.from(result['recentPayments'] ?? []);
-        userTotal = result['userTotal'] is num ? (result['userTotal'] as num).toInt() : userTotal;
+        userTotal = result['userTotal'] is num
+            ? (result['userTotal'] as num).toInt()
+            : userTotal;
         refreshedAt = DateTime.now();
         error = null;
         loading = false;
       });
     } catch (e) {
-      if (mounted) setState(() { error = e.toString(); loading = false; });
+      if (mounted)
+        setState(() {
+          error = e.toString();
+          loading = false;
+        });
     }
   }
 
@@ -2617,9 +3007,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
     try {
       final result = await api.publicStatus();
       if (!mounted) return;
-      setState(() { platformStatus = result; statusError = null; });
+      setState(() {
+        platformStatus = result;
+        statusError = null;
+      });
     } catch (e) {
-      if (mounted) setState(() { statusError = e.toString(); });
+      if (mounted)
+        setState(() {
+          statusError = e.toString();
+        });
     } finally {
       if (mounted) setState(() => statusLoading = false);
     }
@@ -2638,13 +3034,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final path = '/api/admin/users?page=$userPage&limit=20' +
           (query.isEmpty ? '' : '&q=' + Uri.encodeQueryComponent(query));
       final result = await api.call('GET', path);
-      if (mounted) setState(() {
-        users = List<dynamic>.from(result['users'] ?? []);
-        userTotal = (result['total'] as num?)?.toInt() ?? users.length;
-      });
+      if (mounted)
+        setState(() {
+          users = List<dynamic>.from(result['users'] ?? []);
+          userTotal = (result['total'] as num?)?.toInt() ?? users.length;
+        });
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load users: ' + e.toString())));
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not load users: ' + e.toString())));
     } finally {
       if (mounted) setState(() => usersLoading = false);
     }
@@ -2656,10 +3054,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final path = '/api/admin/payments?page=$paymentPage&limit=20' +
           (paymentStatus.isEmpty ? '' : '&status=' + paymentStatus);
       final result = await api.call('GET', path);
-      if (mounted) setState(() {
-        payments = List<dynamic>.from(result['payments'] ?? []);
-        paymentTotal = (result['total'] as num?)?.toInt() ?? payments.length;
-      });
+      if (mounted)
+        setState(() {
+          payments = List<dynamic>.from(result['payments'] ?? []);
+          paymentTotal = (result['total'] as num?)?.toInt() ?? payments.length;
+        });
     } catch (e) {
       if (context.mounted)
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -2680,14 +3079,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
         feeWalletEnabled = settings['enabled'] != false;
         feeWalletType = settings['walletType']?.toString() ?? 'mpesa_phone';
         feeRateController.text = (settings['feeRate'] ?? 0.5).toString();
-        feeWalletPhoneController.text = settings['walletPhone']?.toString() ?? '';
+        feeWalletPhoneController.text =
+            settings['walletPhone']?.toString() ?? '';
         feePaybillController.text = settings['paybillNumber']?.toString() ?? '';
         feeTillController.text = settings['tillNumber']?.toString() ?? '';
-        feeAccountReferenceController.text = settings['accountReference']?.toString() ?? 'CHATIFY-FEE';
+        feeAccountReferenceController.text =
+            settings['accountReference']?.toString() ?? 'CHATIFY-FEE';
       });
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load platform wallet settings: $e')));
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Could not load platform wallet settings: $e')));
     } finally {
       if (mounted) setState(() => feeWalletLoading = false);
     }
@@ -2697,7 +3099,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final rate = double.tryParse(feeRateController.text.trim());
     if (rate == null || rate < 0 || rate > 5) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Legacy fee settings are retained for historical compatibility; they do not apply to new transactions.')));
+          content: Text(
+              'Legacy fee settings are retained for historical compatibility; they do not apply to new transactions.')));
       return;
     }
     setState(() => feeWalletSaving = true);
@@ -2712,12 +3115,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
         'accountReference': feeAccountReferenceController.text.trim(),
       });
       if (!mounted) return;
-      setState(() => feeWalletSettings = Map<String, dynamic>.from(result['settings'] ?? {}));
+      setState(() => feeWalletSettings =
+          Map<String, dynamic>.from(result['settings'] ?? {}));
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Legacy settings saved. These do not apply transaction commissions.')));
+          content: Text(
+              'Legacy settings saved. These do not apply transaction commissions.')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Settings were not saved: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Settings were not saved: $e')));
     } finally {
       if (mounted) setState(() => feeWalletSaving = false);
     }
@@ -2726,77 +3132,138 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Future<void> loadWorkspaceBillingSettings() async {
     if (mounted) setState(() => workspaceBillingSettingsLoading = true);
     try {
-      final result = await api.call('GET', '/api/admin/workspace-billing-settings');
+      final result =
+          await api.call('GET', '/api/admin/workspace-billing-settings');
       final settings = Map<String, dynamic>.from(result['settings'] ?? {});
       if (!mounted) return;
       setState(() {
         workspaceBillingSettings = settings;
-        businessSetupFeeController.text = (settings['businessSetupFee'] ?? 1000).toString();
-        businessMonthlyFeeController.text = (settings['businessMonthlyFee'] ?? 500).toString();
-        schoolSetupFeeController.text = (settings['schoolSetupFee'] ?? 5000).toString();
-        schoolMonthlyFeeController.text = (settings['schoolMonthlyFee'] ?? 2500).toString();
-        billingGraceDaysController.text = (settings['gracePeriodDays'] ?? 3).toString();
+        businessSetupFeeController.text =
+            (settings['businessSetupFee'] ?? 1000).toString();
+        businessMonthlyFeeController.text =
+            (settings['businessMonthlyFee'] ?? 500).toString();
+        schoolSetupFeeController.text =
+            (settings['schoolSetupFee'] ?? 5000).toString();
+        schoolMonthlyFeeController.text =
+            (settings['schoolMonthlyFee'] ?? 2500).toString();
+        billingGraceDaysController.text =
+            (settings['gracePeriodDays'] ?? 3).toString();
       });
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load workspace billing settings: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Could not load workspace billing settings: $e')));
     } finally {
       if (mounted) setState(() => workspaceBillingSettingsLoading = false);
     }
   }
 
   Future<void> saveWorkspaceBillingSettings() async {
-    int? parse(TextEditingController controller) => int.tryParse(controller.text.trim());
+    int? parse(TextEditingController controller) =>
+        int.tryParse(controller.text.trim());
     final businessSetup = parse(businessSetupFeeController);
     final businessMonthly = parse(businessMonthlyFeeController);
     final schoolSetup = parse(schoolSetupFeeController);
     final schoolMonthly = parse(schoolMonthlyFeeController);
     final graceDays = parse(billingGraceDaysController);
-    final amounts = [businessSetup, businessMonthly, schoolSetup, schoolMonthly];
-    if (amounts.any((value) => value == null || value < 0 || value > 1000000) || graceDays == null || graceDays < 0 || graceDays > 30) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter whole-number prices from KSh 0 to KSh 1,000,000 and a grace period from 0 to 30 days.')));
+    final amounts = [
+      businessSetup,
+      businessMonthly,
+      schoolSetup,
+      schoolMonthly
+    ];
+    if (amounts.any((value) => value == null || value < 0 || value > 1000000) ||
+        graceDays == null ||
+        graceDays < 0 ||
+        graceDays > 30) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Enter whole-number prices from KSh 0 to KSh 1,000,000 and a grace period from 0 to 30 days.')));
       return;
     }
     setState(() => workspaceBillingSettingsSaving = true);
     try {
-      final result = await api.call('PUT', '/api/admin/workspace-billing-settings', {
-        'businessSetupFee': businessSetup, 'businessMonthlyFee': businessMonthly,
-        'schoolSetupFee': schoolSetup, 'schoolMonthlyFee': schoolMonthly,
+      final result =
+          await api.call('PUT', '/api/admin/workspace-billing-settings', {
+        'businessSetupFee': businessSetup,
+        'businessMonthlyFee': businessMonthly,
+        'schoolSetupFee': schoolSetup,
+        'schoolMonthlyFee': schoolMonthly,
         'gracePeriodDays': graceDays,
       });
       if (!mounted) return;
-      setState(() => workspaceBillingSettings = Map<String, dynamic>.from(result['settings'] ?? {}));
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Workspace setup and subscription prices saved.')));
+      setState(() => workspaceBillingSettings =
+          Map<String, dynamic>.from(result['settings'] ?? {}));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Workspace setup and subscription prices saved.')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Billing settings were not saved: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Billing settings were not saved: $e')));
     } finally {
       if (mounted) setState(() => workspaceBillingSettingsSaving = false);
     }
   }
 
   Widget _workspaceBillingSection(ThemeData theme) {
-    Widget amountField(TextEditingController controller, String label) => TextField(
-      controller: controller,
-      keyboardType: TextInputType.number,
-      decoration: InputDecoration(labelText: label, prefixText: 'KSh ', border: const OutlineInputBorder()),
-    );
-    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Workspace setup and monthly subscriptions', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-      const SizedBox(height: 8),
-      const Text('These prices apply to new workspaces. Setup is a one-time payment; subscriptions renew monthly. Existing workspaces are grandfathered until migrated deliberately.'),
-      if (workspaceBillingSettingsLoading) const LinearProgressIndicator(),
-      const SizedBox(height: 12),
-      amountField(businessSetupFeeController, 'Business one-time setup fee'),
-      const SizedBox(height: 10),
-      amountField(businessMonthlyFeeController, 'Business monthly subscription'),
-      const SizedBox(height: 10),
-      amountField(schoolSetupFeeController, 'School one-time setup fee'),
-      const SizedBox(height: 10),
-      amountField(schoolMonthlyFeeController, 'School monthly subscription'),
-      const SizedBox(height: 10),
-      TextField(controller: billingGraceDaysController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Grace period after expiry (days)', border: OutlineInputBorder(), helperText: 'Allowed range: 0–30 days.')),
-      const SizedBox(height: 12),
-      FilledButton.icon(onPressed: workspaceBillingSettingsSaving || workspaceBillingSettingsLoading ? null : saveWorkspaceBillingSettings, icon: workspaceBillingSettingsSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined), label: Text(workspaceBillingSettingsSaving ? 'Saving…' : 'Save workspace billing prices')),
-    ])));
+    Widget amountField(TextEditingController controller, String label) =>
+        TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+              labelText: label,
+              prefixText: 'KSh ',
+              border: const OutlineInputBorder()),
+        );
+    return Card(
+        child: Padding(
+            padding: const EdgeInsets.all(16),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Workspace setup and monthly subscriptions',
+                  style: theme.textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              const Text(
+                  'These prices apply to new workspaces. Setup is a one-time payment; subscriptions renew monthly. Existing workspaces are grandfathered until migrated deliberately.'),
+              if (workspaceBillingSettingsLoading)
+                const LinearProgressIndicator(),
+              const SizedBox(height: 12),
+              amountField(
+                  businessSetupFeeController, 'Business one-time setup fee'),
+              const SizedBox(height: 10),
+              amountField(businessMonthlyFeeController,
+                  'Business monthly subscription'),
+              const SizedBox(height: 10),
+              amountField(
+                  schoolSetupFeeController, 'School one-time setup fee'),
+              const SizedBox(height: 10),
+              amountField(
+                  schoolMonthlyFeeController, 'School monthly subscription'),
+              const SizedBox(height: 10),
+              TextField(
+                  controller: billingGraceDaysController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                      labelText: 'Grace period after expiry (days)',
+                      border: OutlineInputBorder(),
+                      helperText: 'Allowed range: 0–30 days.')),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                  onPressed: workspaceBillingSettingsSaving ||
+                          workspaceBillingSettingsLoading
+                      ? null
+                      : saveWorkspaceBillingSettings,
+                  icon: workspaceBillingSettingsSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.save_outlined),
+                  label: Text(workspaceBillingSettingsSaving
+                      ? 'Saving…'
+                      : 'Save workspace billing prices')),
+            ])));
   }
 
   Future<void> changeStatus(Map<String, dynamic> user) async {
@@ -2811,12 +3278,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
             next == 'suspended' ? 'Suspend account?' : 'Reactivate account?'),
         content: Text(
             (user['email'] ?? user['name'] ?? 'This user').toString() +
-            ' will ' + (next == 'suspended' ? 'lose access' : 'regain access') + ' to Chatify.'),
+                ' will ' +
+                (next == 'suspended' ? 'lose access' : 'regain access') +
+                ' to Chatify.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true), child: Text(next == 'suspended' ? 'Suspend' : 'Reactivate')),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(next == 'suspended' ? 'Suspend' : 'Reactivate')),
         ],
       ),
     );
@@ -2828,7 +3299,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       await loadUsers();
       if (context.mounted)
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Account ' + (next == 'active' ? 'reactivated.' : 'suspended.'))));
+            content: Text('Account ' +
+                (next == 'active' ? 'reactivated.' : 'suspended.'))));
     } catch (e) {
       if (context.mounted)
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -2873,7 +3345,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
               color: theme.colorScheme.primaryContainer,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, size: 21, color: theme.colorScheme.onPrimaryContainer),
+            child: Icon(icon,
+                size: 21, color: theme.colorScheme.onPrimaryContainer),
           ),
           const Spacer(),
           Text(shown,
@@ -2898,29 +3371,45 @@ class _AdminDashboardState extends State<AdminDashboard> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Icon(
-                healthy ? Icons.health_and_safety_outlined : Icons.warning_amber_rounded,
-                color: healthy ? Colors.green.shade700 : theme.colorScheme.tertiary),
+                healthy
+                    ? Icons.health_and_safety_outlined
+                    : Icons.warning_amber_rounded,
+                color: healthy
+                    ? Colors.green.shade700
+                    : theme.colorScheme.tertiary),
             const SizedBox(width: 10),
             Expanded(
-                child: Text('Service health', style: theme.textTheme.titleMedium
+                child: Text('Service health',
+                    style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w800))),
-            if (statusLoading) const SizedBox(
-                  width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-            _statusChip(status.toUpperCase(), healthy ? Colors.green : theme.colorScheme.tertiary),
+            if (statusLoading)
+              const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+            _statusChip(status.toUpperCase(),
+                healthy ? Colors.green : theme.colorScheme.tertiary),
           ]),
           const SizedBox(height: 8),
           Text(
-              statusError ?? platformStatus['notice']?.toString() ?? 'Checking the public service status endpoint…',
+              statusError ??
+                  platformStatus['notice']?.toString() ??
+                  'Checking the public service status endpoint…',
               style: theme.textTheme.bodySmall),
           if (components.isNotEmpty) ...[
             const SizedBox(height: 12),
             Wrap(
-                spacing: 8, runSpacing: 8, children: components.whereType<Map>().map((item) {
-              final componentStatus = item['status']?.toString() ?? 'unknown';
-              final color = componentStatus == 'operational' ? Colors.green : theme.colorScheme.tertiary;
-              return _statusChip(
+                spacing: 8,
+                runSpacing: 8,
+                children: components.whereType<Map>().map((item) {
+                  final componentStatus =
+                      item['status']?.toString() ?? 'unknown';
+                  final color = componentStatus == 'operational'
+                      ? Colors.green
+                      : theme.colorScheme.tertiary;
+                  return _statusChip(
                       '${item['name']}: $componentStatus', color);
-            }).toList()),
+                }).toList()),
           ],
         ]),
       ),
@@ -2930,23 +3419,34 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget _statusChip(String label, Color color) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-            color: color.withValues(alpha: .1), borderRadius: BorderRadius.circular(20)),
-        child: Text(label, style: TextStyle(
+            color: color.withValues(alpha: .1),
+            borderRadius: BorderRadius.circular(20)),
+        child: Text(label,
+            style: TextStyle(
                 color: color, fontSize: 11, fontWeight: FontWeight.w700)),
       );
 
   Widget _pager(
-      {required int page, required int total, required VoidCallback previous, required VoidCallback next}) {
+      {required int page,
+      required int total,
+      required VoidCallback previous,
+      required VoidCallback next}) {
     final pages = total == 0 ? 0 : (total / 20).ceil();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(children: [
-        Text(total == 0 ? 'No records' : 'Page $page of $pages · $total records'),
+        Text(total == 0
+            ? 'No records'
+            : 'Page $page of $pages · $total records'),
         const Spacer(),
         IconButton(
-            tooltip: 'Previous page', onPressed: page > 1 ? previous : null, icon: const Icon(Icons.chevron_left)),
+            tooltip: 'Previous page',
+            onPressed: page > 1 ? previous : null,
+            icon: const Icon(Icons.chevron_left)),
         IconButton(
-            tooltip: 'Next page', onPressed: page < pages ? next : null, icon: const Icon(Icons.chevron_right)),
+            tooltip: 'Next page',
+            onPressed: page < pages ? next : null,
+            icon: const Icon(Icons.chevron_right)),
       ]),
     );
   }
@@ -2961,58 +3461,88 @@ class _AdminDashboardState extends State<AdminDashboard> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Platform fee and wallet', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+          Text('Platform fee and wallet',
+              style: theme.textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
-          const Text('Chatify no longer charges a percentage commission on transfers, business payments, POS sales or school-fee payments. Use Workspace billing to configure one-time setup and monthly subscription prices. These legacy settings do not control current transaction payments.'),
+          const Text(
+              'Chatify no longer charges a percentage commission on transfers, business payments, POS sales or school-fee payments. Use Workspace billing to configure one-time setup and monthly subscription prices. These legacy settings do not control current transaction payments.'),
           const SizedBox(height: 12),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Legacy fee toggle (not used)'),
-            subtitle: const Text('Only eligible business checkout flows currently apply this setting.'),
+            subtitle: const Text(
+                'Only eligible business checkout flows currently apply this setting.'),
             value: feeWalletEnabled,
-            onChanged: feeWalletSaving ? null : (value) => setState(() => feeWalletEnabled = value),
+            onChanged: feeWalletSaving
+                ? null
+                : (value) => setState(() => feeWalletEnabled = value),
           ),
           TextField(
             controller: feeRateController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Legacy platform fee (%)', helperText: 'Historical setting only; current transactions are commission-free.'),
+            decoration: const InputDecoration(
+                labelText: 'Legacy platform fee (%)',
+                helperText:
+                    'Historical setting only; current transactions are commission-free.'),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: feeWalletType,
-            decoration: const InputDecoration(labelText: 'Platform wallet account type'),
+            initialValue: feeWalletType,
+            decoration: const InputDecoration(
+                labelText: 'Platform wallet account type'),
             items: const [
-              DropdownMenuItem(value: 'mpesa_phone', child: Text('M-Pesa phone')),
+              DropdownMenuItem(
+                  value: 'mpesa_phone', child: Text('M-Pesa phone')),
               DropdownMenuItem(value: 'mpesa_paybill', child: Text('Paybill')),
               DropdownMenuItem(value: 'mpesa_till', child: Text('Till')),
             ],
-            onChanged: feeWalletSaving ? null : (value) { if (value != null) setState(() => feeWalletType = value); },
+            onChanged: feeWalletSaving
+                ? null
+                : (value) {
+                    if (value != null) setState(() => feeWalletType = value);
+                  },
           ),
-          if (walletNeedsPhone) TextField(
-            controller: feeWalletPhoneController,
-            keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(labelText: 'Wallet phone (254XXXXXXXXX)'),
-          ),
-          if (walletNeedsPaybill) TextField(
-            controller: feePaybillController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Platform Paybill number'),
-          ),
-          if (walletNeedsTill) TextField(
-            controller: feeTillController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Platform Till number'),
-          ),
+          if (walletNeedsPhone)
+            TextField(
+              controller: feeWalletPhoneController,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                  labelText: 'Wallet phone (254XXXXXXXXX)'),
+            ),
+          if (walletNeedsPaybill)
+            TextField(
+              controller: feePaybillController,
+              keyboardType: TextInputType.number,
+              decoration:
+                  const InputDecoration(labelText: 'Platform Paybill number'),
+            ),
+          if (walletNeedsTill)
+            TextField(
+              controller: feeTillController,
+              keyboardType: TextInputType.number,
+              decoration:
+                  const InputDecoration(labelText: 'Platform Till number'),
+            ),
           TextField(
             controller: feeAccountReferenceController,
-            decoration: const InputDecoration(labelText: 'Account/reference label'),
+            decoration:
+                const InputDecoration(labelText: 'Account/reference label'),
           ),
           const SizedBox(height: 12),
-          const Text('Important: this saves the fee destination for reconciliation. Automatic splitting/transfer of collected funds requires the platform’s Safaricom merchant and disbursement integration; saving a wallet number alone does not move money.'),
+          const Text(
+              'Important: this saves the fee destination for reconciliation. Automatic splitting/transfer of collected funds requires the platform’s Safaricom merchant and disbursement integration; saving a wallet number alone does not move money.'),
           const SizedBox(height: 12),
           FilledButton.icon(
-            onPressed: feeWalletSaving || feeWalletLoading ? null : saveFeeWalletSettings,
-            icon: feeWalletSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
+            onPressed: feeWalletSaving || feeWalletLoading
+                ? null
+                : saveFeeWalletSettings,
+            icon: feeWalletSaving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.save_outlined),
             label: Text(feeWalletSaving ? 'Saving…' : 'Save wallet settings'),
           ),
         ]),
@@ -3022,11 +3552,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   Widget _peopleSection(ThemeData theme) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('People and access', style: theme.textTheme.headlineSmall
+      Text('People and access',
+          style: theme.textTheme.headlineSmall
               ?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 4),
       Text(
-          'Review account status and verification. Every change is checked by the server.', style: theme.textTheme.bodyMedium),
+          'Review account status and verification. Every change is checked by the server.',
+          style: theme.textTheme.bodyMedium),
       const SizedBox(height: 16),
       Row(children: [
         Expanded(
@@ -3034,17 +3566,32 @@ class _AdminDashboardState extends State<AdminDashboard> {
           controller: searchController,
           textInputAction: TextInputAction.search,
           decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search), hintText: 'Search name or email', border: OutlineInputBorder()),
-          onSubmitted: (value) { userQuery = value; userPage = 1; loadUsers(); },
+              prefixIcon: Icon(Icons.search),
+              hintText: 'Search name or email',
+              border: OutlineInputBorder()),
+          onSubmitted: (value) {
+            userQuery = value;
+            userPage = 1;
+            loadUsers();
+          },
         )),
         const SizedBox(width: 8),
         IconButton.filledTonal(
-            tooltip: 'Search accounts', onPressed: () { userQuery = searchController.text; userPage = 1; loadUsers(); }, icon: const Icon(Icons.search)),
+            tooltip: 'Search accounts',
+            onPressed: () {
+              userQuery = searchController.text;
+              userPage = 1;
+              loadUsers();
+            },
+            icon: const Icon(Icons.search)),
       ]),
       if (usersLoading) const LinearProgressIndicator(),
-      if (!usersLoading && users.isEmpty) const Card(
+      if (!usersLoading && users.isEmpty)
+        const Card(
             child: ListTile(
-                leading: Icon(Icons.people_outline), title: Text('No accounts found'), subtitle: Text('Try a different name or email.'))),
+                leading: Icon(Icons.people_outline),
+                title: Text('No accounts found'),
+                subtitle: Text('Try a different name or email.'))),
       ...users.map((item) {
         final user = Map<String, dynamic>.from(item as Map);
         final role = user['role']?.toString() ?? 'user';
@@ -3058,67 +3605,116 @@ class _AdminDashboardState extends State<AdminDashboard> {
           subtitle: Text(
               '${user['email'] ?? ''}\n${role.toUpperCase()} · ${status.toUpperCase()} · ${user['emailVerified'] == true ? 'Verified' : 'Unverified'}'),
           isThreeLine: true,
-          trailing: role == 'admin' ? const Chip(label: Text('Admin')) : PopupMenuButton<String>(
-            tooltip: 'Account actions',
-            onSelected: (_) => changeStatus(user),
-            itemBuilder: (_) => [
+          trailing: role == 'admin'
+              ? const Chip(label: Text('Admin'))
+              : PopupMenuButton<String>(
+                  tooltip: 'Account actions',
+                  onSelected: (_) => changeStatus(user),
+                  itemBuilder: (_) => [
                     PopupMenuItem(
-                        value: 'toggle', child: Text(status == 'active' ? 'Suspend account' : 'Reactivate account'))
+                        value: 'toggle',
+                        child: Text(status == 'active'
+                            ? 'Suspend account'
+                            : 'Reactivate account'))
                   ],
-          ),
+                ),
         ));
       }),
       _pager(
-          page: userPage, total: userTotal, previous: () { setState(() => userPage--); loadUsers(); }, next: () { setState(() => userPage++); loadUsers(); }),
+          page: userPage,
+          total: userTotal,
+          previous: () {
+            setState(() => userPage--);
+            loadUsers();
+          },
+          next: () {
+            setState(() => userPage++);
+            loadUsers();
+          }),
     ]);
   }
 
   Widget _paymentsSection(ThemeData theme) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Payment operations', style: theme.textTheme.headlineSmall
+      Text('Payment operations',
+          style: theme.textTheme.headlineSmall
               ?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 4),
       Text(
-          'Monitor transaction states and investigate pending or failed activity.', style: theme.textTheme.bodyMedium),
+          'Monitor transaction states and investigate pending or failed activity.',
+          style: theme.textTheme.bodyMedium),
       const SizedBox(height: 12),
       Align(
-          alignment: Alignment.centerLeft, child: DropdownButton<String>(
-        value: paymentStatus,
-        items: const [
-          DropdownMenuItem(value: '', child: Text('All statuses')),
-          DropdownMenuItem(value: 'PENDING', child: Text('Pending')),
-          DropdownMenuItem(value: 'SUCCESS', child: Text('Successful')),
-          DropdownMenuItem(value: 'FAILED', child: Text('Failed')),
-          DropdownMenuItem(value: 'CANCELLED', child: Text('Cancelled')),
-        ],
-        onChanged: (value) { setState(() { paymentStatus = value ?? ''; paymentPage = 1; }); loadPayments(); },
-      )),
+          alignment: Alignment.centerLeft,
+          child: DropdownButton<String>(
+            value: paymentStatus,
+            items: const [
+              DropdownMenuItem(value: '', child: Text('All statuses')),
+              DropdownMenuItem(value: 'PENDING', child: Text('Pending')),
+              DropdownMenuItem(value: 'SUCCESS', child: Text('Successful')),
+              DropdownMenuItem(value: 'FAILED', child: Text('Failed')),
+              DropdownMenuItem(value: 'CANCELLED', child: Text('Cancelled')),
+            ],
+            onChanged: (value) {
+              setState(() {
+                paymentStatus = value ?? '';
+                paymentPage = 1;
+              });
+              loadPayments();
+            },
+          )),
       if (paymentsLoading) const LinearProgressIndicator(),
-      if (!paymentsLoading && payments.isEmpty) const Card(
+      if (!paymentsLoading && payments.isEmpty)
+        const Card(
             child: ListTile(
-                leading: Icon(Icons.payments_outlined), title: Text('No payments found'), subtitle: Text('There are no transactions for this filter.'))),
+                leading: Icon(Icons.payments_outlined),
+                title: Text('No payments found'),
+                subtitle: Text('There are no transactions for this filter.'))),
       ...payments.map((item) {
         final payment = Map<String, dynamic>.from(item as Map);
         final amount = (payment['amount'] as num?)?.toDouble() ?? 0;
         final platformFee = (payment['platformFee'] as num?)?.toDouble() ?? 0;
-        final totalAmount = (payment['totalAmount'] as num?)?.toDouble() ?? amount + platformFee;
+        final totalAmount = (payment['totalAmount'] as num?)?.toDouble() ??
+            amount + platformFee;
         final status = payment['status']?.toString() ?? 'Unknown';
-        final color = status == 'SUCCESS' ? Colors.green : status == 'FAILED' ? theme.colorScheme.error : theme.colorScheme.tertiary;
+        final color = status == 'SUCCESS'
+            ? Colors.green
+            : status == 'FAILED'
+                ? theme.colorScheme.error
+                : theme.colorScheme.tertiary;
         return Card(
             child: ListTile(
           leading: CircleAvatar(
-              backgroundColor: color.withValues(alpha: .1), child: Icon(
-                  status == 'SUCCESS' ? Icons.check_circle_outline : status == 'FAILED' ? Icons.error_outline : Icons.payments_outlined, color: color)),
-          title: Text(payment['description']?.toString() ?? payment['paymentId']?.toString() ?? 'Payment'),
+              backgroundColor: color.withValues(alpha: .1),
+              child: Icon(
+                  status == 'SUCCESS'
+                      ? Icons.check_circle_outline
+                      : status == 'FAILED'
+                          ? Icons.error_outline
+                          : Icons.payments_outlined,
+                  color: color)),
+          title: Text(payment['description']?.toString() ??
+              payment['paymentId']?.toString() ??
+              'Payment'),
           subtitle: Text(
               '${payment['provider'] ?? 'Provider'} · $status\n${payment['paymentId'] ?? ''}${platformFee > 0 ? '\nHistorical platform fee KSh ${platformFee.toStringAsFixed(0)} · ${payment['platformFeeStatus'] ?? 'PENDING_SETTLEMENT'}' : ''}'),
           isThreeLine: true,
-          trailing: Text('KES ${totalAmount.toStringAsFixed(2)}', style: theme.textTheme.titleSmall
+          trailing: Text('KES ${totalAmount.toStringAsFixed(2)}',
+              style: theme.textTheme.titleSmall
                   ?.copyWith(fontWeight: FontWeight.w700)),
         ));
       }),
       _pager(
-          page: paymentPage, total: paymentTotal, previous: () { setState(() => paymentPage--); loadPayments(); }, next: () { setState(() => paymentPage++); loadPayments(); }),
+          page: paymentPage,
+          total: paymentTotal,
+          previous: () {
+            setState(() => paymentPage--);
+            loadPayments();
+          },
+          next: () {
+            setState(() => paymentPage++);
+            loadPayments();
+          }),
       const SizedBox(height: 8),
       const Text(
           'A successful payment is recorded only after the provider confirmation is validated.'),
@@ -3128,22 +3724,26 @@ class _AdminDashboardState extends State<AdminDashboard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    if (loading && overview.isEmpty) return const Center(child: CircularProgressIndicator());
-    if (error != null && overview.isEmpty) return Center(
+    if (loading && overview.isEmpty)
+      return const Center(child: CircularProgressIndicator());
+    if (error != null && overview.isEmpty)
+      return Center(
           child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.admin_panel_settings_outlined, size: 48),
-        const SizedBox(height: 12),
-        Text('Administrator dashboard could not load', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 8),
-        Text(error!, textAlign: TextAlign.center),
-        const SizedBox(height: 16),
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.admin_panel_settings_outlined, size: 48),
+          const SizedBox(height: 12),
+          Text('Administrator dashboard could not load',
+              style: theme.textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(error!, textAlign: TextAlign.center),
+          const SizedBox(height: 16),
           AsyncActionButton(
               label: 'Try again', icon: Icons.refresh, onPressed: loadOverview),
-      ]),
-    ));
-    final money = (overview['successfulPaymentAmount'] as num?)?.toDouble() ?? 0;
+        ]),
+      ));
+    final money =
+        (overview['successfulPaymentAmount'] as num?)?.toDouble() ?? 0;
     final screenWidth = MediaQuery.sizeOf(context).width;
     return RefreshIndicator(
       onRefresh: refreshDashboard,
@@ -3162,26 +3762,36 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
             child: Row(children: [
               const CircleAvatar(
-                  radius: 26, backgroundColor: Colors.white24, child: Icon(Icons.space_dashboard_rounded, color: Colors.white, size: 28)),
+                  radius: 26,
+                  backgroundColor: Colors.white24,
+                  child: Icon(Icons.space_dashboard_rounded,
+                      color: Colors.white, size: 28)),
               const SizedBox(width: 14),
               Expanded(
                   child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Chatify Control Center', style: theme.textTheme.titleLarge?.copyWith(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text('Chatify Control Center',
+                        style: theme.textTheme.titleLarge?.copyWith(
                             color: Colors.white, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
-                        'Communication, business activity, accounts and payment operations.', style: theme.textTheme.bodyMedium?.copyWith(
+                        'Communication, business activity, accounts and payment operations.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
                             color: Colors.white.withValues(alpha: .9))),
-                if (refreshedAt != null) ...[
-                  const SizedBox(height: 8),
+                    if (refreshedAt != null) ...[
+                      const SizedBox(height: 8),
                       Text(
-                          'Updated ${TimeOfDay.fromDateTime(refreshedAt!).format(context)}', style: theme.textTheme.labelSmall
+                          'Updated ${TimeOfDay.fromDateTime(refreshedAt!).format(context)}',
+                          style: theme.textTheme.labelSmall
                               ?.copyWith(color: Colors.white70)),
-                ],
-              ])),
+                    ],
+                  ])),
               IconButton(
-                  tooltip: 'Refresh control center', onPressed: refreshDashboard, color: Colors.white, icon: const Icon(Icons.refresh_rounded)),
+                  tooltip: 'Refresh control center',
+                  onPressed: refreshDashboard,
+                  color: Colors.white,
+                  icon: const Icon(Icons.refresh_rounded)),
             ]),
           ),
           const SizedBox(height: 14),
@@ -3190,56 +3800,90 @@ class _AdminDashboardState extends State<AdminDashboard> {
           SegmentedButton<_AdminSection>(
             segments: const [
               ButtonSegment(
-                  value: _AdminSection.overview, label: Text('Overview'), icon: Icon(Icons.dashboard_outlined)),
+                  value: _AdminSection.overview,
+                  label: Text('Overview'),
+                  icon: Icon(Icons.dashboard_outlined)),
               ButtonSegment(
-                  value: _AdminSection.people, label: Text('People'), icon: Icon(Icons.people_outline)),
+                  value: _AdminSection.people,
+                  label: Text('People'),
+                  icon: Icon(Icons.people_outline)),
               ButtonSegment(
-                  value: _AdminSection.payments, label: Text('Payments'), icon: Icon(Icons.payments_outlined)),
+                  value: _AdminSection.payments,
+                  label: Text('Payments'),
+                  icon: Icon(Icons.payments_outlined)),
               ButtonSegment(
-                  value: _AdminSection.billing, label: Text('Workspace billing'), icon: Icon(Icons.workspace_premium_outlined)),
+                  value: _AdminSection.billing,
+                  label: Text('Workspace billing'),
+                  icon: Icon(Icons.workspace_premium_outlined)),
             ],
             selected: {section},
             onSelectionChanged: (value) {
               setState(() => section = value.first);
               if (section == _AdminSection.people && users.isEmpty) loadUsers();
-              if (section == _AdminSection.payments && payments.isEmpty) loadPayments();
-              if (section == _AdminSection.billing) loadWorkspaceBillingSettings();
+              if (section == _AdminSection.payments && payments.isEmpty)
+                loadPayments();
+              if (section == _AdminSection.billing)
+                loadWorkspaceBillingSettings();
             },
           ),
           const SizedBox(height: 18),
           if (section == _AdminSection.overview) ...[
-            Text('Platform snapshot', style: theme.textTheme.headlineSmall
+            Text('Platform snapshot',
+                style: theme.textTheme.headlineSmall
                     ?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
             Text(
-                'Live counts from Chatify records. “Active” means an enabled account, not an online presence.', style: theme.textTheme.bodySmall),
+                'Live counts from Chatify records. “Active” means an enabled account, not an online presence.',
+                style: theme.textTheme.bodySmall),
             const SizedBox(height: 12),
             GridView.count(
-              crossAxisCount: screenWidth > 1100 ? 4 : screenWidth > 700 ? 3 : 2,
+              crossAxisCount: screenWidth > 1100
+                  ? 4
+                  : screenWidth > 700
+                      ? 3
+                      : 2,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
               childAspectRatio: screenWidth > 700 ? 1.4 : 1.2,
               children: [
-                _metric('Accounts', overview['totalUsers'], Icons.people_alt_outlined),
-                _metric('Enabled accounts', overview['activeUsers'], Icons.verified_user_outlined),
-                _metric('Verified email', overview['verifiedUsers'], Icons.mark_email_read_outlined),
-                _metric('Businesses', overview['totalBusinesses'], Icons.business_outlined),
-                _metric('Business customers', overview['businessCustomers'], Icons.groups_2_outlined),
-                _metric('Published catalogue items', overview['catalogItems'], Icons.inventory_2_outlined),
-                _metric('Conversations', overview['totalConversations'], Icons.forum_outlined),
-                _metric('Messages', overview['totalMessages'], Icons.chat_bubble_outline),
-                _metric('Saved memories', overview['totalMemories'], Icons.auto_awesome_outlined),
-                _metric('Open business cases', overview['openCases'], Icons.support_agent_outlined),
-                _metric('Pending payments', overview['pendingPayments'], Icons.hourglass_top),
-                _metric('Failed payments', overview['failedPayments'], Icons.error_outline),
-                _metric('School workspaces', overview['totalSchools'], Icons.school_outlined),
-                _metric('Enrolled students', overview['totalStudents'], Icons.groups_outlined),
+                _metric('Accounts', overview['totalUsers'],
+                    Icons.people_alt_outlined),
+                _metric('Enabled accounts', overview['activeUsers'],
+                    Icons.verified_user_outlined),
+                _metric('Verified email', overview['verifiedUsers'],
+                    Icons.mark_email_read_outlined),
+                _metric('Businesses', overview['totalBusinesses'],
+                    Icons.business_outlined),
+                _metric('Business customers', overview['businessCustomers'],
+                    Icons.groups_2_outlined),
+                _metric('Published catalogue items', overview['catalogItems'],
+                    Icons.inventory_2_outlined),
+                _metric('Conversations', overview['totalConversations'],
+                    Icons.forum_outlined),
+                _metric('Messages', overview['totalMessages'],
+                    Icons.chat_bubble_outline),
+                _metric('Saved memories', overview['totalMemories'],
+                    Icons.auto_awesome_outlined),
+                _metric('Open business cases', overview['openCases'],
+                    Icons.support_agent_outlined),
+                _metric('Pending payments', overview['pendingPayments'],
+                    Icons.hourglass_top),
+                _metric('Failed payments', overview['failedPayments'],
+                    Icons.error_outline),
+                _metric('School workspaces', overview['totalSchools'],
+                    Icons.school_outlined),
+                _metric('Enrolled students', overview['totalStudents'],
+                    Icons.groups_outlined),
                 _metric(
-                    'Attendance records', overview['totalAttendanceRecords'], Icons.fact_check_outlined),
-                _metric('Academic assessments', overview['totalAssessments'], Icons.grading_outlined),
-                _metric('School fee records', overview['totalSchoolFees'], Icons.receipt_long_outlined),
+                    'Attendance records',
+                    overview['totalAttendanceRecords'],
+                    Icons.fact_check_outlined),
+                _metric('Academic assessments', overview['totalAssessments'],
+                    Icons.grading_outlined),
+                _metric('School fee records', overview['totalSchoolFees'],
+                    Icons.receipt_long_outlined),
               ],
             ),
             const SizedBox(height: 12),
@@ -3247,22 +3891,28 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Last 24 hours', style: theme.textTheme.titleMedium
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Last 24 hours',
+                        style: theme.textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 10),
-                Wrap(spacing: 10, runSpacing: 8, children: [
+                    const SizedBox(height: 10),
+                    Wrap(spacing: 10, runSpacing: 8, children: [
                       Chip(
-                          avatar: const Icon(Icons.person_add_alt_1, size: 18), label: Text(
+                          avatar: const Icon(Icons.person_add_alt_1, size: 18),
+                          label: Text(
                               '${overview['newUsers24h'] ?? 0} new accounts')),
                       Chip(
-                          avatar: const Icon(Icons.forum_outlined, size: 18), label: Text(
+                          avatar: const Icon(Icons.forum_outlined, size: 18),
+                          label: Text(
                               '${overview['newMessages24h'] ?? 0} messages')),
                       Chip(
-                          avatar: const Icon(Icons.add_business_outlined, size: 18), label: Text(
+                          avatar:
+                              const Icon(Icons.add_business_outlined, size: 18),
+                          label: Text(
                               '${overview['newBusinesses24h'] ?? 0} new businesses')),
-                ]),
-              ]),
+                    ]),
+                  ]),
             )),
             Card(
                 child: ListTile(
@@ -3270,7 +3920,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
               title: const Text('Recorded successful payment volume'),
               subtitle: const Text(
                   'Gross confirmed transaction volume; it is not revenue or net profit.'),
-              trailing: Text('KES ${money.toStringAsFixed(2)}', style: theme.textTheme.titleMedium
+              trailing: Text('KES ${money.toStringAsFixed(2)}',
+                  style: theme.textTheme.titleMedium
                       ?.copyWith(fontWeight: FontWeight.w800)),
             )),
             const SizedBox(height: 12),
@@ -3306,7 +3957,8 @@ String? _conversationProfileImage(dynamic conversation, dynamic currentUser) {
   final currentId = currentUser is Map
       ? (currentUser['id'] ?? currentUser['_id'])?.toString()
       : null;
-  for (final person in (conversation['participants'] as List).whereType<Map>()) {
+  for (final person
+      in (conversation['participants'] as List).whereType<Map>()) {
     final personId = (person['_id'] ?? person['id'])?.toString();
     if (currentId != null && personId == currentId) continue;
     final image = person['profileImage'];
@@ -3332,7 +3984,16 @@ class SchoolWorkspacePage extends StatefulWidget {
 
 class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   AppState get app => context.read<AppState>();
-  List<dynamic> schools = [], messages = [], conferences = [], fees = [], members = [], students = [], feeStudents = [], attendance = [], assessments = [], schoolVerificationRequests = [];
+  List<dynamic> schools = [],
+      messages = [],
+      conferences = [],
+      fees = [],
+      members = [],
+      students = [],
+      feeStudents = [],
+      attendance = [],
+      assessments = [],
+      schoolVerificationRequests = [];
   Map<String, dynamic> feePaymentOptions = {};
   String feeStudentName = '';
   String parentFeePaymentMethod = '';
@@ -3344,48 +4005,137 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   bool loading = false;
   int section = 0, recordPage = 1, recordTotal = 0;
   static const int _recordPageSize = 20;
-  final schoolName = TextEditingController(), schoolCode = TextEditingController(), schoolCounty = TextEditingController(), schoolOfficialEmail = TextEditingController(), schoolOfficialPhone = TextEditingController(), joinSchoolCode = TextEditingController(), joinStaffCode = TextEditingController(), staffInviteCode = TextEditingController();
-  final memberEmail = TextEditingController(), studentNames = TextEditingController(), recipientIdController = TextEditingController();
-  final messageBody = TextEditingController(), messageSubject = TextEditingController();
-  final amount = TextEditingController(), feeStudent = TextEditingController(), feeTerm = TextEditingController(), payerPhone = TextEditingController();
-  final paybill = TextEditingController(), till = TextEditingController(), bank = TextEditingController(), account = TextEditingController();
-  final darajaConsumerKey = TextEditingController(), darajaConsumerSecret = TextEditingController(), darajaPasskey = TextEditingController();
-  final conferenceTitle = TextEditingController(), conferenceAgenda = TextEditingController(), conferenceLocation = TextEditingController();
+  final schoolName = TextEditingController(),
+      schoolCode = TextEditingController(),
+      schoolCounty = TextEditingController(),
+      schoolOfficialEmail = TextEditingController(),
+      schoolOfficialPhone = TextEditingController(),
+      joinSchoolCode = TextEditingController(),
+      joinStaffCode = TextEditingController(),
+      staffInviteCode = TextEditingController();
+  final memberEmail = TextEditingController(),
+      studentNames = TextEditingController(),
+      recipientIdController = TextEditingController();
+  final messageBody = TextEditingController(),
+      messageSubject = TextEditingController();
+  final amount = TextEditingController(),
+      feeStudent = TextEditingController(),
+      feeTerm = TextEditingController(),
+      payerPhone = TextEditingController();
+  final paybill = TextEditingController(),
+      till = TextEditingController(),
+      bank = TextEditingController(),
+      account = TextEditingController();
+  final darajaConsumerKey = TextEditingController(),
+      darajaConsumerSecret = TextEditingController(),
+      darajaPasskey = TextEditingController();
+  final conferenceTitle = TextEditingController(),
+      conferenceAgenda = TextEditingController(),
+      conferenceLocation = TextEditingController();
   final conferenceDate = TextEditingController(
       text: DateTime.now()
           .add(const Duration(days: 1))
           .toIso8601String()
           .substring(0, 10));
-  final conferenceStartTime = TextEditingController(text: '10:00'), conferenceEndTime = TextEditingController(text: '11:00');
-  final admissionNumber = TextEditingController(), registeredStudentName = TextEditingController(), studentClass = TextEditingController(), guardianName = TextEditingController(), guardianPhone = TextEditingController(), guardianEmail = TextEditingController();
+  final conferenceStartTime = TextEditingController(text: '10:00'),
+      conferenceEndTime = TextEditingController(text: '11:00');
+  final admissionNumber = TextEditingController(),
+      registeredStudentName = TextEditingController(),
+      studentClass = TextEditingController(),
+      guardianName = TextEditingController(),
+      guardianPhone = TextEditingController(),
+      guardianEmail = TextEditingController();
   final attendanceDate = TextEditingController(
-          text: DateTime.now().toIso8601String().substring(0, 10)), attendanceNote = TextEditingController();
-  final subjectName = TextEditingController(), assessmentName = TextEditingController(), assessmentTerm = TextEditingController(), assessmentScore = TextEditingController(), assessmentOutOf = TextEditingController(text: '100'), teacherNote = TextEditingController();
-  String attendanceStudentId = '', attendanceStatus = 'present', assessmentStudentId = '';
-  String memberRole = 'parent', audience = 'direct', paymentMethod = 'mpesa_paybill', darajaMode = 'production';
+          text: DateTime.now().toIso8601String().substring(0, 10)),
+      attendanceNote = TextEditingController();
+  final subjectName = TextEditingController(),
+      assessmentName = TextEditingController(),
+      assessmentTerm = TextEditingController(),
+      assessmentScore = TextEditingController(),
+      assessmentOutOf = TextEditingController(text: '100'),
+      teacherNote = TextEditingController();
+  String attendanceStudentId = '',
+      attendanceStatus = 'present',
+      assessmentStudentId = '';
+  String memberRole = 'parent',
+      audience = 'direct',
+      paymentMethod = 'mpesa_paybill',
+      darajaMode = 'production';
 
   @override
-  void initState() { super.initState();
+  void initState() {
+    super.initState();
     payerPhone.text =
-        (app.user?['mpesaPhone'] ?? app.user?['phone'] ?? '').toString(); loadSchools(); }
+        (app.user?['mpesaPhone'] ?? app.user?['phone'] ?? '').toString();
+    loadSchools();
+  }
 
   @override
   void dispose() {
     for (final c in [
-      schoolName, schoolCode, schoolCounty, schoolOfficialEmail, schoolOfficialPhone, joinSchoolCode, joinStaffCode, staffInviteCode, memberEmail, studentNames, messageBody, messageSubject, recipientIdController, amount, feeStudent, feeTerm, payerPhone, paybill, till, bank, account, darajaConsumerKey, darajaConsumerSecret, darajaPasskey, conferenceTitle, conferenceAgenda, conferenceLocation, conferenceDate, conferenceStartTime, conferenceEndTime, admissionNumber, registeredStudentName, studentClass, guardianName, guardianPhone, guardianEmail, attendanceDate, attendanceNote, subjectName, assessmentName, assessmentTerm, assessmentScore, assessmentOutOf,
+      schoolName,
+      schoolCode,
+      schoolCounty,
+      schoolOfficialEmail,
+      schoolOfficialPhone,
+      joinSchoolCode,
+      joinStaffCode,
+      staffInviteCode,
+      memberEmail,
+      studentNames,
+      messageBody,
+      messageSubject,
+      recipientIdController,
+      amount,
+      feeStudent,
+      feeTerm,
+      payerPhone,
+      paybill,
+      till,
+      bank,
+      account,
+      darajaConsumerKey,
+      darajaConsumerSecret,
+      darajaPasskey,
+      conferenceTitle,
+      conferenceAgenda,
+      conferenceLocation,
+      conferenceDate,
+      conferenceStartTime,
+      conferenceEndTime,
+      admissionNumber,
+      registeredStudentName,
+      studentClass,
+      guardianName,
+      guardianPhone,
+      guardianEmail,
+      attendanceDate,
+      attendanceNote,
+      subjectName,
+      assessmentName,
+      assessmentTerm,
+      assessmentScore,
+      assessmentOutOf,
       teacherNote
-    ]) { c.dispose(); }
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   Future<void> loadSchools() async {
-    setState(() { loading = true; error = null; });
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
       final result = await app.api.call('GET', '/api/schools');
       schools = List<dynamic>.from(result['schools'] ?? []);
       try {
-        final verification = await app.api.call('GET', '/api/schools/verification-requests');
-        schoolVerificationRequests = List<dynamic>.from(verification['requests'] ?? []);
+        final verification =
+            await app.api.call('GET', '/api/schools/verification-requests');
+        schoolVerificationRequests =
+            List<dynamic>.from(verification['requests'] ?? []);
         isSchoolVerificationReviewer = verification['reviewer'] == true;
       } catch (_) {
         // Existing school access remains usable if verification-request listing is unavailable.
@@ -3393,12 +4143,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       if (schoolId == null && schools.isNotEmpty)
         _selectSchool(Map<String, dynamic>.from(schools.first));
       if (mounted) setState(() {});
-    } catch (e) { error = e.toString(); }
+    } catch (e) {
+      error = e.toString();
+    }
     if (mounted) setState(() => loading = false);
   }
 
   void _selectSchool(Map<String, dynamic> s) {
-    schoolId = s['id']?.toString(); role = s['role']?.toString();
+    schoolId = s['id']?.toString();
+    role = s['role']?.toString();
     isOwner = s['isOwner'] == true;
     schoolCode.text = (s['code'] ?? '').toString();
     staffInviteCode.text = (s['staffInviteCode'] ?? '').toString();
@@ -3423,12 +4176,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     }
     if (mounted) setState(() => schoolBillingLoading = true);
     try {
-      final result = await app.api.call('GET', '/api/workspace-billing/school/${Uri.encodeComponent(id)}');
-      if (mounted && schoolId == id) setState(() => schoolBilling = Map<String, dynamic>.from(result['billing'] ?? {}));
+      final result = await app.api.call(
+          'GET', '/api/workspace-billing/school/${Uri.encodeComponent(id)}');
+      if (mounted && schoolId == id)
+        setState(() =>
+            schoolBilling = Map<String, dynamic>.from(result['billing'] ?? {}));
     } catch (e) {
       if (mounted && schoolId == id) setState(() => error = e.toString());
     } finally {
-      if (mounted && schoolId == id) setState(() => schoolBillingLoading = false);
+      if (mounted && schoolId == id)
+        setState(() => schoolBillingLoading = false);
     }
   }
 
@@ -3436,69 +4193,117 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final id = schoolId;
     if (id == null || !isOwner || schoolBillingLoading) return;
     final phoneController = TextEditingController(text: payerPhone.text.trim());
-    final phone = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
-      title: const Text('Workspace subscription payment'),
-      content: TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'M-Pesa phone number', hintText: '07XXXXXXXX or 2547XXXXXXXX')),
-      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, phoneController.text.trim()), child: const Text('Continue to M-Pesa'))],
-    ));
+    final phone = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+              title: const Text('Workspace subscription payment'),
+              content: TextField(
+                  controller: phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                      labelText: 'M-Pesa phone number',
+                      hintText: '07XXXXXXXX or 2547XXXXXXXX')),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(
+                        dialogContext, phoneController.text.trim()),
+                    child: const Text('Continue to M-Pesa'))
+              ],
+            ));
     phoneController.dispose();
     if (phone == null || phone.isEmpty || !mounted) return;
     setState(() => schoolBillingLoading = true);
     try {
-      final checkout = await app.api.call('POST', '/api/workspace-billing/school/${Uri.encodeComponent(id)}/checkout', {'billingType': billingType});
+      final checkout = await app.api.call(
+          'POST',
+          '/api/workspace-billing/school/${Uri.encodeComponent(id)}/checkout',
+          {'billingType': billingType});
       if (checkout['paid'] == true) {
         await loadSchoolBilling();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(checkout['notice']?.toString() ?? 'Billing updated.')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:
+                  Text(checkout['notice']?.toString() ?? 'Billing updated.')));
         return;
       }
       final payment = Map<String, dynamic>.from(checkout['payment'] ?? {});
       final paymentId = payment['paymentId']?.toString();
-      if (paymentId == null || paymentId.isEmpty) throw Exception('The billing checkout did not return a payment reference.');
+      if (paymentId == null || paymentId.isEmpty)
+        throw Exception(
+            'The billing checkout did not return a payment reference.');
       if (payment['initiatedAt'] == null) {
-        await app.api.call('POST', '/api/payments/${Uri.encodeComponent(paymentId)}/initiate', {'phone': phone});
+        await app.api.call(
+            'POST',
+            '/api/payments/${Uri.encodeComponent(paymentId)}/initiate',
+            {'phone': phone});
       }
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('M-Pesa prompt requested. Approve it on your phone; the workspace unlocks only after confirmation.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'M-Pesa prompt requested. Approve it on your phone; the workspace unlocks only after confirmation.')));
       for (var attempt = 0; attempt < 20 && mounted; attempt++) {
         await Future.delayed(const Duration(seconds: 3));
-        final statusResult = await app.api.call('GET', '/api/payments/${Uri.encodeComponent(paymentId)}');
-        final current = Map<String, dynamic>.from(statusResult['payment'] ?? {});
+        final statusResult = await app.api
+            .call('GET', '/api/payments/${Uri.encodeComponent(paymentId)}');
+        final current =
+            Map<String, dynamic>.from(statusResult['payment'] ?? {});
         final status = current['status']?.toString().toUpperCase();
         if (status == 'SUCCESS') {
           await loadSchoolBilling();
           await loadSchools();
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment confirmed. Refreshing school workspace access.')));
+          if (mounted)
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text(
+                    'Payment confirmed. Refreshing school workspace access.')));
           return;
         }
-        if (status == 'FAILED' || status == 'CANCELLED') throw Exception('M-Pesa payment $status. You can retry from workspace billing.');
+        if (status == 'FAILED' || status == 'CANCELLED')
+          throw Exception(
+              'M-Pesa payment $status. You can retry from workspace billing.');
       }
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment is still pending. Refresh billing shortly; do not pay again unless the first payment has failed.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Payment is still pending. Refresh billing shortly; do not pay again unless the first payment has failed.')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => schoolBillingLoading = false);
     }
   }
 
   Future<void> loadSection() async {
-    final id = schoolId; if (id == null) return;
-    setState(() { loading = true; error = null; });
+    final id = schoolId;
+    if (id == null) return;
+    setState(() {
+      loading = true;
+      error = null;
+    });
     final pageQuery = '?page=$recordPage&limit=$_recordPageSize';
     try {
       if (section == 0) {
-        final r = await app.api.call('GET', '/api/schools/$id/messages$pageQuery');
+        final r =
+            await app.api.call('GET', '/api/schools/$id/messages$pageQuery');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         messages = List<dynamic>.from(r['messages'] ?? []);
         final directory = await app.api
             .call('GET', '/api/schools/$id/members?page=1&limit=100');
         members = List<dynamic>.from(directory['members'] ?? []);
       } else if (section == 1) {
-        final r = await app.api.call('GET', '/api/schools/$id/conferences$pageQuery');
+        final r =
+            await app.api.call('GET', '/api/schools/$id/conferences$pageQuery');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         conferences = List<dynamic>.from(r['conferences'] ?? []);
       } else if (section == 2 || section == 8) {
         final results = await Future.wait([
           app.api.call('GET', '/api/schools/$id/fees$pageQuery'),
-          if (section == 2 && role == 'parent') app.api.call('GET', '/api/schools/$id/students?page=1&limit=100'),
+          if (section == 2 && role == 'parent')
+            app.api.call('GET', '/api/schools/$id/students?page=1&limit=100'),
         ]);
         final r = results.first;
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
@@ -3518,19 +4323,28 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           feeStudents = List<dynamic>.from(results[1]['students'] ?? []);
           if (!feeStudents.any(
               (student) => student['fullName']?.toString() == feeStudentName)) {
-            feeStudentName = feeStudents.isNotEmpty ? (feeStudents.first['fullName'] ?? '').toString() : '';
+            feeStudentName = feeStudents.isNotEmpty
+                ? (feeStudents.first['fullName'] ?? '').toString()
+                : '';
           }
           feeStudent.text = feeStudentName;
         }
       } else if (section == 3 && role != 'parent') {
-        final r = await app.api.call('GET', '/api/schools/$id/members$pageQuery');
+        final r =
+            await app.api.call('GET', '/api/schools/$id/members$pageQuery');
         members = List<dynamic>.from(r['members'] ?? []);
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
       } else if (section == 5 || section == 6 || section == 7) {
         final results = await Future.wait([
-          app.api.call('GET', '/api/schools/$id/students?page=1&limit=100'),
-          if (section == 6) app.api.call('GET', '/api/schools/$id/attendance$pageQuery'),
-          if (section == 7) app.api.call('GET', '/api/schools/$id/academics$pageQuery'),
+          app.api.call(
+              'GET',
+              section == 5
+                  ? '/api/schools/$id/students?page=$recordPage&limit=$_recordPageSize'
+                  : '/api/schools/$id/students?page=1&limit=100'),
+          if (section == 6)
+            app.api.call('GET', '/api/schools/$id/attendance$pageQuery'),
+          if (section == 7)
+            app.api.call('GET', '/api/schools/$id/academics$pageQuery'),
         ]);
         students = List<dynamic>.from(results.first['students'] ?? []);
         recordTotal = (results.first['total'] as num?)?.toInt() ?? 0;
@@ -3544,14 +4358,20 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         }
         if (!students.any(
             (student) => student['_id']?.toString() == attendanceStudentId)) {
-          attendanceStudentId = students.isNotEmpty ? (students.first['_id']?.toString() ?? '') : '';
+          attendanceStudentId = students.isNotEmpty
+              ? (students.first['_id']?.toString() ?? '')
+              : '';
         }
         if (!students.any(
             (student) => student['_id']?.toString() == assessmentStudentId)) {
-          assessmentStudentId = students.isNotEmpty ? (students.first['_id']?.toString() ?? '') : '';
+          assessmentStudentId = students.isNotEmpty
+              ? (students.first['_id']?.toString() ?? '')
+              : '';
         }
       }
-    } catch (e) { error = e.toString(); }
+    } catch (e) {
+      error = e.toString();
+    }
     if (mounted) setState(() => loading = false);
   }
 
@@ -3605,22 +4425,52 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           Row(children: [
             const Icon(Icons.workspace_premium_outlined),
             const SizedBox(width: 8),
-            const Expanded(child: Text('School workspace billing', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
-            if (schoolBillingLoading) const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+            const Expanded(
+                child: Text('School workspace billing',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
+            if (schoolBillingLoading)
+              const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
           ]),
           const SizedBox(height: 6),
           Text('Status: $status${locked ? ' · Workspace locked' : ''}'),
-          if (legacy) const Text('This existing workspace is grandfathered. No new billing lock or setup payment is being enforced yet.'),
-          if (!legacy) Text('One-time setup: KSh $setupFee${setupPaid ? ' · Paid' : ' · Unpaid'}'),
+          if (legacy)
+            const Text(
+                'This existing workspace is grandfathered. No new billing lock or setup payment is being enforced yet.'),
+          if (!legacy)
+            Text(
+                'One-time setup: KSh $setupFee${setupPaid ? ' · Paid' : ' · Unpaid'}'),
           if (!legacy) Text('Monthly subscription: KSh $monthlyFee'),
-          if (schoolBilling['subscriptionExpiresAt'] != null) Text('Subscription expiry: ${schoolBilling['subscriptionExpiresAt']}'),
+          if (schoolBilling['subscriptionExpiresAt'] != null)
+            Text(
+                'Subscription expiry: ${schoolBilling['subscriptionExpiresAt']}'),
           const SizedBox(height: 8),
-          const Text('School fee payments collected from parents are separate from this Chatify workspace subscription. No 0.5% Chatify transaction commission is charged.'),
+          const Text(
+              'School fee payments collected from parents are separate from this Chatify workspace subscription. No 0.5% Chatify transaction commission is charged.'),
           const SizedBox(height: 10),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            if (!legacy && !setupPaid) FilledButton.icon(onPressed: schoolBillingLoading ? null : () => paySchoolWorkspaceBilling('workspace_setup'), icon: const Icon(Icons.payment), label: Text('Pay setup · KSh $setupFee')),
-            if (!legacy && setupPaid) FilledButton.icon(onPressed: schoolBillingLoading ? null : () => paySchoolWorkspaceBilling('workspace_subscription'), icon: const Icon(Icons.autorenew), label: Text('Pay monthly · KSh $monthlyFee')),
-            OutlinedButton.icon(onPressed: schoolBillingLoading ? null : loadSchoolBilling, icon: const Icon(Icons.refresh), label: const Text('Refresh billing')),
+            if (!legacy && !setupPaid)
+              FilledButton.icon(
+                  onPressed: schoolBillingLoading
+                      ? null
+                      : () => paySchoolWorkspaceBilling('workspace_setup'),
+                  icon: const Icon(Icons.payment),
+                  label: Text('Pay setup · KSh $setupFee')),
+            if (!legacy && setupPaid)
+              FilledButton.icon(
+                  onPressed: schoolBillingLoading
+                      ? null
+                      : () =>
+                          paySchoolWorkspaceBilling('workspace_subscription'),
+                  icon: const Icon(Icons.autorenew),
+                  label: Text('Pay monthly · KSh $monthlyFee')),
+            OutlinedButton.icon(
+                onPressed: schoolBillingLoading ? null : loadSchoolBilling,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh billing')),
           ]),
         ]),
       ),
@@ -3636,15 +4486,40 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         Expanded(
             child: Text('Page $recordPage of $pages · $recordTotal records')),
         IconButton(
-            tooltip: 'Previous page', onPressed: recordPage > 1 ? () {
-          setState(() => recordPage--); loadSection();
-        } : null, icon: const Icon(Icons.chevron_left)),
+            tooltip: 'Previous page',
+            onPressed: recordPage > 1
+                ? () {
+                    setState(() => recordPage--);
+                    loadSection();
+                  }
+                : null,
+            icon: const Icon(Icons.chevron_left)),
         IconButton(
-            tooltip: 'Next page', onPressed: recordPage < pages ? () {
-          setState(() => recordPage++); loadSection();
-        } : null, icon: const Icon(Icons.chevron_right)),
+            tooltip: 'Next page',
+            onPressed: recordPage < pages
+                ? () {
+                    setState(() => recordPage++);
+                    loadSection();
+                  }
+                : null,
+            icon: const Icon(Icons.chevron_right)),
       ]),
     );
+  }
+
+  Widget _responsiveSchoolTable({
+    required List<DataColumn> columns,
+    required List<DataRow> rows,
+  }) {
+    return LayoutBuilder(builder: (context, constraints) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: constraints.maxWidth),
+          child: DataTable(columns: columns, rows: rows),
+        ),
+      );
+    });
   }
 
   Future<void> _removeSchoolRecord(
@@ -3658,9 +4533,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             : 'This action cannot be undone.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Delete')),
         ],
       ),
     );
@@ -3681,7 +4558,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Widget _swipeSchoolRecord(
-      {required String id, required String label, required String endpoint, required Widget child}) {
+      {required String id,
+      required String label,
+      required String endpoint,
+      required Widget child}) {
     final swipe = Dismissible(
       key: ValueKey('school-$section-$id'),
       direction: DismissDirection.startToEnd,
@@ -3690,8 +4570,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         padding: const EdgeInsets.only(left: 20),
         margin: const EdgeInsets.symmetric(vertical: 3),
         decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.errorContainer, borderRadius: BorderRadius.circular(12)),
-        child: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.onErrorContainer),
+            color: Theme.of(context).colorScheme.errorContainer,
+            borderRadius: BorderRadius.circular(12)),
+        child: Icon(Icons.delete_outline,
+            color: Theme.of(context).colorScheme.onErrorContainer),
       ),
       confirmDismiss: (_) async {
         final confirmed = await showDialog<bool>(
@@ -3703,9 +4585,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 : 'This action cannot be undone.'),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+                  onPressed: () => Navigator.pop(dialog, false),
+                  child: const Text('Cancel')),
               FilledButton(
-                  onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
+                  onPressed: () => Navigator.pop(dialog, true),
+                  child: const Text('Delete')),
             ],
           ),
         );
@@ -3736,19 +4620,26 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> _action(Future<void> Function() action) async {
-    try { await action(); if (context.mounted)
+    try {
+      await action();
+      if (context.mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Saved successfully.'))); }
-    catch (e) { if (context.mounted)
+            .showSnackBar(const SnackBar(content: Text('Saved successfully.')));
+    } catch (e) {
+      if (context.mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString()))); }
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+    }
   }
 
   Future<void> createSchool() async {
-    if (schoolName.text.trim().isEmpty || schoolCode.text.trim().isEmpty ||
-        schoolCounty.text.trim().isEmpty || schoolOfficialEmail.text.trim().isEmpty ||
+    if (schoolName.text.trim().isEmpty ||
+        schoolCode.text.trim().isEmpty ||
+        schoolCounty.text.trim().isEmpty ||
+        schoolOfficialEmail.text.trim().isEmpty ||
         schoolOfficialPhone.text.trim().isEmpty) {
-      setState(() => error = 'Complete all school verification details before submitting.');
+      setState(() => error =
+          'Complete all school verification details before submitting.');
       return;
     }
     await _action(() async {
@@ -3759,14 +4650,18 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         'officialEmail': schoolOfficialEmail.text.trim(),
         'officialPhone': schoolOfficialPhone.text.trim(),
       });
-      schoolName.clear(); schoolCode.clear(); schoolCounty.clear();
-      schoolOfficialEmail.clear(); schoolOfficialPhone.clear();
+      schoolName.clear();
+      schoolCode.clear();
+      schoolCounty.clear();
+      schoolOfficialEmail.clear();
+      schoolOfficialPhone.clear();
       await loadSchools();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
               content: Text(
                   'Verification request submitted. The workspace will only be created after Chatify verifies the school.')),
-      );
+        );
     });
   }
 
@@ -3778,29 +4673,38 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       await app.api.call(
           'POST', '/api/schools/verification-requests/$requestId/review', {
         'decision': decision,
-        'reviewNote': decision == 'APPROVE' ? 'School identity verified by Chatify reviewer.' : 'School identity could not be verified.',
+        'reviewNote': decision == 'APPROVE'
+            ? 'School identity verified by Chatify reviewer.'
+            : 'School identity could not be verified.',
       });
       await loadSchools();
     });
   }
 
   Future<void> sendMessage() async {
-    final id = schoolId; if (id == null || messageBody.text.trim().isEmpty) return;
+    final id = schoolId;
+    if (id == null || messageBody.text.trim().isEmpty) return;
     final schoolInboxOnly = role == 'parent' || role == 'staff';
     await _action(() async {
       await app.api.call('POST', '/api/schools/$id/messages', {
         'body': messageBody.text.trim(),
         'subject': messageSubject.text.trim(),
         'audience': schoolInboxOnly ? 'school_inbox' : audience,
-        if (!schoolInboxOnly && audience == 'direct') 'recipientId': recipientIdController.text.trim(),
+        if (!schoolInboxOnly && audience == 'direct')
+          'recipientId': recipientIdController.text.trim(),
       });
-      messageBody.clear(); messageSubject.clear(); await loadSection();
+      messageBody.clear();
+      messageSubject.clear();
+      await loadSection();
     });
   }
 
   Future<void> joinSchool() async {
     final code = joinSchoolCode.text.trim();
-    if (code.isEmpty) { setState(() => error = 'Enter the school invite code.'); return; }
+    if (code.isEmpty) {
+      setState(() => error = 'Enter the school invite code.');
+      return;
+    }
     await _action(() async {
       final joined = await app.api.call('POST', '/api/schools/join', {
         'code': code,
@@ -3816,7 +4720,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       joinStaffCode.clear();
       studentNames.clear();
       await loadSchools();
-      final joinedId = (joined['school'] is Map) ? joined['school']['id']?.toString() : null;
+      final joinedId =
+          (joined['school'] is Map) ? joined['school']['id']?.toString() : null;
       final joinedSchool = schools
           .where((x) => x is Map && x['id']?.toString() == joinedId)
           .toList();
@@ -3827,7 +4732,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> addMember() async {
-    final id = schoolId; if (id == null || memberEmail.text.trim().isEmpty) return;
+    final id = schoolId;
+    if (id == null || memberEmail.text.trim().isEmpty) return;
     await _action(() async {
       await app.api.call('POST', '/api/schools/$id/members', {
         'email': memberEmail.text.trim(),
@@ -3838,13 +4744,18 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             .where((x) => x.isNotEmpty)
             .toList()
       });
-      memberEmail.clear(); studentNames.clear(); await loadSection();
+      memberEmail.clear();
+      studentNames.clear();
+      await loadSection();
     });
   }
 
   Future<void> editParentPupilInfo(Map<String, dynamic> member) async {
     final id = schoolId;
-    if (id == null || !isOwner || role != 'admin' || !['parent', 'staff'].contains(member['role'])) return;
+    if (id == null ||
+        !isOwner ||
+        role != 'admin' ||
+        !['parent', 'staff'].contains(member['role'])) return;
     final namesController = TextEditingController(
       text: (member['studentNames'] is List
           ? (member['studentNames'] as List)
@@ -3882,9 +4793,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, namesController.text), child: const Text('Save corrections')),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, namesController.text),
+              child: const Text('Save corrections')),
         ],
       ),
     );
@@ -3900,12 +4814,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         .toSet()
         .toList();
     namesController.dispose();
-    if (names.isEmpty || names.length > 10 || names.any((name) => name.length > 100)) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+    if (names.isEmpty ||
+        names.length > 10 ||
+        names.any((name) => name.length > 100)) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
               content: Text(
                   'Enter 1–10 pupil names, each no longer than 100 characters.')),
-      );
+        );
       return;
     }
     await _action(() async {
@@ -3919,7 +4836,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> savePaymentProfile() async {
-    final id = schoolId; if (id == null) return;
+    final id = schoolId;
+    if (id == null) return;
     await _action(() async {
       await app.api.call('PUT', '/api/schools/$id/payment-profile', {
         'method': paymentMethod,
@@ -3934,7 +4852,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           'darajaConsumerSecret': darajaConsumerSecret.text.trim(),
         if (paymentMethod != 'bank') 'darajaPasskey': darajaPasskey.text.trim(),
       });
-      darajaConsumerKey.clear(); darajaConsumerSecret.clear(); darajaPasskey.clear();
+      darajaConsumerKey.clear();
+      darajaConsumerSecret.clear();
+      darajaPasskey.clear();
       await loadSchools();
     });
   }
@@ -3952,7 +4872,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       return;
     }
     try {
-      final uri = Uri.parse('${app.api.base}/api/schools/$id/fees/$reference/receipt');
+      final uri =
+          Uri.parse('${app.api.base}/api/schools/$id/fees/$reference/receipt');
       final response = await app.api.client.get(
         uri,
         headers: {
@@ -3960,17 +4881,19 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         },
       );
       if (response.statusCode >= 400) {
-        throw ApiException(response.statusCode, 'Receipt is unavailable. Refresh the fee records and try again.');
+        throw ApiException(response.statusCode,
+            'Receipt is unavailable. Refresh the fee records and try again.');
       }
       await FileSaver.instance.saveFile(
         name: 'school-fee-receipt-$reference',
         bytes: _buildSchoolFeeReceiptPdf(Map<String, dynamic>.from(payment)),
         fileExtension: 'pdf',
       );
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
               content: Text('School fee receipt downloaded successfully.')),
-      );
+        );
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
@@ -3979,7 +4902,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> verifyFee(Map<String, dynamic> payment) async {
-    final id = schoolId; if (id == null) return;
+    final id = schoolId;
+    if (id == null) return;
     final receiptController = TextEditingController();
     final receipt = await showDialog<String>(
         context: context,
@@ -3988,13 +4912,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               content: Column(mainAxisSize: MainAxisSize.min, children: [
                 Text(
                     'Confirm the real transaction in the school statement before entering its receipt/reference number. Ref: ${payment['paymentReference'] ?? ''}'),
-        const SizedBox(height: 12),
+                const SizedBox(height: 12),
                 TextField(
                     controller: receiptController,
                     decoration: const InputDecoration(
                         labelText:
                             'Actual payment receipt / transaction reference')),
-      ]),
+              ]),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(ctx),
@@ -4004,9 +4928,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         Navigator.pop(ctx, receiptController.text.trim()),
                     child: const Text('Confirm payment'))
               ],
-    ));
+            ));
     final value = receipt?.trim() ?? '';
-    if (value.isEmpty) { receiptController.dispose(); return; }
+    if (value.isEmpty) {
+      receiptController.dispose();
+      return;
+    }
     await _action(() async {
       await app.api.call(
           'POST',
@@ -4018,14 +4945,17 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> resendSchoolReceipt(Map<String, dynamic> payment) async {
-    final id = schoolId; if (id == null) return;
+    final id = schoolId;
+    if (id == null) return;
     try {
       final result = await app.api.call('POST',
           '/api/schools/$id/fees/${payment['paymentReference']}/receipt/resend');
       final delivery = Map<String, dynamic>.from(result['emailDelivery'] ?? {});
       if (context.mounted)
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(delivery['pending'] == true ? 'Receipt remains stored and downloadable; email delivery is still pending. Check SMTP configuration.' : 'Receipt email sent to the parent and school administrators.')));
+            content: Text(delivery['pending'] == true
+                ? 'Receipt remains stored and downloadable; email delivery is still pending. Check SMTP configuration.'
+                : 'Receipt email sent to the parent and school administrators.')));
     } catch (e) {
       if (context.mounted)
         ScaffoldMessenger.of(context)
@@ -4034,9 +4964,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> startFeePayment() async {
-    final id = schoolId; if (id == null) return;
+    final id = schoolId;
+    if (id == null) return;
     final n = int.tryParse(amount.text.trim());
-    if (n == null || n < 1 || feeStudent.text.trim().isEmpty ||
+    if (n == null ||
+        n < 1 ||
+        feeStudent.text.trim().isEmpty ||
         feeTerm.text.trim().isEmpty ||
         parentFeePaymentMethod.isEmpty) return;
     await _action(() async {
@@ -4049,7 +4982,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       });
       final p = Map<String, dynamic>.from(r['paymentDestination'] ?? {});
       final method = switch (p['method']) {
-        'mpesa_send_money' => 'Send Money to ${p['officialPhone']}', 'mpesa_paybill' => 'Paybill: ${p['paybillNumber']}', 'mpesa_till' => 'Till: ${p['tillNumber']}',
+        'mpesa_send_money' => 'Send Money to ${p['officialPhone']}',
+        'mpesa_paybill' => 'Paybill: ${p['paybillNumber']}',
+        'mpesa_till' => 'Till: ${p['tillNumber']}',
         'bank' => 'Bank: ${p['bankName']} / ${p['accountNumber']}',
         _ => 'School payment destination',
       };
@@ -4058,7 +4993,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         showDialog<void>(
             context: context,
             builder: (ctx) => AlertDialog(
-                    title: Text((r['payment']?['status'] ?? '').toString() == 'PENDING_STK' ? 'M-Pesa prompt requested' : 'Fee payment recorded as pending'),
+                    title: Text((r['payment']?['status'] ?? '').toString() ==
+                            'PENDING_STK'
+                        ? 'M-Pesa prompt requested'
+                        : 'Fee payment recorded as pending'),
                     content: Text(
                         '${r['note'] ?? ''}\n\nSchool destination: $method${isManualMpesa ? '\nSend KSh $n using M-Pesa Send Money, then share the M-Pesa receipt with the school. This payment remains pending until the school verifies it.' : ''}\nReference: ${r['payment']?['paymentReference'] ?? ''}'),
                     actions: [
@@ -4066,18 +5004,32 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                           onPressed: () => Navigator.pop(ctx),
                           child: const Text('Close'))
                     ]));
-      amount.clear(); await loadSection();
+      amount.clear();
+      await loadSection();
     });
   }
 
   Future<void> registerStudent() async {
     final id = schoolId;
-    if (id == null || admissionNumber.text.trim().isEmpty || registeredStudentName.text.trim().isEmpty || studentClass.text.trim().isEmpty) return;
+    if (id == null ||
+        admissionNumber.text.trim().isEmpty ||
+        registeredStudentName.text.trim().isEmpty ||
+        studentClass.text.trim().isEmpty) return;
     await _action(() async {
       await app.api.call('POST', '/api/schools/$id/students', {
-        'admissionNumber': admissionNumber.text.trim(), 'fullName': registeredStudentName.text.trim(), 'className': studentClass.text.trim(), 'guardianName': guardianName.text.trim(), 'guardianPhone': guardianPhone.text.trim(), 'guardianEmail': guardianEmail.text.trim()
+        'admissionNumber': admissionNumber.text.trim(),
+        'fullName': registeredStudentName.text.trim(),
+        'className': studentClass.text.trim(),
+        'guardianName': guardianName.text.trim(),
+        'guardianPhone': guardianPhone.text.trim(),
+        'guardianEmail': guardianEmail.text.trim()
       });
-      admissionNumber.clear(); registeredStudentName.clear(); studentClass.clear(); guardianName.clear(); guardianPhone.clear(); guardianEmail.clear();
+      admissionNumber.clear();
+      registeredStudentName.clear();
+      studentClass.clear();
+      guardianName.clear();
+      guardianPhone.clear();
+      guardianEmail.clear();
       await loadSection();
     });
   }
@@ -4087,21 +5039,39 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     if (id == null || attendanceStudentId.isEmpty) return;
     await _action(() async {
       await app.api.call('POST', '/api/schools/$id/attendance', {
-        'studentId': attendanceStudentId, 'date': attendanceDate.text.trim(), 'status': attendanceStatus, 'note': attendanceNote.text.trim()
+        'studentId': attendanceStudentId,
+        'date': attendanceDate.text.trim(),
+        'status': attendanceStatus,
+        'note': attendanceNote.text.trim()
       });
-      attendanceNote.clear(); await loadSection();
+      attendanceNote.clear();
+      await loadSection();
     });
   }
 
   Future<void> saveAssessment() async {
     final id = schoolId;
-    final score = double.tryParse(assessmentScore.text.trim()), outOf = double.tryParse(assessmentOutOf.text.trim());
-    if (id == null || assessmentStudentId.isEmpty || score == null || outOf == null) return;
+    final score = double.tryParse(assessmentScore.text.trim()),
+        outOf = double.tryParse(assessmentOutOf.text.trim());
+    if (id == null ||
+        assessmentStudentId.isEmpty ||
+        score == null ||
+        outOf == null) return;
     await _action(() async {
       await app.api.call('POST', '/api/schools/$id/academics', {
-        'studentId': assessmentStudentId, 'subject': subjectName.text.trim(), 'assessment': assessmentName.text.trim(), 'term': assessmentTerm.text.trim(), 'score': score, 'outOf': outOf, 'teacherNote': teacherNote.text.trim()
+        'studentId': assessmentStudentId,
+        'subject': subjectName.text.trim(),
+        'assessment': assessmentName.text.trim(),
+        'term': assessmentTerm.text.trim(),
+        'score': score,
+        'outOf': outOf,
+        'teacherNote': teacherNote.text.trim()
       });
-      subjectName.clear(); assessmentName.clear(); assessmentScore.clear(); teacherNote.clear(); await loadSection();
+      subjectName.clear();
+      assessmentName.clear();
+      assessmentScore.clear();
+      teacherNote.clear();
+      await loadSection();
     });
   }
 
@@ -4110,11 +5080,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final dateText = conferenceDate.text.trim();
     final startText = conferenceStartTime.text.trim();
     final endText = conferenceEndTime.text.trim();
-    if (id == null || conferenceTitle.text.trim().isEmpty || conferenceAgenda.text.trim().isEmpty ||
+    if (id == null ||
+        conferenceTitle.text.trim().isEmpty ||
+        conferenceAgenda.text.trim().isEmpty ||
         !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dateText) ||
         !RegExp(r'^\d{2}:\d{2}$').hasMatch(startText) ||
         !RegExp(r'^\d{2}:\d{2}$').hasMatch(endText)) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text(
                 'Enter the conference title, agenda, date, start time and end time in the requested formats.')));
       return;
@@ -4122,15 +5095,23 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     DateTime? combine(String date, String time) {
       final parts = date.split('-').map(int.parse).toList();
       final clock = time.split(':').map(int.parse).toList();
-      if (parts[1] < 1 || parts[1] > 12 || clock[0] > 23 || clock[1] > 59) return null;
+      if (parts[1] < 1 || parts[1] > 12 || clock[0] > 23 || clock[1] > 59)
+        return null;
       final value = DateTime(parts[0], parts[1], parts[2], clock[0], clock[1]);
-      if (value.year != parts[0] || value.month != parts[1] || value.day != parts[2]) return null;
+      if (value.year != parts[0] ||
+          value.month != parts[1] ||
+          value.day != parts[2]) return null;
       return value;
     }
+
     final startsAt = combine(dateText, startText);
     final endsAt = combine(dateText, endText);
-    if (startsAt == null || endsAt == null || !endsAt.isAfter(startsAt) || !startsAt.isAfter(DateTime.now())) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+    if (startsAt == null ||
+        endsAt == null ||
+        !endsAt.isAfter(startsAt) ||
+        !startsAt.isAfter(DateTime.now())) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text(
                 'Choose a valid future date and time; the end time must be after the start time.')));
       return;
@@ -4144,12 +5125,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         'audience': 'all_parents',
         'location': conferenceLocation.text.trim(),
       });
-      conferenceTitle.clear(); conferenceAgenda.clear(); conferenceLocation.clear();
+      conferenceTitle.clear();
+      conferenceAgenda.clear();
+      conferenceLocation.clear();
       await loadSection();
     });
   }
 
-  Widget field(TextEditingController c, String label, {String? hint, TextInputType? keyboard}) =>
+  Widget field(TextEditingController c, String label,
+          {String? hint, TextInputType? keyboard}) =>
       Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: TextField(
@@ -4168,7 +5152,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           enableSuggestions: false,
           decoration: InputDecoration(
               labelText: label, border: const OutlineInputBorder())));
-  Widget actionButton(String label, FutureOr<void> Function() onPressed, {IconData icon = Icons.check}) =>
+  Widget actionButton(String label, FutureOr<void> Function() onPressed,
+          {IconData icon = Icons.check}) =>
       Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: SizedBox(
@@ -4185,7 +5170,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 (item) => item['studentId']?.toString() == attendanceStudentId)
             .toList()
         : attendance;
-    final visibleAssessments = role == 'parent' && assessmentStudentId.isNotEmpty
+    final visibleAssessments = role == 'parent' &&
+            assessmentStudentId.isNotEmpty
         ? assessments
             .where(
                 (item) => item['studentId']?.toString() == assessmentStudentId)
@@ -4195,21 +5181,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       body: RefreshIndicator(
           onRefresh: loadSchools,
           child: ListView(padding: const EdgeInsets.all(16), children: [
-        const Text('School workspace',
+            const Text('School workspace',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        const Text(
+            const SizedBox(height: 6),
+            const Text(
                 'Admissions, attendance, academic records, parent communication, conferences and fee management. M-Pesa remains pending until the school merchant credentials are configured.'),
-        const SizedBox(height: 14),
+            const SizedBox(height: 14),
             Card(
                 child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-          const Text('Join a school workspace',
+                          const Text('Join a school workspace',
                               style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
+                          const SizedBox(height: 8),
                           field(joinSchoolCode, 'School invite code',
                               hint:
                                   'Ask the school administrator for its code'),
@@ -4235,10 +5221,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                           field(studentNames, 'Linked student name(s)',
                               hint:
                                   'Enter exact registered names, separated by commas'),
-          actionButton('Join school', joinSchool,
+                          actionButton('Join school', joinSchool,
                               icon: Icons.group_add),
-        ]))),
-        if (schools.isNotEmpty)
+                        ]))),
+            if (schools.isNotEmpty)
               DropdownButtonFormField<String>(
                   initialValue: schoolId,
                   decoration: const InputDecoration(
@@ -4254,15 +5240,19 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         schools.cast<Map>().firstWhere((x) => x['id'] == id);
                     setState(() => _selectSchool(Map<String, dynamic>.from(s)));
                   }),
-        if (schoolId != null)
+            if (schoolId != null)
               Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                      isOwner ? 'Owner verified: you created this school workspace. Only your account can change school settings and administer it.' : "Membership verified: your account is not this school's owner. Owner-only settings and administration are locked.",
+                      isOwner
+                          ? 'Owner verified: you created this school workspace. Only your account can change school settings and administer it.'
+                          : "Membership verified: your account is not this school's owner. Owner-only settings and administration are locked.",
                       style: TextStyle(
-                          color: isOwner ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.secondary,
+                          color: isOwner
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.secondary,
                           fontWeight: FontWeight.w600))),
-        if (isAdmin && schoolCode.text.isNotEmpty)
+            if (isAdmin && schoolCode.text.isNotEmpty)
               Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
@@ -4270,7 +5260,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       style: TextStyle(
                           color: Theme.of(context).colorScheme.primary,
                           fontWeight: FontWeight.w600))),
-        if (isAdmin && staffInviteCode.text.isNotEmpty)
+            if (isAdmin && staffInviteCode.text.isNotEmpty)
               Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
@@ -4278,57 +5268,74 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       style: TextStyle(
                           color: Theme.of(context).colorScheme.secondary,
                           fontWeight: FontWeight.w600))),
-        if (schools.isEmpty) ...[
-          const Card(
+            if (schools.isEmpty) ...[
+              const Card(
                   child: Padding(
-                      padding: EdgeInsets.all(12), child: Text(
+                      padding: EdgeInsets.all(12),
+                      child: Text(
                           'School workspaces are not created instantly. Chatify must verify that the school exists before an administrator workspace is activated. Do not submit a school you cannot represent.'))),
-          field(schoolName, 'Official school name'),
-          field(schoolCode, 'Proposed unique school code', hint: 'e.g. NAIROBI-PRI'),
-          field(schoolCounty, 'County where the school is located'),
-          field(schoolOfficialEmail, 'Official school email', hint: 'Use the school’s official contact email'),
-          field(schoolOfficialPhone, 'Official school phone number', hint: 'The school office contact number', keyboard: TextInputType.phone),
-          actionButton('Submit school for verification', createSchool, icon: Icons.verified_user),
-        ],
-        if (schoolVerificationRequests.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          const Text('School verification requests', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ...schoolVerificationRequests.map((raw) {
-            final request = Map<String, dynamic>.from(raw as Map);
-            final status = (request['status'] ?? 'PENDING').toString();
-            return Card(
+              field(schoolName, 'Official school name'),
+              field(schoolCode, 'Proposed unique school code',
+                  hint: 'e.g. NAIROBI-PRI'),
+              field(schoolCounty, 'County where the school is located'),
+              field(schoolOfficialEmail, 'Official school email',
+                  hint: 'Use the school’s official contact email'),
+              field(schoolOfficialPhone, 'Official school phone number',
+                  hint: 'The school office contact number',
+                  keyboard: TextInputType.phone),
+              actionButton('Submit school for verification', createSchool,
+                  icon: Icons.verified_user),
+            ],
+            if (schoolVerificationRequests.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('School verification requests',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ...schoolVerificationRequests.map((raw) {
+                final request = Map<String, dynamic>.from(raw as Map);
+                final status = (request['status'] ?? 'PENDING').toString();
+                return Card(
                     child: Padding(
-                        padding: const EdgeInsets.all(12), child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Text(
                                   (request['schoolName'] ?? 'School request')
-                                      .toString(), style: const TextStyle(
+                                      .toString(),
+                                  style: const TextStyle(
                                       fontWeight: FontWeight.bold)),
                               Text(
                                   'Code: ${request['proposedCode'] ?? ''} • County: ${request['county'] ?? ''}'),
                               Text(
                                   'Official contact: ${request['officialEmail'] ?? ''} • ${request['officialPhone'] ?? ''}'),
-              Text('Status: $status'),
-              if ((request['reviewNote'] ?? '')
+                              Text('Status: $status'),
+                              if ((request['reviewNote'] ?? '')
                                   .toString()
-                                  .isNotEmpty) Text((request['reviewNote']).toString()),
-              if (isSchoolVerificationReviewer && status == 'PENDING') Wrap(spacing: 8, children: [
+                                  .isNotEmpty)
+                                Text((request['reviewNote']).toString()),
+                              if (isSchoolVerificationReviewer &&
+                                  status == 'PENDING')
+                                Wrap(spacing: 8, children: [
                                   FilledButton.icon(
                                       onPressed: () => reviewSchoolVerification(
-                                          request, 'APPROVE'), icon: const Icon(Icons.verified), label: const Text('Approve')),
+                                          request, 'APPROVE'),
+                                      icon: const Icon(Icons.verified),
+                                      label: const Text('Approve')),
                                   OutlinedButton.icon(
                                       onPressed: () => reviewSchoolVerification(
-                                          request, 'REJECT'), icon: const Icon(Icons.block), label: const Text('Reject')),
-              ]),
-            ])));
-          }),
-        ],
-        if (schoolId != null && isOwner) ...[
-          const SizedBox(height: 12),
-          _schoolBillingCard(),
-        ],
-        if (schoolId != null) ...[
-          const SizedBox(height: 12),
+                                          request, 'REJECT'),
+                                      icon: const Icon(Icons.block),
+                                      label: const Text('Reject')),
+                                ]),
+                            ])));
+              }),
+            ],
+            if (schoolId != null && isOwner) ...[
+              const SizedBox(height: 12),
+              _schoolBillingCard(),
+            ],
+            if (schoolId != null) ...[
+              const SizedBox(height: 12),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 ChoiceChip(
                     label: const Text('Messages'),
@@ -4370,7 +5377,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       });
                       loadSection();
                     }),
-            if (role == 'staff' || isAdmin)
+                if (role == 'staff' || isAdmin)
                   ChoiceChip(
                       label: const Text('Members'),
                       selected: section == 3,
@@ -4381,7 +5388,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         });
                         loadSection();
                       }),
-            if (isAdmin)
+                if (isAdmin)
                   ChoiceChip(
                       label: const Text('Payment setup'),
                       selected: section == 4,
@@ -4418,22 +5425,24 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       });
                       loadSection();
                     }),
-          ]),
-          const SizedBox(height: 14),
-          if (loading) const Center(
+              ]),
+              const SizedBox(height: 14),
+              if (loading)
+                const Center(
                     child: Padding(
                         padding: EdgeInsets.all(16),
                         child: CircularProgressIndicator())),
-          if (error != null)
+              if (error != null)
                 Text(error!,
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error)),
-          if (section == 0) ...[
-            if (role == 'parent' || role == 'staff')
-              const Padding(
-                      padding: EdgeInsets.only(bottom: 10), child: Text(
+              if (section == 0) ...[
+                if (role == 'parent' || role == 'staff')
+                  const Padding(
+                      padding: EdgeInsets.only(bottom: 10),
+                      child: Text(
                           'Messages are sent to this school workspace inbox. Chatify platform administrators are not selectable recipients.')),
-            if (role == 'admin')
+                if (role == 'admin')
                   DropdownButtonFormField<String>(
                       initialValue: audience,
                       decoration: const InputDecoration(labelText: 'Send to'),
@@ -4450,7 +5459,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       ],
                       onChanged: (v) =>
                           setState(() => audience = v ?? 'direct')),
-            if (role == 'admin' && audience == 'direct')
+                if (role == 'admin' && audience == 'direct')
                   DropdownButtonFormField<String>(
                       initialValue: members.any((m) =>
                               m['userId']?.toString() ==
@@ -4471,7 +5480,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                           setState(() => recipientIdController.text = v ?? '')),
                 field(messageSubject, 'Subject (optional)'),
                 field(messageBody, 'Message'),
-            actionButton('Send message / announcement', sendMessage,
+                actionButton('Send message / announcement', sendMessage,
                     icon: Icons.send),
                 ...messages.map((m) => _swipeSchoolRecord(
                     id: m['_id'].toString(),
@@ -4485,10 +5494,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                 (m['subject'] ?? 'School message').toString()),
                             subtitle: Text((m['body'] ?? '').toString()),
                             isThreeLine: true)))),
-            _schoolPager(),
-          ],
-          if (section == 1) ...[
-            if (isAdmin) ...[
+                _schoolPager(),
+              ],
+              if (section == 1) ...[
+                if (isAdmin) ...[
                   field(conferenceTitle, 'Conference title'),
                   field(conferenceAgenda, 'Important information / agenda'),
                   field(conferenceDate, 'Event date (YYYY-MM-DD)',
@@ -4512,9 +5521,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                 Text((c['title'] ?? 'Conference').toString()),
                             subtitle: Text(
                                 '${c['agenda'] ?? ''}\n${c['startsAt'] ?? ''}\n${c['location'] ?? ''}'))))),
-            _schoolPager(),
-          ],
-          if (section == 2) ...[
+                _schoolPager(),
+              ],
+              if (section == 2) ...[
                 Card(
                     child: Padding(
                         padding: const EdgeInsets.all(14),
@@ -4523,54 +5532,74 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             children: [
                               Text(
                                   (feePaymentOptions['schoolName'] ?? 'School')
-                                          .toString() + ' payment options',
+                                          .toString() +
+                                      ' payment options',
                                   style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 16)),
-              if ((feePaymentOptions['officialPhone'] ?? '')
+                              if ((feePaymentOptions['officialPhone'] ?? '')
                                   .toString()
                                   .isNotEmpty)
                                 Padding(
-                                    padding: const EdgeInsets.only(top: 4), child: Text(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
                                         'School phone: ${feePaymentOptions['officialPhone']}')),
-              const SizedBox(height: 6),
-              if (feePaymentOptions['configured'] != true &&
+                              const SizedBox(height: 6),
+                              if (feePaymentOptions['configured'] != true &&
                                   (feePaymentOptions['officialPhone']
                                           ?.toString()
                                           .isEmpty ??
                                       true))
-                const Text(
+                                const Text(
                                     'The school has not configured a fee payment method yet. Do not send money to an unverified number. Contact the school office.'),
-              if (feePaymentOptions['method'] == 'mpesa_paybill')
+                              if (feePaymentOptions['method'] ==
+                                  'mpesa_paybill')
                                 Text(
                                     'M-Pesa Paybill: ${feePaymentOptions['paybillNumber'] ?? 'Not provided'}'),
-              if (feePaymentOptions['method'] == 'mpesa_till')
+                              if (feePaymentOptions['method'] == 'mpesa_till')
                                 Text(
                                     'M-Pesa Buy Goods Till: ${feePaymentOptions['tillNumber'] ?? 'Not provided'}'),
-              if (feePaymentOptions['method'] == 'bank')
+                              if (feePaymentOptions['method'] == 'bank')
                                 Text(
                                     'Bank: ${feePaymentOptions['bankName'] ?? 'Not provided'} • Account: ${feePaymentOptions['accountNumber'] ?? 'Contact school office'}'),
-              if (feePaymentOptions['method'] != null && feePaymentOptions['method'] != 'bank' && feePaymentOptions['darajaConfigured'] != true)
-                const Text(
+                              if (feePaymentOptions['method'] != null &&
+                                  feePaymentOptions['method'] != 'bank' &&
+                                  feePaymentOptions['darajaConfigured'] != true)
+                                const Text(
                                     'The school payment number is saved, but its Daraja STK Push credentials are not complete. No STK prompt can be sent yet.'),
-              if (fees.isNotEmpty)
+                              if (fees.isNotEmpty)
                                 Padding(
                                     padding: const EdgeInsets.only(top: 8),
                                     child: Text(
                                         'Records on this page: ${fees.length} • Confirmed/paid: ${fees.where((p) => p['status'] == 'CONFIRMED').length} • Pending: ${fees.where((p) => p['status'] != 'CONFIRMED' && p['status'] != 'FAILED' && p['status'] != 'CANCELLED' && p['status'] != 'REJECTED').length}')),
-            ]))),
-            if (role == 'parent') ...[
-              if (feeStudents.isEmpty) const Padding(
-                        padding: EdgeInsets.only(bottom: 10), child: Text(
+                            ]))),
+                if (role == 'parent') ...[
+                  if (feeStudents.isEmpty)
+                    const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: Text(
                             'No attached students were found for this school. Ask the school administrator to link your registered student to your parent account.')),
-              if (feeStudents.isNotEmpty)
+                  if (feeStudents.isNotEmpty)
                     DropdownButtonFormField<String>(
-                        key: ValueKey('fee-student-$feeStudentName'), initialValue: feeStudents.any((student) => student['fullName']?.toString() == feeStudentName) ? feeStudentName : null, decoration: const InputDecoration(
-                            labelText: 'Student to pay fees for', border: OutlineInputBorder()), items: feeStudents
+                        key: ValueKey('fee-student-$feeStudentName'),
+                        initialValue: feeStudents.any((student) =>
+                                student['fullName']?.toString() ==
+                                feeStudentName)
+                            ? feeStudentName
+                            : null,
+                        decoration: const InputDecoration(
+                            labelText: 'Student to pay fees for',
+                            border: OutlineInputBorder()),
+                        items: feeStudents
                             .map((student) => DropdownMenuItem<String>(
-                                value: student['fullName'].toString(), child: Text(
+                                value: student['fullName'].toString(),
+                                child: Text(
                                     '${student['fullName']} • ${student['className'] ?? ''}')))
-                            .toList(), onChanged: (value) => setState(() { feeStudentName = value ?? ''; feeStudent.text = feeStudentName; })),
+                            .toList(),
+                        onChanged: (value) => setState(() {
+                              feeStudentName = value ?? '';
+                              feeStudent.text = feeStudentName;
+                            })),
                   field(amount, 'Amount in KSh',
                       keyboard: TextInputType.number),
                   field(feeTerm, 'Term / year'),
@@ -4623,7 +5652,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                 : 'Pay school fees with M-Pesa',
                         startFeePayment,
                         icon: Icons.payment)
-            ],
+                ],
                 ...fees.map((p) => Card(
                     child: ListTile(
                         leading: Icon(p['status'] == 'CONFIRMED'
@@ -4647,67 +5676,70 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                     onPressed: () => downloadSchoolFeeReceipt(
                                         Map<String, dynamic>.from(p)))
                                 : null))),
-            if (isAdmin)
+                if (isAdmin)
                   ...fees.where((p) => p['status'] == 'CONFIRMED').map((p) =>
                       actionButton(
                           'Retry receipt email • ${p['paymentReference']}',
                           () =>
                               resendSchoolReceipt(Map<String, dynamic>.from(p)),
                           icon: Icons.forward_to_inbox)),
-          ],
-          if (section == 8) ...[
-            const Text('School fee receipts', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            const Text(
+              ],
+              if (section == 8) ...[
+                const Text('School fee receipts',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                const Text(
                     'Receipts are available for confirmed payments only. Pending or failed payments cannot receive an official receipt.'),
-            if (fees
+                if (fees
                     .where((payment) => payment['status'] == 'CONFIRMED')
                     .isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 18),
-                child: Text(
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 18),
+                    child: Text(
                         'No confirmed fee payments with receipts are available on this page yet. Check the Fees section or move to another page.'),
-              ),
+                  ),
                 ...fees
                     .where((payment) => payment['status'] == 'CONFIRMED')
                     .map((payment) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Text(
-                                    'Receipt • ${payment['paymentReference'] ?? ''}', style: const TextStyle(
+                                    'Receipt • ${payment['paymentReference'] ?? ''}',
+                                    style: const TextStyle(
                                         fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
+                                const SizedBox(height: 4),
                                 Text(
                                     '${payment['studentName'] ?? 'Student'} • KSh ${payment['amount'] ?? ''}'),
                                 Text(
                                     'Term: ${payment['term'] ?? 'Not specified'} • M-Pesa receipt: ${payment['mpesaReceipt'] ?? 'Confirmed'}'),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: FilledButton.icon(
-                        onPressed: () => downloadSchoolFeeReceipt(
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: FilledButton.icon(
+                                    onPressed: () => downloadSchoolFeeReceipt(
                                         Map<String, dynamic>.from(payment)),
-                        icon: const Icon(Icons.download),
-                        label: const Text('Download receipt (PDF)'),
-                      ),
-                    ),
-                    if (isAdmin)
-                      TextButton.icon(
-                        onPressed: () => resendSchoolReceipt(
+                                    icon: const Icon(Icons.download),
+                                    label: const Text('Download receipt (PDF)'),
+                                  ),
+                                ),
+                                if (isAdmin)
+                                  TextButton.icon(
+                                    onPressed: () => resendSchoolReceipt(
                                         Map<String, dynamic>.from(payment)),
-                        icon: const Icon(Icons.forward_to_inbox),
-                        label: const Text('Resend receipt email'),
-                      ),
-                  ],
-                ),
-              ),
-            )),
-            _schoolPager(),
-          ],
-          if (section == 3 && (role == 'staff' || isAdmin)) ...[
+                                    icon: const Icon(Icons.forward_to_inbox),
+                                    label: const Text('Resend receipt email'),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        )),
+                _schoolPager(),
+              ],
+              if (section == 3 && (role == 'staff' || isAdmin)) ...[
                 field(memberEmail, 'Existing Chatify account email'),
                 DropdownButtonFormField<String>(
                     initialValue: memberRole,
@@ -4742,104 +5774,211 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                 : null)))),
                 _schoolPager()
               ],
-          if (section == 5) ...[
-            if (role != 'parent') ...[
-              const Text('Student admission register', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              field(admissionNumber, 'Admission / student number'), field(registeredStudentName, 'Student full name'), field(studentClass, 'Class / grade'),
-              field(guardianName, 'Parent / guardian name'), field(guardianPhone, 'Guardian phone', keyboard: TextInputType.phone), field(guardianEmail, 'Guardian email', keyboard: TextInputType.emailAddress),
-              actionButton('Register student', registerStudent, icon: Icons.person_add_alt_1),
-            ],
-            Text('Enrolled students: ${students.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            if (students.isEmpty) const Padding(
-                      padding: EdgeInsets.all(16), child: Text(
+              if (section == 5) ...[
+                if (role != 'parent') ...[
+                  const Text('Student admission register',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  field(admissionNumber, 'Admission / student number'),
+                  field(registeredStudentName, 'Student full name'),
+                  field(studentClass, 'Class / grade'),
+                  field(guardianName, 'Parent / guardian name'),
+                  field(guardianPhone, 'Guardian phone',
+                      keyboard: TextInputType.phone),
+                  field(guardianEmail, 'Guardian email',
+                      keyboard: TextInputType.emailAddress),
+                  actionButton('Register student', registerStudent,
+                      icon: Icons.person_add_alt_1),
+                ],
+                Text('Enrolled students: ${students.length}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                if (students.isEmpty)
+                  const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
                           'No student records yet. School staff can register students above.')),
-            ...students.map((s) => _swipeSchoolRecord(
-                    id: s['_id'].toString(),
-                    label: 'student',
-                    endpoint: 'students/${s['_id']}',
-                    child: Card(
-                        child: ListTile(
-                            leading: const CircleAvatar(
-                                child: Icon(Icons.school_outlined)), title: Text((s['fullName'] ?? 'Student').toString()), subtitle: Text(
-                                '${s['admissionNumber'] ?? ''} • ${s['className'] ?? ''}\n${s['guardianName'] ?? 'Guardian not recorded'} ${s['guardianPhone'] ?? ''}'), isThreeLine: true)))),
-            _schoolPager(),
-          ],
-          if (section == 6) ...[
-            if (students.isNotEmpty) ...[
+                if (students.isNotEmpty)
+                  _responsiveSchoolTable(
+                    columns: [
+                      const DataColumn(label: Text('Admission no.')),
+                      const DataColumn(label: Text('Learner')),
+                      const DataColumn(label: Text('Class / grade')),
+                      const DataColumn(label: Text('Parent / guardian')),
+                      const DataColumn(label: Text('Phone')),
+                      const DataColumn(label: Text('Email')),
+                      if (role != 'parent')
+                        const DataColumn(label: Text('Actions')),
+                    ],
+                    rows: students.map((raw) {
+                      final student = Map<String, dynamic>.from(raw as Map);
+                      return DataRow(cells: [
+                        DataCell(Text(
+                            (student['admissionNumber'] ?? '').toString())),
+                        DataCell(Text(
+                            (student['fullName'] ?? 'Student').toString())),
+                        DataCell(Text((student['className'] ?? '').toString())),
+                        DataCell(Text(
+                            (student['guardianName'] ?? 'Not recorded')
+                                .toString())),
+                        DataCell(
+                            Text((student['guardianPhone'] ?? '').toString())),
+                        DataCell(
+                            Text((student['guardianEmail'] ?? '').toString())),
+                        if (role != 'parent')
+                          DataCell(IconButton(
+                            tooltip: 'Delete student record',
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => _removeSchoolRecord(
+                              label: 'student',
+                              endpoint: 'students/${student['_id']}',
+                            ),
+                          )),
+                      ]);
+                    }).toList(),
+                  ),
+                _schoolPager(),
+              ],
+              if (section == 6) ...[
+                if (students.isNotEmpty) ...[
                   Text(
-                      role == 'parent' ? 'Your linked students' : 'Daily attendance', style: const TextStyle(
+                      role == 'parent'
+                          ? 'Your linked students'
+                          : 'Daily attendance',
+                      style: const TextStyle(
                           fontSize: 18, fontWeight: FontWeight.bold)),
                   DropdownButtonFormField<String>(
-                      key: ValueKey('attendance-student-$attendanceStudentId'), initialValue: students.any((s) => s['_id']?.toString() == attendanceStudentId) ? attendanceStudentId : students.first['_id']?.toString(), decoration: const InputDecoration(labelText: 'Select student'), items: students
+                      key: ValueKey('attendance-student-$attendanceStudentId'),
+                      initialValue: students.any((s) =>
+                              s['_id']?.toString() == attendanceStudentId)
+                          ? attendanceStudentId
+                          : students.first['_id']?.toString(),
+                      decoration:
+                          const InputDecoration(labelText: 'Select student'),
+                      items: students
                           .map((s) => DropdownMenuItem<String>(
-                              value: s['_id'].toString(), child: Text('${s['fullName']} • ${s['className']}')))
-                          .toList(), onChanged: (v) => setState(() => attendanceStudentId = v ?? '')),
-            ],
-            if (role != 'parent' && students.isNotEmpty) ...[
-              field(attendanceDate, 'Attendance date (YYYY-MM-DD)'),
+                              value: s['_id'].toString(),
+                              child:
+                                  Text('${s['fullName']} • ${s['className']}')))
+                          .toList(),
+                      onChanged: (v) =>
+                          setState(() => attendanceStudentId = v ?? '')),
+                ],
+                if (role != 'parent' && students.isNotEmpty) ...[
+                  field(attendanceDate, 'Attendance date (YYYY-MM-DD)'),
                   DropdownButtonFormField<String>(
-                      initialValue: attendanceStatus, decoration: const InputDecoration(labelText: 'Attendance status'), items: const [
+                      initialValue: attendanceStatus,
+                      decoration:
+                          const InputDecoration(labelText: 'Attendance status'),
+                      items: const [
                         DropdownMenuItem(
                             value: 'present', child: Text('Present')),
                         DropdownMenuItem(
-                            value: 'absent', child: Text('Absent')), DropdownMenuItem(value: 'late', child: Text('Late')),
+                            value: 'absent', child: Text('Absent')),
+                        DropdownMenuItem(value: 'late', child: Text('Late')),
                         DropdownMenuItem(
                             value: 'excused', child: Text('Excused absence'))
-                      ], onChanged: (v) => setState(() => attendanceStatus = v ?? 'present')),
-              field(attendanceNote, 'Note (optional)'), actionButton('Save attendance', saveAttendance, icon: Icons.fact_check_outlined),
-            ],
-            Text('Attendance records: ${visibleAttendance.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            if (students.isEmpty && role == 'parent') const Padding(
-                      padding: EdgeInsets.all(16), child: Text(
+                      ],
+                      onChanged: (v) =>
+                          setState(() => attendanceStatus = v ?? 'present')),
+                  field(attendanceNote, 'Note (optional)'),
+                  actionButton('Save attendance', saveAttendance,
+                      icon: Icons.fact_check_outlined),
+                ],
+                Text('Attendance records: ${visibleAttendance.length}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                if (students.isEmpty && role == 'parent')
+                  const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
                           'No students are linked to your parent account in this school. Ask the school office to update your student links.')),
-            if (visibleAttendance.isEmpty && !(students.isEmpty && role == 'parent')) const Padding(
-                      padding: EdgeInsets.all(16), child: Text(
+                if (visibleAttendance.isEmpty &&
+                    !(students.isEmpty && role == 'parent'))
+                  const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
                           'No attendance records have been recorded yet.')),
-            ...visibleAttendance.map((a) => _swipeSchoolRecord(
+                ...visibleAttendance.map((a) => _swipeSchoolRecord(
                     id: a['_id'].toString(),
                     label: 'attendance record',
                     endpoint: 'attendance/${a['_id']}',
                     child: Card(
                         child: ListTile(
-                            leading: Icon(a['status'] == 'present' ? Icons.check_circle : a['status'] == 'late' ? Icons.schedule : Icons.event_busy), title: Text(
-                                '${a['studentName'] ?? 'Student'} • ${(a['status'] ?? '').toString().toUpperCase()}'), subtitle: Text(
+                            leading: Icon(a['status'] == 'present'
+                                ? Icons.check_circle
+                                : a['status'] == 'late'
+                                    ? Icons.schedule
+                                    : Icons.event_busy),
+                            title: Text(
+                                '${a['studentName'] ?? 'Student'} • ${(a['status'] ?? '').toString().toUpperCase()}'),
+                            subtitle: Text(
                                 '${a['className'] ?? ''} • ${a['date']?.toString().split('T').first ?? ''}${(a['note'] ?? '').toString().isEmpty ? '' : '\n${a['note']}'}'))))),
-            _schoolPager(),
-          ],
-          if (section == 7) ...[
-            if (students.isNotEmpty) ...[
+                _schoolPager(),
+              ],
+              if (section == 7) ...[
+                if (students.isNotEmpty) ...[
                   Text(
-                      role == 'parent' ? 'Your linked students' : 'Academic results', style: const TextStyle(
+                      role == 'parent'
+                          ? 'Your linked students'
+                          : 'Academic results',
+                      style: const TextStyle(
                           fontSize: 18, fontWeight: FontWeight.bold)),
                   DropdownButtonFormField<String>(
-                      key: ValueKey('academic-student-$assessmentStudentId'), initialValue: students.any((s) => s['_id']?.toString() == assessmentStudentId) ? assessmentStudentId : students.first['_id']?.toString(), decoration: const InputDecoration(labelText: 'Select student'), items: students
+                      key: ValueKey('academic-student-$assessmentStudentId'),
+                      initialValue: students.any((s) =>
+                              s['_id']?.toString() == assessmentStudentId)
+                          ? assessmentStudentId
+                          : students.first['_id']?.toString(),
+                      decoration:
+                          const InputDecoration(labelText: 'Select student'),
+                      items: students
                           .map((s) => DropdownMenuItem<String>(
-                              value: s['_id'].toString(), child: Text('${s['fullName']} • ${s['className']}')))
-                          .toList(), onChanged: (v) => setState(() => assessmentStudentId = v ?? '')),
-            ],
-            if (role != 'parent' && students.isNotEmpty) ...[
-              field(subjectName, 'Subject'), field(assessmentName, 'Assessment name (e.g. CAT 1)'), field(assessmentTerm, 'Term / academic year'), field(assessmentScore, 'Score', keyboard: TextInputType.number), field(assessmentOutOf, 'Total marks', keyboard: TextInputType.number), field(teacherNote, 'Teacher comment (optional)'),
-              actionButton('Save assessment result', saveAssessment, icon: Icons.grading_outlined),
-            ],
-            Text('Assessment results: ${visibleAssessments.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            if (students.isEmpty && role == 'parent') const Padding(
-                      padding: EdgeInsets.all(16), child: Text(
+                              value: s['_id'].toString(),
+                              child:
+                                  Text('${s['fullName']} • ${s['className']}')))
+                          .toList(),
+                      onChanged: (v) =>
+                          setState(() => assessmentStudentId = v ?? '')),
+                ],
+                if (role != 'parent' && students.isNotEmpty) ...[
+                  field(subjectName, 'Subject'),
+                  field(assessmentName, 'Assessment name (e.g. CAT 1)'),
+                  field(assessmentTerm, 'Term / academic year'),
+                  field(assessmentScore, 'Score',
+                      keyboard: TextInputType.number),
+                  field(assessmentOutOf, 'Total marks',
+                      keyboard: TextInputType.number),
+                  field(teacherNote, 'Teacher comment (optional)'),
+                  actionButton('Save assessment result', saveAssessment,
+                      icon: Icons.grading_outlined),
+                ],
+                Text('Assessment results: ${visibleAssessments.length}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                if (students.isEmpty && role == 'parent')
+                  const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
                           'No students are linked to your parent account in this school. Ask the school office to update your student links.')),
-            if (visibleAssessments.isEmpty && !(students.isEmpty && role == 'parent')) const Padding(
-                      padding: EdgeInsets.all(16), child: Text(
+                if (visibleAssessments.isEmpty &&
+                    !(students.isEmpty && role == 'parent'))
+                  const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
                           'No assessment results have been recorded yet.')),
-            ...visibleAssessments.map((a) => _swipeSchoolRecord(
+                ...visibleAssessments.map((a) => _swipeSchoolRecord(
                     id: a['_id'].toString(),
                     label: 'assessment record',
                     endpoint: 'academics/${a['_id']}',
                     child: Card(
                         child: ListTile(
-                            leading: const Icon(Icons.assessment_outlined), title: Text(
-                                '${a['studentName'] ?? 'Student'} • ${a['subject'] ?? ''}'), subtitle: Text(
-                                '${a['assessment'] ?? ''} • ${a['term'] ?? ''}\nScore: ${a['score'] ?? 0} / ${a['outOf'] ?? 100}${(a['teacherNote'] ?? '').toString().isEmpty ? '' : '\n${a['teacherNote']}'}'), isThreeLine: true)))),
-            _schoolPager(),
-          ],
-          if (section == 4 && isAdmin) ...[
+                            leading: const Icon(Icons.assessment_outlined),
+                            title: Text(
+                                '${a['studentName'] ?? 'Student'} • ${a['subject'] ?? ''}'),
+                            subtitle: Text(
+                                '${a['assessment'] ?? ''} • ${a['term'] ?? ''}\nScore: ${a['score'] ?? 0} / ${a['outOf'] ?? 100}${(a['teacherNote'] ?? '').toString().isEmpty ? '' : '\n${a['teacherNote']}'}'),
+                            isThreeLine: true)))),
+                _schoolPager(),
+              ],
+              if (section == 4 && isAdmin) ...[
                 DropdownButtonFormField<String>(
                     initialValue: paymentMethod,
                     decoration: const InputDecoration(
@@ -4882,22 +6021,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   secretField(
                       darajaConsumerSecret, 'School Daraja consumer secret'),
                   secretField(darajaPasskey, 'School shortcode passkey'),
-              const Text(
+                  const Text(
                       'Use the credentials issued for this school merchant and shortcode. Credentials are sent over HTTPS and encrypted on the API before storage; they are never displayed again.',
                       style: TextStyle(fontSize: 12)),
-            ],
-            actionButton('Save school payment setup', savePaymentProfile,
+                ],
+                actionButton('Save school payment setup', savePaymentProfile,
                     icon: Icons.save),
-            const Text(
+                const Text(
                     'Live STK Push requires the API server to have SCHOOL_PAYMENT_ENCRYPTION_KEY and PUBLIC_API_URL (or API_URL) configured, plus SMTP_URL and SMTP_FROM for automatic receipt emails. Never paste Daraja secrets into chat or GitHub.',
                     style: TextStyle(color: Colors.deepOrange)),
-          ],
-        ],
-      ])),
+              ],
+            ],
+          ])),
     );
   }
 }
-
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -4907,10 +6045,16 @@ class Home extends StatefulWidget {
 
 // Coordinates the Home tabs and selections, and loads the data displayed in each section.
 class _HomeState extends State<Home> {
+  AppState? _observedAppState;
   int tab = 0;
   bool showMemoriesInChats = false;
   static const int _homePageSize = 20;
-  int chatPage = 1, chatTotal = 0, memoryPage = 1, memoryTotal = 0, contactsPage = 1, contactsTotal = 0;
+  int chatPage = 1,
+      chatTotal = 0,
+      memoryPage = 1,
+      memoryTotal = 0,
+      contactsPage = 1,
+      contactsTotal = 0;
   final Map<int, String> chatCursors = {}, memoryCursors = {};
   List<dynamic> chats = [], users = [], memories = [];
   // Sparks are short-lived status updates that expire after 24 hours.
@@ -4940,6 +6084,7 @@ class _HomeState extends State<Home> {
   @override
   void initState() {
     super.initState();
+    _observedAppState = app;
     _lastMessageEventVersion = app.messageEventVersion;
     app.addListener(_onAppStateChanged);
     loadChats();
@@ -5009,8 +6154,10 @@ class _HomeState extends State<Home> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(deletedIds.isEmpty
                 ? error.toString()
-                : 'Deleted ' + deletedIds.length.toString() +
-                    ' conversations. Some remaining items could not be deleted: ' + error.toString())));
+                : 'Deleted ' +
+                    deletedIds.length.toString() +
+                    ' conversations. Some remaining items could not be deleted: ' +
+                    error.toString())));
       }
     }
   }
@@ -5035,60 +6182,93 @@ class _HomeState extends State<Home> {
   Future<void> _createSpark() async {
     final kind = await showModalBottomSheet<String>(
       context: context,
-      builder: (sheetContext) => SafeArea(child: Wrap(children: [
-        ListTile(leading: const Icon(Icons.text_fields), title: const Text('Text Spark'), onTap: () => Navigator.pop(sheetContext, 'text')),
-        ListTile(leading: const Icon(Icons.image_outlined), title: const Text('Upload image'), onTap: () => Navigator.pop(sheetContext, 'image')),
-        ListTile(leading: const Icon(Icons.videocam_outlined), title: const Text('Upload short video'), subtitle: const Text('Up to 8 MB'), onTap: () => Navigator.pop(sheetContext, 'video')),
+      builder: (sheetContext) => SafeArea(
+          child: Wrap(children: [
+        ListTile(
+            leading: const Icon(Icons.text_fields),
+            title: const Text('Text Spark'),
+            onTap: () => Navigator.pop(sheetContext, 'text')),
+        ListTile(
+            leading: const Icon(Icons.image_outlined),
+            title: const Text('Photo Spark'),
+            onTap: () => Navigator.pop(sheetContext, 'image')),
+        ListTile(
+            leading: const Icon(Icons.videocam_outlined),
+            title: const Text('Video Spark'),
+            subtitle: const Text('Up to 8 MB'),
+            onTap: () => Navigator.pop(sheetContext, 'video')),
       ])),
     );
     if (kind == null || !mounted) return;
     try {
       final Map<String, dynamic> payload = {'text': ''};
       if (kind == 'text') {
-        final controller = TextEditingController();
-        final text = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
-          title: const Text('Create a Spark'),
-          content: TextField(controller: controller, autofocus: true, maxLength: 500, maxLines: 4,
-            decoration: const InputDecoration(hintText: 'What would you like to share?', border: OutlineInputBorder())),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Share Spark')),
-          ],
-        ));
-        controller.dispose();
+        final text = await showDialog<String>(
+            context: context, builder: (_) => const _CreateSparkTextDialog());
         if (text == null || text.trim().isEmpty || !mounted) return;
         payload['text'] = text.trim();
       } else if (kind == 'image') {
-        final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+        final file = await ImagePicker()
+            .pickImage(source: ImageSource.gallery, imageQuality: 85);
         if (file == null) return;
         final bytes = await file.readAsBytes();
-        if (bytes.isEmpty || bytes.length > 8 * 1024 * 1024) throw const FormatException('Choose an image no larger than 8 MB.');
+        if (bytes.isEmpty || bytes.length > 8 * 1024 * 1024)
+          throw const FormatException('Choose an image no larger than 8 MB.');
         final lower = file.name.toLowerCase();
-        final mime = lower.endsWith('.png') ? 'image/png' : (lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
-        payload.addAll({'mediaData': base64Encode(bytes), 'mimeType': mime, 'mediaType': 'image'});
+        final mime = lower.endsWith('.png')
+            ? 'image/png'
+            : (lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
+        payload.addAll({
+          'mediaData': base64Encode(bytes),
+          'mimeType': mime,
+          'mediaType': 'image'
+        });
       } else {
-        final selected = await FilePicker.platform.pickFiles(type: FileType.video, withData: true, allowMultiple: false);
+        final selected = await FilePicker.platform.pickFiles(
+            type: FileType.video, withData: true, allowMultiple: false);
         if (selected == null || selected.files.isEmpty) return;
         final file = selected.files.first;
         final bytes = file.bytes;
-        if (bytes == null || bytes.isEmpty || bytes.length > 8 * 1024 * 1024) throw const FormatException('Choose a video no larger than 8 MB.');
+        if (bytes == null || bytes.isEmpty || bytes.length > 8 * 1024 * 1024)
+          throw const FormatException('Choose a video no larger than 8 MB.');
         final ext = (file.extension ?? '').toLowerCase();
         final mime = switch (ext) {
-          'mp4' => 'video/mp4', 'mov' => 'video/quicktime', 'webm' => 'video/webm',
-          _ => throw const FormatException('Supported video formats: MP4, MOV and WebM.'),
+          'mp4' => 'video/mp4',
+          'mov' => 'video/quicktime',
+          'webm' => 'video/webm',
+          _ => throw const FormatException(
+              'Supported video formats: MP4, MOV and WebM.'),
         };
-        payload.addAll({'mediaData': base64Encode(bytes), 'mimeType': mime, 'mediaType': 'video'});
+        payload.addAll({
+          'mediaData': base64Encode(bytes),
+          'mimeType': mime,
+          'mediaType': 'video'
+        });
       }
       await app.api.call('POST', '/api/sparks', payload);
       await loadSparks();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your Spark is live for 24 hours.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Your Spark is live for 24 hours.')));
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not share Spark: $error')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not share Spark: $error')));
     }
   }
 
   void _viewSpark(Map<String, dynamic> spark) {
     final author = spark['authorName']?.toString() ?? 'Chatify user';
+    final sparkId = spark['_id']?.toString();
+    if (spark['isMine'] != true &&
+        spark['hasViewed'] != true &&
+        sparkId != null &&
+        sparkId.isNotEmpty) {
+      unawaited(app.api
+          .call('POST', '/api/sparks/$sparkId/view', {})
+          .then((_) => loadSparks())
+          .catchError((_) {}));
+    }
     final created = DateTime.tryParse(spark['createdAt']?.toString() ?? '');
     final age = created == null
         ? 'Recently'
@@ -5100,23 +6280,63 @@ class _HomeState extends State<Home> {
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.auto_awesome, size: 30),
         title: Text(author),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+        content: Stack(
           children: [
-            if (spark['mediaType'] == 'image' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('https://'))
-              ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(spark['mediaUrl'] as String, fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Text('Image could not be loaded.'))),
-            if (spark['mediaType'] == 'image' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('data:image/'))
-              ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.memory(base64Decode((spark['mediaUrl'] as String).split(',').last), fit: BoxFit.contain)),
-            if (spark['mediaType'] == 'video' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('data:video/'))
-              const Text('Video Spark saved. Configure Cloudinary in production for streamable video URLs.'),
-            if (spark['mediaType'] == 'video' && spark['mediaUrl'] is String && (spark['mediaUrl'] as String).startsWith('https://'))
-              TextButton.icon(onPressed: () => launchUrl(Uri.parse(spark['mediaUrl'] as String), mode: LaunchMode.externalApplication),
-                icon: const Icon(Icons.play_circle_outline), label: const Text('Play Spark video')),
-            if ((spark['text']?.toString() ?? '').isNotEmpty) Text(spark['text']?.toString() ?? ''),
-            const SizedBox(height: 12),
-            Text(age, style: Theme.of(context).textTheme.bodySmall),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (spark['mediaType'] == 'image' &&
+                    spark['mediaUrl'] is String &&
+                    (spark['mediaUrl'] as String).startsWith('https://'))
+                  ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(spark['mediaUrl'] as String,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) =>
+                              const Text('Image could not be loaded.'))),
+                if (spark['mediaType'] == 'image' &&
+                    spark['mediaUrl'] is String &&
+                    (spark['mediaUrl'] as String).startsWith('data:image/'))
+                  ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.memory(
+                          base64Decode(
+                              (spark['mediaUrl'] as String).split(',').last),
+                          fit: BoxFit.contain)),
+                if (spark['mediaType'] == 'video' &&
+                    spark['mediaUrl'] is String &&
+                    (spark['mediaUrl'] as String).startsWith('data:video/'))
+                  const Text(
+                      'Video Spark saved. Configure Cloudinary in production for streamable video URLs.'),
+                if (spark['mediaType'] == 'video' &&
+                    spark['mediaUrl'] is String &&
+                    (spark['mediaUrl'] as String).startsWith('https://'))
+                  TextButton.icon(
+                      onPressed: () => launchUrl(
+                          Uri.parse(spark['mediaUrl'] as String),
+                          mode: LaunchMode.externalApplication),
+                      icon: const Icon(Icons.play_circle_outline),
+                      label: const Text('Play Spark video')),
+                if ((spark['text']?.toString() ?? '').isNotEmpty)
+                  Text(spark['text']?.toString() ?? ''),
+                const SizedBox(height: 12),
+                Text(age, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _SparkGlitter(
+                  key: const ValueKey('spark-glitter-overlay'),
+                  color: switch (spark['mediaType']) {
+                    'image' => const Color(0xFFB8A1FF),
+                    'video' => const Color(0xFF7EDBD0),
+                    _ => Theme.of(dialogContext).colorScheme.tertiary,
+                  },
+                  animate: !MediaQuery.disableAnimationsOf(dialogContext),
+                ),
+              ),
+            ),
           ],
         ),
         actions: [
@@ -5148,8 +6368,10 @@ class _HomeState extends State<Home> {
 
   Widget _sparksStrip() {
     final theme = Theme.of(context);
-    final mySparks = sparks.where((item) => item is Map && item['isMine'] == true).toList();
-    final otherSparks = sparks.where((item) => item is Map && item['isMine'] != true).toList();
+    final mySparks =
+        sparks.where((item) => item is Map && item['isMine'] == true).toList();
+    final otherSparks =
+        sparks.where((item) => item is Map && item['isMine'] != true).toList();
     return SizedBox(
       height: 112,
       child: ListView(
@@ -5169,11 +6391,8 @@ class _HomeState extends State<Home> {
                       CircleAvatar(
                         radius: 28,
                         backgroundColor: theme.colorScheme.primaryContainer,
-                        foregroundImage: (app.user?['profileImage'] is String &&
-                                (app.user!['profileImage'] as String).startsWith('https://'))
-                            ? NetworkImage(app.user!['profileImage'] as String)
-                            : null,
-                        child: const Icon(Icons.person_outline, size: 28),
+                        child:
+                            const Icon(Icons.auto_awesome_outlined, size: 28),
                       ),
                       Positioned(
                         right: -2,
@@ -5181,13 +6400,15 @@ class _HomeState extends State<Home> {
                         child: CircleAvatar(
                           radius: 11,
                           backgroundColor: theme.colorScheme.primary,
-                          child: const Icon(Icons.add, size: 16, color: Colors.white),
+                          child: const Icon(Icons.add,
+                              size: 16, color: Colors.white),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 6),
-                  const Text('Your Spark', maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const Text('Your Spark',
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
@@ -5196,8 +6417,34 @@ class _HomeState extends State<Home> {
             Builder(builder: (context) {
               final spark = Map<String, dynamic>.from(item as Map);
               final name = spark['authorName']?.toString() ?? 'Chatify user';
-              final initials = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
-              final profile = spark['authorImage']?.toString() ?? '';
+              final mediaUrl = spark['mediaUrl']?.toString() ?? '';
+              final mediaType = spark['mediaType']?.toString();
+              final text = spark['text']?.toString().trim() ?? '';
+              final Widget preview;
+              if (mediaType == 'image' && mediaUrl.startsWith('https://')) {
+                preview = Image.network(mediaUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.broken_image_outlined));
+              } else if (mediaType == 'image' &&
+                  mediaUrl.startsWith('data:image/')) {
+                preview = Image.memory(base64Decode(mediaUrl.split(',').last),
+                    fit: BoxFit.cover);
+              } else if (mediaType == 'video' &&
+                  mediaUrl.startsWith('https://')) {
+                preview = _SparkVideoThumbnail(url: mediaUrl);
+              } else if (text.isNotEmpty) {
+                preview = Padding(
+                  padding: const EdgeInsets.all(5),
+                  child: Text(text,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.labelSmall),
+                );
+              } else {
+                preview = const Icon(Icons.auto_awesome_outlined);
+              }
               return SizedBox(
                 width: 76,
                 child: InkWell(
@@ -5214,11 +6461,21 @@ class _HomeState extends State<Home> {
                             theme.colorScheme.tertiary,
                           ]),
                         ),
-                        child: CircleAvatar(
-                          radius: 25,
-                          backgroundColor: theme.colorScheme.surface,
-                          foregroundImage: profile.startsWith('https://') ? NetworkImage(profile) : null,
-                          child: Text(initials),
+                        child: ClipOval(
+                          child: SizedBox(
+                            width: 50,
+                            height: 50,
+                            child: ColoredBox(
+                              color: theme.colorScheme.surface,
+                              child: Stack(fit: StackFit.expand, children: [
+                                preview,
+                                if (mediaType == 'video')
+                                  const Center(
+                                      child: Icon(Icons.play_circle_fill,
+                                          color: Colors.white, size: 25)),
+                              ]),
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -5229,7 +6486,13 @@ class _HomeState extends State<Home> {
               );
             }),
           if (sparksLoading)
-            const SizedBox(width: 60, child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))),
+            const SizedBox(
+                width: 60,
+                child: Center(
+                    child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2)))),
         ],
       ),
     );
@@ -5254,7 +6517,8 @@ class _HomeState extends State<Home> {
                       child: Image.network(
                         imageUrl,
                         fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => _largeAvatarFallback(name),
+                        errorBuilder: (_, __, ___) =>
+                            _largeAvatarFallback(name),
                       ),
                     )
                   : _largeAvatarFallback(name),
@@ -5275,7 +6539,8 @@ class _HomeState extends State<Home> {
     return CircleAvatar(
       radius: 100,
       backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-      child: Text(label, style: const TextStyle(fontSize: 64, fontWeight: FontWeight.w700)),
+      child: Text(label,
+          style: const TextStyle(fontSize: 64, fontWeight: FontWeight.w700)),
     );
   }
 
@@ -5364,6 +6629,28 @@ class _HomeState extends State<Home> {
     }
   }
 
+  Future<void> _openMemoryConversation(Map<String, dynamic> memory) async {
+    final conversationId = memory['conversationId']?.toString();
+    if (conversationId == null || conversationId.isEmpty) return;
+    try {
+      final result = await app.api.call(
+          'GET', '/api/conversations/${Uri.encodeComponent(conversationId)}');
+      if (!mounted) return;
+      await Navigator.push<void>(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => Chat(
+              conversation: Map<String, dynamic>.from(result['conversation']),
+            ),
+          ));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not open the conversation: $error')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAdmin = context.watch<AppState>().user?['role'] == 'admin';
@@ -5391,6 +6678,11 @@ class _HomeState extends State<Home> {
       appBar: AppBar(
         title: Text(tab == 0 && showMemoriesInChats ? 'Memories' : titles[tab]),
         actions: [
+          IconButton(
+            tooltip: 'Log out',
+            icon: const Icon(Icons.logout),
+            onPressed: () => context.read<AppState>().logout(),
+          ),
           if (tab != 1)
             IconButton(
               tooltip: 'Open Business workspace',
@@ -5403,8 +6695,9 @@ class _HomeState extends State<Home> {
               onPressed: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const PaymentHistory()))),
           IconButton(
-              tooltip: 'Pay a merchant by QR', icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () => Navigator.push(
+              tooltip: 'Pay a merchant by QR',
+              icon: const Icon(Icons.qr_code_scanner),
+              onPressed: () => Navigator.push(
                   context,
                   MaterialPageRoute(
                       builder: (_) => const MerchantQrScannerPage()))),
@@ -5497,14 +6790,18 @@ class _HomeState extends State<Home> {
               icon: Icon(Icons.school_outlined), label: 'School'),
           if (isAdmin)
             const NavigationDestination(
-                icon: Icon(Icons.admin_panel_settings_outlined), label: 'Admin'),
+                icon: Icon(Icons.admin_panel_settings_outlined),
+                label: 'Admin'),
         ],
       ),
     );
   }
 
   Widget _homePager(
-      {required int page, required int total, required VoidCallback previous, required VoidCallback next}) {
+      {required int page,
+      required int total,
+      required VoidCallback previous,
+      required VoidCallback next}) {
     final pages = total == 0 ? 0 : (total / _homePageSize).ceil();
     if (pages <= 1) return const SizedBox.shrink();
     return Padding(
@@ -5512,9 +6809,13 @@ class _HomeState extends State<Home> {
       child: Row(children: [
         Expanded(child: Text('Page $page of $pages · $total records')),
         IconButton(
-            tooltip: 'Previous page', onPressed: page > 1 ? previous : null, icon: const Icon(Icons.chevron_left)),
+            tooltip: 'Previous page',
+            onPressed: page > 1 ? previous : null,
+            icon: const Icon(Icons.chevron_left)),
         IconButton(
-            tooltip: 'Next page', onPressed: page < pages ? next : null, icon: const Icon(Icons.chevron_right)),
+            tooltip: 'Next page',
+            onPressed: page < pages ? next : null,
+            icon: const Icon(Icons.chevron_right)),
       ]),
     );
   }
@@ -5528,9 +6829,11 @@ class _HomeState extends State<Home> {
             'This hides the conversation from your chat list only. Other participants keep their copies.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for me')),
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Delete for me')),
         ],
       ),
     );
@@ -5612,9 +6915,16 @@ class _HomeState extends State<Home> {
         itemBuilder: (_, i) {
           if (i == chats.length) {
             return _homePager(
-              page: chatPage, total: chatTotal,
-              previous: () { setState(() => chatPage--); loadChats(); },
-              next: () { setState(() => chatPage++); loadChats(); },
+              page: chatPage,
+              total: chatTotal,
+              previous: () {
+                setState(() => chatPage--);
+                loadChats();
+              },
+              next: () {
+                setState(() => chatPage++);
+                loadChats();
+              },
             );
           }
           final c = Map<String, dynamic>.from(chats[i]);
@@ -5632,27 +6942,34 @@ class _HomeState extends State<Home> {
           final selected = selectedConversationIds.contains(id);
           return Dismissible(
             key: ValueKey('conversation-swipe-$id'),
-            direction: id.isEmpty || !_useSwipeToDelete(context) ? DismissDirection.none : DismissDirection.startToEnd,
+            direction: id.isEmpty || !_useSwipeToDelete(context)
+                ? DismissDirection.none
+                : DismissDirection.startToEnd,
             background: Container(
               alignment: Alignment.centerLeft,
               padding: const EdgeInsets.only(left: 20),
               color: Theme.of(context).colorScheme.errorContainer,
-              child: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.onErrorContainer),
+              child: Icon(Icons.delete_outline,
+                  color: Theme.of(context).colorScheme.onErrorContainer),
             ),
-            confirmDismiss: (_) async => await showDialog<bool>(
-              context: context,
-              builder: (dialog) => AlertDialog(
-                title: const Text('Remove conversation?'),
-                content: const Text(
+            confirmDismiss: (_) async =>
+                await showDialog<bool>(
+                  context: context,
+                  builder: (dialog) => AlertDialog(
+                    title: const Text('Remove conversation?'),
+                    content: const Text(
                         'This hides the conversation from your chat list only. Other participants keep their copies.'),
-                actions: [
+                    actions: [
                       TextButton(
-                          onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+                          onPressed: () => Navigator.pop(dialog, false),
+                          child: const Text('Cancel')),
                       FilledButton(
-                          onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete for me')),
-                ],
-              ),
-            ) ?? false,
+                          onPressed: () => Navigator.pop(dialog, true),
+                          child: const Text('Delete for me')),
+                    ],
+                  ),
+                ) ??
+                false,
             onDismissed: (_) async {
               setState(() => chats.removeWhere(
                   (item) => item is Map && item['_id']?.toString() == id));
@@ -5669,52 +6986,54 @@ class _HomeState extends State<Home> {
               }
             },
             child: ListTile(
-            leading: selectingChats
-                ? Checkbox(
-                    value: selected,
-                    onChanged: (_) => _toggleConversationSelection(id))
-                : Builder(builder: (context) {
-                    // Group chats use their own image; direct chats use the other
-                    // participant's profile image. Tapping opens an enlarged viewer.
-                    final image = c['type'] == 'group'
-                        ? _conversationGroupImage(c)
-                        : _conversationProfileImage(c, app.user);
-                    return GestureDetector(
-                      onTap: () => _showExpandedAvatar(
-                        name: title,
-                        imageUrl: image ?? '',
-                      ),
-                      child: CircleAvatar(
-                        foregroundImage: image == null ? null : NetworkImage(image),
-                        child: Text(title.isEmpty ? '?' : title[0].toUpperCase()),
-                      ),
-                    );
-                  }),
-            title: Text(title),
-            subtitle: Text(preview),
-            trailing: !_useSwipeToDelete(context) && id.isNotEmpty
-                ? IconButton(
-                    tooltip: 'Remove conversation',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => _removeConversationFromDesktop(id),
-                  )
-                : null,
-            selected: selected,
-            onLongPress: () {
-              if (!selectingChats) setState(() => selectingChats = true);
-              _toggleConversationSelection(id);
-            },
-            onTap: () {
-              if (selectingChats) {
+              leading: selectingChats
+                  ? Checkbox(
+                      value: selected,
+                      onChanged: (_) => _toggleConversationSelection(id))
+                  : Builder(builder: (context) {
+                      // Group chats use their own image; direct chats use the other
+                      // participant's profile image. Tapping opens an enlarged viewer.
+                      final image = c['type'] == 'group'
+                          ? _conversationGroupImage(c)
+                          : _conversationProfileImage(c, app.user);
+                      return GestureDetector(
+                        onTap: () => _showExpandedAvatar(
+                          name: title,
+                          imageUrl: image ?? '',
+                        ),
+                        child: CircleAvatar(
+                          foregroundImage:
+                              image == null ? null : NetworkImage(image),
+                          child: Text(
+                              title.isEmpty ? '?' : title[0].toUpperCase()),
+                        ),
+                      );
+                    }),
+              title: Text(title),
+              subtitle: Text(preview),
+              trailing: !_useSwipeToDelete(context) && id.isNotEmpty
+                  ? IconButton(
+                      tooltip: 'Remove conversation',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _removeConversationFromDesktop(id),
+                    )
+                  : null,
+              selected: selected,
+              onLongPress: () {
+                if (!selectingChats) setState(() => selectingChats = true);
                 _toggleConversationSelection(id);
-                return;
-              }
+              },
+              onTap: () {
+                if (selectingChats) {
+                  _toggleConversationSelection(id);
+                  return;
+                }
                 Navigator.push(
                         context,
                         MaterialPageRoute(
                             builder: (_) => Chat(conversation: c)))
-                  .then((_) => loadChats());
-            },
+                    .then((_) => loadChats());
+              },
             ),
           );
         },
@@ -5732,16 +7051,21 @@ class _HomeState extends State<Home> {
             'Remove ${contact['name'] ?? 'this contact'} from your saved contacts? Their account and messages will not be deleted.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(dialog, true), child: const Text('Remove')),
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Remove')),
         ],
       ),
     );
     if (confirmed != true || !mounted) return;
     try {
       await app.api.call('DELETE', '/api/contacts/${contact['id']}');
-      if (mounted) setState(() => savedContacts.removeWhere((item) => item is Map && item['id']?.toString() == contact['id']?.toString()));
+      if (mounted)
+        setState(() => savedContacts.removeWhere((item) =>
+            item is Map &&
+            item['id']?.toString() == contact['id']?.toString()));
       await loadSavedContacts();
     } catch (error) {
       if (mounted)
@@ -5758,7 +7082,8 @@ class _HomeState extends State<Home> {
       if (mounted) {
         setState(() {
           savedContacts = List<dynamic>.from(result['contacts'] ?? []);
-          contactsTotal = (result['total'] as num?)?.toInt() ?? savedContacts.length;
+          contactsTotal =
+              (result['total'] as num?)?.toInt() ?? savedContacts.length;
         });
       }
     } catch (error) {
@@ -5773,7 +7098,7 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
-    app.removeListener(_onAppStateChanged);
+    _observedAppState?.removeListener(_onAppStateChanged);
     _phoneSearchDebounce?.cancel();
     super.dispose();
   }
@@ -6061,41 +7386,61 @@ class _HomeState extends State<Home> {
                     itemBuilder: (_, i) {
                       if (i == savedContacts.length) {
                         return _homePager(
-                          page: contactsPage, total: contactsTotal,
-                          previous: () { setState(() => contactsPage--); loadSavedContacts(); },
-                          next: () { setState(() => contactsPage++); loadSavedContacts(); },
+                          page: contactsPage,
+                          total: contactsTotal,
+                          previous: () {
+                            setState(() => contactsPage--);
+                            loadSavedContacts();
+                          },
+                          next: () {
+                            setState(() => contactsPage++);
+                            loadSavedContacts();
+                          },
                         );
                       }
                       final contact =
                           Map<String, dynamic>.from(savedContacts[i]);
                       final name = contact['name']?.toString() ?? 'Contact';
                       return Dismissible(
-                        key: ValueKey('saved-contact-' + (contact['id']?.toString() ?? 'unknown')),
-                        direction: _useSwipeToDelete(context) ? DismissDirection.startToEnd : DismissDirection.none,
+                        key: ValueKey('saved-contact-' +
+                            (contact['id']?.toString() ?? 'unknown')),
+                        direction: _useSwipeToDelete(context)
+                            ? DismissDirection.startToEnd
+                            : DismissDirection.none,
                         background: Container(
                           alignment: Alignment.centerLeft,
                           padding: const EdgeInsets.only(left: 20),
                           color: Theme.of(context).colorScheme.errorContainer,
-                          child: Icon(Icons.person_remove_outlined, color: Theme.of(context)
+                          child: Icon(Icons.person_remove_outlined,
+                              color: Theme.of(context)
                                   .colorScheme
                                   .onErrorContainer),
                         ),
-                        confirmDismiss: (_) async => await showDialog<bool>(
-                          context: context,
-                          builder: (dialog) => AlertDialog(
-                            title: const Text('Remove saved contact?'),
-                            content: Text(
+                        confirmDismiss: (_) async =>
+                            await showDialog<bool>(
+                              context: context,
+                              builder: (dialog) => AlertDialog(
+                                title: const Text('Remove saved contact?'),
+                                content: Text(
                                     'Remove ${contact['name'] ?? 'this contact'} from your saved contacts? Their account and messages will not be deleted.'),
-                            actions: [
+                                actions: [
                                   TextButton(
-                                      onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+                                      onPressed: () =>
+                                          Navigator.pop(dialog, false),
+                                      child: const Text('Cancel')),
                                   FilledButton(
-                                      onPressed: () => Navigator.pop(dialog, true), child: const Text('Remove')),
-                            ],
-                          ),
-                        ) ?? false,
+                                      onPressed: () =>
+                                          Navigator.pop(dialog, true),
+                                      child: const Text('Remove')),
+                                ],
+                              ),
+                            ) ??
+                            false,
                         onDismissed: (_) async {
-                          setState(() => savedContacts.removeWhere((item) => item is Map && item['id']?.toString() == contact['id']?.toString()));
+                          setState(() => savedContacts.removeWhere((item) =>
+                              item is Map &&
+                              item['id']?.toString() ==
+                                  contact['id']?.toString()));
                           try {
                             await app.api.call(
                                 'DELETE', '/api/contacts/${contact['id']}');
@@ -6110,55 +7455,59 @@ class _HomeState extends State<Home> {
                           }
                         },
                         child: ListTile(
-                        leading: CircleAvatar(
-                          foregroundImage: (contact['profileImage'] is String &&
-                                  (contact['profileImage'] as String)
+                          leading: CircleAvatar(
+                            foregroundImage:
+                                (contact['profileImage'] is String &&
+                                        (contact['profileImage'] as String)
                                             .startsWith('https://'))
-                              ? NetworkImage(
+                                    ? NetworkImage(
                                         contact['profileImage'] as String)
-                              : null,
-                          child: Text(
+                                    : null,
+                            child: Text(
                                 name.isEmpty ? '?' : name[0].toUpperCase()),
-                        ),
-                        title: Text(name),
-                        trailing: !_useSwipeToDelete(context)
-                            ? IconButton(
-                                tooltip: 'Remove saved contact',
-                                icon: const Icon(Icons.person_remove_outlined),
-                                onPressed: () => _removeSavedContactFromDesktop(contact),
-                              )
-                            : null,
-                        subtitle: Text(
-                          contact['phone']?.toString() ??
-                              contact['email']?.toString() ??
-                              '',
-                        ),
-                        onTap: () async {
-                          try {
-                            final result = await app.api.call(
-                              'POST',
-                              '/api/conversations/direct',
-                              {'userId': contact['userId']},
-                            );
-                            if (!mounted) return;
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => Chat(
-                                  conversation: Map<String, dynamic>.from(
-                                    result['conversation'],
+                          ),
+                          title: Text(name),
+                          trailing: !_useSwipeToDelete(context)
+                              ? IconButton(
+                                  tooltip: 'Remove saved contact',
+                                  icon:
+                                      const Icon(Icons.person_remove_outlined),
+                                  onPressed: () =>
+                                      _removeSavedContactFromDesktop(contact),
+                                )
+                              : null,
+                          subtitle: Text([
+                            if ((contact['phone']?.toString() ?? '').isNotEmpty)
+                              'Phone: ${contact['phone']}',
+                            if ((contact['email']?.toString() ?? '').isNotEmpty)
+                              'Email: ${contact['email']}',
+                          ].join('\n')),
+                          onTap: () async {
+                            try {
+                              final result = await app.api.call(
+                                'POST',
+                                '/api/conversations/direct',
+                                {'userId': contact['userId']},
+                              );
+                              if (!mounted) return;
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => Chat(
+                                    conversation: Map<String, dynamic>.from(
+                                      result['conversation'],
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ).then((_) => loadChats());
-                          } catch (error) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(error.toString())),
-                              );
+                              ).then((_) => loadChats());
+                            } catch (error) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(error.toString())),
+                                );
+                              }
                             }
-                          }
-                        },
+                          },
                         ),
                       );
                     },
@@ -6177,7 +7526,9 @@ class _HomeState extends State<Home> {
         Text(memoriesError!, textAlign: TextAlign.center),
         const SizedBox(height: 12),
         AsyncActionButton(
-            label: 'Retry memories', icon: Icons.refresh, onPressed: loadMemories)
+            label: 'Retry memories',
+            icon: Icons.refresh,
+            onPressed: loadMemories)
       ]));
     }
     if (memories.isEmpty) {
@@ -6192,89 +7543,167 @@ class _HomeState extends State<Home> {
       itemBuilder: (_, i) {
         if (i == memories.length) {
           return _homePager(
-            page: memoryPage, total: memoryTotal,
-            previous: () { setState(() => memoryPage--); loadMemories(); },
-            next: () { setState(() => memoryPage++); loadMemories(); },
+            page: memoryPage,
+            total: memoryTotal,
+            previous: () {
+              setState(() => memoryPage--);
+              loadMemories();
+            },
+            next: () {
+              setState(() => memoryPage++);
+              loadMemories();
+            },
           );
         }
         final memory = Map<String, dynamic>.from(memories[i]);
+        final memoryDate = DateTime.tryParse(memory['date']?.toString() ?? '');
         return Dismissible(
-          key: ValueKey(memory['_id']),
-          direction: _useSwipeToDelete(context) ? DismissDirection.startToEnd : DismissDirection.none,
-          background: Container(
-              alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.only(left: 20),
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.onErrorContainer)),
-          confirmDismiss: (_) async => await showDialog<bool>(
-            context: context,
-            builder: (dialog) => AlertDialog(
-              title: const Text('Delete saved memory?'),
-              content: Text(
+            key: ValueKey(memory['_id']),
+            direction: _useSwipeToDelete(context)
+                ? DismissDirection.startToEnd
+                : DismissDirection.none,
+            background: Container(
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.only(left: 20),
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: Icon(Icons.delete_outline,
+                    color: Theme.of(context).colorScheme.onErrorContainer)),
+            confirmDismiss: (_) async =>
+                await showDialog<bool>(
+                  context: context,
+                  builder: (dialog) => AlertDialog(
+                    title: const Text('Delete saved memory?'),
+                    content: Text(
                         'Delete “${memory['title'] ?? 'Memory'}” from your saved memories?'),
-              actions: [
+                    actions: [
                       TextButton(
-                          onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+                          onPressed: () => Navigator.pop(dialog, false),
+                          child: const Text('Cancel')),
                       FilledButton(
-                          onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
-              ],
-            ),
-          ) ?? false,
-          onDismissed: (_) async {
-            // Dismissible requires the item to leave the backing list immediately;
-            // otherwise Flutter can report that a dismissed widget is still in the tree.
-            if (mounted) {
-              setState(() {
-                memories.removeWhere((item) =>
-                    item is Map &&
-                    item['_id']?.toString() == memory['_id']?.toString());
-              });
-            }
-            try {
-              await app.api.call('DELETE', '/api/memories/${memory['_id']}');
-            } catch (error) {
-              if (!mounted) return;
-              await loadMemories();
-              if (!mounted) return;
+                          onPressed: () => Navigator.pop(dialog, true),
+                          child: const Text('Delete')),
+                    ],
+                  ),
+                ) ??
+                false,
+            onDismissed: (_) async {
+              // Dismissible requires the item to leave the backing list immediately;
+              // otherwise Flutter can report that a dismissed widget is still in the tree.
+              if (mounted) {
+                setState(() {
+                  memories.removeWhere((item) =>
+                      item is Map &&
+                      item['_id']?.toString() == memory['_id']?.toString());
+                });
+              }
+              try {
+                await app.api.call('DELETE', '/api/memories/${memory['_id']}');
+              } catch (error) {
+                if (!mounted) return;
+                await loadMemories();
+                if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Could not delete memory: $error')));
-            }
-          },
-          child: Card(
+              }
+            },
+            child: Card(
               child: ListTile(
                   title: Text(memory['title']?.toString() ?? 'Memory'),
-                  subtitle: Text([
-                    if ((memory['personName']?.toString() ?? '')
-                        .trim()
-                        .isNotEmpty)
-                      'About ${memory['personName']}',
-                    memory['description']?.toString() ?? '',
-                  ].where((part) => part.trim().isNotEmpty).join(' · ')),
-                  trailing: !_useSwipeToDelete(context) ? IconButton(
-                    tooltip: 'Delete saved memory',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () async {
-                      try {
-                        await app.api.call(
-                            'DELETE', '/api/memories/${memory['_id']}');
-                        if (!mounted) return;
-                        setState(() {
-                          memories.removeWhere((item) =>
-                              item is Map &&
-                              item['_id']?.toString() ==
-                                  memory['_id']?.toString());
-                        });
-                      } catch (error) {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                              content: Text(
-                                        'Could not delete memory: $error')),
-                        );
-                      }
-                    },
-                  ) : null),
-        ));
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if ((memory['personName']?.toString() ?? '')
+                          .trim()
+                          .isNotEmpty)
+                        Text('With ${memory['personName']}'),
+                      if ((memory['description']?.toString() ?? '')
+                          .trim()
+                          .isNotEmpty)
+                        Text(memory['description'].toString()),
+                      if (memoryDate != null)
+                        Text(
+                            'Date: ${DateFormat.yMMMd().format(memoryDate.toLocal())}'),
+                      if ((memory['time']?.toString() ?? '').trim().isNotEmpty)
+                        Text('Time: ${memory['time']}'),
+                      if ((memory['location']?.toString() ?? '')
+                          .trim()
+                          .isNotEmpty)
+                        Text('Place: ${memory['location']}'),
+                    ],
+                  ),
+                  onTap: memory['conversationId'] == null
+                      ? null
+                      : () => _openMemoryConversation(memory),
+                  trailing: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: 'Delete saved memory',
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () async {
+                          try {
+                            await app.api.call(
+                                'DELETE', '/api/memories/${memory['_id']}');
+                            if (!mounted) return;
+                            setState(() {
+                              memories.removeWhere((item) =>
+                                  item is Map &&
+                                  item['_id']?.toString() ==
+                                      memory['_id']?.toString());
+                            });
+                          } catch (error) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content:
+                                    Text('Could not delete memory: $error')));
+                          }
+                        },
+                      ),
+                      if (memory['conversationId'] != null)
+                        TextButton.icon(
+                          onPressed: () => _openMemoryConversation(memory),
+                          icon: const Icon(Icons.chat_bubble_outline),
+                          label: const Text('Open conversation'),
+                        ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final completed = memory['completed'] != true;
+                          try {
+                            await app.api.call(
+                              'PATCH',
+                              '/api/memories/${memory['_id']}',
+                              {'completed': completed},
+                            );
+                            if (!mounted) return;
+                            setState(() {
+                              for (final item in memories.whereType<Map>()) {
+                                if (item['_id']?.toString() ==
+                                    memory['_id']?.toString()) {
+                                  item['completed'] = completed;
+                                }
+                              }
+                            });
+                          } catch (error) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Could not update memory: $error',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        icon: Icon(memory['completed'] == true
+                            ? Icons.undo
+                            : Icons.check_circle_outline),
+                        label: Text(memory['completed'] == true
+                            ? 'Mark incomplete'
+                            : 'Mark complete'),
+                      ),
+                    ],
+                  )),
+            ));
       },
     );
   }
@@ -6635,9 +8064,12 @@ class PaymentCard extends StatelessWidget {
     final status = (payment['status'] ?? 'PENDING').toString();
     final isPayer = payment['payerId']?.toString() == currentUserId;
     final isMock = payment['provider']?.toString() == 'mock';
-    final baseAmount = (payment['baseAmount'] as num?)?.toInt() ?? (payment['amount'] as num?)?.toInt() ?? 0;
+    final baseAmount = (payment['baseAmount'] as num?)?.toInt() ??
+        (payment['amount'] as num?)?.toInt() ??
+        0;
     final platformFee = (payment['platformFee'] as num?)?.toInt() ?? 0;
-    final totalAmount = (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
+    final totalAmount =
+        (payment['totalAmount'] as num?)?.toInt() ?? baseAmount + platformFee;
     final canReject = status == 'PENDING' &&
         payment['initiatedAt'] == null &&
         payment['initiating'] != true &&
@@ -6736,6 +8168,7 @@ class _ChatState extends State<Chat> {
   final Set<String> _checkedMemoryMessageIds = {};
   final Set<String> _dismissedMemoryMessageIds = {};
   final Set<String> _savedMemoryMessageIds = {};
+  final Set<String> mentionedUserIds = {};
   bool _savedMemoryMessageIdsLoaded = false;
   bool showClosedPayments = false;
   String expiry = 'NONE';
@@ -6759,7 +8192,8 @@ class _ChatState extends State<Chat> {
   @override
   void initState() {
     super.initState();
-    if (widget.initialMessage != null && widget.initialMessage!.trim().isNotEmpty) {
+    if (widget.initialMessage != null &&
+        widget.initialMessage!.trim().isNotEmpty) {
       input.text = widget.initialMessage!.trim();
       input.selection = TextSelection.collapsed(offset: input.text.length);
     }
@@ -6826,6 +8260,50 @@ class _ChatState extends State<Chat> {
         .toString()
         .trim();
     return fallbackName.isEmpty ? null : fallbackName;
+  }
+
+  String? _directPeerLastSeenLabel() {
+    if (widget.conversation['type'] != 'direct') return null;
+    final participants = widget.conversation['participants'];
+    if (participants is! List) return null;
+    final currentIds = {
+      app.user?['id']?.toString() ?? '',
+      app.user?['_id']?.toString() ?? '',
+    };
+    for (final raw in participants) {
+      if (raw is! Map) continue;
+      final participant = Map<String, dynamic>.from(raw);
+      final id = (participant['_id'] ?? participant['id'])?.toString() ?? '';
+      if (currentIds.contains(id)) continue;
+      final privacy = participant['privacy'];
+      if (privacy is Map && privacy['lastSeen'] == false) return null;
+      final value =
+          DateTime.tryParse(participant['lastSeen']?.toString() ?? '');
+      if (value == null) return null;
+      final elapsed = DateTime.now().difference(value.toLocal());
+      if (elapsed.inMinutes < 1) return 'Last seen just now';
+      if (elapsed.inHours < 1) return 'Last seen ${elapsed.inMinutes}m ago';
+      if (elapsed.inDays < 1) return 'Last seen ${elapsed.inHours}h ago';
+      return 'Last seen ${value.toLocal().day}/${value.toLocal().month}/${value.toLocal().year}';
+    }
+    return null;
+  }
+
+  void _recordPeerOffline(dynamic event) {
+    if (event is! Map || event['lastSeen'] == null) return;
+    final peerId = _directPeerId();
+    if (peerId == null || event['userId']?.toString() != peerId) return;
+    final participants = widget.conversation['participants'];
+    if (participants is! List) return;
+    final updated = participants.map((raw) {
+      if (raw is! Map) return raw;
+      final participant = Map<String, dynamic>.from(raw);
+      if ((participant['_id'] ?? participant['id'])?.toString() == peerId) {
+        participant['lastSeen'] = event['lastSeen'];
+      }
+      return participant;
+    }).toList();
+    widget.conversation['participants'] = updated;
   }
 
   String? _directPeerId() {
@@ -6915,7 +8393,8 @@ class _ChatState extends State<Chat> {
     final senderId = app.user?['id']?.toString() ?? '';
     final ownPublicKey = await app.ensureEncryptionKey();
     final publicKeys = <String, String>{};
-    for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
+    for (final participant
+        in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
       if (participant is! Map) continue;
       final id = _participantId(participant);
       if (id.isEmpty) continue;
@@ -6955,7 +8434,8 @@ class _ChatState extends State<Chat> {
         senderPublicKey = await app.ensureEncryptionKey();
       }
     } else {
-      for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
+      for (final participant
+          in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
         if (participant is Map && _participantId(participant) == senderId) {
           senderPublicKey = participant['encryptionPublicKey']?.toString();
           break;
@@ -6971,10 +8451,13 @@ class _ChatState extends State<Chat> {
         conversationId: widget.conversation['_id'].toString(),
         senderPublicKey: senderPublicKey,
         encryptedPayload: raw['encryptedPayload'].toString(),
-        registeredAccountPublicKey: app.user?['encryptionPublicKey']?.toString(),
+        registeredAccountPublicKey:
+            app.user?['encryptionPublicKey']?.toString(),
       );
       return <String, dynamic>{
-        ...raw, 'text': clearText, 'decryptionFailed': false
+        ...raw,
+        'text': clearText,
+        'decryptionFailed': false
       };
     } catch (_) {
       return <String, dynamic>{
@@ -7017,7 +8500,8 @@ class _ChatState extends State<Chat> {
       final cached = await app.api.readConversationSnapshot(conversationId);
       if (cached != null && cached.isNotEmpty && mounted && messages.isEmpty) {
         final hydrated = await Future.wait(cached.map((raw) async {
-          if (raw is Map) return _decryptMessage(Map<String, dynamic>.from(raw));
+          if (raw is Map)
+            return _decryptMessage(Map<String, dynamic>.from(raw));
           return raw;
         }));
         if (mounted) {
@@ -7110,13 +8594,19 @@ class _ChatState extends State<Chat> {
 
   Future<void> _flushOutgoingMessages() async {
     final conversationId = widget.conversation['_id']?.toString();
-    if (_flushingOutbox || conversationId == null || conversationId.isEmpty ||
-        app.api.token == null || app.api.token!.isEmpty) return;
+    final accountScope = app.api.accountScope;
+    if (_flushingOutbox ||
+        conversationId == null ||
+        conversationId.isEmpty ||
+        app.api.token == null ||
+        app.api.token!.isEmpty) return;
     _flushingOutbox = true;
     var sentAny = false;
     try {
-      final queued = await app.api.readOutgoingMessageOutbox(conversationId);
+      final queued = await app.api.readOutgoingMessageOutbox(conversationId,
+          accountScope: accountScope);
       for (final item in queued) {
+        if (app.api.accountScope != accountScope) break;
         final mutationId = item['clientMutationId']?.toString();
         final rawBody = item['body'];
         if (mutationId == null || rawBody is! Map) continue;
@@ -7126,13 +8616,17 @@ class _ChatState extends State<Chat> {
           final body = Map<String, dynamic>.from(rawBody);
           final result = await app.api.call(
               'POST', '/api/conversations/$conversationId/messages', body);
-          await app.api.removeOutgoingMessageFromOutbox(conversationId, mutationId);
+          await app.api.removeOutgoingMessageFromOutbox(
+              conversationId, mutationId,
+              accountScope: accountScope);
           messages.removeWhere((message) =>
-              message is Map && message['_id']?.toString() == 'local_$mutationId');
+              message is Map &&
+              message['_id']?.toString() == 'local_$mutationId');
           if (result['message'] is Map) {
             final sent = await _decryptMessage(
                 Map<String, dynamic>.from(result['message']));
-            if (mounted) setState(() => messages = mergeMessages(messages, [sent]));
+            if (mounted)
+              setState(() => messages = mergeMessages(messages, [sent]));
           }
           sentAny = true;
         } catch (_) {
@@ -7178,7 +8672,9 @@ class _ChatState extends State<Chat> {
       // device. Fetch the durable server history after reconnect to fill gaps.
       // Also refresh on the first successful connection after starting offline;
       // that is when this device needs to catch up with messages sent elsewhere.
-      if (_socketConnectedOnce || showingOfflineData || app.api.offlineDataMode) {
+      if (_socketConnectedOnce ||
+          showingOfflineData ||
+          app.api.offlineDataMode) {
         unawaited(load());
       }
       _socketConnectedOnce = true;
@@ -7222,7 +8718,10 @@ class _ChatState extends State<Chat> {
           mounted &&
           peerId != null &&
           data['userId']?.toString() == peerId) {
-        setState(() => onlineIds.remove(peerId));
+        setState(() {
+          onlineIds.remove(peerId);
+          _recordPeerOffline(data);
+        });
       }
     });
     socket!.on('message:new', (data) async {
@@ -7334,9 +8833,49 @@ class _ChatState extends State<Chat> {
   }
 
   String _newClientMutationId() {
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
+    const alphabet =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
     final random = math.Random.secure();
-    return List.generate(32, (_) => alphabet[random.nextInt(alphabet.length)]).join();
+    return List.generate(32, (_) => alphabet[random.nextInt(alphabet.length)])
+        .join();
+  }
+
+  Future<void> _chooseMention() async {
+    final currentId = app.user?['id']?.toString() ?? '';
+    final participants = List<dynamic>.from(
+            widget.conversation['participants'] ?? [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where((item) => (item['_id'] ?? item['id'])?.toString() != currentId)
+        .toList();
+    final selected = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: participants
+              .map((person) => ListTile(
+                    leading: const Icon(Icons.alternate_email),
+                    title: Text(person['name']?.toString() ?? 'Chat member'),
+                    onTap: () => Navigator.pop(sheetContext, person),
+                  ))
+              .toList(),
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    final id = (selected['_id'] ?? selected['id'])?.toString();
+    final name = selected['name']?.toString().trim() ?? '';
+    if (id == null || id.isEmpty || name.isEmpty) return;
+    final spacer = input.text.isEmpty || input.text.endsWith(' ') ? '' : ' ';
+    final text = '${input.text}${spacer}@$name ';
+    input.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    mentionedUserIds.add(id);
+    _handleTyping(text);
+    setState(() {});
   }
 
   Future<void> send() async {
@@ -7348,9 +8887,10 @@ class _ChatState extends State<Chat> {
       return;
     }
     _stopTyping();
-    final clientMutationId = _pendingMutationText == text && _pendingMutationId != null
-        ? _pendingMutationId!
-        : _newClientMutationId();
+    final clientMutationId =
+        _pendingMutationText == text && _pendingMutationId != null
+            ? _pendingMutationId!
+            : _newClientMutationId();
     _pendingMutationText = text;
     _pendingMutationId = clientMutationId;
     Map<String, dynamic>? queuedBody;
@@ -7359,16 +8899,18 @@ class _ChatState extends State<Chat> {
       final encrypted = await _encryptTextPayload(text);
       final body = <String, dynamic>{
         ...encrypted,
+        'mentions': mentionedUserIds.toList(),
         'clientMutationId': clientMutationId,
         'expiryType': expiry,
         'expiresInSeconds': expiry == 'AFTER_TIME' ? 3600 : null,
         'replyTo': reply,
       };
       queuedBody = body;
-      final result = await app.api.call(
-          'POST', '/api/conversations/${widget.conversation['_id']}/messages', body);
+      final result = await app.api.call('POST',
+          '/api/conversations/${widget.conversation['_id']}/messages', body);
       if (!mounted) return;
-      final sent = await _decryptMessage(Map<String, dynamic>.from(result['message']));
+      final sent =
+          await _decryptMessage(Map<String, dynamic>.from(result['message']));
       final sentId = sent['_id']?.toString();
       setState(() {
         if (sentId == null ||
@@ -7377,6 +8919,7 @@ class _ChatState extends State<Chat> {
           messages = mergeMessages(messages, [sent]);
         }
         reply = null;
+        mentionedUserIds.clear();
       });
       unawaited(_persistConversationMessages());
       input.clear();
@@ -7418,13 +8961,15 @@ class _ChatState extends State<Chat> {
             unawaited(_persistConversationMessages());
             _scrollToLatestMessage();
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('No connection. Your encrypted message is saved securely and will send when you reconnect.')));
+                content: Text(
+                    'No connection. Your encrypted message is saved securely and will send when you reconnect.')));
             if (socket?.connected == true) unawaited(_flushOutgoingMessages());
           }
         } catch (queueError) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text('Message could not be sent or safely queued: $queueError')));
+                content: Text(
+                    'Message could not be sent or safely queued: $queueError')));
           }
         }
       } else if (mounted) {
@@ -7449,7 +8994,8 @@ class _ChatState extends State<Chat> {
             ListTile(
               leading: const Icon(Icons.storefront_outlined),
               title: const Text('Lipa na Till'),
-              subtitle: const Text('Pay a shop using its Buy Goods Till number'),
+              subtitle:
+                  const Text('Pay a shop using its Buy Goods Till number'),
               onTap: () => Navigator.pop(dialog, 'till'),
             ),
             ListTile(
@@ -7490,13 +9036,17 @@ class _ChatState extends State<Chat> {
     // use the recipient's registered phone and hand off to the sender's M-Pesa USSD
     // menu instead of blocking on a merchant payment-profile configuration.
     if (mode == 'contact') {
-      final me = app.user?['_id']?.toString() ?? app.user?['id']?.toString() ?? '';
+      final me =
+          app.user?['_id']?.toString() ?? app.user?['id']?.toString() ?? '';
       final participants =
           List<dynamic>.from(widget.conversation['participants'] ?? []);
       final other = participants.whereType<Map>().firstWhere((p) {
         final nested = p['user'] is Map ? p['user'] as Map : null;
-        final id = (p['_id'] ?? p['id'] ?? p['userId'] ??
-                nested?['_id'] ?? nested?['id'])
+        final id = (p['_id'] ??
+                p['id'] ??
+                p['userId'] ??
+                nested?['_id'] ??
+                nested?['id'])
             ?.toString();
         return id != null && id.isNotEmpty && id != me;
       }, orElse: () => <String, dynamic>{});
@@ -7508,9 +9058,12 @@ class _ChatState extends State<Chat> {
               '')
           .toString()
           .trim();
-      final recipientId = (other['_id'] ?? other['id'] ?? other['userId'] ??
-              nested?['_id'] ?? nested?['id'])
-          ?.toString() ??
+      final recipientId = (other['_id'] ??
+                  other['id'] ??
+                  other['userId'] ??
+                  nested?['_id'] ??
+                  nested?['id'])
+              ?.toString() ??
           '';
       // Contacts endpoint exposes the registered phone for saved contacts if the
       // conversation projection did not include it.
@@ -7519,9 +9072,9 @@ class _ChatState extends State<Chat> {
           final directory = await app.api.call('GET', '/api/contacts');
           final entries = List<dynamic>.from(directory['contacts'] ?? []);
           final contact = entries.whereType<Map>().firstWhere(
-            (entry) => (entry['userId'] ?? '').toString() == recipientId,
-            orElse: () => <String, dynamic>{},
-          );
+                (entry) => (entry['userId'] ?? '').toString() == recipientId,
+                orElse: () => <String, dynamic>{},
+              );
           recipientRaw = (contact['phone'] ?? '').toString().trim();
         } catch (_) {
           // Show an actionable message below; never substitute the sender's phone.
@@ -7568,7 +9121,8 @@ class _ChatState extends State<Chat> {
                   TextFormField(
                     controller: amount,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Amount (KSh)'),
+                    decoration:
+                        const InputDecoration(labelText: 'Amount (KSh)'),
                     validator: (value) {
                       final n = int.tryParse((value ?? '').trim());
                       return n == null || n < 1 || n > 150000
@@ -7649,7 +9203,8 @@ class _ChatState extends State<Chat> {
       final isTill = mode == 'till';
       final isPaybill = mode == 'paybill';
       final isContact = mode == 'contact';
-      final storefrontSlug = widget.conversation['businessStorefrontSlug']?.toString();
+      final storefrontSlug =
+          widget.conversation['businessStorefrontSlug']?.toString();
       String sellerId = '';
       Map<String, dynamic>? merchantPaymentProfile;
       try {
@@ -7661,10 +9216,12 @@ class _ChatState extends State<Chat> {
           );
           final store = result['storefront'];
           if (store is Map && store['paymentProfile'] is Map) {
-            profileResponse = Map<String, dynamic>.from(store['paymentProfile'] as Map);
+            profileResponse =
+                Map<String, dynamic>.from(store['paymentProfile'] as Map);
           }
         } else {
-          final participants = List<dynamic>.from(widget.conversation['participants'] ?? []);
+          final participants =
+              List<dynamic>.from(widget.conversation['participants'] ?? []);
           final currentIds = <String>{
             app.user?['_id']?.toString() ?? '',
             app.user?['id']?.toString() ?? '',
@@ -7672,8 +9229,11 @@ class _ChatState extends State<Chat> {
           for (final raw in participants) {
             if (raw is! Map) continue;
             final nested = raw['user'] is Map ? raw['user'] as Map : null;
-            final id = (raw['_id'] ?? raw['id'] ?? raw['userId'])?.toString() ?? '';
-            final candidateId = id.isNotEmpty ? id : (nested?['_id'] ?? nested?['id'])?.toString() ?? '';
+            final id =
+                (raw['_id'] ?? raw['id'] ?? raw['userId'])?.toString() ?? '';
+            final candidateId = id.isNotEmpty
+                ? id
+                : (nested?['_id'] ?? nested?['id'])?.toString() ?? '';
             if (candidateId.isNotEmpty && !currentIds.contains(candidateId)) {
               sellerId = candidateId;
               break;
@@ -7685,7 +9245,8 @@ class _ChatState extends State<Chat> {
               '/api/storefront/by-seller/${Uri.encodeComponent(sellerId)}/payment-profile',
             );
             if (result['paymentProfile'] is Map) {
-              profileResponse = Map<String, dynamic>.from(result['paymentProfile'] as Map);
+              profileResponse =
+                  Map<String, dynamic>.from(result['paymentProfile'] as Map);
             }
           }
         }
@@ -7720,10 +9281,13 @@ class _ChatState extends State<Chat> {
       final paymentAmount = TextEditingController();
       final payerPhone = TextEditingController(
         text: app.user?['mpesaPhone']?.toString() ??
-            app.user?['phone']?.toString() ?? '',
+            app.user?['phone']?.toString() ??
+            '',
       );
       final description = TextEditingController(
-        text: isContact ? 'Payment to contact' : (isTill ? 'Buy Goods payment' : 'Paybill payment'),
+        text: isContact
+            ? 'Payment to contact'
+            : (isTill ? 'Buy Goods payment' : 'Paybill payment'),
       );
       final formKey = GlobalKey<FormState>();
       if (!mounted) return;
@@ -7739,33 +9303,45 @@ class _ChatState extends State<Chat> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (!isContact) TextFormField(
-                    controller: merchantNumber,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: isTill ? 'Buy Goods Till number' : 'Paybill business number',
-                      helperText: 'Prefilled from this business. STK requires this number to match the merchant-authorized shortcode.',
+                  if (!isContact)
+                    TextFormField(
+                      controller: merchantNumber,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: isTill
+                            ? 'Buy Goods Till number'
+                            : 'Paybill business number',
+                        helperText:
+                            'Prefilled from this business. STK requires this number to match the merchant-authorized shortcode.',
+                      ),
+                      validator: (value) {
+                        final number = (value ?? '').trim();
+                        return number.length >= 5 &&
+                                number.length <= 10 &&
+                                int.tryParse(number) != null
+                            ? null
+                            : 'Enter a valid 5–10 digit number';
+                      },
                     ),
-                    validator: (value) {
-                      final number = (value ?? '').trim();
-                      return number.length >= 5 && number.length <= 10 && int.tryParse(number) != null
-                          ? null : 'Enter a valid 5–10 digit number';
-                    },
-                  ),
-                  if (isPaybill) TextFormField(
-                    controller: accountNumber,
-                    decoration: const InputDecoration(
-                      labelText: 'Account/reference (optional)',
-                      helperText: 'The merchant checkout generates a payment reference for reconciliation.',
+                  if (isPaybill)
+                    TextFormField(
+                      controller: accountNumber,
+                      decoration: const InputDecoration(
+                        labelText: 'Account/reference (optional)',
+                        helperText:
+                            'The merchant checkout generates a payment reference for reconciliation.',
+                      ),
                     ),
-                  ),
                   TextFormField(
                     controller: paymentAmount,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Amount (KSh)'),
+                    decoration:
+                        const InputDecoration(labelText: 'Amount (KSh)'),
                     validator: (value) {
                       final amountValue = int.tryParse((value ?? '').trim());
-                      return amountValue == null || amountValue < 1 || amountValue > 150000
+                      return amountValue == null ||
+                              amountValue < 1 ||
+                              amountValue > 150000
                           ? 'Enter KSh 1–150,000'
                           : null;
                     },
@@ -7777,15 +9353,19 @@ class _ChatState extends State<Chat> {
                       labelText: 'Your M-Pesa phone number',
                       helperText: 'The STK prompt will be sent to this number.',
                     ),
-                    validator: (value) => normalizeKenyanPhone(value ?? '') == null
-                        ? 'Enter a valid Kenyan M-Pesa number' : null,
+                    validator: (value) =>
+                        normalizeKenyanPhone(value ?? '') == null
+                            ? 'Enter a valid Kenyan M-Pesa number'
+                            : null,
                   ),
                   TextFormField(
                     controller: description,
                     maxLength: 80,
-                    decoration: const InputDecoration(labelText: 'Payment description'),
+                    decoration:
+                        const InputDecoration(labelText: 'Payment description'),
                     validator: (value) => (value ?? '').trim().isEmpty
-                        ? 'Enter a payment description' : null,
+                        ? 'Enter a payment description'
+                        : null,
                   ),
                   const SizedBox(height: 8),
                   const Text(
@@ -7798,7 +9378,8 @@ class _ChatState extends State<Chat> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+                onPressed: () => Navigator.pop(dialog, false),
+                child: const Text('Cancel')),
             FilledButton(
               onPressed: () {
                 if (formKey.currentState?.validate() ?? false) {
@@ -7825,9 +9406,11 @@ class _ChatState extends State<Chat> {
             ),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+                  onPressed: () => Navigator.pop(dialog, false),
+                  child: const Text('Cancel')),
               FilledButton(
-                  onPressed: () => Navigator.pop(dialog, true), child: const Text('Send STK Push')),
+                  onPressed: () => Navigator.pop(dialog, true),
+                  child: const Text('Send STK Push')),
             ],
           ),
         );
@@ -7874,7 +9457,8 @@ class _ChatState extends State<Chat> {
       return;
     }
 
-    final me = app.user?['_id']?.toString() ?? app.user?['id']?.toString() ?? '';
+    final me =
+        app.user?['_id']?.toString() ?? app.user?['id']?.toString() ?? '';
     final participants =
         List<dynamic>.from(widget.conversation['participants'] ?? []);
     final other = participants.whereType<Map>().firstWhere(
@@ -7996,7 +9580,9 @@ class _ChatState extends State<Chat> {
             app.user?['phone']?.toString() ??
             '');
     final form = GlobalKey<FormState>();
-    final baseAmount = (payment['baseAmount'] as num?)?.toInt() ?? (payment['amount'] as num?)?.toInt() ?? 0;
+    final baseAmount = (payment['baseAmount'] as num?)?.toInt() ??
+        (payment['amount'] as num?)?.toInt() ??
+        0;
     final accepted = await showDialog<bool>(
         context: context,
         builder: (dialog) => AlertDialog(
@@ -8005,23 +9591,25 @@ class _ChatState extends State<Chat> {
                 key: form,
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Text(
-                      'Amount to pay: KSh $baseAmount\nNo Chatify transaction commission is added.', style: Theme.of(context).textTheme.bodyMedium),
+                      'Amount to pay: KSh $baseAmount\nNo Chatify transaction commission is added.',
+                      style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 10),
                   const Text(
-                      'This STK payment goes to the configured business shortcode, not directly to a personal recipient. Safaricom charges, if applicable, are separate.', style: TextStyle(fontSize: 12)),
+                      'This STK payment goes to the configured business shortcode, not directly to a personal recipient. Safaricom charges, if applicable, are separate.',
+                      style: TextStyle(fontSize: 12)),
                   const SizedBox(height: 10),
                   TextFormField(
-                  controller: payerPhone,
-                  autofocus: true,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Your M-Pesa phone number',
-                    hintText: '0712345678 or 254712345678',
-                    helperText: 'The STK prompt will be sent to this number.',
-                  ),
-                  validator: (v) => normalizeKenyanPhone(v ?? '') == null
-                      ? 'Enter a valid Kenyan M-Pesa number'
-                      : null,
+                    controller: payerPhone,
+                    autofocus: true,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Your M-Pesa phone number',
+                      hintText: '0712345678 or 254712345678',
+                      helperText: 'The STK prompt will be sent to this number.',
+                    ),
+                    validator: (v) => normalizeKenyanPhone(v ?? '') == null
+                        ? 'Enter a valid Kenyan M-Pesa number'
+                        : null,
                   ),
                 ]),
               ),
@@ -8210,9 +9798,11 @@ class _ChatState extends State<Chat> {
             'Images and shared image URLs are not end-to-end encrypted yet. The service may be able to access uploaded images or URLs. Do not send sensitive images until attachment encryption is available.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(dialog, true), child: const Text('Continue')),
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Continue')),
         ],
       ),
     );
@@ -8675,7 +10265,8 @@ class _ChatState extends State<Chat> {
     final senderId = _participantId(message['senderId']);
     final currentId = app.user?['id']?.toString() ?? '';
     if (senderId.isEmpty || senderId == currentId) return null;
-    for (final participant in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
+    for (final participant
+        in List<dynamic>.from(widget.conversation['participants'] ?? [])) {
       if (participant is Map && _participantId(participant) == senderId) {
         final name = participant['name']?.toString().trim() ?? '';
         if (name.isNotEmpty) return name;
@@ -8923,7 +10514,11 @@ class _ChatState extends State<Chat> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
-        title: Text(pending ? 'Discard queued message?' : (mine ? 'Delete message for everyone?' : 'Remove message for you?')),
+        title: Text(pending
+            ? 'Discard queued message?'
+            : (mine
+                ? 'Delete message for everyone?'
+                : 'Remove message for you?')),
         content: Text(pending
             ? 'This encrypted message has not been sent yet. Discard it from the secure outgoing queue?'
             : mine
@@ -8931,9 +10526,11 @@ class _ChatState extends State<Chat> {
                 : 'This hides the message only from your own chat history. Other participants keep their copies.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Delete')),
         ],
       ),
     );
@@ -8941,14 +10538,20 @@ class _ChatState extends State<Chat> {
     if (pending) {
       try {
         final conversationId = widget.conversation['_id'].toString();
-        final mutationId = message['clientMutationId']?.toString() ?? id.replaceFirst('local_', '');
-        await app.api.removeOutgoingMessageFromOutbox(conversationId, mutationId);
+        final mutationId = message['clientMutationId']?.toString() ??
+            id.replaceFirst('local_', '');
+        await app.api
+            .removeOutgoingMessageFromOutbox(conversationId, mutationId);
         if (!mounted) return;
-        setState(() => messages.removeWhere((item) => item is Map && item['_id']?.toString() == id));
+        setState(() => messages.removeWhere(
+            (item) => item is Map && item['_id']?.toString() == id));
         unawaited(_persistConversationMessages());
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Queued message discarded.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Queued message discarded.')));
       } catch (error) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not discard queued message: $error')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Could not discard queued message: $error')));
       }
       return;
     }
@@ -8960,7 +10563,8 @@ class _ChatState extends State<Chat> {
         if (mine && result['message'] is Map) {
           final at = messages.indexWhere(
               (item) => item is Map && item['_id']?.toString() == id);
-          if (at >= 0) messages[at] = Map<String, dynamic>.from(result['message']);
+          if (at >= 0)
+            messages[at] = Map<String, dynamic>.from(result['message']);
         } else {
           messages.removeWhere(
               (item) => item is Map && item['_id']?.toString() == id);
@@ -9055,7 +10659,10 @@ class _ChatState extends State<Chat> {
                 children: [
                     Text(title),
                     if (widget.conversation['type'] == 'direct')
-                      Text(onlineIds.isNotEmpty ? 'Online' : 'Offline',
+                      Text(
+                          onlineIds.isNotEmpty
+                              ? 'Online'
+                              : (_directPeerLastSeenLabel() ?? 'Offline'),
                           style: Theme.of(context).textTheme.labelSmall)
                   ]),
         actions: [
@@ -9195,7 +10802,9 @@ class _ChatState extends State<Chat> {
                                     : (message['text'] ?? '[media]').toString();
                             return Dismissible(
                               key: ValueKey('message-swipe-${message['_id']}'),
-                              direction: (message['deletedAt'] != null || message['expiredAt'] != null || !_useSwipeToDelete(context))
+                              direction: (message['deletedAt'] != null ||
+                                      message['expiredAt'] != null ||
+                                      !_useSwipeToDelete(context))
                                   ? DismissDirection.none
                                   : DismissDirection.startToEnd,
                               background: Container(
@@ -9208,292 +10817,335 @@ class _ChatState extends State<Chat> {
                                       .errorContainer,
                                   borderRadius: BorderRadius.circular(14),
                                 ),
-                                child: Icon(Icons.delete_outline, color: Theme.of(context)
+                                child: Icon(Icons.delete_outline,
+                                    color: Theme.of(context)
                                         .colorScheme
                                         .onErrorContainer),
                               ),
-                              confirmDismiss: (_) async => await showDialog<bool>(
-                                context: context,
-                                builder: (dialog) => AlertDialog(
-                                  title: Text(mine ? 'Delete message for everyone?' : 'Remove message for you?'),
-                                  content: Text(mine
-                                      ? 'The message content will be removed for everyone.'
-                                      : 'The message will be hidden only from your own chat history.'),
-                                  actions: [
+                              confirmDismiss: (_) async =>
+                                  await showDialog<bool>(
+                                    context: context,
+                                    builder: (dialog) => AlertDialog(
+                                      title: Text(mine
+                                          ? 'Delete message for everyone?'
+                                          : 'Remove message for you?'),
+                                      content: Text(mine
+                                          ? 'The message content will be removed for everyone.'
+                                          : 'The message will be hidden only from your own chat history.'),
+                                      actions: [
                                         TextButton(
-                                            onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+                                            onPressed: () =>
+                                                Navigator.pop(dialog, false),
+                                            child: const Text('Cancel')),
                                         FilledButton(
-                                            onPressed: () => Navigator.pop(dialog, true), child: const Text('Delete')),
-                                  ],
-                                ),
-                              ) ?? false,
+                                            onPressed: () =>
+                                                Navigator.pop(dialog, true),
+                                            child: const Text('Delete')),
+                                      ],
+                                    ),
+                                  ) ??
+                                  false,
                               onDismissed: (_) => swipeDeleteMessage(message),
                               child: GestureDetector(
-                              onLongPress: () => showMessageActions(message),
-                              child: Row(
-                                mainAxisAlignment: mine
-                                    ? MainAxisAlignment.end
-                                    : MainAxisAlignment.start,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  if (!_useSwipeToDelete(context) && !mine && message['deletedAt'] == null && message['expiredAt'] == null)
-                                    IconButton(
-                                      tooltip: 'Remove message for me',
-                                      icon: const Icon(Icons.delete_outline, size: 19),
-                                      onPressed: () => swipeDeleteMessage(message),
-                                    ),
-                                  Flexible(
-                                    child: Container(
-                                      // Keep bubbles content-sized and aligned like a
-                                      // modern messenger; long messages wrap instead of
-                                      // stretching across the phone screen.
-                                      constraints: BoxConstraints(
-                                        maxWidth: (MediaQuery.sizeOf(context)
+                                onLongPress: () => showMessageActions(message),
+                                child: Row(
+                                  mainAxisAlignment: mine
+                                      ? MainAxisAlignment.end
+                                      : MainAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if (!_useSwipeToDelete(context) &&
+                                        !mine &&
+                                        message['deletedAt'] == null &&
+                                        message['expiredAt'] == null)
+                                      IconButton(
+                                        tooltip: 'Remove message for me',
+                                        icon: const Icon(Icons.delete_outline,
+                                            size: 19),
+                                        onPressed: () =>
+                                            swipeDeleteMessage(message),
+                                      ),
+                                    Flexible(
+                                      child: Container(
+                                        // Keep bubbles content-sized and aligned like a
+                                        // modern messenger; long messages wrap instead of
+                                        // stretching across the phone screen.
+                                        constraints: BoxConstraints(
+                                          maxWidth: (MediaQuery.sizeOf(context)
                                                       .width *
-                                                    0.62)
-                                                .clamp(180.0, 520.0)
-                                                .toDouble(),
-                                      ),
-                                      margin: const EdgeInsets.only(bottom: 8),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 13, vertical: 10),
-                                      decoration: BoxDecoration(
-                                        // Strongly distinct, high-contrast colors make
-                                        // sent and received messages easy to scan.
-                                        color: mine
-                                            ? const Color(0xFF087F8C)
-                                            : const Color(0xFFFFFFFF),
-                                        borderRadius: BorderRadius.only(
-                                          topLeft: const Radius.circular(18),
-                                          topRight: const Radius.circular(18),
-                                          bottomLeft:
-                                              Radius.circular(mine ? 18 : 5),
-                                          bottomRight:
-                                              Radius.circular(mine ? 5 : 18),
+                                                  0.62)
+                                              .clamp(180.0, 520.0)
+                                              .toDouble(),
                                         ),
-                                        border: Border.all(
+                                        margin:
+                                            const EdgeInsets.only(bottom: 8),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 13, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          // Strongly distinct, high-contrast colors make
+                                          // sent and received messages easy to scan.
                                           color: mine
-                                              ? const Color(0xFF065F68)
-                                              : const Color(0xFFDCE4EE),
+                                              ? const Color(0xFF087F8C)
+                                              : const Color(0xFFFFFFFF),
+                                          borderRadius: BorderRadius.only(
+                                            topLeft: const Radius.circular(18),
+                                            topRight: const Radius.circular(18),
+                                            bottomLeft:
+                                                Radius.circular(mine ? 18 : 5),
+                                            bottomRight:
+                                                Radius.circular(mine ? 5 : 18),
+                                          ),
+                                          border: Border.all(
+                                            color: mine
+                                                ? const Color(0xFF065F68)
+                                                : const Color(0xFFDCE4EE),
+                                          ),
                                         ),
-                                      ),
-                                      child: DefaultTextStyle.merge(
-                                        style: TextStyle(
-                                          color: mine
-                                              ? Colors.white
-                                              : const Color(0xFF243B53),
-                                        ),
-                                        child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              // A reply keeps only the original message ID in storage.
-                                              // Resolve it against the current conversation so deleted,
-                                              // expired, or unavailable originals never break rendering.
-                                              if (message['replyTo'] != null)
-                                                Builder(builder: (context) {
-                                                  final original =
+                                        child: DefaultTextStyle.merge(
+                                          style: TextStyle(
+                                            color: mine
+                                                ? Colors.white
+                                                : const Color(0xFF243B53),
+                                          ),
+                                          child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                // A reply keeps only the original message ID in storage.
+                                                // Resolve it against the current conversation so deleted,
+                                                // expired, or unavailable originals never break rendering.
+                                                if (message['replyTo'] != null)
+                                                  Builder(builder: (context) {
+                                                    final original =
                                                         findReplyTarget(
                                                             messages,
-                                                          message['replyTo']);
-                                                  // A non-null empty map keeps preview rendering null-safe
-                                                  // while the unavailable flag preserves deleted-message semantics.
-                                                  final originalMap =
-                                                      original ??
-                                                          <String, dynamic>{};
-                                                  final unavailable =
-                                                      original == null ||
-                                                          originalMap[
-                                                                  'deletedAt'] !=
-                                                              null ||
-                                                          originalMap[
-                                                                  'expiredAt'] !=
-                                                              null;
-                                                  final originalSender =
-                                                      originalMap['senderId']
-                                                                  ?.toString() ==
-                                                              app.user?['id']
-                                                                  ?.toString()
-                                                          ? 'You'
-                                                          : 'Message';
-                                                  final preview = unavailable
-                                                      ? 'Original message unavailable'
-                                                      : (originalMap[
+                                                            message['replyTo']);
+                                                    // A non-null empty map keeps preview rendering null-safe
+                                                    // while the unavailable flag preserves deleted-message semantics.
+                                                    final originalMap =
+                                                        original ??
+                                                            <String, dynamic>{};
+                                                    final unavailable =
+                                                        original == null ||
+                                                            originalMap[
+                                                                    'deletedAt'] !=
+                                                                null ||
+                                                            originalMap[
+                                                                    'expiredAt'] !=
+                                                                null;
+                                                    final originalSender =
+                                                        originalMap['senderId']
+                                                                    ?.toString() ==
+                                                                app.user?['id']
+                                                                    ?.toString()
+                                                            ? 'You'
+                                                            : 'Message';
+                                                    final preview = unavailable
+                                                        ? 'Original message unavailable'
+                                                        : (originalMap[
                                                                     'text'] ??
-                                                              '[media]')
-                                                          .toString();
-                                                  return Container(
-                                                    width: double.infinity,
-                                                    margin:
-                                                        const EdgeInsets.only(
-                                                            bottom: 7),
-                                                    padding:
-                                                        const EdgeInsets.all(
+                                                                '[media]')
+                                                            .toString();
+                                                    return Container(
+                                                      width: double.infinity,
+                                                      margin:
+                                                          const EdgeInsets.only(
+                                                              bottom: 7),
+                                                      padding:
+                                                          const EdgeInsets.all(
                                                               8),
-                                                    decoration: BoxDecoration(
-                                                      color: mine
-                                                          ? const Color(
-                                                              0x33404040)
-                                                          : const Color(
-                                                              0xFFDDF5F2),
-                                                      borderRadius:
+                                                      decoration: BoxDecoration(
+                                                        color: mine
+                                                            ? const Color(
+                                                                0x33404040)
+                                                            : const Color(
+                                                                0xFFDDF5F2),
+                                                        borderRadius:
                                                             BorderRadius
                                                                 .circular(8),
-                                                      border: Border(
-                                                          left: BorderSide(
+                                                        border: Border(
+                                                            left: BorderSide(
+                                                          color: mine
+                                                              ? Colors.white70
+                                                              : const Color(
+                                                                  0xFF087F8C),
+                                                          width: 3,
+                                                        )),
+                                                      ),
+                                                      child: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Text(
+                                                              'Replying to $originalSender',
+                                                              style: TextStyle(
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w700,
+                                                                  fontSize: 11,
+                                                                  color: mine
+                                                                      ? Colors
+                                                                          .white
+                                                                      : const Color(
+                                                                          0xFF087F8C))),
+                                                          Text(preview,
+                                                              maxLines: 2,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                              style: TextStyle(
+                                                                  fontSize: 12,
+                                                                  color: mine
+                                                                      ? Colors
+                                                                          .white
+                                                                      : const Color(
+                                                                          0xFF39445A))),
+                                                        ],
+                                                      ),
+                                                    );
+                                                  }),
+                                                if (mine &&
+                                                    message['deletedAt'] ==
+                                                        null &&
+                                                    message['expiredAt'] ==
+                                                        null)
+                                                  Align(
+                                                    widthFactor: 1,
+                                                    alignment:
+                                                        Alignment.centerRight,
+                                                    child:
+                                                        PopupMenuButton<String>(
+                                                      tooltip:
+                                                          'Message options',
+                                                      padding: EdgeInsets.zero,
+                                                      constraints:
+                                                          const BoxConstraints(
+                                                        minWidth: 44,
+                                                        minHeight: 44,
+                                                      ),
+                                                      iconSize: 20,
+                                                      icon: Icon(
+                                                        Icons.more_horiz,
                                                         color: mine
-                                                            ? Colors.white70
+                                                            ? Colors.white
                                                             : const Color(
-                                                                0xFF087F8C),
-                                                        width: 3,
-                                                      )),
-                                                    ),
-                                                    child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      children: [
-                                                        Text(
-                                                            'Replying to $originalSender',
-                                                            style: TextStyle(
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w700,
-                                                                fontSize: 11,
-                                                                color: mine
-                                                                    ? Colors
-                                                                        .white
-                                                                    : const Color(
-                                                                        0xFF087F8C))),
-                                                        Text(preview,
-                                                            maxLines: 2,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .ellipsis,
-                                                            style: TextStyle(
-                                                                fontSize: 12,
-                                                                color: mine
-                                                                    ? Colors
-                                                                        .white
-                                                                    : const Color(
-                                                                        0xFF39445A))),
-                                                      ],
-                                                    ),
-                                                  );
-                                                }),
-                                              if (mine &&
-                                                  message['deletedAt'] ==
-                                                      null &&
-                                                  message['expiredAt'] == null)
-                                                Align(
-                                                  widthFactor: 1,
-                                                  alignment:
-                                                      Alignment.centerRight,
-                                                  child:
-                                                      PopupMenuButton<String>(
-                                                    tooltip: 'Message options',
-                                                    padding: EdgeInsets.zero,
-                                                    constraints:
-                                                        const BoxConstraints(
-                                                      minWidth: 44,
-                                                      minHeight: 44,
-                                                    ),
-                                                    iconSize: 20,
-                                                    icon: Icon(
-                                                      Icons.more_horiz,
-                                                      color: mine
-                                                          ? Colors.white
-                                                          : const Color(
-                                                              0xFF52627A),
-                                                    ),
-                                                    onSelected: (action) {
-                                                      if (action == 'delete') {
+                                                                0xFF52627A),
+                                                      ),
+                                                      onSelected: (action) {
+                                                        if (action ==
+                                                            'delete') {
                                                           deleteMessage(
                                                               message);
-                                                      }
-                                                    },
-                                                    itemBuilder: (_) => const [
-                                                      PopupMenuItem<String>(
-                                                        value: 'delete',
-                                                        child: Row(
-                                                          children: [
-                                                            Icon(
-                                                              Icons
-                                                                  .delete_outline,
-                                                              color: Color(
-                                                                  0xFFDC2626),
-                                                              size: 20,
-                                                            ),
+                                                        }
+                                                      },
+                                                      itemBuilder: (_) =>
+                                                          const [
+                                                        PopupMenuItem<String>(
+                                                          value: 'delete',
+                                                          child: Row(
+                                                            children: [
+                                                              Icon(
+                                                                Icons
+                                                                    .delete_outline,
+                                                                color: Color(
+                                                                    0xFFDC2626),
+                                                                size: 20,
+                                                              ),
                                                               SizedBox(
                                                                   width: 10),
-                                                            Text(
-                                                                'Delete for everyone'),
-                                                          ],
+                                                              Text(
+                                                                  'Delete for everyone'),
+                                                            ],
+                                                          ),
                                                         ),
-                                                      ),
-                                                    ],
+                                                      ],
+                                                    ),
                                                   ),
-                                                ),
-                                              if (message['deletedAt'] == null &&
-                                                  message['expiredAt'] ==
-                                                      null &&
-                                                  message['messageType'] ==
-                                                      'image' &&
-                                                  message['mediaUrl'] != null)
+                                                if (message['deletedAt'] == null &&
+                                                    message['expiredAt'] ==
+                                                        null &&
+                                                    message['messageType'] ==
+                                                        'image' &&
+                                                    message['mediaUrl'] != null)
                                                   renderImage(
                                                       message['mediaUrl']
-                                                    .toString())
-                                              else
-                                                Text(text),
-                                              if (message['pending'] == true) ...[
-                                                const Text('Waiting to send · saved securely', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic)),
-                                                TextButton.icon(
-                                                  onPressed: _flushOutgoingMessages,
-                                                  icon: const Icon(Icons.refresh, size: 14),
-                                                  label: const Text('Retry now'),
-                                                  style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 28), tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                                                ),
-                                              ],
-                                              if (message[
-                                                          'deletedAt'] ==
-                                                      null &&
-                                                  message['reactions']
-                                                      is List &&
-                                                  (message['reactions'] as List)
-                                                      .isNotEmpty)
-                                                Text((message['reactions']
-                                                        as List)
-                                                    .map((r) => r['emoji'])
-                                                    .join(' ')),
-                                              if (mine &&
-                                                  message['deliveredTo']
-                                                      is List &&
-                                                  (message['deliveredTo']
-                                                              as List)
-                                                          .length >
-                                                      1)
-                                                Text(
-                                                    message['readBy'] is List &&
-                                                            (message['readBy']
-                                                                        as List)
-                                                                    .length >
-                                                                1
-                                                        ? 'Read'
-                                                        : 'Delivered',
-                                                    style: const TextStyle(
-                                                        fontSize: 10))
-                                            ]),
+                                                          .toString())
+                                                else
+                                                  Text(text),
+                                                if (message['pending'] ==
+                                                    true) ...[
+                                                  const Text(
+                                                      'Waiting to send · saved securely',
+                                                      style: TextStyle(
+                                                          fontSize: 11,
+                                                          fontStyle: FontStyle
+                                                              .italic)),
+                                                  TextButton.icon(
+                                                    onPressed:
+                                                        _flushOutgoingMessages,
+                                                    icon: const Icon(
+                                                        Icons.refresh,
+                                                        size: 14),
+                                                    label:
+                                                        const Text('Retry now'),
+                                                    style: TextButton.styleFrom(
+                                                        padding:
+                                                            EdgeInsets.zero,
+                                                        minimumSize:
+                                                            const Size(0, 28),
+                                                        tapTargetSize:
+                                                            MaterialTapTargetSize
+                                                                .shrinkWrap),
+                                                  ),
+                                                ],
+                                                if (message[
+                                                            'deletedAt'] ==
+                                                        null &&
+                                                    message['reactions']
+                                                        is List &&
+                                                    (message['reactions']
+                                                            as List)
+                                                        .isNotEmpty)
+                                                  Text((message['reactions']
+                                                          as List)
+                                                      .map((r) => r['emoji'])
+                                                      .join(' ')),
+                                                if (mine &&
+                                                    message['deliveredTo']
+                                                        is List &&
+                                                    (message['deliveredTo']
+                                                                as List)
+                                                            .length >
+                                                        1)
+                                                  Text(
+                                                      message['readBy']
+                                                                  is List &&
+                                                              (message['readBy']
+                                                                          as List)
+                                                                      .length >
+                                                                  1
+                                                          ? 'Read'
+                                                          : 'Delivered',
+                                                      style: const TextStyle(
+                                                          fontSize: 10))
+                                              ]),
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  if (!_useSwipeToDelete(context) && mine && message['deletedAt'] == null && message['expiredAt'] == null)
-                                    IconButton(
-                                      tooltip: 'Delete message for everyone',
-                                      icon: const Icon(Icons.delete_outline, size: 19),
-                                      onPressed: () => swipeDeleteMessage(message),
-                                    ),
-                                ],
-                              ),
+                                    if (!_useSwipeToDelete(context) &&
+                                        mine &&
+                                        message['deletedAt'] == null &&
+                                        message['expiredAt'] == null)
+                                      IconButton(
+                                        tooltip: 'Delete message for everyone',
+                                        icon: const Icon(Icons.delete_outline,
+                                            size: 19),
+                                        onPressed: () =>
+                                            swipeDeleteMessage(message),
+                                      ),
+                                  ],
+                                ),
                               ),
                             );
                           },
@@ -9545,16 +11197,18 @@ class _ChatState extends State<Chat> {
                                           'Memory',
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w600)),
-                                  if ((suggestion['personName']?.toString() ?? '')
+                                  if ((suggestion['personName']?.toString() ??
+                                          '')
                                       .trim()
                                       .isNotEmpty)
-                                Text(
-                                  'About ${suggestion['personName']}',
-                                  style: const TextStyle(
-                                      fontSize: 12, fontWeight: FontWeight.w600),
-                                ),
-                              Text(suggestion['description']?.toString() ??
-                                  ''),
+                                    Text(
+                                      'About ${suggestion['personName']}',
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                  Text(suggestion['description']?.toString() ??
+                                      ''),
                                 ],
                               ),
                             ),
@@ -9643,6 +11297,10 @@ class _ChatState extends State<Chat> {
           }),
         SafeArea(
             child: Row(children: [
+          IconButton(
+              onPressed: _chooseMention,
+              tooltip: 'Mention a chat member',
+              icon: const Icon(Icons.alternate_email)),
           IconButton(
               onPressed: sendImageLink,
               tooltip: 'Share image URL',
@@ -9814,7 +11472,8 @@ class _ProfileState extends State<Profile> {
       if (mediaUrl == null || !mediaUrl.startsWith('https://')) {
         throw Exception('Image upload did not return a secure image URL.');
       }
-      final saved = await api.call('PATCH', '/api/users/me', {'profileImage': mediaUrl});
+      final saved =
+          await api.call('PATCH', '/api/users/me', {'profileImage': mediaUrl});
       if (!mounted) return;
       context.read<AppState>().updateCurrentUser(
             Map<String, dynamic>.from(saved['user']),
@@ -9963,16 +11622,15 @@ class _ProfileState extends State<Profile> {
     final app = context.watch<AppState>();
     final profileImage = app.user?['profileImage']?.toString();
     return ListView(padding: const EdgeInsets.all(18), children: [
-        Center(
-          child: Column(children: [
+      Center(
+        child: Column(children: [
           Semantics(
             button: profileImage != null && profileImage.startsWith('https://'),
             label: 'View profile picture full size',
             child: InkWell(
               key: const ValueKey('profile-picture-preview'),
               borderRadius: BorderRadius.circular(14),
-              onTap: profileImage != null &&
-                      profileImage.startsWith('https://')
+              onTap: profileImage != null && profileImage.startsWith('https://')
                   ? () => viewProfilePicture(profileImage)
                   : null,
               child: Container(
@@ -9997,87 +11655,87 @@ class _ProfileState extends State<Profile> {
                           ),
               ),
             ),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: chooseProfilePicture,
-              icon: const Icon(Icons.photo_camera_outlined),
-              label: const Text('Change profile picture'),
-            ),
-          ]),
-        ),
-        SwitchListTile(
-          value: app.themeMode == ThemeMode.dark,
-          onChanged: app.setDarkMode,
-          secondary: Icon(app.themeMode == ThemeMode.dark
-              ? Icons.dark_mode_outlined
-              : Icons.light_mode_outlined),
-          title: const Text('Dark mode'),
-          subtitle: const Text('Use a darker, low-glare appearance'),
-        ),
-        TextField(
-            controller: name,
-            decoration: const InputDecoration(
-                labelText: 'Name', border: OutlineInputBorder())),
-        const SizedBox(height: 12),
-        const Text('Default M-Pesa number',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        const Text(
-            'Set this for your existing account. Chatify will prefill it when you send or receive payment requests. You can still change either number on an individual request.'),
-        const SizedBox(height: 10),
-        TextField(
-            controller: phone,
-            keyboardType: TextInputType.phone,
-            decoration: InputDecoration(
-                labelText: 'M-Pesa phone number',
-                hintText: '0712345678 or 254712345678',
-                helperText: (context
-                            .watch<AppState>()
-                            .user?['phone']
-                            ?.toString()
-                            .isNotEmpty ??
-                        false)
-                    ? 'Saved default: ${context.watch<AppState>().user?['phone']}'
-                    : 'No default saved yet — add your number below.',
-                border: const OutlineInputBorder())),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-            onPressed: saveDefaultPhone,
-            icon: const Icon(Icons.account_balance_wallet_outlined),
-            label: const Text('Save default M-Pesa number')),
-        const SizedBox(height: 18),
-        const Text('Privacy',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        SwitchListTile(
-            value: lastSeen,
-            onChanged: (v) => setState(() => lastSeen = v),
-            title: const Text('Show last seen')),
-        SwitchListTile(
-            value: receipts,
-            onChanged: (v) => setState(() => receipts = v),
-            title: const Text('Read receipts')),
-        const Text('Notifications',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        SwitchListTile(
-            value: messages,
-            onChanged: (v) => setState(() => messages = v),
-            title: const Text('New messages')),
-        SwitchListTile(
-            value: mentions,
-            onChanged: (v) => setState(() => mentions = v),
-            title: const Text('Mentions')),
-        SwitchListTile(
-            value: memories,
-            onChanged: (v) => setState(() => memories = v),
-            title: const Text('Memory suggestions')),
-        AsyncActionButton(label: 'Save changes', onPressed: save),
-        TextButton(
-            onPressed: changePassword, child: const Text('Change password')),
-        TextButton(
-            onPressed: () => context.read<AppState>().logout(),
-            child: const Text('Sign out'))
-      ]);
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: chooseProfilePicture,
+            icon: const Icon(Icons.photo_camera_outlined),
+            label: const Text('Change profile picture'),
+          ),
+        ]),
+      ),
+      SwitchListTile(
+        value: app.themeMode == ThemeMode.dark,
+        onChanged: app.setDarkMode,
+        secondary: Icon(app.themeMode == ThemeMode.dark
+            ? Icons.dark_mode_outlined
+            : Icons.light_mode_outlined),
+        title: const Text('Dark mode'),
+        subtitle: const Text('Use a darker, low-glare appearance'),
+      ),
+      TextField(
+          controller: name,
+          decoration: const InputDecoration(
+              labelText: 'Name', border: OutlineInputBorder())),
+      const SizedBox(height: 12),
+      const Text('Default M-Pesa number',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 6),
+      const Text(
+          'Set this for your existing account. Chatify will prefill it when you send or receive payment requests. You can still change either number on an individual request.'),
+      const SizedBox(height: 10),
+      TextField(
+          controller: phone,
+          keyboardType: TextInputType.phone,
+          decoration: InputDecoration(
+              labelText: 'M-Pesa phone number',
+              hintText: '0712345678 or 254712345678',
+              helperText: (context
+                          .watch<AppState>()
+                          .user?['phone']
+                          ?.toString()
+                          .isNotEmpty ??
+                      false)
+                  ? 'Saved default: ${context.watch<AppState>().user?['phone']}'
+                  : 'No default saved yet — add your number below.',
+              border: const OutlineInputBorder())),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+          onPressed: saveDefaultPhone,
+          icon: const Icon(Icons.account_balance_wallet_outlined),
+          label: const Text('Save default M-Pesa number')),
+      const SizedBox(height: 18),
+      const Text('Privacy',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      SwitchListTile(
+          value: lastSeen,
+          onChanged: (v) => setState(() => lastSeen = v),
+          title: const Text('Show last seen')),
+      SwitchListTile(
+          value: receipts,
+          onChanged: (v) => setState(() => receipts = v),
+          title: const Text('Read receipts')),
+      const Text('Notifications',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      SwitchListTile(
+          value: messages,
+          onChanged: (v) => setState(() => messages = v),
+          title: const Text('New messages')),
+      SwitchListTile(
+          value: mentions,
+          onChanged: (v) => setState(() => mentions = v),
+          title: const Text('Mentions')),
+      SwitchListTile(
+          value: memories,
+          onChanged: (v) => setState(() => memories = v),
+          title: const Text('Memory suggestions')),
+      AsyncActionButton(label: 'Save changes', onPressed: save),
+      TextButton(
+          onPressed: changePassword, child: const Text('Change password')),
+      TextButton(
+          onPressed: () => context.read<AppState>().logout(),
+          child: const Text('Sign out'))
+    ]);
   }
 }
 
@@ -10535,16 +12193,19 @@ class _StorefrontPageState extends State<StorefrontPage> {
               'Sign in to discuss products, delivery and payment securely with this seller.'),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not now')),
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Not now')),
             FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Sign in')),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Sign in')),
           ],
         ),
       );
       if (shouldSignIn == true && mounted) app.openAuth();
       return;
     }
-    final currentUserId = app.user?['_id']?.toString() ?? app.user?['id']?.toString() ?? '';
+    final currentUserId =
+        app.user?['_id']?.toString() ?? app.user?['id']?.toString() ?? '';
     if (sellerId == currentUserId) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
@@ -10554,7 +12215,8 @@ class _StorefrontPageState extends State<StorefrontPage> {
     try {
       final result = await app.api
           .call('POST', '/api/conversations/direct', {'userId': sellerId});
-      final conversation = Map<String, dynamic>.from(result['conversation'] ?? {});
+      final conversation =
+          Map<String, dynamic>.from(result['conversation'] ?? {});
       // Preserve the storefront context locally so chat payment forms can load this exact
       // merchant's public Till/Paybill instructions instead of guessing by seller name.
       final storefrontSlug = storefront['slug']?.toString();
@@ -10564,7 +12226,9 @@ class _StorefrontPageState extends State<StorefrontPage> {
       if (!mounted || conversation.isEmpty) return;
       if (item != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Chat opened. Ask about ' + (item['name']?.toString() ?? 'this item') + '; secure M-Pesa checkout is available on this storefront.'),
+          content: Text('Chat opened. Ask about ' +
+              (item['name']?.toString() ?? 'this item') +
+              '; secure M-Pesa checkout is available on this storefront.'),
         ));
       }
       final draft = item == null
@@ -10578,9 +12242,10 @@ class _StorefrontPageState extends State<StorefrontPage> {
         builder: (_) => Chat(conversation: conversation, initialMessage: draft),
       ));
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unable to open seller chat: $e')),
-      );
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to open seller chat: $e')),
+        );
     }
   }
 
@@ -10695,22 +12360,32 @@ class _StorefrontPageState extends State<StorefrontPage> {
         throw const FormatException(
             'Order was created but no payment reference was returned.');
       }
-      final baseAmount = (payment['baseAmount'] as num?)?.toInt() ?? (payment['amount'] as num?)?.toInt() ?? 0;
+      final baseAmount = (payment['baseAmount'] as num?)?.toInt() ??
+          (payment['amount'] as num?)?.toInt() ??
+          0;
       if (!mounted) return;
       final consent = await showDialog<bool>(
-          context: context, builder: (dialogContext) => AlertDialog(
-        title: const Text('Confirm checkout total'),
-        content: Text(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                title: const Text('Confirm checkout total'),
+                content: Text(
                     'Order total: KSh $baseAmount\nNo Chatify transaction commission is added. Safaricom charges, if applicable, are separate.'),
-        actions: [
+                actions: [
                   TextButton(
-                      onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel')),
                   FilledButton(
-                      onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Continue to M-Pesa')),
-        ],
-      ));
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Continue to M-Pesa')),
+                ],
+              ));
       if (consent != true) {
-        if (mounted) setState(() { paymentId = id; notice = 'Order saved, but no M-Pesa prompt was sent. You can refresh this payment or contact the store.'; });
+        if (mounted)
+          setState(() {
+            paymentId = id;
+            notice =
+                'Order saved, but no M-Pesa prompt was sent. You can refresh this payment or contact the store.';
+          });
         return;
       }
       if (mounted) {
@@ -10775,7 +12450,9 @@ class _StorefrontPageState extends State<StorefrontPage> {
               Text(error!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
               AsyncActionButton(
-                  label: 'Retry store', icon: Icons.refresh, onPressed: loadStore),
+                  label: 'Retry store',
+                  icon: Icons.refresh,
+                  onPressed: loadStore),
             ]),
           )));
     }
@@ -11064,8 +12741,6 @@ class _BusinessHubState extends State<BusinessHub> {
       documents = [],
       tasks = [];
   bool loading = true, saving = false;
-  Map<String, dynamic> workspaceBilling = {};
-  bool workspaceBillingLoading = false;
   int pendingOfflineCount = 0;
   List<String> syncConflicts = [];
   final Map<String, Future<int>> _offlineSyncs = {};
@@ -11095,10 +12770,8 @@ class _BusinessHubState extends State<BusinessHub> {
           orElse: () => organizations.first,
         ) as Map<String, dynamic>;
         await loadWorkspaceData();
-        await loadWorkspaceBilling();
       } else {
         organization = null;
-        workspaceBilling = {};
         dashboard = {};
         catalog = [];
         customers = [];
@@ -11142,100 +12815,6 @@ class _BusinessHubState extends State<BusinessHub> {
       }
     }
     if (mounted) setState(() {});
-  }
-
-  Future<void> loadWorkspaceBilling() async {
-    final id = organization?['_id']?.toString();
-    if (id == null) {
-      if (mounted) setState(() => workspaceBilling = {});
-      return;
-    }
-    if (mounted) setState(() => workspaceBillingLoading = true);
-    try {
-      final result = await app.api.call('GET', '/api/workspace-billing/business/${Uri.encodeComponent(id)}');
-      if (mounted && organization?['_id']?.toString() == id) setState(() => workspaceBilling = Map<String, dynamic>.from(result['billing'] ?? {}));
-    } catch (e) {
-      if (mounted && organization?['_id']?.toString() == id) error = e.toString();
-    } finally {
-      if (mounted && organization?['_id']?.toString() == id) setState(() => workspaceBillingLoading = false);
-    }
-  }
-
-  Future<void> payBusinessWorkspaceBilling(String billingType) async {
-    final id = organization?['_id']?.toString();
-    if (id == null || workspaceBillingLoading) return;
-    final phoneController = TextEditingController(text: (app.user?['mpesaPhone'] ?? app.user?['phone'] ?? '').toString());
-    final phone = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
-      title: const Text('Workspace subscription payment'),
-      content: TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'M-Pesa phone number', hintText: '07XXXXXXXX or 2547XXXXXXXX')),
-      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, phoneController.text.trim()), child: const Text('Continue to M-Pesa'))],
-    ));
-    phoneController.dispose();
-    if (phone == null || phone.isEmpty || !mounted) return;
-    setState(() => workspaceBillingLoading = true);
-    try {
-      final checkout = await app.api.call('POST', '/api/workspace-billing/business/${Uri.encodeComponent(id)}/checkout', {'billingType': billingType});
-      if (checkout['paid'] == true) {
-        await loadWorkspaceBilling();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(checkout['notice']?.toString() ?? 'Billing updated.')));
-        return;
-      }
-      final payment = Map<String, dynamic>.from(checkout['payment'] ?? {});
-      final paymentId = payment['paymentId']?.toString();
-      if (paymentId == null || paymentId.isEmpty) throw Exception('The billing checkout did not return a payment reference.');
-      if (payment['initiatedAt'] == null) {
-        await app.api.call('POST', '/api/payments/${Uri.encodeComponent(paymentId)}/initiate', {'phone': phone});
-      }
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('M-Pesa prompt requested. Approve it on your phone; the workspace unlocks only after confirmation.')));
-      for (var attempt = 0; attempt < 20 && mounted; attempt++) {
-        await Future.delayed(const Duration(seconds: 3));
-        final statusResult = await app.api.call('GET', '/api/payments/${Uri.encodeComponent(paymentId)}');
-        final current = Map<String, dynamic>.from(statusResult['payment'] ?? {});
-        final status = current['status']?.toString().toUpperCase();
-        if (status == 'SUCCESS') {
-          await loadOrganizations();
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment confirmed. Workspace billing status has been refreshed.')));
-          return;
-        }
-        if (status == 'FAILED' || status == 'CANCELLED') throw Exception('M-Pesa payment $status. You can retry from workspace billing.');
-      }
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment is still pending. Refresh billing shortly; do not pay again unless the first payment has failed.')));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
-    } finally {
-      if (mounted) setState(() => workspaceBillingLoading = false);
-    }
-  }
-
-  Widget _businessBillingCard() {
-    if (workspaceBilling.isEmpty) return const SizedBox.shrink();
-    final prices = workspaceBilling['prices'] is Map ? Map<String, dynamic>.from(workspaceBilling['prices'] as Map) : <String, dynamic>{};
-    final setupPaid = workspaceBilling['setupFeePaid'] == true;
-    final locked = workspaceBilling['locked'] == true;
-    final status = workspaceBilling['status']?.toString() ?? 'Loading';
-    final legacy = status == 'LEGACY_GRANDFATHERED';
-    final setupFee = (prices['setupFee'] as num?)?.toInt() ?? 1000;
-    final monthlyFee = (prices['monthlyFee'] as num?)?.toInt() ?? 500;
-    return Card(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [const Icon(Icons.workspace_premium_outlined), const SizedBox(width: 8), const Expanded(child: Text('Workspace billing', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))), if (workspaceBillingLoading) const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))]),
-        const SizedBox(height: 4),
-        Text('Status: $status${locked ? ' · Workspace locked' : ''}'),
-        if (legacy) const Text('This existing workspace is grandfathered. No new billing lock or setup payment is being enforced yet.'),
-        if (!legacy) Text('One-time setup: KSh $setupFee${setupPaid ? ' · Paid' : ' · Unpaid'}'),
-        if (!legacy) Text('Monthly subscription: KSh $monthlyFee'),
-        if (workspaceBilling['subscriptionExpiresAt'] != null) Text('Subscription expiry: ${workspaceBilling['subscriptionExpiresAt']}'),
-        const SizedBox(height: 6),
-        const Text('Customer payments are commission-free: Chatify does not add a 0.5% transaction fee.'),
-        const SizedBox(height: 8),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          if (!legacy && !setupPaid) FilledButton.icon(onPressed: workspaceBillingLoading ? null : () => payBusinessWorkspaceBilling('workspace_setup'), icon: const Icon(Icons.payment), label: Text('Pay setup · KSh $setupFee')),
-          if (!legacy && setupPaid) FilledButton.icon(onPressed: workspaceBillingLoading ? null : () => payBusinessWorkspaceBilling('workspace_subscription'), icon: const Icon(Icons.autorenew), label: Text('Pay monthly · KSh $monthlyFee')),
-          OutlinedButton.icon(onPressed: workspaceBillingLoading ? null : loadWorkspaceBilling, icon: const Icon(Icons.refresh), label: const Text('Refresh billing')),
-        ]),
-      ])),
-    );
   }
 
   Future<void> createOrganization() async {
@@ -11436,14 +13015,13 @@ class _BusinessHubState extends State<BusinessHub> {
         });
       } else {
         await _enqueueOfflineCreate(id, 'task',
-            {'title': name.text.trim(),
-          'description': detail.text.trim()});
+            {'title': name.text.trim(), 'description': detail.text.trim()});
       }
       if (kind == 'document') {
-      await loadWorkspaceData();
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Business record saved.')));
+        await loadWorkspaceData();
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Business record saved.')));
       } else {
         final applied = await _flushOfflineQueue(id);
         if (applied > 0) {
@@ -11451,14 +13029,13 @@ class _BusinessHubState extends State<BusinessHub> {
           if (mounted)
             ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Business record saved.')));
-              }
-                    else
-        if (mounted) {
+        } else if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text('Saved on this device and waiting to sync.')));
         }
       }
-    } catch (e) { if (mounted) {
+    } catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.toString())));
       }
@@ -11725,45 +13302,91 @@ class _BusinessHubState extends State<BusinessHub> {
     final rate = TextEditingController(text: '16');
     final label = TextEditingController(text: 'VAT');
     String mode = 'exclusive';
-    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-        title: const Text('Platform-wide tax rate'),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: country, maxLength: 2, decoration: const InputDecoration(labelText: 'Country code (e.g. KE)')),
-          TextField(controller: currency, maxLength: 3, decoration: const InputDecoration(labelText: 'Currency (e.g. KES)')),
-          TextField(controller: label, decoration: const InputDecoration(labelText: 'Tax label (e.g. VAT)')),
-          TextField(controller: rate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Rate (%)')),
-          DropdownButtonFormField<String>(value: mode, decoration: const InputDecoration(labelText: 'Tax treatment'),
-            items: const [
-              DropdownMenuItem(value: 'exclusive', child: Text('Add tax on top')),
-              DropdownMenuItem(value: 'inclusive', child: Text('Tax included in price')),
-              DropdownMenuItem(value: 'none', child: Text('No tax')),
-            ],
-            onChanged: (value) { if (value != null) setDialogState(() => mode = value); }),
-          const Text('This rate applies to business documents for every workspace matching this country and currency. Verify the legally applicable rate before saving.', style: TextStyle(fontSize: 12)),
-        ])),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Apply globally')),
-        ],
-      ),
-    ));
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+              builder: (context, setDialogState) => AlertDialog(
+                title: const Text('Platform-wide tax rate'),
+                content: SingleChildScrollView(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  TextField(
+                      controller: country,
+                      maxLength: 2,
+                      decoration: const InputDecoration(
+                          labelText: 'Country code (e.g. KE)')),
+                  TextField(
+                      controller: currency,
+                      maxLength: 3,
+                      decoration: const InputDecoration(
+                          labelText: 'Currency (e.g. KES)')),
+                  TextField(
+                      controller: label,
+                      decoration: const InputDecoration(
+                          labelText: 'Tax label (e.g. VAT)')),
+                  TextField(
+                      controller: rate,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'Rate (%)')),
+                  DropdownButtonFormField<String>(
+                      initialValue: mode,
+                      decoration:
+                          const InputDecoration(labelText: 'Tax treatment'),
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'exclusive', child: Text('Add tax on top')),
+                        DropdownMenuItem(
+                            value: 'inclusive',
+                            child: Text('Tax included in price')),
+                        DropdownMenuItem(value: 'none', child: Text('No tax')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) setDialogState(() => mode = value);
+                      }),
+                  const Text(
+                      'This rate applies to business documents for every workspace matching this country and currency. Verify the legally applicable rate before saving.',
+                      style: TextStyle(fontSize: 12)),
+                ])),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Apply globally')),
+                ],
+              ),
+            ));
     if (accepted != true || !mounted) return;
     try {
       final countryCode = country.text.trim().toUpperCase();
       final currencyCode = currency.text.trim().toUpperCase();
       final value = double.tryParse(rate.text);
-      if (countryCode.length != 2 || currencyCode.length != 3 || value == null || value < 0 || value > 100) {
-        throw const FormatException('Enter a valid country, currency and tax rate from 0 to 100.');
+      if (countryCode.length != 2 ||
+          currencyCode.length != 3 ||
+          value == null ||
+          value < 0 ||
+          value > 100) {
+        throw const FormatException(
+            'Enter a valid country, currency and tax rate from 0 to 100.');
       }
-      final response = await app.api.call('PUT',
-        '/api/admin/tax-rates/${Uri.encodeComponent(countryCode)}/${Uri.encodeComponent(currencyCode)}',
-        {'mode': mode, 'rate': value, 'taxLabel': label.text.trim()});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Global tax rate saved.')));
+      final response = await app.api.call(
+          'PUT',
+          '/api/admin/tax-rates/${Uri.encodeComponent(countryCode)}/${Uri.encodeComponent(currencyCode)}',
+          {'mode': mode, 'rate': value, 'taxLabel': label.text.trim()});
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                response['notice']?.toString() ?? 'Global tax rate saved.')));
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save global tax rate: $error')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not save global tax rate: $error')));
     } finally {
-      country.dispose(); currency.dispose(); rate.dispose(); label.dispose();
+      country.dispose();
+      currency.dispose();
+      rate.dispose();
+      label.dispose();
     }
   }
 
@@ -12308,20 +13931,29 @@ class _BusinessHubState extends State<BusinessHub> {
                           'Invoice balance: KSh $baseAmount\nNo Chatify transaction commission is added.'),
                       const SizedBox(height: 8),
                       const Text(
-                          'Confirm the invoice balance with the customer before sending the M-Pesa prompt. Safaricom charges, if applicable, are separate.', style: TextStyle(fontSize: 12)),
+                          'Confirm the invoice balance with the customer before sending the M-Pesa prompt. Safaricom charges, if applicable, are separate.',
+                          style: TextStyle(fontSize: 12)),
                       const SizedBox(height: 8),
                       TextField(
-                          controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(
+                          controller: phone,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
                               labelText: 'Customer M-Pesa phone')),
                     ]),
                     actions: [
                       TextButton(
-                          onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel')),
                       FilledButton(
-                          onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Confirm and send STK'))
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Confirm and send STK'))
                     ]));
-        if (accepted != true) { phone.dispose(); return; }
-        response = await app.api.call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
+        if (accepted != true) {
+          phone.dispose();
+          return;
+        }
+        response = await app.api
+            .call('POST', '$base/mpesa-stk', {'phone': phone.text.trim()});
         phone.dispose();
       } else {
         response = await app.api.call('POST', '$base/etims-submit', {});
@@ -12449,45 +14081,102 @@ class _BusinessHubState extends State<BusinessHub> {
   }
 
   Future<void> _manageDocumentDelivery(String documentId, Map item) async {
-    final statuses = ['pending','packed','dispatched','in_transit','delivered','failed','returned','not_required'];
-    String status = statuses.contains(item['deliveryStatus']) ? item['deliveryStatus'].toString() : 'pending';
-    final address = TextEditingController(text: item['deliveryAddress']?.toString() ?? '');
-    final provider = TextEditingController(text: item['deliveryProvider']?.toString() ?? '');
-    final tracking = TextEditingController(text: item['trackingNumber']?.toString() ?? '');
-    final notes = TextEditingController(text: item['deliveryNotes']?.toString() ?? '');
-    final accepted = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-        title: const Text('Product delivery'),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          DropdownButtonFormField<String>(
-            value: status,
-            decoration: const InputDecoration(labelText: 'Delivery status'),
-            items: statuses.map((value) => DropdownMenuItem(value: value, child: Text(value.replaceAll('_',' ')))).toList(),
-            onChanged: (value) { if (value != null) setDialogState(() => status = value); },
-          ),
-          TextField(controller: address, decoration: const InputDecoration(labelText: 'Delivery address')),
-          TextField(controller: provider, decoration: const InputDecoration(labelText: 'Courier / delivery provider')),
-          TextField(controller: tracking, decoration: const InputDecoration(labelText: 'Tracking number')),
-          TextField(controller: notes, maxLines: 2, decoration: const InputDecoration(labelText: 'Customer update / notes')),
-        ])),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save delivery')),
-        ],
-      ),
-    ));
+    final statuses = [
+      'pending',
+      'packed',
+      'dispatched',
+      'in_transit',
+      'delivered',
+      'failed',
+      'returned',
+      'not_required'
+    ];
+    String status = statuses.contains(item['deliveryStatus'])
+        ? item['deliveryStatus'].toString()
+        : 'pending';
+    final address =
+        TextEditingController(text: item['deliveryAddress']?.toString() ?? '');
+    final provider =
+        TextEditingController(text: item['deliveryProvider']?.toString() ?? '');
+    final tracking =
+        TextEditingController(text: item['trackingNumber']?.toString() ?? '');
+    final notes =
+        TextEditingController(text: item['deliveryNotes']?.toString() ?? '');
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+              builder: (context, setDialogState) => AlertDialog(
+                title: const Text('Product delivery'),
+                content: SingleChildScrollView(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: status,
+                    decoration:
+                        const InputDecoration(labelText: 'Delivery status'),
+                    items: statuses
+                        .map((value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value.replaceAll('_', ' '))))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) setDialogState(() => status = value);
+                    },
+                  ),
+                  TextField(
+                      controller: address,
+                      decoration:
+                          const InputDecoration(labelText: 'Delivery address')),
+                  TextField(
+                      controller: provider,
+                      decoration: const InputDecoration(
+                          labelText: 'Courier / delivery provider')),
+                  TextField(
+                      controller: tracking,
+                      decoration:
+                          const InputDecoration(labelText: 'Tracking number')),
+                  TextField(
+                      controller: notes,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                          labelText: 'Customer update / notes')),
+                ])),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Save delivery')),
+                ],
+              ),
+            ));
     if (accepted != true || !mounted) return;
     try {
       final orgId = organization!['_id'].toString();
-      final response = await app.api.call('PATCH',
-        '/api/business/organizations/${Uri.encodeComponent(orgId)}/documents/${Uri.encodeComponent(documentId)}/delivery',
-        {'deliveryStatus':status,'deliveryAddress':address.text.trim(),'deliveryProvider':provider.text.trim(),'trackingNumber':tracking.text.trim(),'deliveryNotes':notes.text.trim()});
+      final response = await app.api.call(
+          'PATCH',
+          '/api/business/organizations/${Uri.encodeComponent(orgId)}/documents/${Uri.encodeComponent(documentId)}/delivery',
+          {
+            'deliveryStatus': status,
+            'deliveryAddress': address.text.trim(),
+            'deliveryProvider': provider.text.trim(),
+            'trackingNumber': tracking.text.trim(),
+            'deliveryNotes': notes.text.trim()
+          });
       await loadWorkspaceData();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(response['notice']?.toString() ?? 'Delivery details saved.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                response['notice']?.toString() ?? 'Delivery details saved.')));
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save delivery details: $error')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not save delivery details: $error')));
     } finally {
-      address.dispose(); provider.dispose(); tracking.dispose(); notes.dispose();
+      address.dispose();
+      provider.dispose();
+      tracking.dispose();
+      notes.dispose();
     }
   }
 
@@ -12553,7 +14242,8 @@ class _BusinessHubState extends State<BusinessHub> {
                 ListTile(
                     leading: const Icon(Icons.local_shipping_outlined),
                     title: const Text('Manage product delivery'),
-                    subtitle: Text('Delivery: ${item['deliveryStatus'] ?? 'not_required'}'),
+                    subtitle: Text(
+                        'Delivery: ${item['deliveryStatus'] ?? 'not_required'}'),
                     onTap: () => Navigator.pop(context, 'delivery')),
             ])));
     if (action == null) return;
@@ -12590,10 +14280,12 @@ class _BusinessHubState extends State<BusinessHub> {
 
   Widget toolsPanel() => ListView(padding: const EdgeInsets.all(12), children: [
         if (app.user?['role']?.toString() == 'admin')
-          Card(child: ListTile(
+          Card(
+              child: ListTile(
             leading: const Icon(Icons.admin_panel_settings_outlined),
             title: const Text('Platform-wide tax rates'),
-            subtitle: const Text('Set the centrally managed tax rate for every matching workspace'),
+            subtitle: const Text(
+                'Set the centrally managed tax rate for every matching workspace'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _configureGlobalTaxRates,
           )),
@@ -12766,8 +14458,14 @@ class _BusinessHubState extends State<BusinessHub> {
                         title: const Text('Delete saved task?'),
                         content: Text('Delete “$title” from this workspace?'),
                         actions: [
-                          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-                          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete')),
+                          TextButton(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, false),
+                              child: const Text('Cancel')),
+                          FilledButton(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, true),
+                              child: const Text('Delete')),
                         ],
                       ),
                     );
@@ -12775,11 +14473,16 @@ class _BusinessHubState extends State<BusinessHub> {
                     try {
                       final orgId = organization?['_id']?.toString();
                       if (orgId == null) return;
-                      await app.api.call('DELETE', '/api/business/organizations/${Uri.encodeComponent(orgId)}/tasks/${Uri.encodeComponent(taskId)}');
+                      await app.api.call('DELETE',
+                          '/api/business/organizations/${Uri.encodeComponent(orgId)}/tasks/${Uri.encodeComponent(taskId)}');
                       await loadWorkspaceData();
-                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task deleted.')));
+                      if (mounted)
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Task deleted.')));
                     } catch (error) {
-                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete task: $error')));
+                      if (mounted)
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text('Could not delete task: $error')));
                     }
                   },
                 )
@@ -12877,7 +14580,6 @@ class _BusinessHubState extends State<BusinessHub> {
                         loading = true;
                       });
                       await loadWorkspaceData();
-                      await loadWorkspaceBilling();
                       if (mounted) setState(() => loading = false);
                     },
                   ),
@@ -12914,7 +14616,8 @@ class _BusinessHubState extends State<BusinessHub> {
                         if (slug.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('This workspace has no storefront slug yet.'),
+                              content: Text(
+                                  'This workspace has no storefront slug yet.'),
                             ),
                           );
                           return;
@@ -12938,14 +14641,18 @@ class _BusinessHubState extends State<BusinessHub> {
                       onPressed: saving ? null : _toggleStorefrontPublished,
                       icon: Icon(
                         (organization?['settings'] is Map &&
-                                (organization!['settings'] as Map)['storefrontPublished'] == false)
+                                (organization!['settings']
+                                        as Map)['storefrontPublished'] ==
+                                    false)
                             ? Icons.publish_outlined
                             : Icons.visibility_off_outlined,
                         size: 17,
                       ),
                       label: Text(
                         (organization?['settings'] is Map &&
-                                (organization!['settings'] as Map)['storefrontPublished'] == false)
+                                (organization!['settings']
+                                        as Map)['storefrontPublished'] ==
+                                    false)
                             ? 'Publish'
                             : 'Hide storefront',
                       ),
@@ -12975,7 +14682,9 @@ class _BusinessHubState extends State<BusinessHub> {
                           MaterialPageRoute<void>(
                             builder: (_) => MerchantPosPage(
                               organizationId: id,
-                              organizationName: organization?['name']?.toString() ?? 'Business',
+                              organizationName:
+                                  organization?['name']?.toString() ??
+                                      'Business',
                             ),
                           ),
                         );
@@ -13011,33 +14720,38 @@ class _BusinessHubState extends State<BusinessHub> {
             ],
           ),
         ),
-        if (workspaceBilling.isNotEmpty) _businessBillingCard(),
         if (!compactLayout)
-        SizedBox(
-          height: 76,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            children: [
-              SizedBox(
-                width: 142,
-                child: metric('Customers', metrics['customers'], Icons.people_outline),
-              ),
-              SizedBox(
-                width: 142,
-                child: metric('Products / services', metrics['activeCatalogItems'], Icons.inventory_2_outlined),
-              ),
-              SizedBox(
-                width: 142,
-                child: metric('Open tasks', metrics['openTasks'], Icons.task_alt),
-              ),
-              SizedBox(
-                width: 142,
-                child: metric('Open cases', metrics['openCases'], Icons.support_agent_outlined),
-              ),
-            ],
+          SizedBox(
+            height: 76,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              children: [
+                SizedBox(
+                  width: 142,
+                  child: metric(
+                      'Customers', metrics['customers'], Icons.people_outline),
+                ),
+                SizedBox(
+                  width: 142,
+                  child: metric(
+                      'Products / services',
+                      metrics['activeCatalogItems'],
+                      Icons.inventory_2_outlined),
+                ),
+                SizedBox(
+                  width: 142,
+                  child: metric(
+                      'Open tasks', metrics['openTasks'], Icons.task_alt),
+                ),
+                SizedBox(
+                  width: 142,
+                  child: metric('Open cases', metrics['openCases'],
+                      Icons.support_agent_outlined),
+                ),
+              ],
+            ),
           ),
-        ),
         const TabBar(isScrollable: true, tabs: [
           Tab(text: 'Catalogue'),
           Tab(text: 'Customers'),
@@ -13105,36 +14819,64 @@ class _BusinessHubState extends State<BusinessHub> {
 // Merchant checkout for shops, supermarkets, malls, hotels and restaurants.
 class MerchantPosPage extends StatefulWidget {
   const MerchantPosPage(
-      {super.key, required this.organizationId, required this.organizationName});
+      {super.key,
+      required this.organizationId,
+      required this.organizationName});
   final String organizationId, organizationName;
   @override
   State<MerchantPosPage> createState() => _MerchantPosPageState();
 }
+
 class _MerchantPosPageState extends State<MerchantPosPage> {
   AppState get app => context.read<AppState>();
-  final till = TextEditingController(), paybill = TextEditingController(),
+  final till = TextEditingController(),
+      paybill = TextEditingController(),
       amount = TextEditingController(),
-      description = TextEditingController(), reference = TextEditingController(),
-      darajaConsumerKey = TextEditingController(), darajaConsumerSecret = TextEditingController(),
+      description = TextEditingController(),
+      reference = TextEditingController(),
+      darajaConsumerKey = TextEditingController(),
+      darajaConsumerSecret = TextEditingController(),
       darajaPasskey = TextEditingController();
   String method = 'mpesa_till', darajaMode = 'production';
   bool loading = true, saving = false, darajaConfigured = false;
   Map<String, dynamic>? profile;
   List<dynamic> charges = [];
   String? error;
-  String get base => '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/pos';
+  String get base =>
+      '/api/business/organizations/${Uri.encodeComponent(widget.organizationId)}/pos';
   @override
-  void initState() { super.initState(); load(); }
+  void initState() {
+    super.initState();
+    load();
+  }
+
   @override
-  void dispose() { till.dispose(); paybill.dispose(); amount.dispose(); description.dispose(); reference.dispose(); darajaConsumerKey.dispose(); darajaConsumerSecret.dispose(); darajaPasskey.dispose(); super.dispose(); }
+  void dispose() {
+    till.dispose();
+    paybill.dispose();
+    amount.dispose();
+    description.dispose();
+    reference.dispose();
+    darajaConsumerKey.dispose();
+    darajaConsumerSecret.dispose();
+    darajaPasskey.dispose();
+    super.dispose();
+  }
 
   Future<void> load() async {
-    if (mounted) setState(() { loading = true; error = null; });
+    if (mounted)
+      setState(() {
+        loading = true;
+        error = null;
+      });
     try {
       final r = await Future.wait([
-        app.api.call('GET', '$base/payment-profile'), app.api.call('GET', '$base/charges')
+        app.api.call('GET', '$base/payment-profile'),
+        app.api.call('GET', '$base/charges')
       ]);
-      profile = r[0]['paymentProfile'] is Map ? Map<String, dynamic>.from(r[0]['paymentProfile']) : null;
+      profile = r[0]['paymentProfile'] is Map
+          ? Map<String, dynamic>.from(r[0]['paymentProfile'])
+          : null;
       darajaConfigured = r[0]['darajaConfigured'] == true;
       charges = List<dynamic>.from(r[1]['charges'] ?? []);
       if (profile != null) {
@@ -13142,37 +14884,57 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         till.text = profile!['tillNumber']?.toString() ?? '';
         paybill.text = profile!['paybillNumber']?.toString() ?? '';
       }
-    } catch (e) { error = e.toString(); }
-    finally { if (mounted) setState(() => loading = false); }
+    } catch (e) {
+      error = e.toString();
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
   Future<void> saveProfile() async {
     setState(() => saving = true);
     try {
       final body = <String, dynamic>{'method': method};
-      if (method == 'mpesa_till') { body['tillNumber'] = till.text.trim(); }
-      else { body['paybillNumber'] = paybill.text.trim(); }
-      final hasAnyCredential = darajaConsumerKey.text.trim().isNotEmpty || darajaConsumerSecret.text.trim().isNotEmpty || darajaPasskey.text.trim().isNotEmpty;
+      if (method == 'mpesa_till') {
+        body['tillNumber'] = till.text.trim();
+      } else {
+        body['paybillNumber'] = paybill.text.trim();
+      }
+      final hasAnyCredential = darajaConsumerKey.text.trim().isNotEmpty ||
+          darajaConsumerSecret.text.trim().isNotEmpty ||
+          darajaPasskey.text.trim().isNotEmpty;
       if (hasAnyCredential) {
-        if (darajaConsumerKey.text.trim().isEmpty || darajaConsumerSecret.text.trim().isEmpty || darajaPasskey.text.trim().isEmpty) {
+        if (darajaConsumerKey.text.trim().isEmpty ||
+            darajaConsumerSecret.text.trim().isEmpty ||
+            darajaPasskey.text.trim().isEmpty) {
           throw Exception(
               'Enter the merchant consumer key, consumer secret and passkey together, or leave all three blank.');
         }
         body.addAll({
-          'mode': darajaMode, 'shortcode': method == 'mpesa_till' ? till.text.trim() : paybill.text.trim(),
-          'consumerKey': darajaConsumerKey.text.trim(), 'consumerSecret': darajaConsumerSecret.text.trim(), 'passkey': darajaPasskey.text.trim()
+          'mode': darajaMode,
+          'shortcode':
+              method == 'mpesa_till' ? till.text.trim() : paybill.text.trim(),
+          'consumerKey': darajaConsumerKey.text.trim(),
+          'consumerSecret': darajaConsumerSecret.text.trim(),
+          'passkey': darajaPasskey.text.trim()
         });
       }
       final r = await app.api.call('PUT', '$base/payment-profile', body);
       profile = Map<String, dynamic>.from(r['paymentProfile'] ?? body);
       darajaConfigured = r['darajaConfigured'] == true;
-      darajaConsumerKey.clear(); darajaConsumerSecret.clear(); darajaPasskey.clear();
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      darajaConsumerKey.clear();
+      darajaConsumerSecret.clear();
+      darajaPasskey.clear();
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Merchant payment instructions saved.')));
-    } catch (e) { if (context.mounted)
+    } catch (e) {
+      if (context.mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString()))); }
-    finally { if (mounted) setState(() => saving = false); }
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
   }
 
   Future<void> createCharge() async {
@@ -13184,31 +14946,42 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       return;
     }
     final accepted = await showDialog<bool>(
-        context: context, builder: (d) => AlertDialog(
-      title: const Text('Confirm POS sale amount'),
-      content: Text(
+        context: context,
+        builder: (d) => AlertDialog(
+              title: const Text('Confirm POS sale amount'),
+              content: Text(
                   'Sale amount and customer total: KSh $n\nNo Chatify transaction commission is added. Safaricom charges, if applicable, are separate.'),
-      actions: [
+              actions: [
                 TextButton(
-                    onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+                    onPressed: () => Navigator.pop(d, false),
+                    child: const Text('Cancel')),
                 FilledButton(
-                    onPressed: () => Navigator.pop(d, true), child: const Text('Create payment QR')),
-      ],
-    ));
+                    onPressed: () => Navigator.pop(d, true),
+                    child: const Text('Create payment QR')),
+              ],
+            ));
     if (accepted != true) return;
     setState(() => saving = true);
     try {
       final r = await app.api.call('POST', '$base/charges', {
-        'amount': n, 'description': description.text.trim(),
-        if (reference.text.trim().isNotEmpty) 'reference': reference.text.trim(),
+        'amount': n,
+        'description': description.text.trim(),
+        if (reference.text.trim().isNotEmpty)
+          'reference': reference.text.trim(),
       });
-      amount.clear(); description.clear(); reference.clear();
-      if (mounted) await showCharge(Map<String, dynamic>.from(r['charge'] ?? {}));
+      amount.clear();
+      description.clear();
+      reference.clear();
+      if (mounted)
+        await showCharge(Map<String, dynamic>.from(r['charge'] ?? {}));
       await load();
-    } catch (e) { if (context.mounted)
+    } catch (e) {
+      if (context.mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString()))); }
-    finally { if (mounted) setState(() => saving = false); }
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
   }
 
   Future<void> initiateStk(Map<String, dynamic> item, String phone) async {
@@ -13217,23 +14990,30 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
           content: Text('Enter the customer M-Pesa phone number first.')));
       return;
     }
-    final baseAmount = (item['baseAmount'] as num?)?.toInt() ?? (item['amount'] as num?)?.toInt() ?? 0;
+    final baseAmount = (item['baseAmount'] as num?)?.toInt() ??
+        (item['amount'] as num?)?.toInt() ??
+        0;
     final feeConsent = await showDialog<bool>(
-        context: context, builder: (d) => AlertDialog(
-      title: const Text('Confirm customer payment'),
-      content: Text(
+        context: context,
+        builder: (d) => AlertDialog(
+              title: const Text('Confirm customer payment'),
+              content: Text(
                   'Sale amount and customer total: KSh $baseAmount\nNo Chatify transaction commission is added. Confirm the customer has reviewed the amount.'),
-      actions: [
+              actions: [
                 TextButton(
-                    onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+                    onPressed: () => Navigator.pop(d, false),
+                    child: const Text('Cancel')),
                 FilledButton(
-                    onPressed: () => Navigator.pop(d, true), child: const Text('Confirm and send STK')),
-      ],
-    ));
+                    onPressed: () => Navigator.pop(d, true),
+                    child: const Text('Confirm and send STK')),
+              ],
+            ));
     if (feeConsent != true) return;
     try {
       await app.api.call(
-          'POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/stk', {'phone': phone.trim()});
+          'POST',
+          '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/stk',
+          {'phone': phone.trim()});
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -13252,40 +15032,53 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     final receipt = TextEditingController();
     bool verified = false;
     final accepted = await showDialog<bool>(
-        context: context, builder: (d) => StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-        title: const Text('Verify M-Pesa receipt'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
+        context: context,
+        builder: (d) => StatefulBuilder(
+              builder: (context, setDialogState) => AlertDialog(
+                title: const Text('Verify M-Pesa receipt'),
+                content: Column(mainAxisSize: MainAxisSize.min, children: [
                   Text(
                       'Sale reference: ${item['reference'] ?? ''} · KSh ${item['amount'] ?? ''}'),
                   TextField(
-                      controller: receipt, textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
+                      controller: receipt,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(
                           labelText: 'M-Pesa receipt number')),
                   CheckboxListTile(
-                      value: verified, contentPadding: EdgeInsets.zero,
-            title: const Text(
+                      value: verified,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
                           'I checked the receipt in the official merchant M-Pesa account or statement'),
-            onChanged: (value) => setDialogState(() => verified = value ?? false)),
-          const Text(
-                      'This records a manual finance reconciliation; it does not verify the receipt with Safaricom.', style: TextStyle(fontSize: 12)),
-        ]),
-        actions: [
+                      onChanged: (value) =>
+                          setDialogState(() => verified = value ?? false)),
+                  const Text(
+                      'This records a manual finance reconciliation; it does not verify the receipt with Safaricom.',
+                      style: TextStyle(fontSize: 12)),
+                ]),
+                actions: [
                   TextButton(
-                      onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+                      onPressed: () => Navigator.pop(d, false),
+                      child: const Text('Cancel')),
                   FilledButton(
-                      onPressed: verified && receipt.text.trim().isNotEmpty ? () => Navigator.pop(d, true) : null, child: const Text('Record as verified')),
-        ],
-      ),
-    ));
+                      onPressed: verified && receipt.text.trim().isNotEmpty
+                          ? () => Navigator.pop(d, true)
+                          : null,
+                      child: const Text('Record as verified')),
+                ],
+              ),
+            ));
     if (accepted == true) {
       try {
         await app.api.call(
-            'POST', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/reconcile', {
-          'receipt': receipt.text.trim().toUpperCase(), 'verified': verified,
-        });
+            'POST',
+            '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}/reconcile',
+            {
+              'receipt': receipt.text.trim().toUpperCase(),
+              'verified': verified,
+            });
         await load();
-        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        if (context.mounted)
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text('Receipt recorded as manually reconciled.')));
       } catch (e) {
         if (context.mounted)
@@ -13299,7 +15092,8 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
   Future<void> showCharge(Map<String, dynamic> item) async {
     if (item['qrPayload'] == null && item['paymentId'] != null) {
       try {
-        final details = await app.api.call('GET', '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}');
+        final details = await app.api.call('GET',
+            '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}');
         item = Map<String, dynamic>.from(details['charge'] ?? item);
       } catch (e) {
         if (context.mounted)
@@ -13312,164 +15106,279 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     final payload = item['qrPayload']?.toString() ?? '';
     final dynamicQrImage = item['dynamicQrImage']?.toString() ?? '';
     final stkPhone = TextEditingController();
-    final isSafaricomQr = item['qrProvider'] == 'safaricom_dynamic_qr' && dynamicQrImage.isNotEmpty;
+    final isSafaricomQr = item['qrProvider'] == 'safaricom_dynamic_qr' &&
+        dynamicQrImage.isNotEmpty;
     await showDialog<void>(
-        context: context, builder: (d) => AlertDialog(
-      title: const Text('Customer checkout'),
-      content: SingleChildScrollView(
+        context: context,
+        builder: (d) => AlertDialog(
+              title: const Text('Customer checkout'),
+              content: SingleChildScrollView(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
-        if (isSafaricomQr)
-          Image.memory(base64Decode(dynamicQrImage), width: 220, height: 220, fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => const Text(
+                if (isSafaricomQr)
+                  Image.memory(base64Decode(dynamicQrImage),
+                      width: 220,
+                      height: 220,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Text(
                           'Could not display the M-Pesa QR image. Refresh and try again.'))
-        else if (payload.isNotEmpty)
+                else if (payload.isNotEmpty)
                   QrImageView(
-                      data: payload, version: QrVersions.auto, size: 220, backgroundColor: Colors.white),
-        Text(widget.organizationName, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
-                Text(
-                    'Customer total: KSh ${item['amount'] ?? ''}', style: Theme.of(context).textTheme.headlineSmall),
-                Text('Sale amount: KSh ${item['amount'] ?? ''}', textAlign: TextAlign.center),
-        const Text('No Chatify transaction commission is added. Safaricom charges, if applicable, are separate.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
-        Text(item['description']?.toString() ?? ''),
-        SelectableText('Reference: ${item['reference'] ?? ''}'),
-        Text('Status: ${item['status'] ?? 'PENDING'}'),
-        const SizedBox(height: 8),
+                      data: payload,
+                      version: QrVersions.auto,
+                      size: 220,
+                      backgroundColor: Colors.white),
+                Text(widget.organizationName,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium),
+                Text('Customer total: KSh ${item['amount'] ?? ''}',
+                    style: Theme.of(context).textTheme.headlineSmall),
+                Text('Sale amount: KSh ${item['amount'] ?? ''}',
+                    textAlign: TextAlign.center),
+                const Text(
+                    'No Chatify transaction commission is added. Safaricom charges, if applicable, are separate.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12)),
+                Text(item['description']?.toString() ?? ''),
+                SelectableText('Reference: ${item['reference'] ?? ''}'),
+                Text('Status: ${item['status'] ?? 'PENDING'}'),
+                const SizedBox(height: 8),
                 Text(
                     isSafaricomQr
-          ? 'Scan this Safaricom Dynamic QR with the M-Pesa app to pay the merchant. The sale remains pending until the provider callback confirms the matching transaction.'
-          : 'Demo/instruction QR only. Customer scans with Chatify to view the merchant details, then pays in M-Pesa. This does not confirm payment.',
-          textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
-        if (!isSafaricomQr)
+                        ? 'Scan this Safaricom Dynamic QR with the M-Pesa app to pay the merchant. The sale remains pending until the provider callback confirms the matching transaction.'
+                        : 'Demo/instruction QR only. Customer scans with Chatify to view the merchant details, then pays in M-Pesa. This does not confirm payment.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12)),
+                if (!isSafaricomQr)
                   TextButton.icon(
-                      onPressed: () async { await Clipboard.setData(ClipboardData(text: payload)); }, icon: const Icon(Icons.copy), label: const Text('Copy QR payload')),
-        const Divider(height: 24),
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: payload));
+                      },
+                      icon: const Icon(Icons.copy),
+                      label: const Text('Copy QR payload')),
+                const Divider(height: 24),
                 TextField(
-                    controller: stkPhone, keyboardType: TextInputType.phone, decoration: const InputDecoration(
-                        labelText: 'Customer M-Pesa phone', hintText: '0712345678 or 254712345678')),
-        const SizedBox(height: 6),
+                    controller: stkPhone,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                        labelText: 'Customer M-Pesa phone',
+                        hintText: '0712345678 or 254712345678')),
+                const SizedBox(height: 6),
                 Text(
-                    darajaConfigured ? 'STK uses this merchant\'s own authorized Daraja shortcode.' : 'Configure authorized merchant Daraja credentials to enable direct STK Push.', style: const TextStyle(fontSize: 12)),
-      ])),
-      actions: [
+                    darajaConfigured
+                        ? 'STK uses this merchant\'s own authorized Daraja shortcode.'
+                        : 'Configure authorized merchant Daraja credentials to enable direct STK Push.',
+                    style: const TextStyle(fontSize: 12)),
+              ])),
+              actions: [
                 TextButton(
-                    onPressed: () => Navigator.pop(d), child: const Text('Close')),
+                    onPressed: () => Navigator.pop(d),
+                    child: const Text('Close')),
                 FilledButton.icon(
-                    onPressed: saving || !darajaConfigured ? null : () => initiateStk(item, stkPhone.text), icon: const Icon(Icons.phone_android), label: const Text('Send STK Push')),
-      ],
-    ));
+                    onPressed: saving || !darajaConfigured
+                        ? null
+                        : () => initiateStk(item, stkPhone.text),
+                    icon: const Icon(Icons.phone_android),
+                    label: const Text('Send STK Push')),
+              ],
+            ));
     stkPhone.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (loading)
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     return Scaffold(
         appBar: AppBar(title: const Text('In-person POS payments'), actions: [
           IconButton(onPressed: load, icon: const Icon(Icons.refresh))
         ]),
-      body: RefreshIndicator(
-            onRefresh: load, child: ListView(padding: const EdgeInsets.all(16), children: [
-        Text(widget.organizationName, style: Theme.of(context).textTheme.headlineSmall),
-        const Text(
+        body: RefreshIndicator(
+            onRefresh: load,
+            child: ListView(padding: const EdgeInsets.all(16), children: [
+              Text(widget.organizationName,
+                  style: Theme.of(context).textTheme.headlineSmall),
+              const Text(
                   'Create cashier checkout requests for retail purchases, restaurant bills, hotel stays and other sales.'),
-        if (error != null) Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              if (error != null)
+                Text(error!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error)),
               Card(
                   child: Padding(
-                      padding: const EdgeInsets.all(16), child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('Merchant payment destination', style: Theme.of(context).textTheme.titleLarge),
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text('Merchant payment destination',
+                                style: Theme.of(context).textTheme.titleLarge),
                             DropdownButtonFormField<String>(
-                                initialValue: method, decoration: const InputDecoration(labelText: 'Method'), items: const [
+                                initialValue: method,
+                                decoration:
+                                    const InputDecoration(labelText: 'Method'),
+                                items: const [
                                   DropdownMenuItem(
-                                      value: 'mpesa_till', child: Text('M-Pesa Buy Goods / Till')),
+                                      value: 'mpesa_till',
+                                      child: Text('M-Pesa Buy Goods / Till')),
                                   DropdownMenuItem(
-                                      value: 'mpesa_paybill', child: Text('M-Pesa Paybill')),
-          ], onChanged: saving ? null : (v) { if (v != null) setState(() => method = v); }),
-          if (method == 'mpesa_till')
+                                      value: 'mpesa_paybill',
+                                      child: Text('M-Pesa Paybill')),
+                                ],
+                                onChanged: saving
+                                    ? null
+                                    : (v) {
+                                        if (v != null)
+                                          setState(() => method = v);
+                                      }),
+                            if (method == 'mpesa_till')
                               TextField(
-                                  controller: till, keyboardType: TextInputType.number, decoration: const InputDecoration(
+                                  controller: till,
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
                                       labelText: 'Merchant Till number')),
-          if (method == 'mpesa_paybill') ...[
+                            if (method == 'mpesa_paybill') ...[
                               TextField(
-                                  controller: paybill, keyboardType: TextInputType.number, decoration: const InputDecoration(
+                                  controller: paybill,
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
                                       labelText: 'Merchant Paybill number')),
-          ],
-          const SizedBox(height: 8),
-          const SizedBox(height: 12),
-          Text('Merchant Daraja authorization', style: Theme.of(context).textTheme.titleMedium),
+                            ],
+                            const SizedBox(height: 8),
+                            const SizedBox(height: 12),
+                            Text('Merchant Daraja authorization',
+                                style: Theme.of(context).textTheme.titleMedium),
                             DropdownButtonFormField<String>(
-                                initialValue: darajaMode, decoration: const InputDecoration(
-                                    labelText: 'Daraja environment'), items: const [
+                                initialValue: darajaMode,
+                                decoration: const InputDecoration(
+                                    labelText: 'Daraja environment'),
+                                items: const [
                                   DropdownMenuItem(
-                                      value: 'sandbox', child: Text('Sandbox / testing')),
+                                      value: 'sandbox',
+                                      child: Text('Sandbox / testing')),
                                   DropdownMenuItem(
-                                      value: 'production', child: Text('Production / live payments')),
-          ], onChanged: saving ? null : (v) { if (v != null) setState(() => darajaMode = v); }),
+                                      value: 'production',
+                                      child:
+                                          Text('Production / live payments')),
+                                ],
+                                onChanged: saving
+                                    ? null
+                                    : (v) {
+                                        if (v != null)
+                                          setState(() => darajaMode = v);
+                                      }),
                             TextField(
-                                controller: darajaConsumerKey, obscureText: true, autocorrect: false, enableSuggestions: false, decoration: const InputDecoration(
-                                    labelText: 'Merchant Daraja consumer key (optional)')),
+                                controller: darajaConsumerKey,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                decoration: const InputDecoration(
+                                    labelText:
+                                        'Merchant Daraja consumer key (optional)')),
                             TextField(
-                                controller: darajaConsumerSecret, obscureText: true, autocorrect: false, enableSuggestions: false, decoration: const InputDecoration(
-                                    labelText: 'Merchant Daraja consumer secret (optional)')),
+                                controller: darajaConsumerSecret,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                decoration: const InputDecoration(
+                                    labelText:
+                                        'Merchant Daraja consumer secret (optional)')),
                             TextField(
-                                controller: darajaPasskey, obscureText: true, autocorrect: false, enableSuggestions: false, decoration: const InputDecoration(
-                                    labelText: 'Merchant STK passkey (optional)')),
-          const SizedBox(height: 6),
+                                controller: darajaPasskey,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                decoration: const InputDecoration(
+                                    labelText:
+                                        'Merchant STK passkey (optional)')),
+                            const SizedBox(height: 6),
                             Text(
-                                darajaConfigured ? 'Authorized merchant credentials are stored encrypted. Leave secret fields blank to keep the existing credentials.' : 'Enter all three secrets from the merchant\'s authorized Daraja app. The shortcode must match the Till or Paybill above.', style: const TextStyle(fontSize: 12)),
+                                darajaConfigured
+                                    ? 'Authorized merchant credentials are stored encrypted. Leave secret fields blank to keep the existing credentials.'
+                                    : 'Enter all three secrets from the merchant\'s authorized Daraja app. The shortcode must match the Till or Paybill above.',
+                                style: const TextStyle(fontSize: 12)),
                             FilledButton.icon(
-                                onPressed: saving ? null : saveProfile, icon: const Icon(Icons.lock_outline), label: const Text(
+                                onPressed: saving ? null : saveProfile,
+                                icon: const Icon(Icons.lock_outline),
+                                label: const Text(
                                     'Save destination and secure credentials')),
-        ]))),
+                          ]))),
               Card(
                   child: Padding(
-                      padding: const EdgeInsets.all(16), child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('Create checkout', style: Theme.of(context).textTheme.titleLarge),
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text('Create checkout',
+                                style: Theme.of(context).textTheme.titleLarge),
                             TextField(
-                                controller: description, decoration: const InputDecoration(
-                                    labelText: 'Purchase / bill description', hintText: 'Groceries, dinner, room deposit…')),
+                                controller: description,
+                                decoration: const InputDecoration(
+                                    labelText: 'Purchase / bill description',
+                                    hintText:
+                                        'Groceries, dinner, room deposit…')),
                             TextField(
-                                controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(
-                                    labelText: 'Amount (KES)', prefixText: 'KSh ')),
+                                controller: amount,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                    labelText: 'Amount (KES)',
+                                    prefixText: 'KSh ')),
                             TextField(
-                                controller: reference, decoration: const InputDecoration(
-                                    labelText: 'Optional order / table / room reference')),
-          const SizedBox(height: 8),
+                                controller: reference,
+                                decoration: const InputDecoration(
+                                    labelText:
+                                        'Optional order / table / room reference')),
+                            const SizedBox(height: 8),
                             FilledButton.icon(
-                                onPressed: saving || profile == null ? null : createCharge, icon: const Icon(Icons.qr_code_2), label: const Text('Create payment QR')),
-          if (profile == null) const Text(
-                                  'Save your payment destination before creating a checkout.', style: TextStyle(fontSize: 12)),
-        ]))),
-        Text('Recent payment requests', style: Theme.of(context).textTheme.titleLarge),
-        if (charges.isEmpty) const Text('No POS payment requests yet.'),
-        ...charges.map((raw) {
-          final item = Map<String, dynamic>.from(raw as Map);
-          final st = (item['status']?.toString() ?? 'PENDING').toUpperCase();
-          final source = item['confirmationSource']?.toString() ?? '';
-          final receipt = item['providerReceipt']?.toString() ?? '';
-          final subtitle = '${item['reference'] ?? ''} · $st\n${item['createdAt'] ?? ''}'
-            '${receipt.isNotEmpty ? '\nReceipt: $receipt' : ''}'
-            '${source == 'manual_merchant_reconciliation' ? '\nManually verified by merchant' : source == 'safaricom_c2b' ? '\nConfirmed by Safaricom C2B' : ''}';
-          return Card(
+                                onPressed: saving || profile == null
+                                    ? null
+                                    : createCharge,
+                                icon: const Icon(Icons.qr_code_2),
+                                label: const Text('Create payment QR')),
+                            if (profile == null)
+                              const Text(
+                                  'Save your payment destination before creating a checkout.',
+                                  style: TextStyle(fontSize: 12)),
+                          ]))),
+              Text('Recent payment requests',
+                  style: Theme.of(context).textTheme.titleLarge),
+              if (charges.isEmpty) const Text('No POS payment requests yet.'),
+              ...charges.map((raw) {
+                final item = Map<String, dynamic>.from(raw as Map);
+                final st =
+                    (item['status']?.toString() ?? 'PENDING').toUpperCase();
+                final source = item['confirmationSource']?.toString() ?? '';
+                final receipt = item['providerReceipt']?.toString() ?? '';
+                final subtitle =
+                    '${item['reference'] ?? ''} · $st\n${item['createdAt'] ?? ''}'
+                    '${receipt.isNotEmpty ? '\nReceipt: $receipt' : ''}'
+                    '${source == 'manual_merchant_reconciliation' ? '\nManually verified by merchant' : source == 'safaricom_c2b' ? '\nConfirmed by Safaricom C2B' : ''}';
+                return Card(
                     child: ListTile(
-            leading: Icon(st == 'SUCCESS' ? Icons.check_circle : st == 'FAILED' ? Icons.error_outline : Icons.hourglass_top),
-            title: Text(
+                  leading: Icon(st == 'SUCCESS'
+                      ? Icons.check_circle
+                      : st == 'FAILED'
+                          ? Icons.error_outline
+                          : Icons.hourglass_top),
+                  title: Text(
                       'KSh ${item['amount'] ?? ''} · ${item['description'] ?? 'Sale'}'),
-            subtitle: Text(subtitle),
-            isThreeLine: true,
-            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  subtitle: Text(subtitle),
+                  isThreeLine: true,
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                     IconButton(
-                        tooltip: 'Show payment QR', icon: const Icon(Icons.qr_code_2), onPressed: () => showCharge(item)),
-              if (st == 'PENDING')
+                        tooltip: 'Show payment QR',
+                        icon: const Icon(Icons.qr_code_2),
+                        onPressed: () => showCharge(item)),
+                    if (st == 'PENDING')
                       IconButton(
-                          tooltip: 'Record receipt after official verification', icon: const Icon(Icons.fact_check_outlined), onPressed: () => reconcileCharge(item)),
-            ]),
-          ));
-        }),
-        const Text(
-                  'Do not release goods or close a bill based on a QR scan or screenshot. Wait for independently verified payment confirmation.', style: TextStyle(fontSize: 12)),
-      ])));
+                          tooltip: 'Record receipt after official verification',
+                          icon: const Icon(Icons.fact_check_outlined),
+                          onPressed: () => reconcileCharge(item)),
+                  ]),
+                ));
+              }),
+              const Text(
+                  'Do not release goods or close a bill based on a QR scan or screenshot. Wait for independently verified payment confirmation.',
+                  style: TextStyle(fontSize: 12)),
+            ])));
   }
 }
 
@@ -13479,6 +15388,7 @@ class MerchantQrScannerPage extends StatefulWidget {
   @override
   State<MerchantQrScannerPage> createState() => _MerchantQrScannerPageState();
 }
+
 class _MerchantQrScannerPageState extends State<MerchantQrScannerPage> {
   Map<String, dynamic>? charge;
   String? error;
@@ -13490,52 +15400,103 @@ class _MerchantQrScannerPageState extends State<MerchantQrScannerPage> {
       if (raw == null || raw.isEmpty) continue;
       try {
         final d = jsonDecode(raw);
-        if (d is! Map || d['type'] != 'chatify_pos_payment' || d['currency'] != 'KES' || d['paymentId'] == null || d['reference'] == null || d['amount'] is! num || d['amount'] < 1 || d['amount'] > 150000) {
+        if (d is! Map ||
+            d['type'] != 'chatify_pos_payment' ||
+            d['currency'] != 'KES' ||
+            d['paymentId'] == null ||
+            d['reference'] == null ||
+            d['amount'] is! num ||
+            d['amount'] < 1 ||
+            d['amount'] > 150000) {
           throw const FormatException('Invalid Chatify merchant payment QR.');
         }
-        handled = true; if (mounted) setState(() { charge = Map<String, dynamic>.from(d); error = null; }); return;
+        handled = true;
+        if (mounted)
+          setState(() {
+            charge = Map<String, dynamic>.from(d);
+            error = null;
+          });
+        return;
       } catch (_) {
         handled = true;
-        if (mounted) setState(() => error = 'This may be a Safaricom Dynamic QR. Scan that QR with the M-Pesa app; Chatify reads its own checkout-instruction QR only.');
+        if (mounted)
+          setState(() => error =
+              'This may be a Safaricom Dynamic QR. Scan that QR with the M-Pesa app; Chatify reads its own checkout-instruction QR only.');
         return;
       }
     }
   }
+
   @override
   Widget build(BuildContext context) {
     final c = charge;
-    final dest = c == null ? '' : c['method'] == 'mpesa_till' ? 'M-Pesa Till: ${c['tillNumber'] ?? ''}' : 'M-Pesa Paybill: ${c['paybillNumber'] ?? ''}\nAccount/reference: ${c['accountNumber'] ?? ''}';
+    final dest = c == null
+        ? ''
+        : c['method'] == 'mpesa_till'
+            ? 'M-Pesa Till: ${c['tillNumber'] ?? ''}'
+            : 'M-Pesa Paybill: ${c['paybillNumber'] ?? ''}\nAccount/reference: ${c['accountNumber'] ?? ''}';
     return Scaffold(
-        appBar: AppBar(title: const Text('Pay a merchant')), body: ListView(padding: const EdgeInsets.all(16), children: [
-      if (c == null) ...[
-        const Text(
+        appBar: AppBar(title: const Text('Pay a merchant')),
+        body: ListView(padding: const EdgeInsets.all(16), children: [
+          if (c == null) ...[
+            const Text(
                 'Scan the cashier’s Chatify QR and verify the merchant and amount.'),
             SizedBox(
-                height: 320, child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16), child: MobileScanner(onDetect: onDetect))),
-        if (error != null) Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                height: 320,
+                child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: MobileScanner(onDetect: onDetect))),
+            if (error != null)
+              Text(error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
             OutlinedButton.icon(
-                onPressed: () => setState(() { handled = false; error = null; }), icon: const Icon(Icons.refresh), label: const Text('Scan again')),
-      ] else
+                onPressed: () => setState(() {
+                      handled = false;
+                      error = null;
+                    }),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Scan again')),
+          ] else
             Card(
                 child: Padding(
-                    padding: const EdgeInsets.all(16), child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Icon(Icons.storefront, size: 48),
-        Text(c['merchantName']?.toString() ?? 'Merchant', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
-        Text('KSh ${c['amount']}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium),
-        Text(c['description']?.toString() ?? 'Purchase', textAlign: TextAlign.center),
-        const Divider(height: 24), SelectableText(dest), SelectableText('Reference: ${c['reference']}'),
-        const SizedBox(height: 12),
-        const Text(
-                              'Open M-Pesa and use Buy Goods or Paybill. Enter the exact merchant details and verify the amount before confirming. Scanning this QR does not transfer money or prove payment.', style: TextStyle(fontSize: 13)),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Icon(Icons.storefront, size: 48),
+                          Text(c['merchantName']?.toString() ?? 'Merchant',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.headlineSmall),
+                          Text('KSh ${c['amount']}',
+                              textAlign: TextAlign.center,
+                              style:
+                                  Theme.of(context).textTheme.headlineMedium),
+                          Text(c['description']?.toString() ?? 'Purchase',
+                              textAlign: TextAlign.center),
+                          const Divider(height: 24),
+                          SelectableText(dest),
+                          SelectableText('Reference: ${c['reference']}'),
+                          const SizedBox(height: 12),
+                          const Text(
+                              'Open M-Pesa and use Buy Goods or Paybill. Enter the exact merchant details and verify the amount before confirming. Scanning this QR does not transfer money or prove payment.',
+                              style: TextStyle(fontSize: 13)),
                           FilledButton.icon(
-                              onPressed: () async { await Clipboard.setData(
-                                    ClipboardData(text: dest)); }, icon: const Icon(Icons.copy), label: const Text('Copy payment details')),
+                              onPressed: () async {
+                                await Clipboard.setData(
+                                    ClipboardData(text: dest));
+                              },
+                              icon: const Icon(Icons.copy),
+                              label: const Text('Copy payment details')),
                           OutlinedButton.icon(
-                              onPressed: () => setState(() { charge = null; handled = false; error = null; }), icon: const Icon(Icons.qr_code_scanner), label: const Text('Scan another payment')),
-      ]))),
-    ]));
+                              onPressed: () => setState(() {
+                                    charge = null;
+                                    handled = false;
+                                    error = null;
+                                  }),
+                              icon: const Icon(Icons.qr_code_scanner),
+                              label: const Text('Scan another payment')),
+                        ]))),
+        ]));
   }
 }
 

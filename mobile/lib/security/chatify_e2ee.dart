@@ -24,17 +24,22 @@ class ChatifyE2EE {
     String accountId, {
     String? registeredPublicKey,
   }) async {
-    if (accountId.isEmpty) throw StateError('Sign in before enabling encryption.');
+    if (accountId.isEmpty)
+      throw StateError('Sign in before enabling encryption.');
     final stored = await _storage.read(key: _keyName(accountId));
     if (stored != null) {
       final seed = base64Decode(stored);
       if (seed.length != 32) {
-        throw StateError('The local encryption key is invalid. Secure recovery is required.');
+        throw StateError(
+            'The local encryption key is invalid. Secure recovery is required.');
       }
       final pair = await _agreement.newKeyPairFromSeed(seed);
-      final localPublicKey = base64Encode((await pair.extractPublicKey()).bytes);
-      if (registeredPublicKey != null && registeredPublicKey != localPublicKey) {
-        throw StateError('This device encryption key does not match the account key. Do not overwrite either key; secure recovery is required.');
+      final localPublicKey =
+          base64Encode((await pair.extractPublicKey()).bytes);
+      if (registeredPublicKey != null &&
+          registeredPublicKey != localPublicKey) {
+        throw StateError(
+            'This device encryption key does not match the account key. Do not overwrite either key; secure recovery is required.');
       }
       return pair;
     }
@@ -42,7 +47,8 @@ class ChatifyE2EE {
     // A missing local key may mean a new device. Never replace an account's
     // existing public key automatically, because doing so strands old messages.
     if (registeredPublicKey != null && registeredPublicKey.isNotEmpty) {
-      throw StateError('This account already has an encryption key on another device. Secure device transfer/recovery is required before this device can decrypt messages.');
+      throw StateError(
+          'This account already has an encryption key on another device. Secure device transfer/recovery is required before this device can decrypt messages.');
     }
     final random = Random.secure();
     final seed = List<int>.generate(32, (_) => random.nextInt(256));
@@ -78,7 +84,8 @@ class ChatifyE2EE {
       final peerId = entry.key;
       final peerBytes = base64Decode(entry.value);
       if (peerBytes.length != 32) {
-        throw StateError('A conversation member has an invalid encryption key.');
+        throw StateError(
+            'A conversation member has an invalid encryption key.');
       }
       final shared = await _agreement.sharedSecretKey(
         keyPair: senderPair,
@@ -103,7 +110,8 @@ class ChatifyE2EE {
       };
     }
     if (!envelopes.containsKey(senderId)) {
-      throw StateError('Your own encryption key is missing from this conversation.');
+      throw StateError(
+          'Your own encryption key is missing from this conversation.');
     }
     return <String, dynamic>{
       'encryptionVersion': 1,
@@ -120,7 +128,8 @@ class ChatifyE2EE {
   }) async {
     final allEnvelopes = jsonDecode(encryptedPayload);
     if (allEnvelopes is! Map || allEnvelopes[accountId] is! Map) {
-      throw StateError('This message has no encrypted envelope for this account.');
+      throw StateError(
+          'This message has no encrypted envelope for this account.');
     }
     final envelope = Map<String, dynamic>.from(allEnvelopes[accountId] as Map);
     final nonce = base64Decode(envelope['nonce'] as String);

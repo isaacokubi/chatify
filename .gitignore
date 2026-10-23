@@ -6,6 +6,7 @@
 **/.dart_tool/
 **/build/
 **/.gradle/
+/mobile/android/.kotlin/
 *.jks
 *.keystore
 google-services.json

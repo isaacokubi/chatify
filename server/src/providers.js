@@ -4,7 +4,9 @@ import {cert, getApps, initializeApp} from 'firebase-admin/app';
 import {getMessaging} from 'firebase-admin/messaging';
 
 const maxImageBytes = 10 * 1024 * 1024;
+const maxVideoBytes = 50 * 1024 * 1024;
 const supportedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const supportedVideoTypes = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 
 export function isSupportedImageData(data, mimeType) {
   // Reject oversized and malformed-length payloads before running any regular
@@ -36,6 +38,21 @@ export function isSupportedImageData(data, mimeType) {
     return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   }
   return bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+}
+
+export function isSupportedVideoData(data, mimeType) {
+  if (typeof data !== 'string' || !supportedVideoTypes.has(mimeType) ||
+      data.length === 0 || data.length % 4 !== 0 ||
+      data.length > 4 * Math.ceil(maxVideoBytes / 3)) return false;
+  const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+  const estimatedBytes = (data.length / 4) * 3 - padding;
+  if (estimatedBytes < 12 || estimatedBytes > maxVideoBytes) return false;
+  const bytes = Buffer.from(data, 'base64');
+  if (!bytes.length || bytes.length > maxVideoBytes || bytes.toString('base64') !== data) return false;
+  if (mimeType === 'video/webm') {
+    return bytes.length >= 4 && bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+  }
+  return bytes.toString('ascii', 4, 8) === 'ftyp';
 }
 
 export function isAllowedMessageMediaUrl(value, production = false) {
@@ -97,18 +114,24 @@ export function createStorageProvider(config = {}, transport) {
 }
 
 async function uploadToCloudinary(file, uploader) {
+  const isVideo = file.mediaType === 'video';
+  const allowedData = isVideo
+    ? isSupportedVideoData(file.data, file.mimeType)
+    : isSupportedImageData(file.data, file.mimeType);
   let source;
   if (typeof file.path === 'string' && /^https:\/\//i.test(file.path) && file.path.length <= 2048) {
     source = file.path;
   } else {
-    if (!isSupportedImageData(file.data, file.mimeType)) {
-      throw new Error('Choose a valid JPEG, PNG or WebP image no larger than 10 MB');
+    if (!allowedData) {
+      throw new Error(isVideo
+        ? 'Choose a valid MP4, WebM or MOV video no larger than 50 MB'
+        : 'Choose a valid JPEG, PNG or WebP image no larger than 10 MB');
     }
     source = `data:${file.mimeType};base64,${file.data}`;
   }
   const result = await uploader.upload(source, {
-    resource_type: 'image',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    resource_type: isVideo ? 'video' : 'image',
+    allowed_formats: isVideo ? ['mp4', 'webm', 'mov'] : ['jpg', 'jpeg', 'png', 'webp'],
     folder: 'chatify',
     unique_filename: true,
     overwrite: false,
@@ -226,7 +249,10 @@ export function createNotificationProvider(config = {}, transport) {
       }
       const message = {
         token: payload.token,
-        notification: {title: 'Chatify', body: 'You received a new message.'},
+        notification: {
+          title: payload.type === 'mention' ? 'Chatify mention' : 'Chatify',
+          body: payload.type === 'mention' ? 'Someone mentioned you in a conversation.' : 'You received a new message.',
+        },
         android: {notification: {sound: 'default'}},
         apns: {payload: {aps: {sound: 'default'}}},
         data: {

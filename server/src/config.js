@@ -12,6 +12,23 @@ export function requireProductionMongoUri(value) {
   return uri;
 }
 
+export function resolveMongoConnectionOptions(env = process.env) {
+  const rawPoolSize = env.MONGODB_MAX_POOL_SIZE?.trim();
+  const maxPoolSize = rawPoolSize === undefined || rawPoolSize === ''
+    ? 100
+    : Number(rawPoolSize);
+  if (!Number.isInteger(maxPoolSize) || maxPoolSize < 10 || maxPoolSize > 500) {
+    throw new Error('MONGODB_MAX_POOL_SIZE must be a whole number from 10 to 500');
+  }
+  return {
+    maxPoolSize,
+    minPoolSize: 0,
+    serverSelectionTimeoutMS: 8000,
+    connectTimeoutMS: 10000,
+    maxIdleTimeMS: 60000,
+  };
+}
+
 export function resolveClientOrigins(value, production = false) {
   const configured = typeof value === 'string' ? value.trim() : '';
   if (!production && (!configured || configured === '*')) {

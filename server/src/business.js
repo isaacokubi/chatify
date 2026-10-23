@@ -83,6 +83,13 @@ export function resolveSellerMpesaPhone(settings = {}, ownerPhone = '', business
     normalizeMpesaPhone(businessPhone);
 }
 
+export function applyExplicitMessagingConsent(customer, confirmed, now = new Date()) {
+  if (customer?.messagingConsent === true || confirmed !== true) return false;
+  customer.messagingConsent = true;
+  customer.consentCapturedAt = now;
+  return true;
+}
+
 export function buildStorefrontOrderLines(requestedItems = [], catalogItems = []) {
   if (!Array.isArray(requestedItems) || requestedItems.length < 1 || requestedItems.length > 50) {
     throw new Error('Choose between 1 and 50 products');
