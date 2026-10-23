@@ -4638,6 +4638,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   String schoolSearchQuery = '';
   String schoolClassFilter = 'all';
   String conferenceAudienceFilter = 'all';
+  String messageAudienceFilter = 'all';
   final TextEditingController schoolSearchController = TextEditingController();
   static const int _recordPageSize = 50;
   final schoolName = TextEditingController(),
@@ -4800,6 +4801,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     schoolSearchController.clear();
     schoolClassFilter = 'all';
     conferenceAudienceFilter = 'all';
+    messageAudienceFilter = 'all';
     role = s['role']?.toString();
     isOwner = s['isOwner'] == true;
     schoolCode.text = (s['code'] ?? '').toString();
@@ -4937,7 +4939,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     try {
       if (section == 0) {
         final r =
-            await app.api.call('GET', '/api/schools/$id/messages$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}');
+            await app.api.call('GET', '/api/schools/$id/messages$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}${messageAudienceFilter == 'all' ? '' : '&audience=$messageAudienceFilter'}');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         messages = List<dynamic>.from(r['messages'] ?? []);
         final directory = await app.api
@@ -6357,6 +6359,22 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error)),
               if (section == 0) ...[
+                if (isAdmin) DropdownButtonFormField<String>(
+                  initialValue: messageAudienceFilter,
+                  decoration: const InputDecoration(labelText: 'Filter messages by audience', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'all', child: Text('All message types')),
+                    DropdownMenuItem(value: 'school_inbox', child: Text('Parent/staff inbox replies')),
+                    DropdownMenuItem(value: 'direct', child: Text('Direct messages')),
+                    DropdownMenuItem(value: 'all_parents', child: Text('Parents announcements')),
+                    DropdownMenuItem(value: 'all_staff', child: Text('Staff announcements')),
+                    DropdownMenuItem(value: 'all_school', child: Text('Whole school announcements')),
+                  ],
+                  onChanged: (value) {
+                    setState(() { messageAudienceFilter = value ?? 'all'; recordPage = 1; });
+                    loadSection();
+                  },
+                ),
                 if (role == 'parent' || role == 'staff')
                   const Padding(
                       padding: EdgeInsets.only(bottom: 10),
