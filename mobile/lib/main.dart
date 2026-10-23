@@ -6276,8 +6276,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     loadSection();
                   },
                   decoration: InputDecoration(
-                    labelText: section == 0 ? 'Search messages and parent/staff names' : section == 1 ? 'Search conferences by title, agenda or location' : 'Search school records',
-                    hintText: section == 0 ? 'Type a parent/staff name or message text, then submit' : section == 1 ? 'Type a conference title or topic, then submit' : 'Student, admission number, subject, status or receipt',
+                    labelText: section == 0 ? 'Search messages and parent/staff names' : 'Search school records',
+                    hintText: section == 0 ? 'Type a parent/staff name or message text, then submit' : 'Student, admission number, subject, status or receipt',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: schoolSearchQuery.isEmpty
                         ? null
