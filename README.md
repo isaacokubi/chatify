@@ -117,3 +117,8 @@ Automated CI does not prove successful live Safaricom Daraja delivery, productio
 Passwords are bcrypt-hashed. JWTs protect REST and Socket.IO. Server-side membership/admin checks protect conversations and groups. Helmet, CORS and rate limiting are enabled. Secrets are excluded by Git ignore rules. New text-message bodies are encrypted on the client, but legacy messages, attachments, Memory Cards, multi-device recovery and forward secrecy are not yet covered; do not claim the whole system is fully end-to-end encrypted. Message expiration is application-level removal/hiding and is not cryptographic secure deletion. See [docs/E2EE.md](docs/E2EE.md) for the threat model and production gates.
 
 See docs/ for the defense-oriented architecture, API, database, development, security and demo notes.
+
+
+## School fee configuration and reconciliation
+
+The School workspace supports versioned fee templates by class, academic year and term, explicit issuance of immutable student-charge snapshots, and balances derived from confirmed linked payments. See [School workspace documentation](docs/SCHOOL_WORKSPACE.md) and [API reference](docs/API.md). A verified reversal can be recorded by an administrator for audit; the system does not automatically discover Safaricom reversals. Legacy payment records without stable student/period identifiers need reconciliation before they can be included in the new charge ledger.
