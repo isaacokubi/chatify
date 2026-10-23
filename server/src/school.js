@@ -189,7 +189,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     className: { type: String, required: true, trim: true, maxlength: 100 },
     classKey: { type: String, required: true, trim: true, lowercase: true, maxlength: 100 },
     academicYear: { type: String, required: true, trim: true, maxlength: 40 },
+    academicYearKey: { type: String, required: true, trim: true, lowercase: true, maxlength: 40 },
     term: { type: String, required: true, trim: true, maxlength: 80 },
+    termKey: { type: String, required: true, trim: true, lowercase: true, maxlength: 80 },
     items: [{ code: { type: String, required: true, trim: true, maxlength: 40 },
       description: { type: String, required: true, trim: true, maxlength: 160 },
       amountMinor: { type: Number, required: true, min: 0, max: 999999999 },
@@ -202,7 +204,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     updatedBy: { type: O, ref: 'User', required: true },
   }, { timestamps: true }));
   SchoolFeeStructure.schema.index(
-    { schoolId: 1, classKey: 1, academicYear: 1, term: 1 },
+    { schoolId: 1, classKey: 1, academicYearKey: 1, termKey: 1 },
     { unique: true, name: 'uniq_school_class_period_fee_structure' },
   );
 
@@ -792,8 +794,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       if (String(req.query.className || '').trim()) {
         filter.classKey = String(req.query.className).trim().toLowerCase().slice(0, 100);
       }
-      if (String(req.query.academicYear || '').trim()) filter.academicYear = String(req.query.academicYear).trim().slice(0, 40);
-      if (String(req.query.term || '').trim()) filter.term = String(req.query.term).trim().slice(0, 80);
+      if (String(req.query.academicYear || '').trim()) filter.academicYearKey = String(req.query.academicYear).trim().toLowerCase().slice(0, 40);
+      if (String(req.query.term || '').trim()) filter.termKey = String(req.query.term).trim().toLowerCase().slice(0, 80);
       const [records, total] = await Promise.all([
         SchoolFeeStructure.find(filter).sort({ className: 1, academicYear: -1, term: 1 })
           .skip(page.skip).limit(page.limit).lean(),
@@ -830,7 +832,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const totalMinor = activeItems.reduce((sum, item) => sum + item.amountMinor, 0);
       if (!Number.isSafeInteger(totalMinor)) return res.status(400).json({ error: 'The total fee amount is too large.' });
 
-      const key = { schoolId: req.params.schoolId, classKey: className.toLowerCase(), academicYear, term };
+      const key = { schoolId: req.params.schoolId, classKey: className.toLowerCase(), academicYearKey: academicYear.toLowerCase(), termKey: term.toLowerCase() };
       let structure = await SchoolFeeStructure.findOne(key);
       const expectedVersion = req.body?.expectedVersion;
       if (!structure) {
@@ -839,7 +841,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         }
         try {
           structure = await SchoolFeeStructure.create({
-            ...key, className, items, totalMinor,
+            ...key, className, academicYear, term, items, totalMinor,
             status: activeItems.length ? 'ACTIVE' : 'INCOMPLETE',
             version: 1, createdBy: req.user._id, updatedBy: req.user._id,
           });
