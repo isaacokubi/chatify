@@ -140,7 +140,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   SchoolVerificationRequest.schema.index({ requesterId: 1, proposedCode: 1, status: 1 });
   const SchoolMessage = model('SchoolMessage', new mongoose.Schema({
     schoolId: { type: O, required: true, index: true },
-    senderId: { type: O, required: true },
+    senderId: { type: O, ref: 'User', required: true, index: true },
     recipientId: { type: O, index: true },
     audience: { type: String, enum: ['direct','all_parents','all_staff','all_school','school_inbox'], default: 'direct' },
     subject: { type: String, trim: true, maxlength: 160 },
@@ -410,9 +410,27 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   app.get('/api/schools/:schoolId/members', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
       const page = pageOptions(req);
+      const q = String(req.query.q || '').trim().slice(0, 120);
       const filter = { schoolId: req.params.schoolId, active: true };
       // Non-admin members must not browse the other families' directory entries.
       if (['parent', 'staff'].includes(req.schoolMembership.role)) filter.role = { $in: ['admin','staff'] };
+      if (req.query.role && ['admin','staff','parent'].includes(String(req.query.role))) {
+        if (req.schoolMembership.role === 'admin') filter.role = String(req.query.role);
+      }
+      if (q) {
+        const safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\      const page = pageOptions(req);
+      const filter = { schoolId: req.params.schoolId, active: true };
+      // Non-admin members must not browse the other families' directory entries.
+      if (['parent', 'staff'].includes(req.schoolMembership.role)) filter.role = { $in: ['admin','staff'] };
+      const [rows, total] = await Promise.all([
+        Membership.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).populate('userId', 'name email').lean(),
+        Membership.countDocuments(filter),
+      ]);');
+        const users = await User.find({
+          $or: [{ name: { $regex: safe, $options: 'i' } }, { email: { $regex: safe, $options: 'i' } }],
+        }).select('_id').limit(500).lean();
+        filter.userId = { $in: users.map(user => user._id) };
+      }
       const [rows, total] = await Promise.all([
         Membership.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).populate('userId', 'name email').lean(),
         Membership.countDocuments(filter),
@@ -519,11 +537,39 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           ? { $or: [{ audience: 'all_staff' }, { audience: 'all_school' }, { audience: 'school_inbox' }, { senderId: req.user._id }, { recipientId: req.user._id }] }
           : { $or: [{ audience: { $in: ['all_parents','all_staff','all_school','school_inbox'] } }, { senderId: req.user._id }, { recipientId: req.user._id }] };
       const page = pageOptions(req);
+      const q = String(req.query.q || '').trim().slice(0, 120);
+      const filter = { schoolId: req.params.schoolId, ...visibility };
+      if (q) {
+        const safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\      const page = pageOptions(req);
       const filter = { schoolId: req.params.schoolId, ...visibility };
       const [messages, total] = await Promise.all([
         SchoolMessage.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
         SchoolMessage.countDocuments(filter),
       ]);
+      return res.json({ messages, total, page: page.page, limit: page.limit });');
+        const matchingUsers = await User.find({
+          $or: [{ name: { $regex: safe, $options: 'i' } }, { email: { $regex: safe, $options: 'i' } }],
+        }).select('_id').limit(200).lean();
+        const senderIds = matchingUsers.map(user => user._id);
+        filter.$and = [{
+          $or: [
+            { subject: { $regex: safe, $options: 'i' } },
+            { body: { $regex: safe, $options: 'i' } },
+            { senderId: { $in: senderIds } },
+          ],
+        }];
+      }
+      const [rows, total] = await Promise.all([
+        SchoolMessage.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).populate('senderId', 'name email').lean(),
+        SchoolMessage.countDocuments(filter),
+      ]);
+      const messages = rows.map(message => ({
+        ...message,
+        sender: message.senderId && typeof message.senderId === 'object'
+          ? { id: String(message.senderId._id), name: message.senderId.name || message.senderId.email || 'School member', email: message.senderId.email || '' }
+          : { id: String(message.senderId || ''), name: 'School member', email: '' },
+        senderId: message.senderId && typeof message.senderId === 'object' ? String(message.senderId._id) : message.senderId,
+      }));
       return res.json({ messages, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
@@ -546,9 +592,36 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   app.get('/api/schools/:schoolId/conferences', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
       const audience = req.schoolMembership.role === 'parent' ? ['all_parents','all_school'] : req.schoolMembership.role === 'staff' ? ['all_staff','all_school'] : ['all_parents','all_staff','all_school'];
+      const page = pageOptions(req);
+      const filter = { schoolId: req.params.schoolId, audience: { $in: audience } };
+      const q = String(req.query.q || '').trim().slice(0, 120);
+      if (q) {
+        const safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\      const audience = req.schoolMembership.role === 'parent' ? ['all_parents','all_school'] : req.schoolMembership.role === 'staff' ? ['all_staff','all_school'] : ['all_parents','all_staff','all_school'];
       const page = pageOptions(req), filter = { schoolId: req.params.schoolId, audience: { $in: audience } };
       const [conferences, total] = await Promise.all([
         SchoolConference.find(filter).sort({ startsAt: 1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolConference.countDocuments(filter),
+      ]);
+      return res.json({ conferences, total, page: page.page, limit: page.limit });');
+        filter.$or = [
+          { title: { $regex: safe, $options: 'i' } },
+          { agenda: { $regex: safe, $options: 'i' } },
+          { location: { $regex: safe, $options: 'i' } },
+        ];
+      }
+      if (req.query.from || req.query.to) {
+        const startsAt = {};
+        const from = req.query.from ? new Date(req.query.from) : null;
+        const to = req.query.to ? new Date(req.query.to) : null;
+        if (from && !Number.isNaN(from.getTime())) startsAt.$gte = from;
+        if (to && !Number.isNaN(to.getTime())) startsAt.$lte = to;
+        if (Object.keys(startsAt).length) filter.startsAt = startsAt;
+      }
+      if (req.schoolMembership.role === 'admin' && req.query.audience && ['all_parents','all_staff','all_school'].includes(String(req.query.audience))) {
+        filter.audience = String(req.query.audience);
+      }
+      const [conferences, total] = await Promise.all([
+        SchoolConference.find(filter).sort({ createdAt: -1, _id: -1 }).skip(page.skip).limit(page.limit).lean(),
         SchoolConference.countDocuments(filter),
       ]);
       return res.json({ conferences, total, page: page.page, limit: page.limit });
