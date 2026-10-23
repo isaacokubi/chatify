@@ -36,9 +36,12 @@ export function normalizeFeeStructureInput(input = {}) {
  * Pending/failed/cancelled/reversed records never reduce the amount owed.
  */
 export function calculateSchoolFeeBalance({chargeAmount, payments = [], credits = 0}) {
-  if (!Number.isSafeInteger(chargeAmount) || chargeAmount <= 0 ||
+  if (typeof configured !== 'boolean' ||
+      (configured && (!Number.isSafeInteger(chargeAmount) || chargeAmount < 0)) ||
+      (!configured && chargeAmount != null &&
+        (!Number.isSafeInteger(chargeAmount) || chargeAmount < 0)) ||
       !Number.isSafeInteger(credits) || credits < 0 || !Array.isArray(payments)) {
-    throw new TypeError('Issued fee charges must be positive whole-KSh amounts; credits and payments must be non-negative whole-KSh amounts');
+    throw new TypeError('Configured fee charges, credits and payments must be non-negative whole-KSh amounts');
   }
   let confirmedPaid = 0;
   for (const payment of payments) {
@@ -49,6 +52,10 @@ export function calculateSchoolFeeBalance({chargeAmount, payments = [], credits 
     confirmedPaid += payment.amount;
     if (!Number.isSafeInteger(confirmedPaid)) throw new RangeError('Confirmed payment total is too large');
   }
+  if (!configured) {
+    return { chargeAmount: null, credits: 0, confirmedPaid, balance: null, overpayment: 0, status: 'NOT_CONFIGURED' };
+  }
+
   const netCharges = Math.max(0, chargeAmount - credits);
   const balance = Math.max(0, netCharges - confirmedPaid);
   const overpayment = Math.max(0, confirmedPaid - netCharges);
