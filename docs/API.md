@@ -35,3 +35,12 @@ Socket events include `message:new`, `message:read`, `message:reaction`, `messag
 ### Delete conversations from your chat list
 
 `POST /api/conversations/delete` accepts `{ "conversationIds": ["..."] }` for 1–100 conversations in which the authenticated user is a participant. This hides those conversations only for that user; it does not delete the other participants' history or erase stored messages. Hidden conversations are omitted from that user's conversation and message endpoints. A new message restores the conversation to the chat list.
+
+
+## School class fee structures
+
+- `GET /api/schools/:schoolId/fee-structures?page=1&limit=20&className=Grade%207&academicYear=2026&term=Term%201` returns a bounded, school-scoped page of configured class fees. The authenticated user must be an active school member with the admin or staff role; parent accounts cannot browse fee structures.
+- `PUT /api/schools/:schoolId/fee-structures` creates or updates a class/academic-year/term configuration. It is restricted to the school workspace owner acting as admin. The body contains `className`, `academicYear`, `term`, `items` (up to 50 entries with unique `code`, `description`, decimal `amount`, optional `active`), and `expectedVersion` when updating an existing configuration.
+- Money values are parsed to integer minor units (two decimal places) before summing. Negative values, scientific notation, malformed amounts, and more than two decimal places are rejected. The response serializes amounts as decimal strings and includes the version, status, active-item total, and timestamps.
+- A class-period configuration is unique per school, normalized class name, academic year, and term. Updates require the version last read by the administrator; stale concurrent edits receive HTTP 409 rather than silently overwriting another administrator's changes. Up to 50 prior configuration snapshots are retained on the record.
+- These routes configure fees only. They do **not** issue student charges, change existing payment records, or calculate authoritative student balances. The existing `SchoolFeePayment` ledger has no stable enrollment/student ID or fee-structure-version link, so treating configured totals as a student's debt would be unsafe. A follow-up ledger migration must add immutable student charge records and explicit enrollment/period links before automated balances can be enabled.
