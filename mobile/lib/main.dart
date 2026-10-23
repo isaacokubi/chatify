@@ -285,10 +285,18 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   int _index = 0;
   bool _paused = false;
   bool _mediaError = false;
+  bool _initialLoadStarted = false;
+  int _loadGeneration = 0;
+  int? _loadingIndex;
+  bool _playbackActionPending = false;
+  bool _longPressStarted = false;
+  bool _longPressPausedVideo = false;
+  bool _closing = false;
+  final Map<VideoPlayerController, Future<void>> _controllerDisposals = {};
 
   Map<String, dynamic> get _item => widget.items[_index];
 
-  bool _initialLoadStarted = false;
+
 
   @override
   void initState() {
@@ -313,18 +321,41 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   }
 
   Future<void> _loadItem() async {
-    final disableAnimations = MediaQuery.disableAnimationsOf(context);
+    // A dialog route can briefly build without an inherited MediaQuery in
+    // widget tests or unusual embedding contexts. Treat that as animations
+    // enabled instead of aborting media loading before the video controller is
+    // created.
+    final disableAnimations =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final itemIndex = _index;
+    if (_loadingIndex == itemIndex) return;
+    final generation = ++_loadGeneration;
+    _loadingIndex = itemIndex;
     _progress.stop();
     _progress.value = 0;
-    await _video?.dispose();
+    // Capture the item and detach the previous controller before awaiting.
+    // Awaiting a nullable dispose future even when there is no controller
+    // yields before the first controller is created, which can leave a newly
+    // opened viewer without media during short route transitions.
+    final item = _item;
+    final previousVideo = _video;
     _video = null;
     _mediaError = false;
     _paused = false;
-    final item = _item;
+    if (previousVideo != null) {
+      await _releaseVideo(previousVideo);
+      if (!mounted || generation != _loadGeneration || itemIndex != _index) {
+        return;
+      }
+    }
+    if (!mounted || generation != _loadGeneration || itemIndex != _index) {
+      return;
+    }
     widget.onViewed(item);
     if (item['mediaType'] == 'video') {
       final url = item['mediaUrl']?.toString() ?? '';
       if (!url.startsWith('https://')) {
+        _loadingIndex = null;
         if (mounted) setState(() => _mediaError = true);
         return;
       }
@@ -332,24 +363,55 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
       _video = controller;
       try {
         await controller.initialize();
-        if (!mounted || _video != controller) return;
+        if (!mounted ||
+            generation != _loadGeneration ||
+            itemIndex != _index ||
+            _video != controller) {
+          await _releaseVideo(controller);
+          return;
+        }
         controller.addListener(_onVideoUpdate);
         setState(() {});
-        try {
-          await controller.play();
-        } catch (_) {
-          // Browser autoplay policies may require the user's direct gesture.
-          if (mounted && _video == controller) setState(() {});
-        }
+        await _playVideo(controller);
       } catch (_) {
         if (mounted && _video == controller) {
           setState(() => _mediaError = true);
         }
+      } finally {
+        if (generation == _loadGeneration && _loadingIndex == itemIndex) {
+          _loadingIndex = null;
+        }
       }
       return;
     }
+    _loadingIndex = null;
     if (!disableAnimations) _progress.forward();
   }
+
+  Future<void> _playVideo(VideoPlayerController controller) async {
+    if (!controller.value.isInitialized || controller.value.isPlaying) return;
+    try {
+      await controller.play();
+    } catch (_) {
+      // Browser autoplay policies may require the user's direct gesture.
+      if (mounted && _video == controller) setState(() {});
+    }
+  }
+
+  Future<void> _pauseVideo(VideoPlayerController controller) async {
+    if (!controller.value.isInitialized || !controller.value.isPlaying) return;
+    try {
+      await controller.pause();
+    } catch (_) {
+      if (mounted && _video == controller) setState(() {});
+    }
+  }
+
+  Future<void> _releaseVideo(VideoPlayerController controller) =>
+      _controllerDisposals.putIfAbsent(controller, () {
+        controller.removeListener(_onVideoUpdate);
+        return controller.dispose();
+      });
 
   void _onVideoUpdate() {
     final controller = _video;
@@ -365,26 +427,43 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   }
 
   void _advance(int amount) {
-    if (!mounted) return;
+    if (!mounted || _closing) return;
     final next = _index + amount;
     if (next < 0) return;
     if (next >= widget.items.length) {
-      Navigator.of(context).pop();
+      unawaited(_closeViewer());
       return;
     }
     setState(() => _index = next);
     _loadItem();
   }
 
+  Future<void> _closeViewer() async {
+    if (_closing) return;
+    _closing = true;
+    ++_loadGeneration;
+    final controller = _video;
+    _video = null;
+    final release = controller == null ? null : _releaseVideo(controller);
+    if (mounted) Navigator.of(context).pop();
+    if (release != null) await release;
+  }
+
   void _togglePause() {
+    if (_playbackActionPending) return;
     final video = _video;
     if (video != null && video.value.isInitialized) {
-      if (video.value.isPlaying) {
-        video.pause();
+      _playbackActionPending = true;
+      if (video.value.isPlaying && !_paused) {
         setState(() => _paused = true);
+        unawaited(_pauseVideo(video).whenComplete(() {
+          _playbackActionPending = false;
+        }));
       } else {
-        video.play();
         setState(() => _paused = false);
+        unawaited(_playVideo(video).whenComplete(() {
+          _playbackActionPending = false;
+        }));
       }
     } else if (_paused) {
       setState(() => _paused = false);
@@ -423,7 +502,7 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
     final controller = _video;
     if (controller == null) return;
     try {
-      await controller.play();
+      await _playVideo(controller);
       if (mounted) setState(() => _mediaError = false);
     } catch (_) {
       if (mounted) setState(() => _mediaError = true);
@@ -532,9 +611,11 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
 
   @override
   void dispose() {
+    ++_loadGeneration;
     _progress.dispose();
-    _video?.removeListener(_onVideoUpdate);
-    _video?.dispose();
+    final controller = _video;
+    _video = null;
+    if (controller != null) unawaited(_releaseVideo(controller));
     super.dispose();
   }
 
@@ -549,8 +630,18 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
       color: Colors.black,
       child: SafeArea(
         child: GestureDetector(
-          onLongPressStart: (_) => _togglePause(),
-          onLongPressEnd: (_) => _togglePause(),
+          onLongPressStart: (_) {
+            _longPressStarted = true;
+            _longPressPausedVideo = !_paused;
+            if (_longPressPausedVideo) _togglePause();
+          },
+          onLongPressEnd: (_) {
+            if (_longPressStarted) {
+              _longPressStarted = false;
+              if (_longPressPausedVideo && _paused) _togglePause();
+              _longPressPausedVideo = false;
+            }
+          },
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -658,7 +749,7 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
                     IconButton(
                       tooltip: 'Close Spark viewer',
                       color: Colors.white,
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: _closeViewer,
                       icon: const Icon(Icons.close),
                     ),
                   ],
@@ -896,6 +987,17 @@ class _OfflineCachedImageState extends State<OfflineCachedImage> {
 // Represents a readable API failure so screens can show a useful message instead of raw transport errors.
 // Builds a portable PDF receipt from a confirmed school-fee record.
 // The authenticated receipt endpoint is checked before this function is called.
+String schoolPaymentMethodLabel(dynamic value) {
+  final method = value?.toString().trim().toLowerCase();
+  return switch (method) {
+    'mpesa_paybill' => 'M-Pesa Paybill',
+    'mpesa_till' => 'M-Pesa Till',
+    'mpesa_send_money' => 'M-Pesa Send Money',
+    'bank' => 'Bank transfer',
+    _ => '—',
+  };
+}
+
 Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
   String safe(dynamic value) => (value ?? '')
       .toString()
@@ -915,7 +1017,7 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
       payment['updatedAt'] ??
       payment['createdAt'] ??
       DateTime.now().toIso8601String();
-  final method = payment['paymentMethod'] ?? payment['method'];
+  final method = schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']);
   final lines = <String>[
     'CHATIFY - SCHOOL FEE RECEIPT',
     '-----------------------------------------------',
@@ -926,7 +1028,7 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     'Amount received: KES ' + safe(amount),
     'Payment status: ' + safe(payment['status'] ?? 'CONFIRMED'),
     'Payment date: ' + safe(paidAt),
-    if (method != null) 'Payment method: ' + safe(method),
+    'Payment method: ' + safe(method),
     '',
     'This receipt is available for a fee record marked CONFIRMED.',
     'Keep the reference above for school payment enquiries.',
@@ -5117,82 +5219,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
-  Widget _attendanceMatrix(List<dynamic> records) {
-    final dates = records
-        .whereType<Map>()
-        .map((record) => record['date']?.toString().split('T').first ?? '')
-        .where((date) => date.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    final visibleStudents = students.whereType<Map>().toList();
-    final tableStudents = visibleStudents.isNotEmpty
-        ? visibleStudents
-        : records
-            .whereType<Map>()
-            .fold<Map<String, Map>>({}, (grouped, record) {
-              final id = record['studentId']?.toString() ?? '';
-              if (id.isNotEmpty) grouped[id] = record;
-              return grouped;
-            })
-            .values
-            .toList();
-    return _responsiveSchoolTable(
-      columns: [
-        const DataColumn(label: Text('Student')),
-        const DataColumn(label: Text('Admission no.')),
-        const DataColumn(label: Text('Class / grade')),
-        for (final date in dates) DataColumn(label: Text(date)),
-        if (role != 'parent') const DataColumn(label: Text('Actions')),
-      ],
-      rows: tableStudents.map((raw) {
-        final student = Map<String, dynamic>.from(raw);
-        final id = (student['_id'] ?? student['studentId'])?.toString() ?? '';
-        final studentRecords = records
-            .whereType<Map>()
-            .where(
-              (record) => record['studentId']?.toString() == id,
-            )
-            .toList();
-        return DataRow(cells: [
-          DataCell(Text(
-              (student['fullName'] ?? student['studentName'] ?? 'Student')
-                  .toString())),
-          DataCell(Text((student['admissionNumber'] ?? '').toString())),
-          DataCell(Text((student['className'] ?? '').toString())),
-          for (final date in dates)
-            DataCell(Text(_attendanceStatus(studentRecords, date))),
-          if (role != 'parent')
-            DataCell(Wrap(
-              spacing: 2,
-              children: [
-                for (final record in studentRecords)
-                  IconButton(
-                    tooltip:
-                        'Delete attendance for ${record['date']?.toString().split('T').first ?? ''}',
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => _removeSchoolRecord(
-                      label: 'attendance record',
-                      endpoint: 'attendance/${record['_id']}',
-                    ),
-                  ),
-              ],
-            )),
-        ]);
-      }).toList(),
-    );
-  }
-
-  String _attendanceStatus(List<Map> records, String date) {
-    for (final record in records) {
-      if (record['date']?.toString().split('T').first == date) {
-        return record['status']?.toString().toUpperCase() ?? '—';
-      }
-    }
-    return '—';
-  }
-
   Future<void> _removeSchoolRecord(
       {required String label, required String endpoint}) async {
     final confirmed = await showDialog<bool>(
@@ -5613,6 +5639,34 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       await loadSection();
     });
     receiptController.dispose();
+  }
+
+  Future<void> showFeePaymentStatus(Map<String, dynamic> payment) async {
+    final method = payment['paymentMethodLabel'] ??
+        schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Payment status'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Student: ${payment['studentName'] ?? 'Student'}'),
+            Text('Status: ${payment['status'] ?? 'Unknown'}'),
+            Text('Amount: KSh ${payment['amount'] ?? '—'}'),
+            Text('Method: ${method ?? '—'}'),
+            Text('Reference: ${payment['paymentReference'] ?? '—'}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> resendSchoolReceipt(Map<String, dynamic> payment) async {
@@ -6509,26 +6563,69 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             Text((payment['guardianPhone'] ?? '—').toString())),
                         DataCell(Text((payment['term'] ?? '').toString())),
                         DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
-                        DataCell(
-                            Text((payment['paymentMethod'] ?? '—').toString())),
+                        DataCell(Text((payment['paymentMethodLabel'] ??
+                                schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']))
+                            .toString())),
                         DataCell(Text(
                             (payment['paymentReference'] ?? '—').toString())),
                         DataCell(Text(status)),
-                        DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
-                          if (isAdmin && status == 'PENDING_VERIFICATION')
-                            IconButton(
-                              tooltip: 'Verify actual bank payment',
-                              icon: const Icon(Icons.verified_outlined),
-                              onPressed: () => verifyFee(payment),
+                        DataCell(PopupMenuButton<String>(
+                          tooltip: 'Payment actions',
+                          onSelected: (action) {
+                            switch (action) {
+                              case 'status':
+                                showFeePaymentStatus(payment);
+                              case 'verify':
+                                verifyFee(payment);
+                              case 'download':
+                                downloadSchoolFeeReceipt(payment);
+                              case 'email':
+                                resendSchoolReceipt(payment);
+                            }
+                          },
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(
+                              value: 'status',
+                              child: ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.info_outline),
+                                title: Text('View payment status'),
+                              ),
                             ),
-                          if (status == 'CONFIRMED')
-                            IconButton(
-                              tooltip: 'Download printable receipt',
-                              icon: const Icon(Icons.receipt_long),
-                              onPressed: () =>
-                                  downloadSchoolFeeReceipt(payment),
-                            ),
-                        ])),
+                            if (isAdmin && status == 'PENDING_VERIFICATION')
+                              const PopupMenuItem(
+                                value: 'verify',
+                                child: ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(Icons.verified_outlined),
+                                  title: Text('Verify payment'),
+                                ),
+                              ),
+                            if (status == 'CONFIRMED') ...[
+                              const PopupMenuItem(
+                                value: 'download',
+                                child: ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(Icons.download_outlined),
+                                  title: Text('Download receipt'),
+                                ),
+                              ),
+                              if (isAdmin)
+                                const PopupMenuItem(
+                                  value: 'email',
+                                  child: ListTile(
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: Icon(Icons.forward_to_inbox_outlined),
+                                    title: Text('Retry receipt email'),
+                                  ),
+                                ),
+                            ],
+                          ],
+                        )),
                       ]);
                     }).toList(),
                   ),
@@ -6621,8 +6718,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         DataCell(Text(
                             confirmedAt?.toString().split('T').first ?? '—')),
                         DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
-                        DataCell(
-                            Text((payment['paymentMethod'] ?? '—').toString())),
+                        DataCell(Text((payment['paymentMethodLabel'] ??
+                                schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']))
+                            .toString())),
                         DataCell(Text((payment['status'] ?? '').toString())),
                         DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
                           IconButton(
@@ -10030,7 +10128,7 @@ class _ChatState extends State<Chat> {
     for (final participant in participants) {
       final id = _conversationParticipantId(participant);
       final name = participant['name']?.toString();
-      if (id != null && name != null && name.isNotEmpty) namesById[id] = name;
+      if (name != null && name.isNotEmpty) namesById[id] = name;
     }
     final spans = <TextSpan>[];
     var cursor = 0;

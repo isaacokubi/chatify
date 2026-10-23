@@ -28,9 +28,19 @@ function escapeReceipt(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 }
 
+export function schoolPaymentMethodLabel(method) {
+  return ({
+    mpesa_paybill: 'M-Pesa Paybill',
+    mpesa_till: 'M-Pesa Till',
+    mpesa_send_money: 'M-Pesa Send Money',
+    bank: 'Bank transfer',
+  })[method] || null;
+}
+
 function renderSchoolReceipt(school, payment) {
   const esc = escapeReceipt;
-  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>School fee receipt</title><style>body{font:16px system-ui,sans-serif;max-width:720px;margin:32px auto;padding:24px;color:#172033}main{border:1px solid #ccd3df;border-radius:16px;padding:28px}h1{margin-top:0}dt{font-weight:700;margin-top:14px}dd{margin:4px 0}button{padding:10px 16px}@media print{button{display:none}body{margin:0}}</style></head><body><main><h1>' + esc(school?.name || 'School') + '</h1><h2>Official school fee receipt</h2><p>Payment confirmation recorded by the school.</p><dl><dt>Receipt number</dt><dd>' + esc(payment.mpesaReceipt) + '</dd><dt>Chatify reference</dt><dd>' + esc(payment.paymentReference) + '</dd><dt>Student</dt><dd>' + esc(payment.studentName) + '</dd><dt>Term</dt><dd>' + esc(payment.term) + '</dd><dt>Amount received</dt><dd>KSh ' + esc(Number(payment.amount).toLocaleString('en-KE')) + '</dd><dt>Verified on</dt><dd>' + esc(payment.verifiedAt?.toISOString?.() || '') + '</dd></dl><button onclick="window.print()">Print receipt</button></main></body></html>';
+  const method = schoolPaymentMethodLabel(payment.paymentMethod);
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>School fee receipt</title><style>body{font:16px system-ui,sans-serif;max-width:720px;margin:32px auto;padding:24px;color:#172033}main{border:1px solid #ccd3df;border-radius:16px;padding:28px}h1{margin-top:0}dt{font-weight:700;margin-top:14px}dd{margin:4px 0}button{padding:10px 16px}@media print{button{display:none}body{margin:0}}</style></head><body><main><h1>' + esc(school?.name || 'School') + '</h1><h2>Official school fee receipt</h2><p>Payment confirmation recorded by the school.</p><dl><dt>Receipt number</dt><dd>' + esc(payment.mpesaReceipt) + '</dd><dt>Chatify reference</dt><dd>' + esc(payment.paymentReference) + '</dd><dt>Student</dt><dd>' + esc(payment.studentName) + '</dd><dt>Term</dt><dd>' + esc(payment.term) + '</dd><dt>Payment method</dt><dd>' + esc(method || 'Not recorded') + '</dd><dt>Amount received</dt><dd>KSh ' + esc(Number(payment.amount).toLocaleString('en-KE')) + '</dd><dt>Verified on</dt><dd>' + esc(payment.verifiedAt?.toISOString?.() || '') + '</dd></dl><button onclick="window.print()">Print receipt</button></main></body></html>';
 }
 
 function schoolCallbackUrl() {
@@ -983,7 +993,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const guardiansByName = new Map(guardianRecords.map(student => [String(student.fullName).trim().toLowerCase(), student]));
       const paymentsWithGuardians = payments.map(payment => {
         const guardian = guardiansByName.get(String(payment.studentName || '').trim().toLowerCase());
-        return { ...payment, guardianName: guardian?.guardianName || '', guardianPhone: guardian?.guardianPhone || '' };
+        const method = payment.paymentMethod || payment.method;
+        return { ...payment, paymentMethodLabel: schoolPaymentMethodLabel(method), guardianName: guardian?.guardianName || '', guardianPhone: guardian?.guardianPhone || '' };
       });
       const school = await School.findById(req.params.schoolId).select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
       const profile = school?.paymentProfile;

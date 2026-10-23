@@ -693,7 +693,7 @@ if(env.mongo)await mongoose.connect(env.mongo,{
   socketTimeoutMS:45000,
   autoIndex:process.env.MONGO_AUTO_INDEX==='true'
 }); else console.warn('MONGODB_URI not set; configure Atlas before persistent use.');
-server.listen(env.port,()=>console.log('Chatify API listening on '+env.port));
+server.listen(env.port,()=>console.log('Chatify API listening on '+server.address().port));
 // GRACEFUL SHUTDOWN: stop timers and close network/database resources as the process exits.
 const shutdown=createShutdownHandler({
   stopTimers:()=>{clearInterval(expiryTimer);clearInterval(notificationTimer);},
@@ -710,4 +710,4 @@ for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{
     process.exitCode=1;
   });
 });
-export {app,candidate};
+export {app,candidate,server,shutdown};
