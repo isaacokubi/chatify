@@ -4637,6 +4637,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   // Local search and class filtering for school record views.
   String schoolSearchQuery = '';
   String schoolClassFilter = 'all';
+  String conferenceAudienceFilter = 'all';
   final TextEditingController schoolSearchController = TextEditingController();
   static const int _recordPageSize = 50;
   final schoolName = TextEditingController(),
@@ -4798,6 +4799,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     schoolSearchQuery = '';
     schoolSearchController.clear();
     schoolClassFilter = 'all';
+    conferenceAudienceFilter = 'all';
     role = s['role']?.toString();
     isOwner = s['isOwner'] == true;
     schoolCode.text = (s['code'] ?? '').toString();
@@ -4939,11 +4941,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         messages = List<dynamic>.from(r['messages'] ?? []);
         final directory = await app.api
-            .call('GET', '/api/schools/$id/members?page=1&limit=100');
+            .call('GET', '/api/schools/$id/members?page=1&limit=50${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}');
         members = List<dynamic>.from(directory['members'] ?? []);
       } else if (section == 1) {
         final r =
-            await app.api.call('GET', '/api/schools/$id/conferences$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}');
+            await app.api.call('GET', '/api/schools/$id/conferences$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}${conferenceAudienceFilter == 'all' ? '' : '&audience=$conferenceAudienceFilter'}');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         conferences = List<dynamic>.from(r['conferences'] ?? []);
       } else if (section == 9) {
@@ -5862,6 +5864,19 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
+  Future<void> _openPrivateParentChat(String userId) async {
+    if (!isAdmin || userId.isEmpty || userId == 'null') return;
+    try {
+      final result = await app.api.call('POST', '/api/conversations/direct', {'userId': userId});
+      if (!mounted) return;
+      final conversation = Map<String, dynamic>.from(result['conversation']);
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => Chat(conversation: conversation)));
+      if (mounted) loadSection();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not open private chat: $error')));
+    }
+  }
+
   Future<void> createConference() async {
     final id = schoolId;
     final dateText = conferenceDate.text.trim();
@@ -6398,10 +6413,25 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             title: Text(
                                 (m['subject'] ?? 'School message').toString()),
                             subtitle: Text('${m['sender'] is Map ? (m['sender']['name'] ?? 'School member') : 'School member'}  •  ${(m['body'] ?? '').toString()}'),
-                            isThreeLine: true)))),
+                            isThreeLine: true,
+                            trailing: isAdmin && m['senderId'] != null && m['senderId'].toString() != app.user?['id']?.toString() ? IconButton(tooltip: 'Open private Chatify conversation', icon: const Icon(Icons.lock_outline), onPressed: () => _openPrivateParentChat(m['senderId'].toString())) : null)))),
                 _schoolPager(),
               ],
               if (section == 1) ...[
+                DropdownButtonFormField<String>(
+                  initialValue: conferenceAudienceFilter,
+                  decoration: const InputDecoration(labelText: 'Filter conferences by audience', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'all', child: Text('All audiences')),
+                    DropdownMenuItem(value: 'all_parents', child: Text('Parents')),
+                    DropdownMenuItem(value: 'all_staff', child: Text('Staff')),
+                    DropdownMenuItem(value: 'all_school', child: Text('Whole school')),
+                  ],
+                  onChanged: (value) {
+                    setState(() { conferenceAudienceFilter = value ?? 'all'; recordPage = 1; });
+                    loadSection();
+                  },
+                ),
                 if (isAdmin) ...[
                   field(conferenceTitle, 'Conference title'),
                   field(conferenceAgenda, 'Important information / agenda'),
