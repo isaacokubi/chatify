@@ -288,18 +288,24 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
 
   Map<String, dynamic> get _item => widget.items[_index];
 
+  bool _initialLoadStarted = false;
+
   @override
   void initState() {
     super.initState();
     _index = widget.items.isEmpty
         ? 0
         : widget.initialIndex.clamp(0, widget.items.length - 1);
-    // Start media loading after the first frame so inherited media settings are
-    // available and video initialization is not dependent on a later dependency
-    // change being delivered by the dialog route.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_loadItem());
-    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // MediaQuery is available here, and the guard prevents rebuilds from
+    // restarting playback or creating duplicate video controllers.
+    if (_initialLoadStarted) return;
+    _initialLoadStarted = true;
+    unawaited(_loadItem());
   }
 
   void _onProgressStatus(AnimationStatus status) {
@@ -4956,6 +4962,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     if (mounted) setState(() => loading = false);
   }
 
+  String _selectedParentFeePaymentMethod() {
+    final options = _parentFeePaymentOptions();
+    if (options.any((option) => option['value'] == parentFeePaymentMethod)) {
+      return parentFeePaymentMethod;
+    }
+    return options.isEmpty ? '' : options.first['value']!;
+  }
+
   List<Map<String, String>> _parentFeePaymentOptions() {
     final options = <Map<String, String>>[];
     final configuredMethod = feePaymentOptions['method']?.toString();
@@ -6430,10 +6444,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     DropdownButtonFormField<String>(
                       key:
                           ValueKey('parent-fee-method-$parentFeePaymentMethod'),
-                      initialValue: _parentFeePaymentOptions().any((option) =>
-                              option['value'] == parentFeePaymentMethod)
-                          ? parentFeePaymentMethod
-                          : _parentFeePaymentOptions().first['value'],
+                      initialValue: _selectedParentFeePaymentMethod(),
                       decoration: const InputDecoration(
                         labelText: 'How would you like to pay?',
                         border: OutlineInputBorder(),
@@ -6448,14 +6459,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         parentFeePaymentMethod = value ?? '';
                       }),
                     ),
-                    if ((parentFeePaymentMethod == 'mpesa_till' ||
-                            parentFeePaymentMethod == 'mpesa_paybill') &&
-                        parentFeePaymentMethod != 'bank')
+                    if (_selectedParentFeePaymentMethod() == 'mpesa_till' ||
+                        _selectedParentFeePaymentMethod() == 'mpesa_paybill')
                       field(payerPhone,
                           'Your M-Pesa phone receiving the STK prompt',
                           hint: '07XXXXXXXX or 2547XXXXXXXX',
                           keyboard: TextInputType.phone),
-                    if (parentFeePaymentMethod == 'mpesa_send_money')
+                    if (_selectedParentFeePaymentMethod() == 'mpesa_send_money')
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Text(
@@ -6463,11 +6473,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         ),
                       ),
                   ],
-                  if (parentFeePaymentMethod.isNotEmpty)
+                  if (_selectedParentFeePaymentMethod().isNotEmpty)
                     actionButton(
-                        parentFeePaymentMethod == 'mpesa_send_money'
+                        _selectedParentFeePaymentMethod() == 'mpesa_send_money'
                             ? 'Continue with Send Money'
-                            : parentFeePaymentMethod == 'bank'
+                            : _selectedParentFeePaymentMethod() == 'bank'
                                 ? 'Record bank transfer'
                                 : 'Pay school fees with M-Pesa',
                         startFeePayment,
