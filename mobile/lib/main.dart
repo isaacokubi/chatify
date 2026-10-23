@@ -6378,6 +6378,39 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                               resendSchoolReceipt(Map<String, dynamic>.from(p)),
                           icon: Icons.forward_to_inbox)),
               ],
+              if (section == 2) ...[
+                const SizedBox(height: 18),
+                const Text('Issued student fee balances', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                if (feeBalances.isEmpty) const Text('No student charges have been issued yet. An administrator can configure fees in Fee setup and issue them to enrolled students.'),
+                if (feeBalances.isNotEmpty)
+                  _responsiveSchoolTable(
+                    columns: const [
+                      DataColumn(label: Text('Student')),
+                      DataColumn(label: Text('Admission no.')),
+                      DataColumn(label: Text('Class / grade')),
+                      DataColumn(label: Text('Academic year')),
+                      DataColumn(label: Text('Term')),
+                      DataColumn(label: Text('Charges')),
+                      DataColumn(label: Text('Confirmed paid')),
+                      DataColumn(label: Text('Balance')),
+                      DataColumn(label: Text('Status')),
+                    ],
+                    rows: feeBalances.map((raw) {
+                      final balance = Map<String, dynamic>.from(raw as Map);
+                      return DataRow(cells: [
+                        DataCell(Text((balance['studentName'] ?? 'Student').toString())),
+                        DataCell(Text((balance['admissionNumber'] ?? '—').toString())),
+                        DataCell(Text((balance['className'] ?? '—').toString())),
+                        DataCell(Text((balance['academicYear'] ?? '—').toString())),
+                        DataCell(Text((balance['term'] ?? '—').toString())),
+                        DataCell(Text('KSh ${balance['chargeAmount'] ?? balance['totalAmount'] ?? 0}')),
+                        DataCell(Text('KSh ${balance['confirmedPaid'] ?? 0}')),
+                        DataCell(Text('KSh ${balance['balance'] ?? 0}')),
+                        DataCell(Text((balance['status'] ?? 'UNPAID').toString())),
+                      ]);
+                    }).toList(),
+                  ),
+              ],
               if (section == 8) ...[
                 const Text('School fee receipts',
                     style:
