@@ -37,7 +37,7 @@ test('Spark payloads support text, image and video stories with safe media URLs'
   assert.equal(isAllowedSparkMediaUrl('https://example.test/clip.mp4','video',true), false);
 });
 
-test('Spark view is authorized to saved contacts and idempotently records the viewer', async () => {
+test('Spark view is authorized when the viewer saved the author as a contact and records the viewer idempotently', async () => {
   const updates = [];
   const spark = {authorId: 'owner-1'};
   const Spark = {
@@ -48,7 +48,7 @@ test('Spark view is authorized to saved contacts and idempotently records the vi
     },
     updateOne: async (...args) => updates.push(args),
   };
-  const SavedContact = {exists: async (filter) => filter.userId === 'owner-1' && filter.contactUserId === 'viewer-1'};
+  const SavedContact = {exists: async (filter) => filter.userId === 'viewer-1' && filter.contactUserId === 'owner-1'};
   const result = await markSparkViewed({
     sparkId: 'spark-id',
     viewerId: 'viewer-1',
@@ -61,12 +61,12 @@ test('Spark view is authorized to saved contacts and idempotently records the vi
   assert.deepEqual(updates[0][1], {$addToSet: {viewedBy: 'viewer-1'}});
 });
 
-test('Spark audience uses the author-to-viewer contact relationship and deduplicates owners', async () => {
+test('Spark audience includes saved contacts and deduplicates contact owners', async () => {
   const SavedContact = {
     find: (filter) => {
-      assert.equal(filter.contactUserId, 'viewer-1');
+      assert.equal(filter.userId, 'viewer-1');
       return {select: () => ({lean: async () => [
-        {userId: 'author-1'}, {userId: 'author-1'}, {userId: 'author-2'},
+        {contactUserId: 'author-1'}, {contactUserId: 'author-1'}, {contactUserId: 'author-2'},
       ]})};
     },
   };
@@ -74,7 +74,7 @@ test('Spark audience uses the author-to-viewer contact relationship and deduplic
     ['author-1', 'author-2']);
   assert.equal(await canViewSpark({
     spark: {authorId: 'author-1'}, viewerId: 'viewer-1',
-    SavedContact: {exists: async (filter) => filter.userId === 'author-1' && filter.contactUserId === 'viewer-1'},
+    SavedContact: {exists: async (filter) => filter.userId === 'viewer-1' && filter.contactUserId === 'author-1'},
   }), true);
 });
 
