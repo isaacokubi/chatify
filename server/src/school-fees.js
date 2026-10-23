@@ -40,8 +40,11 @@ export function normalizeFeeStructureInput(input = {}) {
  * UI or API can represent the student as paid.
  */
 export function calculateSchoolFeeBalance({chargeAmount, payments = [], credits = 0, configured = true}) {
+  const hasChargeAmount = chargeAmount !== undefined;
   if (typeof configured !== 'boolean' ||
       (configured && (!Number.isSafeInteger(chargeAmount) || chargeAmount < 0)) ||
+      (!configured && hasChargeAmount &&
+        (!Number.isSafeInteger(chargeAmount) || chargeAmount < 0)) ||
       !Number.isSafeInteger(credits) || credits < 0 || !Array.isArray(payments)) {
     throw new TypeError('Configured fee charges, credits and payments must be non-negative whole-KSh amounts');
   }
