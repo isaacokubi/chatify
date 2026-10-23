@@ -49,7 +49,17 @@ List<Map<String, dynamic>> eligibleMentionParticipants(
   String query = '',
   int limit = 6,
 }) {
-  final normalizedQuery = query.trim().toLowerCase();
+  String foldSearchText(String value) => value
+      .toLowerCase()
+      .replaceAll(RegExp('[áàâäãå]'), 'a')
+      .replaceAll(RegExp('[éèêë]'), 'e')
+      .replaceAll(RegExp('[íìîï]'), 'i')
+      .replaceAll(RegExp('[óòôöõ]'), 'o')
+      .replaceAll(RegExp('[úùûü]'), 'u')
+      .replaceAll('ý', 'y')
+      .replaceAll('ñ', 'n')
+      .replaceAll('ç', 'c');
+  final normalizedQuery = foldSearchText(query.trim());
   final candidates = <Map<String, dynamic>>[];
   final seenIds = <String>{};
   for (final raw in rawParticipants) {
@@ -61,7 +71,7 @@ List<Map<String, dynamic>> eligibleMentionParticipants(
         id == currentUserId ||
         name.isEmpty ||
         !seenIds.add(id) ||
-        !name.toLowerCase().contains(normalizedQuery)) {
+        !foldSearchText(name).contains(normalizedQuery)) {
       continue;
     }
     candidates.add(participant);
@@ -275,7 +285,6 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   int _index = 0;
   bool _paused = false;
   bool _mediaError = false;
-  bool _started = false;
 
   Map<String, dynamic> get _item => widget.items[_index];
 
@@ -285,15 +294,12 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
     _index = widget.items.isEmpty
         ? 0
         : widget.initialIndex.clamp(0, widget.items.length - 1);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_started) {
-      _started = true;
-      _loadItem();
-    }
+    // Start media loading after the first frame so inherited media settings are
+    // available and video initialization is not dependent on a later dependency
+    // change being delivered by the dialog route.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_loadItem());
+    });
   }
 
   void _onProgressStatus(AnimationStatus status) {
@@ -4842,6 +4848,34 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         feePaymentOptions = r['paymentOptions'] is Map
             ? Map<String, dynamic>.from(r['paymentOptions'])
             : {};
+        // Older or partially migrated API responses may omit paymentOptions.
+        // Fall back to the selected school's saved profile rather than hiding
+        // valid payment choices from parents.
+        if (section == 2 &&
+            role == 'parent' &&
+            feePaymentOptions.isEmpty) {
+          final selectedSchool = schools.cast<Map>().firstWhere(
+                (school) => school['id']?.toString() == id,
+                orElse: () => <String, dynamic>{},
+              );
+          final profile = selectedSchool['paymentProfile'];
+          if (profile is Map) {
+            final method = profile['method']?.toString() ?? '';
+            feePaymentOptions = <String, dynamic>{
+              'configured': method == 'mpesa_till'
+                  ? (profile['tillNumber']?.toString().isNotEmpty ?? false)
+                  : method == 'mpesa_paybill'
+                      ? (profile['paybillNumber']?.toString().isNotEmpty ?? false)
+                      : method == 'bank',
+              'method': method,
+              'tillNumber': profile['tillNumber'],
+              'paybillNumber': profile['paybillNumber'],
+              'officialPhone': profile['officialPhone'] ??
+                  selectedSchool['officialPhone'] ??
+                  selectedSchool['phone'],
+            };
+          }
+        }
         if (section == 2) {
           final balanceResult = await app.api.call('GET', '/api/schools/$id/fee-balances');
           feeBalances = List<dynamic>.from(balanceResult['balances'] ?? []);
