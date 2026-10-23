@@ -143,6 +143,10 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     senderId: { type: O, ref: 'User', required: true, index: true },
     recipientId: { type: O, index: true },
     audience: { type: String, enum: ['direct','all_parents','all_staff','all_school','school_inbox'], default: 'direct' },
+    messageType: { type: String, enum: ['message','conference'], default: 'message', index: true },
+    startsAt: { type: Date },
+    endsAt: { type: Date },
+    location: { type: String, trim: true, maxlength: 300 },
     subject: { type: String, trim: true, maxlength: 160 },
     body: { type: String, required: true, trim: true, maxlength: 5000 },
   }, { timestamps: true }));
@@ -502,8 +506,21 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   app.post('/api/schools/:schoolId/messages', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
       const body = String(req.body?.body || '').trim();
+      const messageType = req.body?.messageType === 'conference' ? 'conference' : 'message';
+      const startsAt = messageType === 'conference' ? new Date(req.body?.startsAt) : null;
+      const endsAt = messageType === 'conference' ? new Date(req.body?.endsAt) : null;
+      const location = String(req.body?.location || '').trim().slice(0, 300);
       const destination = resolveSchoolMessageDestination(req.schoolMembership.role, req.body?.audience, req.body?.recipientId);
       if (!body || body.length > 5000) return res.status(400).json({ error: 'Message must contain 1–5000 characters' });
+      if (messageType === 'conference') {
+        if (req.schoolMembership.role !== 'admin') return res.status(403).json({ error: 'Only school administrators can publish scheduled events' });
+        if (!['all_parents', 'all_staff', 'all_school'].includes(String(req.body?.audience))) return res.status(400).json({ error: 'Choose parents, staff or the whole school as the event audience' });
+        if (!String(req.body?.subject || '').trim() || String(req.body.subject).trim().length > 160 ||
+            !Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime()) ||
+            startsAt <= new Date() || endsAt <= startsAt) {
+          return res.status(400).json({ error: 'Enter an event title and valid future start/end times' });
+        }
+      }
       if (destination.error) {
         const status = ['parent', 'staff'].includes(req.schoolMembership.role) ? 403 : 400;
         return res.status(status).json({ error: destination.error });
@@ -516,7 +533,16 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         if (!target) return res.status(404).json({ error: 'Recipient is not a member of this school' });
         if (req.schoolMembership.role === 'parent' && !['admin','staff'].includes(target.role)) return res.status(403).json({ error: 'Parents may contact school administrators or staff only' });
       }
-      const message = await SchoolMessage.create({ schoolId: req.params.schoolId, senderId: req.user._id, recipientId: audience === 'direct' ? recipientId : undefined, audience, subject: String(req.body?.subject || '').trim().slice(0,160), body });
+      const message = await SchoolMessage.create({
+        schoolId: req.params.schoolId,
+        senderId: req.user._id,
+        recipientId: audience === 'direct' ? recipientId : undefined,
+        audience,
+        messageType,
+        ...(messageType === 'conference' ? { startsAt, endsAt, location } : {}),
+        subject: String(req.body?.subject || '').trim().slice(0,160),
+        body,
+      });
       return res.status(201).json({ message });
     } catch (error) { return next(error); }
   });
