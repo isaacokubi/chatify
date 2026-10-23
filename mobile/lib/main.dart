@@ -6455,7 +6455,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             title:
                                 Text((c['title'] ?? 'Conference').toString()),
                             subtitle: Text(
-                                '\${c['agenda'] ?? ''}\nStarts: \${c['startsAt'] ?? 'Not set'}\nEnds: \${c['endsAt'] ?? 'Not set'}\n\${c['location'] ?? ''}'))))),
+                                '${c['agenda'] ?? ''}\nStarts: ${c['startsAt'] ?? 'Not set'}\nEnds: ${c['endsAt'] ?? 'Not set'}\n${c['location'] ?? ''}'))))),
                 _schoolPager(),
               ],
               if (section == 2) ...[
