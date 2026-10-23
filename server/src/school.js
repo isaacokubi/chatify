@@ -611,7 +611,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       if (!classExists) return res.status(400).json({ error: 'Choose a class/grade that exists in this school’s active student register.' });
       const key = { schoolId: req.params.schoolId, className: input.className, academicYear: input.academicYear, term: input.term };
       const previousActive = await SchoolFeeStructure.findOne({ ...key, status: 'ACTIVE' }).lean();
-      const latest = await SchoolFeeStructure.findOne(key).sort({ version: -1 }).lean();
+      const latest = await SchoolFeeStructure.findOne(key).sort({ academicYear: -1, version: -1 }).lean();
       const version = Number(latest?.version || 0) + 1;
       if (previousActive) {
         await SchoolFeeStructure.updateOne({ _id: previousActive._id, status: 'ACTIVE' }, { $set: { status: 'ARCHIVED', archivedAt: new Date(), updatedBy: req.user._id } });
