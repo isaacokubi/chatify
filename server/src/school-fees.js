@@ -42,6 +42,8 @@ export function normalizeFeeStructureInput(input = {}) {
 export function calculateSchoolFeeBalance({chargeAmount, payments = [], credits = 0, configured = true}) {
   if (typeof configured !== 'boolean' ||
       (configured && (!Number.isSafeInteger(chargeAmount) || chargeAmount < 0)) ||
+      (!configured && chargeAmount != null &&
+        (!Number.isSafeInteger(chargeAmount) || chargeAmount < 0)) ||
       !Number.isSafeInteger(credits) || credits < 0 || !Array.isArray(payments)) {
     throw new TypeError('Configured fee charges, credits and payments must be non-negative whole-KSh amounts');
   }
