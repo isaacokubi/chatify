@@ -35,3 +35,6 @@ Socket events include `message:new`, `message:read`, `message:reaction`, `messag
 ### Delete conversations from your chat list
 
 `POST /api/conversations/delete` accepts `{ "conversationIds": ["..."] }` for 1–100 conversations in which the authenticated user is a participant. This hides those conversations only for that user; it does not delete the other participants' history or erase stored messages. Hidden conversations are omitted from that user's conversation and message endpoints. A new message restores the conversation to the chat list.
+
+
+- `POST /api/schools/:schoolId/fees/:paymentReference/reverse` — school admin records a manually verified reversal using `{reversalReference, reason}`. Only confirmed payments can be reversed; the same reversal reference is idempotent, and a school-scoped unique index prevents reusing it for another payment. This route does not automatically query Safaricom.
