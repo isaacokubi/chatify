@@ -5574,6 +5574,55 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     }
   }
 
+  /// Saves a new class/academic-period fee template version.
+  /// The API validates amounts and leaves previously issued charges unchanged.
+  Future<void> saveFeeStructure() async {
+    final id = schoolId;
+    final className = feeStructureClass.text.trim();
+    final academicYear = feeStructureYear.text.trim();
+    final term = feeStructureTerm.text.trim();
+    final items = <Map<String, dynamic>>[];
+    for (final line in feeStructureItems.text.split(RegExp(r'\r?\n'))) {
+      final value = line.trim();
+      if (value.isEmpty) continue;
+      final separator = value.lastIndexOf(':');
+      final description = separator > 0 ? value.substring(0, separator).trim() : '';
+      final itemAmount = separator > 0 ? int.tryParse(value.substring(separator + 1).trim()) : null;
+      if (description.isEmpty || itemAmount == null || itemAmount <= 0) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Enter each fee as Description:Amount, for example Tuition:12000.')));
+        return;
+      }
+      items.add({'description': description, 'amount': itemAmount});
+    }
+    if (id == null || className.isEmpty || academicYear.isEmpty || term.isEmpty || items.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Complete the class, academic year, term and at least one fee item.')));
+      return;
+    }
+    await _action(() async {
+      final result = await app.api.call('POST', '/api/schools/$id/fee-structures', {
+        'className': className, 'academicYear': academicYear, 'term': term, 'items': items,
+      });
+      feeStructureItems.clear();
+      await loadSection();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text((result['note'] ?? 'Fee structure saved as a new version.').toString())));
+    });
+  }
+
+  Future<void> issueFeeStructure(Map<String, dynamic> structure) async {
+    final id = schoolId;
+    final structureId = structure['_id']?.toString() ?? '';
+    if (id == null || structureId.isEmpty) return;
+    await _action(() async {
+      final result = await app.api.call('POST', '/api/schools/$id/fee-structures/$structureId/issue', {});
+      await loadSection();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Charges created: ${result['chargesCreated'] ?? 0}; existing charges preserved: ${result['existingChargesPreserved'] ?? 0}.')));
+    });
+  }
+
   Future<void> startFeePayment() async {
     final id = schoolId;
     if (id == null) return;
