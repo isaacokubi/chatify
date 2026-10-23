@@ -9830,7 +9830,7 @@ class _ChatState extends State<Chat> {
     for (final participant in participants) {
       final id = _conversationParticipantId(participant);
       final name = participant['name']?.toString();
-      if (id != null && name != null && name.isNotEmpty) namesById[id] = name;
+      if (name != null && name.isNotEmpty) namesById[id] = name;
     }
     final spans = <TextSpan>[];
     var cursor = 0;
