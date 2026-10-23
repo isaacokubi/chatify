@@ -170,6 +170,53 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   FeePayment.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
   FeePayment.schema.index({ checkoutRequestId: 1, merchantRequestId: 1 }, { unique: true, sparse: true });
 
+  // Class fee structures are configuration, not student charges. Each edit retains a
+  // version snapshot so changing next term's pricing cannot rewrite issued history.
+  const SchoolFeeStructure = model('SchoolFeeStructure', new mongoose.Schema({
+    schoolId: { type: O, ref: 'SchoolWorkspace', required: true, index: true },
+    className: { type: String, required: true, trim: true, maxlength: 100 },
+    classKey: { type: String, required: true, trim: true, lowercase: true, maxlength: 100 },
+    academicYear: { type: String, required: true, trim: true, maxlength: 40 },
+    term: { type: String, required: true, trim: true, maxlength: 80 },
+    items: [{ code: { type: String, required: true, trim: true, maxlength: 40 },
+      description: { type: String, required: true, trim: true, maxlength: 160 },
+      amountMinor: { type: Number, required: true, min: 0, max: 999999999 },
+      active: { type: Boolean, default: true } }],
+    totalMinor: { type: Number, required: true, min: 0, default: 0 },
+    status: { type: String, enum: ['ACTIVE', 'INCOMPLETE', 'INACTIVE'], default: 'INCOMPLETE', index: true },
+    version: { type: Number, required: true, min: 1, default: 1 },
+    history: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    createdBy: { type: O, ref: 'User', required: true },
+    updatedBy: { type: O, ref: 'User', required: true },
+  }, { timestamps: true }));
+  SchoolFeeStructure.schema.index(
+    { schoolId: 1, classKey: 1, academicYear: 1, term: 1 },
+    { unique: true, name: 'uniq_school_class_period_fee_structure' },
+  );
+
+  // Convert money text to integer minor units before it enters the database. This
+  // avoids binary floating-point arithmetic for fee totals and rejects malformed input.
+  function feeAmountToMinor(value) {
+    const text = String(value ?? '').trim();
+    if (!/^\\d{1,7}(?:\\.\\d{1,2})?$/.test(text)) return null;
+    const [whole, fraction = ''] = text.split('.');
+    const minor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+    return Number.isSafeInteger(minor) && minor <= 999999999 ? minor : null;
+  }
+
+  function publicFeeStructure(item) {
+    return {
+      id: String(item._id), schoolId: String(item.schoolId), className: item.className,
+      academicYear: item.academicYear, term: item.term, version: item.version,
+      status: item.status, total: (item.totalMinor / 100).toFixed(2),
+      items: (item.items || []).map(fee => ({
+        code: fee.code, description: fee.description,
+        amount: (fee.amountMinor / 100).toFixed(2), active: fee.active !== false,
+      })),
+      createdAt: item.createdAt, updatedAt: item.updatedAt,
+    };
+  }
+
   // Bounded server-side pagination for every school register.
   function pageOptions(req) {
     const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
@@ -730,6 +777,101 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const member = await Membership.findOneAndUpdate({ _id: req.params.memberId, schoolId: req.params.schoolId, active: true }, { $set: { active: false } }, { new: true });
       if (!member) return res.status(404).json({ error: 'Active school member not found' });
       return res.json({ deleted: true, archived: true, id: String(member._id) });
+    } catch (error) { return next(error); }
+  });
+
+  // Configuration changes are owner-admin only. Fee structures deliberately do not
+  // mutate payment records: a future charging workflow must issue immutable student
+  // charge records tied to a specific structure version.
+  app.get('/api/schools/:schoolId/fee-structures', auth, requireRole('admin', 'staff'), async (req, res, next) => {
+    try {
+      const page = pageOptions(req);
+      const filter = { schoolId: req.params.schoolId };
+      if (String(req.query.className || '').trim()) {
+        filter.classKey = String(req.query.className).trim().toLowerCase().slice(0, 100);
+      }
+      if (String(req.query.academicYear || '').trim()) filter.academicYear = String(req.query.academicYear).trim().slice(0, 40);
+      if (String(req.query.term || '').trim()) filter.term = String(req.query.term).trim().slice(0, 80);
+      const [records, total] = await Promise.all([
+        SchoolFeeStructure.find(filter).sort({ className: 1, academicYear: -1, term: 1 })
+          .skip(page.skip).limit(page.limit).lean(),
+        SchoolFeeStructure.countDocuments(filter),
+      ]);
+      return res.json({ feeStructures: records.map(publicFeeStructure), page: page.page, limit: page.limit, total });
+    } catch (error) { return next(error); }
+  });
+
+  app.put('/api/schools/:schoolId/fee-structures', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const className = String(req.body?.className || '').trim();
+      const academicYear = String(req.body?.academicYear || '').trim();
+      const term = String(req.body?.term || '').trim();
+      const incoming = req.body?.items;
+      if (!className || className.length > 100 || !academicYear || academicYear.length > 40 ||
+          !term || term.length > 80 || !Array.isArray(incoming) || incoming.length > 50) {
+        return res.status(400).json({ error: 'Provide a class, academic year, term and up to 50 fee items.' });
+      }
+      const items = [];
+      const codes = new Set();
+      for (const raw of incoming) {
+        const code = String(raw?.code || '').trim().toLowerCase();
+        const description = String(raw?.description || '').trim();
+        const amountMinor = feeAmountToMinor(raw?.amount);
+        if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(code) || codes.has(code) ||
+            !description || description.length > 160 || amountMinor === null) {
+          return res.status(400).json({ error: 'Each fee item needs a unique code, description and non-negative amount with at most two decimal places.' });
+        }
+        codes.add(code);
+        items.push({ code, description, amountMinor, active: raw?.active !== false });
+      }
+      const activeItems = items.filter(item => item.active);
+      const totalMinor = activeItems.reduce((sum, item) => sum + item.amountMinor, 0);
+      if (!Number.isSafeInteger(totalMinor)) return res.status(400).json({ error: 'The total fee amount is too large.' });
+
+      const key = { schoolId: req.params.schoolId, classKey: className.toLowerCase(), academicYear, term };
+      let structure = await SchoolFeeStructure.findOne(key);
+      const expectedVersion = req.body?.expectedVersion;
+      if (!structure) {
+        if (expectedVersion !== undefined && expectedVersion !== 0) {
+          return res.status(409).json({ error: 'This fee structure changed or no longer exists. Refresh and try again.' });
+        }
+        try {
+          structure = await SchoolFeeStructure.create({
+            ...key, className, items, totalMinor,
+            status: activeItems.length ? 'ACTIVE' : 'INCOMPLETE',
+            version: 1, createdBy: req.user._id, updatedBy: req.user._id,
+          });
+        } catch (error) {
+          if (error?.code === 11000) return res.status(409).json({ error: 'A fee structure already exists for this class and period. Refresh it before editing.' });
+          throw error;
+        }
+      } else {
+        if (!Number.isInteger(expectedVersion) || expectedVersion !== structure.version) {
+          return res.status(409).json({ error: 'This fee structure was changed by another administrator. Refresh before saving.', currentVersion: structure.version });
+        }
+        // Keep a bounded immutable snapshot of the previous configuration for audit.
+        structure.history.push({
+          version: structure.version, className: structure.className, academicYear: structure.academicYear,
+          term: structure.term, items: structure.items.map(item => ({
+            code: item.code, description: item.description, amountMinor: item.amountMinor, active: item.active,
+          })), totalMinor: structure.totalMinor, status: structure.status,
+          changedBy: structure.updatedBy, recordedAt: structure.updatedAt || structure.createdAt,
+        });
+        if (structure.history.length > 50) structure.history.splice(0, structure.history.length - 50);
+        structure.className = className;
+        structure.items = items;
+        structure.totalMinor = totalMinor;
+        structure.status = activeItems.length ? 'ACTIVE' : 'INCOMPLETE';
+        structure.version += 1;
+        structure.updatedBy = req.user._id;
+        await structure.save();
+      }
+      return res.status(200).json({
+        feeStructure: publicFeeStructure(structure),
+        message: structure.status === 'INCOMPLETE'
+          ? 'Fee structure saved as incomplete because it has no active fee items.'
+          : 'Class fee structure saved. Existing payment and receipt history was not changed.',
+      });
     } catch (error) { return next(error); }
   });
 
