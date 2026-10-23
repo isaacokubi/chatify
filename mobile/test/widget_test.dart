@@ -782,11 +782,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
     expect(find.text('A contact moment'), findsNWidgets(2));
     expect(find.byKey(const ValueKey('spark-glitter-overlay')), findsOneWidget);
-    await tester.tap(find.text('Close'));
+    await tester.tap(find.byTooltip('Close Spark viewer'));
     await tester.pumpAndSettle();
     expect(viewCalls, 1);
     expect(otherSpark['hasViewed'], isTrue);
     expect(find.text('Your Spark'), findsOneWidget);
+    expect(find.text('A shared moment'), findsOneWidget,
+        reason: 'The own Spark content belongs inside the Your Spark circle.');
     await tester.tap(find.widgetWithText(SegmentedButton<bool>, 'Memories'));
     await tester.pumpAndSettle();
     expect(find.textContaining('With Ari Contact'), findsOneWidget,
@@ -795,8 +797,13 @@ void main() {
     expect(find.text('Place: Nairobi'), findsOneWidget);
     expect(find.text('Open conversation'), findsOneWidget);
     expect(find.text('Project meeting'), findsOneWidget);
-    expect(find.text('Mark complete'), findsOneWidget);
-    expect(find.byTooltip('Delete saved memory'), findsOneWidget);
+    expect(find.text('Mark complete'), findsNWidgets(2));
+    expect(find.byTooltip('Delete saved memory'), findsNWidgets(2));
+    expect(
+      tester.getTopLeft(find.text('Mark complete').first).dy,
+      greaterThan(tester.getTopLeft(find.text('Tomorrow')).dy),
+      reason: 'Memory actions should sit below the content on a narrow screen.',
+    );
     await tester.pumpWidget(const SizedBox.shrink());
     client.close();
     state.dispose();

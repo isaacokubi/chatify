@@ -182,6 +182,419 @@ class _SparkGlitterPainter extends CustomPainter {
       progress != oldDelegate.progress || color != oldDelegate.color;
 }
 
+class _SparkStatusViewer extends StatefulWidget {
+  final List<Map<String, dynamic>> items;
+  final ValueChanged<Map<String, dynamic>> onViewed;
+  final ValueChanged<Map<String, dynamic>> onDelete;
+
+  const _SparkStatusViewer({
+    required this.items,
+    required this.onViewed,
+    required this.onDelete,
+  });
+
+  @override
+  State<_SparkStatusViewer> createState() => _SparkStatusViewerState();
+}
+
+class _SparkStatusViewerState extends State<_SparkStatusViewer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _progress = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 6),
+  )..addStatusListener(_onProgressStatus);
+  VideoPlayerController? _video;
+  int _index = 0;
+  bool _paused = false;
+  bool _mediaError = false;
+  bool _started = false;
+
+  Map<String, dynamic> get _item => widget.items[_index];
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_started) {
+      _started = true;
+      _loadItem();
+    }
+  }
+
+  void _onProgressStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && !_paused) _advance(1);
+  }
+
+  Future<void> _loadItem() async {
+    final disableAnimations = MediaQuery.disableAnimationsOf(context);
+    _progress.stop();
+    _progress.value = 0;
+    await _video?.dispose();
+    _video = null;
+    _mediaError = false;
+    _paused = false;
+    final item = _item;
+    widget.onViewed(item);
+    if (item['mediaType'] == 'video') {
+      final url = item['mediaUrl']?.toString() ?? '';
+      if (!url.startsWith('https://')) {
+        if (mounted) setState(() => _mediaError = true);
+        return;
+      }
+      final controller = VideoPlayerController.networkUrl(Uri.parse(url));
+      _video = controller;
+      try {
+        await controller.initialize();
+        if (!mounted || _video != controller) return;
+        controller.addListener(_onVideoUpdate);
+        setState(() {});
+        try {
+          await controller.play();
+        } catch (_) {
+          // Browser autoplay policies may require the user's direct gesture.
+          if (mounted && _video == controller) setState(() {});
+        }
+      } catch (_) {
+        if (mounted && _video == controller) {
+          setState(() => _mediaError = true);
+        }
+      }
+      return;
+    }
+    if (!disableAnimations) _progress.forward();
+  }
+
+  void _onVideoUpdate() {
+    final controller = _video;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (controller.value.hasError) {
+      if (mounted) setState(() => _mediaError = true);
+    } else if (controller.value.position >= controller.value.duration &&
+        controller.value.duration > Duration.zero) {
+      _advance(1);
+    } else if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _advance(int amount) {
+    if (!mounted) return;
+    final next = _index + amount;
+    if (next < 0) return;
+    if (next >= widget.items.length) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() => _index = next);
+    _loadItem();
+  }
+
+  void _togglePause() {
+    final video = _video;
+    if (video != null && video.value.isInitialized) {
+      if (video.value.isPlaying) {
+        video.pause();
+        setState(() => _paused = true);
+      } else {
+        video.play();
+        setState(() => _paused = false);
+      }
+    } else if (_paused) {
+      setState(() => _paused = false);
+      _progress.forward();
+    } else {
+      _progress.stop();
+      setState(() => _paused = true);
+    }
+  }
+
+  double _currentProgress() {
+    final video = _video;
+    if (video != null &&
+        video.value.isInitialized &&
+        video.value.duration > Duration.zero) {
+      return (video.value.position.inMilliseconds /
+              video.value.duration.inMilliseconds)
+          .clamp(0.0, 1.0);
+    }
+    return _progress.value;
+  }
+
+  Future<void> _retryVideo() async {
+    final controller = _video;
+    if (controller == null) return;
+    try {
+      await controller.play();
+      if (mounted) setState(() => _mediaError = false);
+    } catch (_) {
+      if (mounted) setState(() => _mediaError = true);
+    }
+  }
+
+  Widget _sparkContent() {
+    final type = _item['mediaType']?.toString();
+    final url = _item['mediaUrl']?.toString() ?? '';
+    if (type == 'image') {
+      if (url.startsWith('data:image/')) {
+        return Image.memory(
+          base64Decode(url.split(',').last),
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => _mediaUnavailable(),
+        );
+      }
+      if (url.startsWith('https://')) {
+        return Image.network(
+          url,
+          fit: BoxFit.contain,
+          loadingBuilder: (context, child, progress) => progress == null
+              ? child
+              : const Center(child: CircularProgressIndicator()),
+          errorBuilder: (_, __, ___) => _mediaUnavailable(),
+        );
+      }
+      return _mediaUnavailable();
+    }
+    if (type == 'video') {
+      final controller = _video;
+      if (_mediaError) return _mediaUnavailable(video: true);
+      if (controller == null || !controller.value.isInitialized) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (!controller.value.isPlaying && !_paused) {
+        return Center(
+          child: IconButton.filled(
+            tooltip: 'Play Spark video',
+            onPressed: _retryVideo,
+            icon: const Icon(Icons.play_arrow),
+          ),
+        );
+      }
+      return Center(
+        child: AspectRatio(
+          aspectRatio: controller.value.aspectRatio > 0
+              ? controller.value.aspectRatio
+              : 16 / 9,
+          child: VideoPlayer(controller),
+        ),
+      );
+    }
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Text(
+          _item['text']?.toString() ?? '',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mediaUnavailable({bool video = false}) => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+                video
+                    ? Icons.videocam_off_outlined
+                    : Icons.broken_image_outlined,
+                color: Colors.white70,
+                size: 42),
+            const SizedBox(height: 10),
+            const Text('This Spark media is unavailable.',
+                style: TextStyle(color: Colors.white70)),
+            if (video)
+              TextButton.icon(
+                onPressed: () => setState(() {
+                  _mediaError = false;
+                  _loadItem();
+                }),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+          ],
+        ),
+      );
+
+  @override
+  void dispose() {
+    _progress.dispose();
+    _video?.removeListener(_onVideoUpdate);
+    _video?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final video = _video;
+    final duration = DateTime.tryParse(_item['createdAt']?.toString() ?? '');
+    final age = duration == null
+        ? 'Recently'
+        : DateFormat.yMMMd().add_jm().format(duration.toLocal());
+    return Material(
+      color: Colors.black,
+      child: SafeArea(
+        child: GestureDetector(
+          onLongPressStart: (_) => _togglePause(),
+          onLongPressEnd: (_) => _togglePause(),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(child: _sparkContent()),
+              Positioned.fill(
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: MediaQuery.sizeOf(context).width * .24,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: () => _advance(-1),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                    const Spacer(),
+                    SizedBox(
+                      width: MediaQuery.sizeOf(context).width * .24,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: () => _advance(1),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!MediaQuery.disableAnimationsOf(context))
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: _SparkGlitter(
+                      key: const ValueKey('spark-glitter-overlay'),
+                      color: switch (_item['mediaType']) {
+                        'image' => const Color(0xFFB8A1FF),
+                        'video' => const Color(0xFF7EDBD0),
+                        _ => const Color(0xFFF2C66D),
+                      },
+                      animate: true,
+                    ),
+                  ),
+                ),
+              Positioned(
+                top: 8,
+                left: 10,
+                right: 10,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < widget.items.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 3),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LinearProgressIndicator(
+                            minHeight: 3,
+                            value: i < _index
+                                ? 1
+                                : i > _index
+                                    ? 0
+                                    : _currentProgress(),
+                            backgroundColor: Colors.white30,
+                            valueColor:
+                                const AlwaysStoppedAnimation(Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Positioned(
+                top: 24,
+                left: 12,
+                right: 8,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _item['authorName']?.toString() ?? 'Chatify user',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700),
+                          ),
+                          Text(age,
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    if (_item['isMine'] == true)
+                      IconButton(
+                        tooltip: 'Delete Spark',
+                        color: Colors.white,
+                        onPressed: () => widget.onDelete(_item),
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                    IconButton(
+                      tooltip: 'Close Spark viewer',
+                      color: Colors.white,
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              if (_item['text']?.toString().isNotEmpty == true &&
+                  _item['mediaType'] != null)
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 38,
+                  child: Text(
+                    _item['text'].toString(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        shadows: [Shadow(blurRadius: 8, color: Colors.black)]),
+                  ),
+                ),
+              if (video != null && video.value.isInitialized)
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 8,
+                  child: VideoProgressIndicator(video,
+                      allowScrubbing: true,
+                      colors: const VideoProgressColors(
+                          playedColor: Colors.white,
+                          bufferedColor: Colors.white38,
+                          backgroundColor: Colors.white24)),
+                ),
+              if (video != null && video.value.isInitialized && _paused)
+                Center(
+                  child: IconButton.filled(
+                    tooltip: 'Resume Spark video',
+                    onPressed: _togglePause,
+                    icon: const Icon(Icons.play_arrow),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CreateSparkTextDialog extends StatefulWidget {
   const _CreateSparkTextDialog();
 
@@ -6258,118 +6671,69 @@ class _HomeState extends State<Home> {
   }
 
   void _viewSpark(Map<String, dynamic> spark) {
-    final author = spark['authorName']?.toString() ?? 'Chatify user';
-    final sparkId = spark['_id']?.toString();
-    if (spark['isMine'] != true &&
-        spark['hasViewed'] != true &&
-        sparkId != null &&
-        sparkId.isNotEmpty) {
-      unawaited(app.api
-          .call('POST', '/api/sparks/$sparkId/view', {})
-          .then((_) => loadSparks())
-          .catchError((_) {}));
+    final isMine = spark['isMine'] == true;
+    final authorId = spark['authorId']?.toString();
+    final sequence = sparks
+        .whereType<Map>()
+        .map((raw) => Map<String, dynamic>.from(raw))
+        .where((item) {
+      if (isMine) return item['isMine'] == true;
+      return item['isMine'] != true &&
+          (authorId == null || authorId.isEmpty
+              ? item['_id']?.toString() == spark['_id']?.toString()
+              : item['authorId']?.toString() == authorId);
+    }).toList()
+      ..sort((a, b) => _sparkCreatedAt(a).compareTo(_sparkCreatedAt(b)));
+    if (!sequence
+        .any((item) => item['_id']?.toString() == spark['_id']?.toString())) {
+      sequence.add(spark);
     }
-    final created = DateTime.tryParse(spark['createdAt']?.toString() ?? '');
-    final age = created == null
-        ? 'Recently'
-        : DateTime.now().difference(created.toLocal()).inMinutes < 60
-            ? '${DateTime.now().difference(created.toLocal()).inMinutes}m ago'
-            : '${DateTime.now().difference(created.toLocal()).inHours}h ago';
-    showDialog<void>(
+    showGeneralDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.auto_awesome, size: 30),
-        title: Text(author),
-        content: Stack(
-          children: [
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (spark['mediaType'] == 'image' &&
-                    spark['mediaUrl'] is String &&
-                    (spark['mediaUrl'] as String).startsWith('https://'))
-                  ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(spark['mediaUrl'] as String,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) =>
-                              const Text('Image could not be loaded.'))),
-                if (spark['mediaType'] == 'image' &&
-                    spark['mediaUrl'] is String &&
-                    (spark['mediaUrl'] as String).startsWith('data:image/'))
-                  ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.memory(
-                          base64Decode(
-                              (spark['mediaUrl'] as String).split(',').last),
-                          fit: BoxFit.contain)),
-                if (spark['mediaType'] == 'video' &&
-                    spark['mediaUrl'] is String &&
-                    (spark['mediaUrl'] as String).startsWith('data:video/'))
-                  const Text(
-                      'Video Spark saved. Configure Cloudinary in production for streamable video URLs.'),
-                if (spark['mediaType'] == 'video' &&
-                    spark['mediaUrl'] is String &&
-                    (spark['mediaUrl'] as String).startsWith('https://'))
-                  TextButton.icon(
-                      onPressed: () => launchUrl(
-                          Uri.parse(spark['mediaUrl'] as String),
-                          mode: LaunchMode.externalApplication),
-                      icon: const Icon(Icons.play_circle_outline),
-                      label: const Text('Play Spark video')),
-                if ((spark['text']?.toString() ?? '').isNotEmpty)
-                  Text(spark['text']?.toString() ?? ''),
-                const SizedBox(height: 12),
-                Text(age, style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: _SparkGlitter(
-                  key: const ValueKey('spark-glitter-overlay'),
-                  color: switch (spark['mediaType']) {
-                    'image' => const Color(0xFFB8A1FF),
-                    'video' => const Color(0xFF7EDBD0),
-                    _ => Theme.of(dialogContext).colorScheme.tertiary,
-                  },
-                  animate: !MediaQuery.disableAnimationsOf(dialogContext),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          if (spark['isMine'] == true)
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(dialogContext);
-                try {
-                  await app.api.call('DELETE', '/api/sparks/${spark['_id']}');
-                  await loadSparks();
-                } catch (error) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Could not delete Spark: $error')),
-                    );
-                  }
-                }
-              },
-              child: const Text('Delete'),
-            ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
-          ),
-        ],
+      barrierDismissible: false,
+      barrierColor: Colors.black,
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (dialogContext, _, __) => _SparkStatusViewer(
+        items: sequence,
+        onViewed: (item) {
+          final id = item['_id']?.toString();
+          if (item['isMine'] == true ||
+              item['hasViewed'] == true ||
+              id == null ||
+              id.isEmpty) return;
+          unawaited(app.api
+              .call('POST', '/api/sparks/$id/view', {})
+              .then((_) => loadSparks())
+              .catchError((_) {}));
+        },
+        onDelete: (item) async {
+          try {
+            await app.api.call('DELETE', '/api/sparks/${item['_id']}');
+            await loadSparks();
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+          } catch (error) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Could not delete Spark: $error')),
+              );
+            }
+          }
+        },
       ),
     );
   }
+
+  DateTime _sparkCreatedAt(Map<String, dynamic> spark) =>
+      DateTime.tryParse(spark['createdAt']?.toString() ?? '') ??
+      DateTime.fromMillisecondsSinceEpoch(0);
 
   Widget _sparksStrip() {
     final theme = Theme.of(context);
     final mySparks =
         sparks.where((item) => item is Map && item['isMine'] == true).toList();
+    final ownSpark = mySparks.isEmpty
+        ? null
+        : Map<String, dynamic>.from(mySparks.first as Map);
     final otherSparks =
         sparks.where((item) => item is Map && item['isMine'] != true).toList();
     return SizedBox(
@@ -6382,26 +6746,49 @@ class _HomeState extends State<Home> {
             width: 76,
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: _createSpark,
+              onTap:
+                  ownSpark == null ? _createSpark : () => _viewSpark(ownSpark),
               child: Column(
                 children: [
                   Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      CircleAvatar(
-                        radius: 28,
-                        backgroundColor: theme.colorScheme.primaryContainer,
-                        child:
-                            const Icon(Icons.auto_awesome_outlined, size: 28),
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: ownSpark == null
+                              ? null
+                              : LinearGradient(colors: [
+                                  theme.colorScheme.primary,
+                                  theme.colorScheme.tertiary,
+                                ]),
+                        ),
+                        child: ClipOval(
+                          child: SizedBox(
+                            width: 50,
+                            height: 50,
+                            child: ColoredBox(
+                              color: theme.colorScheme.primaryContainer,
+                              child: ownSpark == null
+                                  ? const Icon(Icons.auto_awesome_outlined,
+                                      size: 28)
+                                  : _sparkPreview(ownSpark),
+                            ),
+                          ),
+                        ),
                       ),
                       Positioned(
                         right: -2,
                         bottom: -2,
-                        child: CircleAvatar(
-                          radius: 11,
-                          backgroundColor: theme.colorScheme.primary,
-                          child: const Icon(Icons.add,
-                              size: 16, color: Colors.white),
+                        child: GestureDetector(
+                          onTap: _createSpark,
+                          child: CircleAvatar(
+                            radius: 11,
+                            backgroundColor: theme.colorScheme.primary,
+                            child: const Icon(Icons.add,
+                                size: 16, color: Colors.white),
+                          ),
                         ),
                       ),
                     ],
@@ -6413,38 +6800,12 @@ class _HomeState extends State<Home> {
               ),
             ),
           ),
-          for (final item in [...mySparks, ...otherSparks])
+          for (final item in otherSparks)
             Builder(builder: (context) {
               final spark = Map<String, dynamic>.from(item as Map);
               final name = spark['authorName']?.toString() ?? 'Chatify user';
-              final mediaUrl = spark['mediaUrl']?.toString() ?? '';
               final mediaType = spark['mediaType']?.toString();
-              final text = spark['text']?.toString().trim() ?? '';
-              final Widget preview;
-              if (mediaType == 'image' && mediaUrl.startsWith('https://')) {
-                preview = Image.network(mediaUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        const Icon(Icons.broken_image_outlined));
-              } else if (mediaType == 'image' &&
-                  mediaUrl.startsWith('data:image/')) {
-                preview = Image.memory(base64Decode(mediaUrl.split(',').last),
-                    fit: BoxFit.cover);
-              } else if (mediaType == 'video' &&
-                  mediaUrl.startsWith('https://')) {
-                preview = _SparkVideoThumbnail(url: mediaUrl);
-              } else if (text.isNotEmpty) {
-                preview = Padding(
-                  padding: const EdgeInsets.all(5),
-                  child: Text(text,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.labelSmall),
-                );
-              } else {
-                preview = const Icon(Icons.auto_awesome_outlined);
-              }
+              final preview = _sparkPreview(spark);
               return SizedBox(
                 width: 76,
                 child: InkWell(
@@ -6496,6 +6857,45 @@ class _HomeState extends State<Home> {
         ],
       ),
     );
+  }
+
+  Widget _sparkPreview(Map<String, dynamic> spark) {
+    final mediaUrl = spark['mediaUrl']?.toString() ?? '';
+    final mediaType = spark['mediaType']?.toString();
+    final text = spark['text']?.toString().trim() ?? '';
+    if (mediaType == 'image' && mediaUrl.startsWith('https://')) {
+      return Image.network(
+        mediaUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined),
+      );
+    }
+    if (mediaType == 'image' && mediaUrl.startsWith('data:image/')) {
+      return Image.memory(
+        base64Decode(mediaUrl.split(',').last),
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined),
+      );
+    }
+    if (mediaType == 'video' && mediaUrl.startsWith('https://')) {
+      return _SparkVideoThumbnail(url: mediaUrl);
+    }
+    if (mediaType == 'video') return const Icon(Icons.play_circle_outline);
+    if (text.isNotEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(5),
+        child: Center(
+          child: Text(
+            text,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        ),
+      );
+    }
+    return const Icon(Icons.auto_awesome_outlined);
   }
 
   // Opens a chat avatar in a full-screen image viewer when the user taps it.
@@ -6648,6 +7048,66 @@ class _HomeState extends State<Home> {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Could not open the conversation: $error')));
       }
+    }
+  }
+
+  Future<void> _deleteMemoryCard(Map<String, dynamic> memory) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete saved memory?'),
+        content: Text(
+            'Delete “${memory['title'] ?? 'Memory'}” from your saved memories?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await app.api.call('DELETE', '/api/memories/${memory['_id']}');
+      if (!mounted) return;
+      setState(() {
+        memories.removeWhere((item) =>
+            item is Map &&
+            item['_id']?.toString() == memory['_id']?.toString());
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not delete memory: $error')),
+      );
+    }
+  }
+
+  Future<void> _toggleMemoryCompleted(Map<String, dynamic> memory) async {
+    final completed = memory['completed'] != true;
+    try {
+      await app.api.call(
+        'PATCH',
+        '/api/memories/${memory['_id']}',
+        {'completed': completed},
+      );
+      if (!mounted) return;
+      setState(() {
+        for (final item in memories.whereType<Map>()) {
+          if (item['_id']?.toString() == memory['_id']?.toString()) {
+            item['completed'] = completed;
+          }
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update memory: $error')),
+      );
     }
   }
 
@@ -7607,102 +8067,79 @@ class _HomeState extends State<Home> {
               }
             },
             child: Card(
-              child: ListTile(
-                  title: Text(memory['title']?.toString() ?? 'Memory'),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if ((memory['personName']?.toString() ?? '')
-                          .trim()
-                          .isNotEmpty)
-                        Text('With ${memory['personName']}'),
-                      if ((memory['description']?.toString() ?? '')
-                          .trim()
-                          .isNotEmpty)
-                        Text(memory['description'].toString()),
-                      if (memoryDate != null)
-                        Text(
-                            'Date: ${DateFormat.yMMMd().format(memoryDate.toLocal())}'),
-                      if ((memory['time']?.toString() ?? '').trim().isNotEmpty)
-                        Text('Time: ${memory['time']}'),
-                      if ((memory['location']?.toString() ?? '')
-                          .trim()
-                          .isNotEmpty)
-                        Text('Place: ${memory['location']}'),
-                    ],
-                  ),
-                  onTap: memory['conversationId'] == null
-                      ? null
-                      : () => _openMemoryConversation(memory),
-                  trailing: Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      IconButton(
-                        tooltip: 'Delete saved memory',
-                        icon: const Icon(Icons.delete_outline),
-                        onPressed: () async {
-                          try {
-                            await app.api.call(
-                                'DELETE', '/api/memories/${memory['_id']}');
-                            if (!mounted) return;
-                            setState(() {
-                              memories.removeWhere((item) =>
-                                  item is Map &&
-                                  item['_id']?.toString() ==
-                                      memory['_id']?.toString());
-                            });
-                          } catch (error) {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                content:
-                                    Text('Could not delete memory: $error')));
-                          }
-                        },
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      memory['title']?.toString() ?? 'Memory',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    if ((memory['personName']?.toString() ?? '')
+                        .trim()
+                        .isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text('With ${memory['personName']}'),
                       ),
-                      if (memory['conversationId'] != null)
-                        TextButton.icon(
-                          onPressed: () => _openMemoryConversation(memory),
-                          icon: const Icon(Icons.chat_bubble_outline),
-                          label: const Text('Open conversation'),
+                    if ((memory['description']?.toString() ?? '')
+                        .trim()
+                        .isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(memory['description'].toString()),
+                      ),
+                    if (memoryDate != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Date: ${DateFormat.yMMMd().format(memoryDate.toLocal())}',
                         ),
-                      TextButton.icon(
-                        onPressed: () async {
-                          final completed = memory['completed'] != true;
-                          try {
-                            await app.api.call(
-                              'PATCH',
-                              '/api/memories/${memory['_id']}',
-                              {'completed': completed},
-                            );
-                            if (!mounted) return;
-                            setState(() {
-                              for (final item in memories.whereType<Map>()) {
-                                if (item['_id']?.toString() ==
-                                    memory['_id']?.toString()) {
-                                  item['completed'] = completed;
-                                }
-                              }
-                            });
-                          } catch (error) {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Could not update memory: $error',
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                        icon: Icon(memory['completed'] == true
-                            ? Icons.undo
-                            : Icons.check_circle_outline),
-                        label: Text(memory['completed'] == true
-                            ? 'Mark incomplete'
-                            : 'Mark complete'),
                       ),
-                    ],
-                  )),
+                    if ((memory['time']?.toString() ?? '').trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text('Time: ${memory['time']}'),
+                      ),
+                    if ((memory['location']?.toString() ?? '')
+                        .trim()
+                        .isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text('Place: ${memory['location']}'),
+                      ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (memory['conversationId'] != null)
+                          TextButton.icon(
+                            onPressed: () => _openMemoryConversation(memory),
+                            icon: const Icon(Icons.chat_bubble_outline),
+                            label: const Text('Open conversation'),
+                          ),
+                        TextButton.icon(
+                          onPressed: () => _toggleMemoryCompleted(memory),
+                          icon: Icon(memory['completed'] == true
+                              ? Icons.undo
+                              : Icons.check_circle_outline),
+                          label: Text(memory['completed'] == true
+                              ? 'Restore'
+                              : 'Mark complete'),
+                        ),
+                        IconButton(
+                          tooltip: 'Delete saved memory',
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () => _deleteMemoryCard(memory),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ));
       },
     );
@@ -8169,6 +8606,11 @@ class _ChatState extends State<Chat> {
   final Set<String> _dismissedMemoryMessageIds = {};
   final Set<String> _savedMemoryMessageIds = {};
   final Set<String> mentionedUserIds = {};
+  final Map<String, String> _mentionedNamesById = {};
+  List<Map<String, dynamic>> _mentionSuggestions = [];
+  int _mentionStart = -1;
+  int _mentionCursor = -1;
+  int _mentionActiveIndex = 0;
   bool _savedMemoryMessageIdsLoaded = false;
   bool showClosedPayments = false;
   String expiry = 'NONE';
@@ -8874,8 +9316,119 @@ class _ChatState extends State<Chat> {
       selection: TextSelection.collapsed(offset: text.length),
     );
     mentionedUserIds.add(id);
-    _handleTyping(text);
+    _mentionedNamesById[id] = name;
+    _composerChanged(text);
     setState(() {});
+  }
+
+  void _composerChanged(String value) {
+    _handleTyping(value);
+    final staleMentions = mentionedUserIds.where((id) {
+      final name = _mentionedNamesById[id];
+      return name == null || !value.contains('@$name');
+    }).toList();
+    for (final id in staleMentions) {
+      mentionedUserIds.remove(id);
+      _mentionedNamesById.remove(id);
+    }
+    final cursor = input.selection.extentOffset.clamp(0, value.length);
+    final at = value.lastIndexOf('@', math.max(0, cursor - 1));
+    if (at < 0 || (at > 0 && !RegExp(r'[\s([{]').hasMatch(value[at - 1]))) {
+      if (_mentionSuggestions.isNotEmpty && mounted) {
+        setState(() => _mentionSuggestions = []);
+      }
+      _mentionStart = -1;
+      return;
+    }
+    final query = value.substring(at + 1, cursor);
+    if (query.length > 80 || query.contains('\n') || query.contains('\r')) {
+      _mentionSuggestions = [];
+      _mentionStart = -1;
+      return;
+    }
+    final currentId = app.user?['id']?.toString() ?? '';
+    final participants = List<dynamic>.from(
+      widget.conversation['participants'] ?? const [],
+    )
+        .whereType<Map>()
+        .map((raw) => Map<String, dynamic>.from(raw))
+        .where((p) {
+          final id = (p['_id'] ?? p['id'])?.toString() ?? '';
+          final name = p['name']?.toString() ?? '';
+          return id.isNotEmpty &&
+              id != currentId &&
+              name.isNotEmpty &&
+              name.toLowerCase().contains(query.toLowerCase());
+        })
+        .take(6)
+        .toList();
+    if (!listEquals(_mentionSuggestions, participants) ||
+        _mentionStart != at ||
+        _mentionCursor != cursor) {
+      setState(() {
+        _mentionSuggestions = participants;
+        _mentionStart = at;
+        _mentionCursor = cursor;
+        _mentionActiveIndex = 0;
+      });
+    }
+  }
+
+  void _selectMention(Map<String, dynamic> selected) {
+    final id = (selected['_id'] ?? selected['id'])?.toString();
+    final name = selected['name']?.toString().trim() ?? '';
+    if (id == null || id.isEmpty || name.isEmpty || _mentionStart < 0) return;
+    final cursor = input.selection.extentOffset.clamp(0, input.text.length);
+    final suffix = input.text.substring(cursor);
+    final prefix = input.text.substring(0, _mentionStart);
+    final insert = '@$name ';
+    final text = '$prefix$insert$suffix';
+    final nextCursor = prefix.length + insert.length;
+    input.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: nextCursor),
+    );
+    mentionedUserIds.add(id);
+    _mentionedNamesById[id] = name;
+    _mentionSuggestions = [];
+    _mentionStart = -1;
+    _composerChanged(text);
+  }
+
+  Widget _renderMessageText(String text, dynamic mentionIds) {
+    if (mentionIds is! List || mentionIds.isEmpty) return Text(text);
+    final participants = List<dynamic>.from(
+      widget.conversation['participants'] ?? const [],
+    ).whereType<Map>();
+    final namesById = <String, String>{};
+    for (final participant in participants) {
+      final id = (participant['_id'] ?? participant['id'])?.toString();
+      final name = participant['name']?.toString();
+      if (id != null && name != null && name.isNotEmpty) namesById[id] = name;
+    }
+    final spans = <TextSpan>[];
+    var cursor = 0;
+    for (final rawId in mentionIds) {
+      final name = namesById[rawId.toString()];
+      if (name == null) continue;
+      final token = '@$name';
+      final start = text.indexOf(token, cursor);
+      if (start < 0) continue;
+      if (start > cursor)
+        spans.add(TextSpan(text: text.substring(cursor, start)));
+      final end = start + token.length;
+      spans.add(TextSpan(
+        text: token,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.tertiary,
+          fontWeight: FontWeight.w700,
+        ),
+      ));
+      cursor = end;
+    }
+    if (cursor == 0) return Text(text);
+    if (cursor < text.length) spans.add(TextSpan(text: text.substring(cursor)));
+    return Text.rich(TextSpan(children: spans));
   }
 
   Future<void> send() async {
@@ -8920,6 +9473,7 @@ class _ChatState extends State<Chat> {
         }
         reply = null;
         mentionedUserIds.clear();
+        _mentionedNamesById.clear();
       });
       unawaited(_persistConversationMessages());
       input.clear();
@@ -11072,7 +11626,8 @@ class _ChatState extends State<Chat> {
                                                       message['mediaUrl']
                                                           .toString())
                                                 else
-                                                  Text(text),
+                                                  _renderMessageText(text,
+                                                      message['mentions']),
                                                 if (message['pending'] ==
                                                     true) ...[
                                                   const Text(
@@ -11295,6 +11850,26 @@ class _ChatState extends State<Chat> {
               ]),
             );
           }),
+        if (_mentionSuggestions.isNotEmpty)
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: math.min(6, _mentionSuggestions.length) * 56.0,
+            ),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _mentionSuggestions.length,
+              itemBuilder: (context, index) {
+                final person = _mentionSuggestions[index];
+                return ListTile(
+                  dense: true,
+                  selected: index == _mentionActiveIndex,
+                  leading: const Icon(Icons.alternate_email, size: 18),
+                  title: Text(person['name']?.toString() ?? 'Chat member'),
+                  onTap: () => _selectMention(person),
+                );
+              },
+            ),
+          ),
         SafeArea(
             child: Row(children: [
           IconButton(
@@ -11320,6 +11895,26 @@ class _ChatState extends State<Chat> {
               if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
               final key = event.logicalKey;
+              if (_mentionSuggestions.isNotEmpty) {
+                if (key == LogicalKeyboardKey.arrowDown ||
+                    key == LogicalKeyboardKey.arrowUp) {
+                  final direction =
+                      key == LogicalKeyboardKey.arrowDown ? 1 : -1;
+                  setState(() => _mentionActiveIndex = (_mentionActiveIndex +
+                          direction +
+                          _mentionSuggestions.length) %
+                      _mentionSuggestions.length);
+                  return KeyEventResult.handled;
+                }
+                if (key == LogicalKeyboardKey.escape) {
+                  setState(() => _mentionSuggestions = []);
+                  return KeyEventResult.handled;
+                }
+                if (key == LogicalKeyboardKey.enter) {
+                  _selectMention(_mentionSuggestions[_mentionActiveIndex]);
+                  return KeyEventResult.handled;
+                }
+              }
               if (key == LogicalKeyboardKey.enter &&
                   !HardwareKeyboard.instance.isShiftPressed) {
                 if (!sending) send();
@@ -11359,9 +11954,13 @@ class _ChatState extends State<Chat> {
               maxLines: 5,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) {
-                if (!sending) send();
+                if (_mentionSuggestions.isNotEmpty) {
+                  _selectMention(_mentionSuggestions[_mentionActiveIndex]);
+                } else if (!sending) {
+                  send();
+                }
               },
-              onChanged: _handleTyping,
+              onChanged: _composerChanged,
               decoration: const InputDecoration(
                 hintText: 'Write a message…',
                 border: InputBorder.none,
