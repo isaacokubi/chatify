@@ -4955,7 +4955,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         feeBalances = List<dynamic>.from(results[1]['balances'] ?? []);
         recordTotal = feeStructures.length;
       } else if (section == 2 || section == 8) {
-        final feesResult = await app.api.call('GET', '/api/schools/$id/fees$pageQuery');
+        final feesResult =
+            await app.api.call('GET', '/api/schools/$id/fees$pageQuery');
         Map<String, dynamic> studentResult = {};
         try {
           // The roster is useful for fee filters and parent student selection,
@@ -5660,14 +5661,23 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Payment status'),
-        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Student: ${payment['studentName'] ?? 'Student'}'),
-          Text('Status: ${payment['status'] ?? 'Unknown'}'),
-          Text('Amount: KSh ${payment['amount'] ?? '—'}'),
-          Text('Method: ${method ?? '—'}'),
-          Text('Reference: ${payment['paymentReference'] ?? '—'}'),
-        ]),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Student: ${payment['studentName'] ?? 'Student'}'),
+            Text('Status: ${payment['status'] ?? 'Unknown'}'),
+            Text('Amount: KSh ${payment['amount'] ?? '—'}'),
+            Text('Method: ${method ?? '—'}'),
+            Text('Reference: ${payment['paymentReference'] ?? '—'}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
