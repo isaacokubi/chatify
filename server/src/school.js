@@ -414,18 +414,11 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const filter = { schoolId: req.params.schoolId, active: true };
       // Non-admin members must not browse the other families' directory entries.
       if (['parent', 'staff'].includes(req.schoolMembership.role)) filter.role = { $in: ['admin','staff'] };
-      if (req.query.role && ['admin','staff','parent'].includes(String(req.query.role))) {
-        if (req.schoolMembership.role === 'admin') filter.role = String(req.query.role);
+      if (req.query.role && ['admin','staff','parent'].includes(String(req.query.role)) && req.schoolMembership.role === 'admin') {
+        filter.role = String(req.query.role);
       }
       if (q) {
-        const safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\      const page = pageOptions(req);
-      const filter = { schoolId: req.params.schoolId, active: true };
-      // Non-admin members must not browse the other families' directory entries.
-      if (['parent', 'staff'].includes(req.schoolMembership.role)) filter.role = { $in: ['admin','staff'] };
-      const [rows, total] = await Promise.all([
-        Membership.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).populate('userId', 'name email').lean(),
-        Membership.countDocuments(filter),
-      ]);');
+        const safe = q.replace(/[.*+?^${}()|[\]\\]/g, (match) => `\\${match}`);
         const users = await User.find({
           $or: [{ name: { $regex: safe, $options: 'i' } }, { email: { $regex: safe, $options: 'i' } }],
         }).select('_id').limit(500).lean();
@@ -540,22 +533,15 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const q = String(req.query.q || '').trim().slice(0, 120);
       const filter = { schoolId: req.params.schoolId, ...visibility };
       if (q) {
-        const safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\      const page = pageOptions(req);
-      const filter = { schoolId: req.params.schoolId, ...visibility };
-      const [messages, total] = await Promise.all([
-        SchoolMessage.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
-        SchoolMessage.countDocuments(filter),
-      ]);
-      return res.json({ messages, total, page: page.page, limit: page.limit });');
+        const safe = q.replace(/[.*+?^${}()|[\]\\]/g, (match) => `\\${match}`);
         const matchingUsers = await User.find({
           $or: [{ name: { $regex: safe, $options: 'i' } }, { email: { $regex: safe, $options: 'i' } }],
         }).select('_id').limit(200).lean();
-        const senderIds = matchingUsers.map(user => user._id);
         filter.$and = [{
           $or: [
             { subject: { $regex: safe, $options: 'i' } },
             { body: { $regex: safe, $options: 'i' } },
-            { senderId: { $in: senderIds } },
+            { senderId: { $in: matchingUsers.map(user => user._id) } },
           ],
         }];
       }
@@ -596,13 +582,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const filter = { schoolId: req.params.schoolId, audience: { $in: audience } };
       const q = String(req.query.q || '').trim().slice(0, 120);
       if (q) {
-        const safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\      const audience = req.schoolMembership.role === 'parent' ? ['all_parents','all_school'] : req.schoolMembership.role === 'staff' ? ['all_staff','all_school'] : ['all_parents','all_staff','all_school'];
-      const page = pageOptions(req), filter = { schoolId: req.params.schoolId, audience: { $in: audience } };
-      const [conferences, total] = await Promise.all([
-        SchoolConference.find(filter).sort({ startsAt: 1 }).skip(page.skip).limit(page.limit).lean(),
-        SchoolConference.countDocuments(filter),
-      ]);
-      return res.json({ conferences, total, page: page.page, limit: page.limit });');
+        const safe = q.replace(/[.*+?^${}()|[\]\\]/g, (match) => `\\${match}`);
         filter.$or = [
           { title: { $regex: safe, $options: 'i' } },
           { agenda: { $regex: safe, $options: 'i' } },
@@ -627,7 +607,6 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       return res.json({ conferences, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
-
 
   // School register, attendance and assessment records. Every query is scoped to school membership.
   const SchoolStudent = model('SchoolStudent', new mongoose.Schema({
