@@ -908,7 +908,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           schoolId: req.params.schoolId, className: registeredStudent.className, term, status: 'ACTIVE',
           ...(requestedAcademicYear ? { academicYear: requestedAcademicYear } : {}),
         };
-        const structure = await SchoolFeeStructure.findOne(structureFilter).sort({ version: -1 }).lean();
+        const structure = await SchoolFeeStructure.findOne(structureFilter).sort({ academicYear: -1, version: -1 }).lean();
         if (!structure) return res.status(409).json({ error: 'No active fee structure is configured for this student’s class and term. Ask the school administrator to configure it first.' });
         const charge = await SchoolStudentCharge.findOne({
           schoolId: req.params.schoolId, studentId: registeredStudent._id,
