@@ -4,6 +4,7 @@
 import { randomUUID, randomBytes, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
 import { createDarajaProvider, normalizeMpesaPhone, resolveCallbackOutcome } from './payments.js';
 import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
+import {normalizeFeeStructureInput, calculateSchoolFeeBalance} from './school-fees.js';
 
 export function encryptSchoolSecret(value, secret = process.env.SCHOOL_PAYMENT_ENCRYPTION_KEY) {
   if (typeof secret !== 'string' || secret.trim().length < 32) throw new Error('School payment encryption is not configured');
@@ -151,6 +152,10 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     schoolId: { type: O, required: true, index: true },
     parentId: { type: O, required: true, index: true },
     studentName: { type: String, required: true, trim: true, maxlength: 100 },
+    studentId: { type: O, ref: 'SchoolStudent', index: true },
+    className: { type: String, trim: true, maxlength: 80 },
+    academicYear: { type: String, trim: true, maxlength: 40 },
+    chargeId: { type: O, ref: 'SchoolStudentCharge', index: true },
     amount: { type: Number, required: true, min: 1, max: 150000 },
     term: { type: String, required: true, trim: true, maxlength: 80 },
     status: { type: String, enum: ['PENDING_STK','PENDING_VERIFICATION','CONFIRMED','FAILED','CANCELLED','REJECTED'], default: 'PENDING_VERIFICATION', index: true },
@@ -169,6 +174,43 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   }, { timestamps: true }));
   FeePayment.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
   FeePayment.schema.index({ checkoutRequestId: 1, merchantRequestId: 1 }, { unique: true, sparse: true });
+
+  // Fee structures are versioned templates. Issued student charges copy the item
+  // list and total so a later edit cannot silently rewrite historical liabilities.
+  const SchoolFeeStructure = model('SchoolFeeStructure', new mongoose.Schema({
+    schoolId: { type: O, required: true, index: true },
+    className: { type: String, required: true, trim: true, maxlength: 80 },
+    academicYear: { type: String, required: true, trim: true, maxlength: 40 },
+    term: { type: String, required: true, trim: true, maxlength: 80 },
+    version: { type: Number, required: true, min: 1 },
+    items: [{ code: { type: String, required: true }, description: { type: String, required: true }, amount: { type: Number, required: true, min: 1 } }],
+    totalAmount: { type: Number, required: true, min: 1 },
+    status: { type: String, enum: ['ACTIVE', 'ARCHIVED'], default: 'ACTIVE', index: true },
+    createdBy: { type: O, required: true },
+    updatedBy: { type: O, required: true },
+    archivedAt: Date,
+  }, { timestamps: true }));
+  SchoolFeeStructure.schema.index({ schoolId: 1, className: 1, academicYear: 1, term: 1, version: 1 }, { unique: true });
+  SchoolFeeStructure.schema.index({ schoolId: 1, className: 1, academicYear: 1, term: 1, status: 1 });
+
+  const SchoolStudentCharge = model('SchoolStudentCharge', new mongoose.Schema({
+    schoolId: { type: O, required: true, index: true },
+    studentId: { type: O, ref: 'SchoolStudent', required: true, index: true },
+    studentName: { type: String, required: true, trim: true, maxlength: 120 },
+    admissionNumber: { type: String, required: true, trim: true, maxlength: 40 },
+    className: { type: String, required: true, trim: true, maxlength: 80 },
+    academicYear: { type: String, required: true, trim: true, maxlength: 40 },
+    term: { type: String, required: true, trim: true, maxlength: 80 },
+    items: [{ code: { type: String, required: true }, description: { type: String, required: true }, amount: { type: Number, required: true, min: 1 } }],
+    totalAmount: { type: Number, required: true, min: 1 },
+    credits: { type: Number, default: 0, min: 0 },
+    structureId: { type: O, ref: 'SchoolFeeStructure', required: true },
+    structureVersion: { type: Number, required: true },
+    issuedBy: { type: O, required: true },
+    issuedAt: { type: Date, default: Date.now },
+  }, { timestamps: true }));
+  SchoolStudentCharge.schema.index({ schoolId: 1, studentId: 1, academicYear: 1, term: 1 }, { unique: true });
+  SchoolStudentCharge.schema.index({ schoolId: 1, className: 1, academicYear: 1, term: 1 });
 
   // Bounded server-side pagination for every school register.
   function pageOptions(req) {
@@ -546,6 +588,113 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     }
     return filter;
   }
+
+  // Administrators version a class/term template; the server never trusts client totals.
+  app.get('/api/schools/:schoolId/fee-structures', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const filter = { schoolId: req.params.schoolId };
+      if (req.query.includeArchived !== 'true') filter.status = 'ACTIVE';
+      const page = pageOptions(req);
+      const [structures, total] = await Promise.all([
+        SchoolFeeStructure.find(filter).sort({ className: 1, academicYear: -1, term: 1, version: -1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolFeeStructure.countDocuments(filter),
+      ]);
+      return res.json({ structures, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/fee-structures', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const input = normalizeFeeStructureInput(req.body);
+      if (!input) return res.status(400).json({ error: 'Enter a class, academic year, term, and 1–100 unique positive whole-KSh fee items.' });
+      const classExists = await SchoolStudent.exists({ schoolId: req.params.schoolId, className: input.className, active: true });
+      if (!classExists) return res.status(400).json({ error: 'Choose a class/grade that exists in this school’s active student register.' });
+      const key = { schoolId: req.params.schoolId, className: input.className, academicYear: input.academicYear, term: input.term };
+      const previousActive = await SchoolFeeStructure.findOne({ ...key, status: 'ACTIVE' }).lean();
+      const latest = await SchoolFeeStructure.findOne(key).sort({ academicYear: -1, version: -1 }).lean();
+      const version = Number(latest?.version || 0) + 1;
+      if (previousActive) {
+        await SchoolFeeStructure.updateOne({ _id: previousActive._id, status: 'ACTIVE' }, { $set: { status: 'ARCHIVED', archivedAt: new Date(), updatedBy: req.user._id } });
+      }
+      try {
+        const structure = await SchoolFeeStructure.create({
+          ...key, ...input, version, status: 'ACTIVE',
+          createdBy: req.user._id, updatedBy: req.user._id,
+        });
+        return res.status(201).json({ structure, previousVersionArchived: Boolean(previousActive), note: 'This is a new version. Already-issued student charges are unchanged; issue this version only to students who do not already have a charge for this period.' });
+      } catch (error) {
+        // Restore the previous active version if a competing update wins the unique version/active transition.
+        if (previousActive) {
+          const anotherActive = await SchoolFeeStructure.exists({ ...key, status: 'ACTIVE' });
+          if (!anotherActive) await SchoolFeeStructure.updateOne({ _id: previousActive._id }, { $set: { status: 'ACTIVE' }, $unset: { archivedAt: 1 } });
+        }
+        if (error?.code === 11000) return res.status(409).json({ error: 'Another administrator updated this fee structure concurrently. Refresh the list and retry.' });
+        throw error;
+      }
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/fee-structures/:structureId/issue', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.structureId)) return res.status(400).json({ error: 'Invalid fee structure id' });
+      const structure = await SchoolFeeStructure.findOne({ _id: req.params.structureId, schoolId: req.params.schoolId, status: 'ACTIVE' }).lean();
+      if (!structure) return res.status(404).json({ error: 'Active fee structure not found in this school' });
+      const enrolled = await SchoolStudent.find({ schoolId: req.params.schoolId, className: structure.className, active: true })
+        .select('_id fullName admissionNumber className').lean();
+      if (!enrolled.length) return res.status(409).json({ error: 'There are no active students in this class to receive charges.' });
+      const operations = enrolled.map(student => ({
+        updateOne: {
+          filter: { schoolId: structure.schoolId, studentId: student._id, academicYear: structure.academicYear, term: structure.term },
+          update: { $setOnInsert: {
+            schoolId: structure.schoolId, studentId: student._id, studentName: student.fullName,
+            admissionNumber: student.admissionNumber, className: student.className,
+            academicYear: structure.academicYear, term: structure.term,
+            items: structure.items, totalAmount: structure.totalAmount, credits: 0,
+            structureId: structure._id, structureVersion: structure.version, issuedBy: req.user._id, issuedAt: new Date(),
+          } },
+          upsert: true,
+        },
+      }));
+      const result = await SchoolStudentCharge.bulkWrite(operations, { ordered: false });
+      return res.json({
+        studentsInClass: enrolled.length,
+        chargesCreated: result.upsertedCount || 0,
+        existingChargesPreserved: enrolled.length - (result.upsertedCount || 0),
+        note: 'Issuing is idempotent. Existing student charges are not overwritten by a later fee-structure version.',
+      });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/fee-balances', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+      const studentIds = visibleStudents.map(student => student._id);
+      const chargeFilter = { schoolId: req.params.schoolId, studentId: { $in: studentIds } };
+      if (req.query.academicYear) chargeFilter.academicYear = String(req.query.academicYear).trim().slice(0, 40);
+      if (req.query.term) chargeFilter.term = String(req.query.term).trim().slice(0, 80);
+      const charges = await SchoolStudentCharge.find(chargeFilter).sort({ className: 1, studentName: 1, academicYear: -1, term: 1 }).lean();
+      const chargeIds = charges.map(charge => charge.studentId);
+      const payments = chargeIds.length ? await FeePayment.find({
+        schoolId: req.params.schoolId, studentId: { $in: chargeIds }, status: 'CONFIRMED',
+      }).select('studentId academicYear term amount status').lean() : [];
+      const byPeriod = new Map();
+      for (const payment of payments) {
+        const key = [String(payment.studentId), String(payment.academicYear || ''), String(payment.term || '')].join('|');
+        byPeriod.set(key, [...(byPeriod.get(key) || []), payment]);
+      }
+      const balances = charges.map(charge => {
+        const key = [String(charge.studentId), charge.academicYear, charge.term].join('|');
+        const calculated = calculateSchoolFeeBalance({
+          chargeAmount: charge.totalAmount,
+          credits: charge.credits || 0,
+          payments: byPeriod.get(key) || [],
+        });
+        return { ...charge, ...calculated, chargeId: String(charge._id) };
+      });
+      return res.json({ balances, total: balances.length });
+    } catch (error) { return next(error); }
+  });
+
   async function schoolVisibleStudents(req, page = pageOptions(req)) {
     return SchoolStudent.find(schoolStudentFilter(req)).sort({ className: 1, fullName: 1 }).skip(page.skip).limit(page.limit).lean();
   }
@@ -744,9 +893,33 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const registeredStudent = await SchoolStudent.findOne({
         schoolId: req.params.schoolId, active: true,
         $expr: { $eq: [{ $toLower: '$fullName' }, studentName.toLowerCase()] },
-      }).select('_id').lean();
+      }).select('_id fullName admissionNumber className').lean();
       if (!registeredStudent) return res.status(404).json({ error: 'This student is not in the school register yet. Contact the school office to link the correct registered pupil.' });
       if (!Number.isSafeInteger(amount) || amount < 1 || amount > 150000 || !term || term.length > 80) return res.status(400).json({ error: 'Enter a valid whole-KSh amount and school term' });
+      const requestedAcademicYear = String(req.body?.academicYear || '').trim().slice(0, 40);
+      let feeContext = { studentId: registeredStudent._id, className: registeredStudent.className, academicYear: requestedAcademicYear || 'unspecified' };
+      const schoolHasFeeStructures = await SchoolFeeStructure.exists({ schoolId: req.params.schoolId, status: 'ACTIVE' });
+      if (schoolHasFeeStructures) {
+        const structureFilter = {
+          schoolId: req.params.schoolId, className: registeredStudent.className, term, status: 'ACTIVE',
+          ...(requestedAcademicYear ? { academicYear: requestedAcademicYear } : {}),
+        };
+        const structure = await SchoolFeeStructure.findOne(structureFilter).sort({ version: -1 }).lean();
+        if (!structure) return res.status(409).json({ error: 'No active fee structure is configured for this student’s class and term. Ask the school administrator to configure it first.' });
+        const charge = await SchoolStudentCharge.findOne({
+          schoolId: req.params.schoolId, studentId: registeredStudent._id,
+          academicYear: structure.academicYear, term,
+        }).lean();
+        if (!charge) return res.status(409).json({ error: 'Fees have not been issued to this student for the selected period. Ask the school administrator to issue the class fee structure.' });
+        const confirmedPayments = await FeePayment.find({
+          schoolId: req.params.schoolId, studentId: registeredStudent._id,
+          academicYear: structure.academicYear, term, status: 'CONFIRMED',
+        }).select('amount status').lean();
+        const balance = calculateSchoolFeeBalance({ chargeAmount: charge.totalAmount, credits: charge.credits || 0, payments: confirmedPayments });
+        if (balance.balance <= 0) return res.status(409).json({ error: 'There is no outstanding balance for this student and period.' });
+        if (amount > balance.balance) return res.status(400).json({ error: 'Payment amount cannot exceed the current outstanding balance.', outstandingBalance: balance.balance });
+        feeContext = { studentId: registeredStudent._id, className: registeredStudent.className, academicYear: structure.academicYear, chargeId: charge._id };
+      }
       const school = await School.findById(req.params.schoolId).select('+paymentProfile.darajaConsumerKeyEnc +paymentProfile.darajaConsumerSecretEnc +paymentProfile.darajaPasskeyEnc').lean();
       const requestedMethod = String(req.body?.paymentMethod || school?.paymentProfile?.method || '');
       if (!['mpesa_paybill','mpesa_till','mpesa_send_money','bank'].includes(requestedMethod)) return res.status(400).json({ error: 'Choose one of the school’s configured fee payment methods.' });
@@ -759,7 +932,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         }
         if (!officialPhone) return res.status(409).json({ error: 'The school has not configured a verified M-Pesa phone number for Send Money.' });
         const paymentReference = 'SCH-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
-        const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, paymentMethod: requestedMethod, destinationNumber: officialPhone, status: 'PENDING_VERIFICATION' });
+        const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, ...feeContext, paymentMethod: requestedMethod, destinationNumber: officialPhone, status: 'PENDING_VERIFICATION' });
         return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status }, paymentDestination: { method: requestedMethod, officialPhone }, note: 'Send the amount to the school’s configured M-Pesa phone using Send Money. This record remains pending until school staff verify the M-Pesa receipt.' });
       }
       if (requestedMethod !== school.paymentProfile.method) return res.status(409).json({ error: 'The selected Till, Paybill or bank destination is not configured for this school.' });
@@ -768,7 +941,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       if (isMpesa && (!school.paymentProfile.darajaConsumerKeyEnc || !school.paymentProfile.darajaConsumerSecretEnc || !school.paymentProfile.darajaPasskeyEnc)) return res.status(409).json({ error: 'This school has configured a Paybill/Till destination but has not completed its own Daraja STK Push setup. Contact the school administrator; no payment prompt has been sent.' });
       const paymentReference = 'SCH-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
       const destinationNumber = requestedMethod === 'mpesa_paybill' ? school.paymentProfile.paybillNumber : requestedMethod === 'mpesa_till' ? school.paymentProfile.tillNumber : undefined;
-      const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, paymentMethod: requestedMethod, destinationNumber, ...(isMpesa ? { payerPhone: phone, status: 'PENDING_STK' } : { status: 'PENDING_VERIFICATION' }) });
+      const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, ...feeContext, paymentMethod: requestedMethod, destinationNumber, ...(isMpesa ? { payerPhone: phone, status: 'PENDING_STK' } : { status: 'PENDING_VERIFICATION' }) });
       if (isMpesa) {
         try {
           const provider = providerForSchool(school);
