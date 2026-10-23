@@ -117,3 +117,12 @@ Automated CI does not prove successful live Safaricom Daraja delivery, productio
 Passwords are bcrypt-hashed. JWTs protect REST and Socket.IO. Server-side membership/admin checks protect conversations and groups. Helmet, CORS and rate limiting are enabled. Secrets are excluded by Git ignore rules. New text-message bodies are encrypted on the client, but legacy messages, attachments, Memory Cards, multi-device recovery and forward secrecy are not yet covered; do not claim the whole system is fully end-to-end encrypted. Message expiration is application-level removal/hiding and is not cryptographic secure deletion. See [docs/E2EE.md](docs/E2EE.md) for the threat model and production gates.
 
 See docs/ for the defense-oriented architecture, API, database, development, security and demo notes.
+
+
+## School fee structures and balances
+
+School administrators can configure versioned fees by class/grade, academic year and term from the School workspace's **Fee setup** section. Fee items use whole-KSh amounts; the server validates the items and computes the total. An administrator then issues the selected active structure to enrolled students. Issued charges are immutable snapshots, so changing a fee template does not silently rewrite existing student debts.
+
+The School Fees view includes balances calculated from issued charges and linked **confirmed** payments. Pending or failed STK requests do not reduce the balance. A manually verified payment reversal can be recorded by a school administrator through the documented API; this records an audit trail but does not automatically discover reversals from Safaricom. Legacy payments that lack stable student/period IDs require reconciliation before being included in the new charge ledger.
+
+See [School workspace documentation](docs/SCHOOL_WORKSPACE.md), [API reference](docs/API.md), and [Development and test instructions](docs/DEVELOPMENT.md) for endpoint contracts, historical-charge behavior, and tests. The feature branch's CI checks are still running; do not treat this documentation update as evidence that tests have passed.
