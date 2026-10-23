@@ -15,29 +15,43 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   int playCalls = 0;
   int pauseCalls = 0;
   int disposeCalls = 0;
+  final Set<int> _playingPlayers = {};
   final Map<int, StreamController<VideoEvent>> _events = {};
   final List<String> requestedUris = [];
+
+  @override
+  Future<void> init() async {}
 
   @override
   Future<int?> createWithOptions(VideoCreationOptions options) async {
     final id = _nextId++;
     requestedUris.add(options.dataSource.uri ?? '');
-    final controller = StreamController<VideoEvent>.broadcast();
+    late final StreamController<VideoEvent> controller;
+    controller = StreamController<VideoEvent>.broadcast(
+      onListen: () {
+        scheduleMicrotask(() {
+          if (!controller.isClosed) {
+            controller.add(VideoEvent(
+              eventType: VideoEventType.initialized,
+              duration: const Duration(seconds: 20),
+              size: const Size(640, 360),
+            ));
+          }
+        });
+      },
+    );
     _events[id] = controller;
-    Timer.run(() => controller.add(VideoEvent(
-          eventType: VideoEventType.initialized,
-          duration: const Duration(seconds: 20),
-          size: const Size(640, 360),
-        )));
     return id;
   }
 
   @override
-  Stream<VideoEvent> videoEventsFor(int playerId) => _events[playerId]!.stream;
+  Stream<VideoEvent> videoEventsFor(int playerId) =>
+      _events[playerId]!.stream;
 
   @override
   Future<void> play(int playerId) async {
     playCalls++;
+    _playingPlayers.add(playerId);
     _events[playerId]?.add(VideoEvent(
       eventType: VideoEventType.isPlayingStateUpdate,
       isPlaying: true,
@@ -46,7 +60,10 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
 
   @override
   Future<void> pause(int playerId) async {
-    pauseCalls++;
+    // video_player sends an initial pause while applying the controller's
+    // default isPlaying=false state. Count only an actual playing-to-paused
+    // transition so this tracks the viewer's user action.
+    if (_playingPlayers.remove(playerId)) pauseCalls++;
     _events[playerId]?.add(VideoEvent(
       eventType: VideoEventType.isPlayingStateUpdate,
       isPlaying: false,
@@ -56,6 +73,7 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Future<void> dispose(int playerId) async {
     disposeCalls++;
+    _playingPlayers.remove(playerId);
     await _events.remove(playerId)?.close();
   }
 
@@ -80,6 +98,15 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
 }
 
 void main() {
+  test('school fee payment method labels are stable and legacy-safe', () {
+    expect(schoolPaymentMethodLabel('mpesa_paybill'), 'M-Pesa Paybill');
+    expect(schoolPaymentMethodLabel('mpesa_till'), 'M-Pesa Till');
+    expect(schoolPaymentMethodLabel('mpesa_send_money'), 'M-Pesa Send Money');
+    expect(schoolPaymentMethodLabel('bank'), 'Bank transfer');
+    expect(schoolPaymentMethodLabel(null), '—');
+    expect(schoolPaymentMethodLabel('unsupported'), '—');
+  });
+
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
 
   test('sparkle memory extraction works locally on decrypted message text', () {
@@ -605,6 +632,10 @@ void main() {
         widget is TextField &&
         widget.decoration?.labelText ==
             'Your M-Pesa phone receiving the STK prompt');
+    for (var i = 0; i < 5 && phoneField.evaluate().isEmpty; i++) {
+      await tester.dragFrom(const Offset(400, 1100), const Offset(0, -800));
+      await tester.pumpAndSettle();
+    }
     expect(phoneField, findsOneWidget);
     expect(tester.widget<TextField>(phoneField).controller?.text, '0711222333');
     await tester.enterText(phoneField, '0700111222');
@@ -1019,6 +1050,10 @@ void main() {
     await tester.tap(find.byTooltip('Close Spark viewer'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    });
+    await tester.pump();
     expect(videoPlatform.disposeCalls, greaterThanOrEqualTo(1));
     await tester.tapAt(
         tester.getCenter(find.text('Your Spark')) + const Offset(0, -30));

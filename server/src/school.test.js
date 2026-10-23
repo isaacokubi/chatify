@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeSchoolPaymentProfile, encryptSchoolSecret, decryptSchoolSecret, resolveSchoolMessageDestination } from './school.js';
+import { normalizeSchoolPaymentProfile, encryptSchoolSecret, decryptSchoolSecret, resolveSchoolMessageDestination, schoolPaymentMethodLabel } from './school.js';
 import { createEmailProvider } from './providers.js';
 
 test('accepts a valid school Paybill profile and removes spaces', () => {
@@ -20,6 +20,17 @@ test('requires both bank name and account number for bank transfer', () => {
 
 test('rejects unsupported payment methods', () => {
   assert.throws(() => normalizeSchoolPaymentProfile({ method: 'cash' }), /Choose M-Pesa/);
+});
+
+test('school payment method labels cover supported methods and leave unknown legacy data unresolved', () => {
+  assert.deepEqual([
+    schoolPaymentMethodLabel('mpesa_paybill'),
+    schoolPaymentMethodLabel('mpesa_till'),
+    schoolPaymentMethodLabel('mpesa_send_money'),
+    schoolPaymentMethodLabel('bank'),
+  ], ['M-Pesa Paybill', 'M-Pesa Till', 'M-Pesa Send Money', 'Bank transfer']);
+  assert.equal(schoolPaymentMethodLabel(undefined), null);
+  assert.equal(schoolPaymentMethodLabel('cash'), null);
 });
 
 test('encrypts school Daraja secrets and only decrypts with the correct key', () => {

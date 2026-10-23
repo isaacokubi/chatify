@@ -286,8 +286,17 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   bool _paused = false;
   bool _mediaError = false;
   bool _initialLoadStarted = false;
+  int _loadGeneration = 0;
+  int? _loadingIndex;
+  bool _playbackActionPending = false;
+  bool _longPressStarted = false;
+  bool _longPressPausedVideo = false;
+  bool _closing = false;
+  final Map<VideoPlayerController, Future<void>> _controllerDisposals = {};
 
   Map<String, dynamic> get _item => widget.items[_index];
+
+
 
   @override
   void initState() {
@@ -300,13 +309,11 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // The dialog's inherited MediaQuery is available here. Start exactly once
-    // when the viewer is attached to its route instead of relying on a queued
-    // post-frame callback during route transitions.
-    if (!_initialLoadStarted) {
-      _initialLoadStarted = true;
-      unawaited(_loadItem());
-    }
+    // MediaQuery is available here, and the guard prevents rebuilds from
+    // restarting playback or creating duplicate video controllers.
+    if (_initialLoadStarted) return;
+    _initialLoadStarted = true;
+    unawaited(_loadItem());
   }
 
   void _onProgressStatus(AnimationStatus status) {
@@ -320,6 +327,10 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
     // created.
     final disableAnimations =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final itemIndex = _index;
+    if (_loadingIndex == itemIndex) return;
+    final generation = ++_loadGeneration;
+    _loadingIndex = itemIndex;
     _progress.stop();
     _progress.value = 0;
     // Capture the item and detach the previous controller before awaiting.
@@ -332,13 +343,19 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
     _mediaError = false;
     _paused = false;
     if (previousVideo != null) {
-      await previousVideo.dispose();
-      if (!mounted) return;
+      await _releaseVideo(previousVideo);
+      if (!mounted || generation != _loadGeneration || itemIndex != _index) {
+        return;
+      }
+    }
+    if (!mounted || generation != _loadGeneration || itemIndex != _index) {
+      return;
     }
     widget.onViewed(item);
     if (item['mediaType'] == 'video') {
       final url = item['mediaUrl']?.toString() ?? '';
       if (!url.startsWith('https://')) {
+        _loadingIndex = null;
         if (mounted) setState(() => _mediaError = true);
         return;
       }
@@ -346,24 +363,55 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
       _video = controller;
       try {
         await controller.initialize();
-        if (!mounted || _video != controller) return;
+        if (!mounted ||
+            generation != _loadGeneration ||
+            itemIndex != _index ||
+            _video != controller) {
+          await _releaseVideo(controller);
+          return;
+        }
         controller.addListener(_onVideoUpdate);
         setState(() {});
-        try {
-          await controller.play();
-        } catch (_) {
-          // Browser autoplay policies may require the user's direct gesture.
-          if (mounted && _video == controller) setState(() {});
-        }
+        await _playVideo(controller);
       } catch (_) {
         if (mounted && _video == controller) {
           setState(() => _mediaError = true);
         }
+      } finally {
+        if (generation == _loadGeneration && _loadingIndex == itemIndex) {
+          _loadingIndex = null;
+        }
       }
       return;
     }
+    _loadingIndex = null;
     if (!disableAnimations) _progress.forward();
   }
+
+  Future<void> _playVideo(VideoPlayerController controller) async {
+    if (!controller.value.isInitialized || controller.value.isPlaying) return;
+    try {
+      await controller.play();
+    } catch (_) {
+      // Browser autoplay policies may require the user's direct gesture.
+      if (mounted && _video == controller) setState(() {});
+    }
+  }
+
+  Future<void> _pauseVideo(VideoPlayerController controller) async {
+    if (!controller.value.isInitialized || !controller.value.isPlaying) return;
+    try {
+      await controller.pause();
+    } catch (_) {
+      if (mounted && _video == controller) setState(() {});
+    }
+  }
+
+  Future<void> _releaseVideo(VideoPlayerController controller) =>
+      _controllerDisposals.putIfAbsent(controller, () {
+        controller.removeListener(_onVideoUpdate);
+        return controller.dispose();
+      });
 
   void _onVideoUpdate() {
     final controller = _video;
@@ -379,26 +427,43 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   }
 
   void _advance(int amount) {
-    if (!mounted) return;
+    if (!mounted || _closing) return;
     final next = _index + amount;
     if (next < 0) return;
     if (next >= widget.items.length) {
-      Navigator.of(context).pop();
+      unawaited(_closeViewer());
       return;
     }
     setState(() => _index = next);
     _loadItem();
   }
 
+  Future<void> _closeViewer() async {
+    if (_closing) return;
+    _closing = true;
+    ++_loadGeneration;
+    final controller = _video;
+    _video = null;
+    final release = controller == null ? null : _releaseVideo(controller);
+    if (mounted) Navigator.of(context).pop();
+    if (release != null) await release;
+  }
+
   void _togglePause() {
+    if (_playbackActionPending) return;
     final video = _video;
     if (video != null && video.value.isInitialized) {
-      if (video.value.isPlaying) {
-        video.pause();
+      _playbackActionPending = true;
+      if (video.value.isPlaying && !_paused) {
         setState(() => _paused = true);
+        unawaited(_pauseVideo(video).whenComplete(() {
+          _playbackActionPending = false;
+        }));
       } else {
-        video.play();
         setState(() => _paused = false);
+        unawaited(_playVideo(video).whenComplete(() {
+          _playbackActionPending = false;
+        }));
       }
     } else if (_paused) {
       setState(() => _paused = false);
@@ -437,7 +502,7 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
     final controller = _video;
     if (controller == null) return;
     try {
-      await controller.play();
+      await _playVideo(controller);
       if (mounted) setState(() => _mediaError = false);
     } catch (_) {
       if (mounted) setState(() => _mediaError = true);
@@ -546,9 +611,11 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
 
   @override
   void dispose() {
+    ++_loadGeneration;
     _progress.dispose();
-    _video?.removeListener(_onVideoUpdate);
-    _video?.dispose();
+    final controller = _video;
+    _video = null;
+    if (controller != null) unawaited(_releaseVideo(controller));
     super.dispose();
   }
 
@@ -563,8 +630,18 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
       color: Colors.black,
       child: SafeArea(
         child: GestureDetector(
-          onLongPressStart: (_) => _togglePause(),
-          onLongPressEnd: (_) => _togglePause(),
+          onLongPressStart: (_) {
+            _longPressStarted = true;
+            _longPressPausedVideo = !_paused;
+            if (_longPressPausedVideo) _togglePause();
+          },
+          onLongPressEnd: (_) {
+            if (_longPressStarted) {
+              _longPressStarted = false;
+              if (_longPressPausedVideo && _paused) _togglePause();
+              _longPressPausedVideo = false;
+            }
+          },
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -672,7 +749,7 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
                     IconButton(
                       tooltip: 'Close Spark viewer',
                       color: Colors.white,
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: _closeViewer,
                       icon: const Icon(Icons.close),
                     ),
                   ],
@@ -910,6 +987,17 @@ class _OfflineCachedImageState extends State<OfflineCachedImage> {
 // Represents a readable API failure so screens can show a useful message instead of raw transport errors.
 // Builds a portable PDF receipt from a confirmed school-fee record.
 // The authenticated receipt endpoint is checked before this function is called.
+String schoolPaymentMethodLabel(dynamic value) {
+  final method = value?.toString().trim().toLowerCase();
+  return switch (method) {
+    'mpesa_paybill' => 'M-Pesa Paybill',
+    'mpesa_till' => 'M-Pesa Till',
+    'mpesa_send_money' => 'M-Pesa Send Money',
+    'bank' => 'Bank transfer',
+    _ => '—',
+  };
+}
+
 Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
   String safe(dynamic value) => (value ?? '')
       .toString()
@@ -929,7 +1017,7 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
       payment['updatedAt'] ??
       payment['createdAt'] ??
       DateTime.now().toIso8601String();
-  final method = payment['paymentMethod'] ?? payment['method'];
+  final method = schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']);
   final lines = <String>[
     'CHATIFY - SCHOOL FEE RECEIPT',
     '-----------------------------------------------',
@@ -940,7 +1028,7 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     'Amount received: KES ' + safe(amount),
     'Payment status: ' + safe(payment['status'] ?? 'CONFIRMED'),
     'Payment date: ' + safe(paidAt),
-    if (method != null) 'Payment method: ' + safe(method),
+    'Payment method: ' + safe(method),
     '',
     'This receipt is available for a fee record marked CONFIRMED.',
     'Keep the reference above for school payment enquiries.',
@@ -2023,7 +2111,8 @@ class AppState extends ChangeNotifier {
       messageEventVersion++;
       notifyListeners();
       if (senderId != null && senderId.isNotEmpty && senderId != currentId) {
-        unawaited(SystemSound.play(SystemSoundType.alert));
+        // One short platform alert for incoming messages, not outgoing messages.
+        unawaited(SystemSound.play(SystemSoundType.alert).catchError((_) {}));
       }
     });
     _presenceSocket!.on('presence:initial', (data) {
@@ -4545,6 +4634,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   bool schoolBillingLoading = false;
   bool loading = false;
   int section = 0, recordPage = 1, recordTotal = 0;
+  // Local search and class filtering for school record views.
+  String schoolSearchQuery = '';
+  String schoolClassFilter = 'all';
+  final TextEditingController schoolSearchController = TextEditingController();
   static const int _recordPageSize = 20;
   final schoolName = TextEditingController(),
       schoolCode = TextEditingController(),
@@ -4669,6 +4762,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     ]) {
       c.dispose();
     }
+    schoolSearchController.dispose();
     super.dispose();
   }
 
@@ -4700,6 +4794,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   void _selectSchool(Map<String, dynamic> s) {
     schoolId = s['id']?.toString();
+    // A previous school's class/search filters must never leak into another workspace.
+    schoolSearchQuery = '';
+    schoolSearchController.clear();
+    schoolClassFilter = 'all';
     role = s['role']?.toString();
     isOwner = s['isOwner'] == true;
     schoolCode.text = (s['code'] ?? '').toString();
@@ -4857,12 +4955,18 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         feeBalances = List<dynamic>.from(results[1]['balances'] ?? []);
         recordTotal = feeStructures.length;
       } else if (section == 2 || section == 8) {
-        final results = await Future.wait([
-          app.api.call('GET', '/api/schools/$id/fees$pageQuery'),
-          if (section == 2 && role == 'parent')
-            app.api.call('GET', '/api/schools/$id/students?page=1&limit=100'),
-        ]);
-        final r = results.first;
+        final feesResult = await app.api.call('GET', '/api/schools/$id/fees$pageQuery');
+        Map<String, dynamic> studentResult = {};
+        try {
+          // The roster is useful for fee filters and parent student selection,
+          // but a roster failure must not hide the fee payment form.
+          studentResult = await app.api.call(
+              'GET', '/api/schools/$id/students?page=1&limit=100');
+          students = List<dynamic>.from(studentResult['students'] ?? []);
+        } catch (_) {
+          students = [];
+        }
+        final r = feesResult;
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         fees = List<dynamic>.from(r['payments'] ?? []);
         feePaymentOptions = r['paymentOptions'] is Map
@@ -4916,8 +5020,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 options.isEmpty ? '' : options.first['value']!.toString();
           }
         }
-        if (section == 2 && role == 'parent' && results.length > 1) {
-          feeStudents = List<dynamic>.from(results[1]['students'] ?? []);
+        if (section == 2 && role == 'parent') {
+          feeStudents = List<dynamic>.from(studentResult['students'] ?? []);
           if (!feeStudents.any(
               (student) => student['fullName']?.toString() == feeStudentName)) {
             feeStudentName = feeStudents.isNotEmpty
@@ -4970,6 +5074,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       error = e.toString();
     }
     if (mounted) setState(() => loading = false);
+  }
+
+  String _selectedParentFeePaymentMethod() {
+    final options = _parentFeePaymentOptions();
+    if (options.any((option) => option['value'] == parentFeePaymentMethod)) {
+      return parentFeePaymentMethod;
+    }
+    return options.isEmpty ? '' : options.first['value']!;
   }
 
   List<Map<String, String>> _parentFeePaymentOptions() {
@@ -5117,82 +5229,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         ),
       );
     });
-  }
-
-  Widget _attendanceMatrix(List<dynamic> records) {
-    final dates = records
-        .whereType<Map>()
-        .map((record) => record['date']?.toString().split('T').first ?? '')
-        .where((date) => date.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    final visibleStudents = students.whereType<Map>().toList();
-    final tableStudents = visibleStudents.isNotEmpty
-        ? visibleStudents
-        : records
-            .whereType<Map>()
-            .fold<Map<String, Map>>({}, (grouped, record) {
-              final id = record['studentId']?.toString() ?? '';
-              if (id.isNotEmpty) grouped[id] = record;
-              return grouped;
-            })
-            .values
-            .toList();
-    return _responsiveSchoolTable(
-      columns: [
-        const DataColumn(label: Text('Student')),
-        const DataColumn(label: Text('Admission no.')),
-        const DataColumn(label: Text('Class / grade')),
-        for (final date in dates) DataColumn(label: Text(date)),
-        if (role != 'parent') const DataColumn(label: Text('Actions')),
-      ],
-      rows: tableStudents.map((raw) {
-        final student = Map<String, dynamic>.from(raw);
-        final id = (student['_id'] ?? student['studentId'])?.toString() ?? '';
-        final studentRecords = records
-            .whereType<Map>()
-            .where(
-              (record) => record['studentId']?.toString() == id,
-            )
-            .toList();
-        return DataRow(cells: [
-          DataCell(Text(
-              (student['fullName'] ?? student['studentName'] ?? 'Student')
-                  .toString())),
-          DataCell(Text((student['admissionNumber'] ?? '').toString())),
-          DataCell(Text((student['className'] ?? '').toString())),
-          for (final date in dates)
-            DataCell(Text(_attendanceStatus(studentRecords, date))),
-          if (role != 'parent')
-            DataCell(Wrap(
-              spacing: 2,
-              children: [
-                for (final record in studentRecords)
-                  IconButton(
-                    tooltip:
-                        'Delete attendance for ${record['date']?.toString().split('T').first ?? ''}',
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => _removeSchoolRecord(
-                      label: 'attendance record',
-                      endpoint: 'attendance/${record['_id']}',
-                    ),
-                  ),
-              ],
-            )),
-        ]);
-      }).toList(),
-    );
-  }
-
-  String _attendanceStatus(List<Map> records, String date) {
-    for (final record in records) {
-      if (record['date']?.toString().split('T').first == date) {
-        return record['status']?.toString().toUpperCase() ?? '—';
-      }
-    }
-    return '—';
   }
 
   Future<void> _removeSchoolRecord(
@@ -5617,6 +5653,25 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     receiptController.dispose();
   }
 
+  Future<void> showFeePaymentStatus(Map<String, dynamic> payment) async {
+    final method = payment['paymentMethodLabel'] ??
+        schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Payment status'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Student: ${payment['studentName'] ?? 'Student'}'),
+          Text('Status: ${payment['status'] ?? 'Unknown'}'),
+          Text('Amount: KSh ${payment['amount'] ?? '—'}'),
+          Text('Method: ${method ?? '—'}'),
+          Text('Reference: ${payment['paymentReference'] ?? '—'}'),
+        ]),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+      ),
+    );
+  }
+
   Future<void> resendSchoolReceipt(Map<String, dynamic> payment) async {
     final id = schoolId;
     if (id == null) return;
@@ -5886,19 +5941,82 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   @override
   Widget build(BuildContext context) {
     final isAdmin = role == 'admin' && isOwner;
-    final visibleAttendance = role == 'parent' && attendanceStudentId.isNotEmpty
-        ? attendance
-            .where(
-                (item) => item['studentId']?.toString() == attendanceStudentId)
-            .toList()
-        : attendance;
-    final visibleAssessments = role == 'parent' &&
-            assessmentStudentId.isNotEmpty
-        ? assessments
-            .where(
-                (item) => item['studentId']?.toString() == assessmentStudentId)
-            .toList()
-        : assessments;
+    final searchNeedle = schoolSearchQuery.trim().toLowerCase();
+    final schoolClasses = students
+        .whereType<Map>()
+        .map((student) => (student['className'] ?? '').toString().trim())
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    String searchableSchoolText(dynamic value) {
+      if (value == null) return '';
+      if (value is Map) {
+        return value.entries
+            .map((entry) =>
+                '${entry.key} ${searchableSchoolText(entry.value)}')
+            .join(' ')
+            .toLowerCase();
+      }
+      if (value is Iterable) {
+        return value.map(searchableSchoolText).join(' ').toLowerCase();
+      }
+      return value.toString().toLowerCase();
+    }
+
+    bool matchesSchoolRecord(dynamic raw, {bool applyClassFilter = true}) {
+      if (raw is! Map) return false;
+      if (applyClassFilter && schoolClassFilter != 'all') {
+        final rawClass = (raw['className'] ?? '').toString().trim();
+        if (rawClass != schoolClassFilter) {
+          final studentId = (raw['studentId'] ?? '').toString();
+          final studentName = (raw['studentName'] ?? '').toString().trim().toLowerCase();
+          final linked = students.whereType<Map>().where((student) =>
+              (studentId.isNotEmpty &&
+                  (student['_id'] ?? '').toString() == studentId) ||
+              (studentName.isNotEmpty &&
+                  (student['fullName'] ?? '').toString().trim().toLowerCase() ==
+                      studentName)).toList();
+          if (linked.isEmpty ||
+              (linked.first['className'] ?? '').toString().trim() !=
+                  schoolClassFilter) {
+            return false;
+          }
+        }
+      }
+      return searchNeedle.isEmpty ||
+          searchableSchoolText(raw).contains(searchNeedle);
+    }
+
+    List<dynamic> filterSchoolRecords(
+      List<dynamic> records, {
+      bool applyClassFilter = true,
+    }) =>
+        records
+            .where((record) => matchesSchoolRecord(
+                  record,
+                  applyClassFilter: applyClassFilter,
+                ))
+            .toList();
+
+    final visibleStudents = filterSchoolRecords(students);
+    final visibleMembers =
+        filterSchoolRecords(members, applyClassFilter: false);
+    final visibleFees = filterSchoolRecords(fees);
+    final visibleReceipts = visibleFees
+        .where((payment) => payment is Map && payment['status'] == 'CONFIRMED')
+        .toList();
+    final visibleFeeBalances = filterSchoolRecords(feeBalances);
+    final visibleAttendance = filterSchoolRecords(
+      role == 'parent' && attendanceStudentId.isNotEmpty
+          ? attendance.where((item) => item is Map &&
+              item['studentId']?.toString() == attendanceStudentId).toList()
+          : attendance);
+    final visibleAssessments = filterSchoolRecords(
+      role == 'parent' && assessmentStudentId.isNotEmpty
+          ? assessments.where((item) => item is Map &&
+              item['studentId']?.toString() == assessmentStudentId).toList()
+          : assessments);
     return Scaffold(
       body: RefreshIndicator(
           onRefresh: loadSchools,
@@ -6156,6 +6274,49 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       loadSection();
                     }),
               ]),
+              const SizedBox(height: 12),
+              if (schoolId != null && [2, 3, 5, 6, 7, 8].contains(section)) ...[
+                TextField(
+                  key: ValueKey('school-record-search-$schoolId-$section'),
+                  controller: schoolSearchController,
+                  onChanged: (value) => setState(() => schoolSearchQuery = value),
+                  decoration: InputDecoration(
+                    labelText: 'Search school records',
+                    hintText: 'Student, admission number, subject, status or receipt',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: schoolSearchQuery.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            onPressed: () {
+                              schoolSearchController.clear();
+                              setState(() => schoolSearchQuery = '');
+                            },
+                            icon: const Icon(Icons.clear)),
+                    border: const OutlineInputBorder(),
+                    filled: true,
+                  ),
+                ),
+                if (section != 3 && schoolClasses.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    key: const ValueKey('school-record-class-filter'),
+                    value: schoolClassFilter,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Filter by class / grade',
+                      prefixIcon: Icon(Icons.class_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem(value: 'all', child: Text('All classes / grades')),
+                      ...schoolClasses.map((name) => DropdownMenuItem(value: name, child: Text(name))),
+                    ],
+                    onChanged: (value) => setState(() => schoolClassFilter = value ?? 'all'),
+                  ),
+                ],
+                const SizedBox(height: 8),
+              ],
               const SizedBox(height: 14),
               if (loading)
                 const Center(
@@ -6340,10 +6501,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     DropdownButtonFormField<String>(
                       key:
                           ValueKey('parent-fee-method-$parentFeePaymentMethod'),
-                      initialValue: _parentFeePaymentOptions().any((option) =>
-                              option['value'] == parentFeePaymentMethod)
-                          ? parentFeePaymentMethod
-                          : _parentFeePaymentOptions().first['value'],
+                      initialValue: _selectedParentFeePaymentMethod(),
                       decoration: const InputDecoration(
                         labelText: 'How would you like to pay?',
                         border: OutlineInputBorder(),
@@ -6358,14 +6516,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         parentFeePaymentMethod = value ?? '';
                       }),
                     ),
-                    if ((parentFeePaymentMethod == 'mpesa_till' ||
-                            parentFeePaymentMethod == 'mpesa_paybill') &&
-                        parentFeePaymentMethod != 'bank')
+                    if (_selectedParentFeePaymentMethod() == 'mpesa_till' ||
+                        _selectedParentFeePaymentMethod() == 'mpesa_paybill')
                       field(payerPhone,
                           'Your M-Pesa phone receiving the STK prompt',
                           hint: '07XXXXXXXX or 2547XXXXXXXX',
                           keyboard: TextInputType.phone),
-                    if (parentFeePaymentMethod == 'mpesa_send_money')
+                    if (_selectedParentFeePaymentMethod() == 'mpesa_send_money')
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Text(
@@ -6373,11 +6530,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         ),
                       ),
                   ],
-                  if (parentFeePaymentMethod.isNotEmpty)
+                  if (_selectedParentFeePaymentMethod().isNotEmpty)
                     actionButton(
-                        parentFeePaymentMethod == 'mpesa_send_money'
+                        _selectedParentFeePaymentMethod() == 'mpesa_send_money'
                             ? 'Continue with Send Money'
-                            : parentFeePaymentMethod == 'bank'
+                            : _selectedParentFeePaymentMethod() == 'bank'
                                 ? 'Record bank transfer'
                                 : 'Pay school fees with M-Pesa',
                         startFeePayment,
@@ -6396,7 +6553,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       const DataColumn(label: Text('Status')),
                       const DataColumn(label: Text('Actions')),
                     ],
-                    rows: fees.map((raw) {
+                    rows: visibleFees.map((raw) {
                       final payment = Map<String, dynamic>.from(raw as Map);
                       final status = payment['status']?.toString() ?? 'PENDING';
                       return DataRow(cells: [
@@ -6409,31 +6566,74 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             Text((payment['guardianPhone'] ?? '—').toString())),
                         DataCell(Text((payment['term'] ?? '').toString())),
                         DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
-                        DataCell(
-                            Text((payment['paymentMethod'] ?? '—').toString())),
+                        DataCell(Text((payment['paymentMethodLabel'] ??
+                                schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']))
+                            .toString())),
                         DataCell(Text(
                             (payment['paymentReference'] ?? '—').toString())),
                         DataCell(Text(status)),
-                        DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
-                          if (isAdmin && status == 'PENDING_VERIFICATION')
-                            IconButton(
-                              tooltip: 'Verify actual bank payment',
-                              icon: const Icon(Icons.verified_outlined),
-                              onPressed: () => verifyFee(payment),
+                        DataCell(PopupMenuButton<String>(
+                          tooltip: 'Payment actions',
+                          onSelected: (action) {
+                            switch (action) {
+                              case 'status':
+                                showFeePaymentStatus(payment);
+                              case 'verify':
+                                verifyFee(payment);
+                              case 'download':
+                                downloadSchoolFeeReceipt(payment);
+                              case 'email':
+                                resendSchoolReceipt(payment);
+                            }
+                          },
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(
+                              value: 'status',
+                              child: ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.info_outline),
+                                title: Text('View payment status'),
+                              ),
                             ),
-                          if (status == 'CONFIRMED')
-                            IconButton(
-                              tooltip: 'Download printable receipt',
-                              icon: const Icon(Icons.receipt_long),
-                              onPressed: () =>
-                                  downloadSchoolFeeReceipt(payment),
-                            ),
-                        ])),
+                            if (isAdmin && status == 'PENDING_VERIFICATION')
+                              const PopupMenuItem(
+                                value: 'verify',
+                                child: ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(Icons.verified_outlined),
+                                  title: Text('Verify payment'),
+                                ),
+                              ),
+                            if (status == 'CONFIRMED') ...[
+                              const PopupMenuItem(
+                                value: 'download',
+                                child: ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(Icons.download_outlined),
+                                  title: Text('Download receipt'),
+                                ),
+                              ),
+                              if (isAdmin)
+                                const PopupMenuItem(
+                                  value: 'email',
+                                  child: ListTile(
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: Icon(Icons.forward_to_inbox_outlined),
+                                    title: Text('Retry receipt email'),
+                                  ),
+                                ),
+                            ],
+                          ],
+                        )),
                       ]);
                     }).toList(),
                   ),
                 if (isAdmin)
-                  ...fees.where((p) => p['status'] == 'CONFIRMED').map((p) =>
+                  ...visibleReceipts.map((p) =>
                       actionButton(
                           'Retry receipt email • ${p['paymentReference']}',
                           () =>
@@ -6443,8 +6643,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               if (section == 2) ...[
                 const SizedBox(height: 18),
                 const Text('Issued student fee balances', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                if (feeBalances.isEmpty) const Text('No student charges have been issued yet. An administrator can configure fees in Fee setup and issue them to enrolled students.'),
-                if (feeBalances.isNotEmpty)
+                if (visibleFeeBalances.isEmpty) Text(schoolSearchQuery.isNotEmpty || schoolClassFilter != 'all'
+                    ? 'No fee balances match the current search / class filter.'
+                    : 'No student charges have been issued yet. An administrator can configure fees in Fee setup and issue them to enrolled students.'),
+                if (visibleFeeBalances.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: const [
                       DataColumn(label: Text('Student')),
@@ -6457,7 +6659,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       DataColumn(label: Text('Balance')),
                       DataColumn(label: Text('Status')),
                     ],
-                    rows: feeBalances.map((raw) {
+                    rows: visibleFeeBalances.map((raw) {
                       final balance = Map<String, dynamic>.from(raw as Map);
                       return DataRow(cells: [
                         DataCell(Text((balance['studentName'] ?? 'Student').toString())),
@@ -6480,15 +6682,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 const SizedBox(height: 6),
                 const Text(
                     'Receipts are available for confirmed payments only. Pending or failed payments cannot receive an official receipt.'),
-                if (fees
-                    .where((payment) => payment['status'] == 'CONFIRMED')
-                    .isEmpty)
+                if (visibleReceipts.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 18),
                     child: Text(
                         'No confirmed fee payments with receipts are available on this page yet. Check the Fees section or move to another page.'),
                   ),
-                if (fees.where((p) => p['status'] == 'CONFIRMED').isNotEmpty)
+                if (visibleReceipts.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: [
                       const DataColumn(label: Text('Receipt no.')),
@@ -6502,9 +6702,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       const DataColumn(label: Text('Status')),
                       const DataColumn(label: Text('Actions')),
                     ],
-                    rows: fees
-                        .where((p) => p['status'] == 'CONFIRMED')
-                        .map((raw) {
+                    rows: visibleReceipts.map((raw) {
                       final payment = Map<String, dynamic>.from(raw as Map);
                       final confirmedAt = payment['verifiedAt'] ??
                           payment['updatedAt'] ??
@@ -6523,8 +6721,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         DataCell(Text(
                             confirmedAt?.toString().split('T').first ?? '—')),
                         DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
-                        DataCell(
-                            Text((payment['paymentMethod'] ?? '—').toString())),
+                        DataCell(Text((payment['paymentMethodLabel'] ??
+                                schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']))
+                            .toString())),
                         DataCell(Text((payment['status'] ?? '').toString())),
                         DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
                           IconButton(
@@ -6581,7 +6780,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     hint: 'Exact names from the school register'),
                 actionButton('Add school member', addMember,
                     icon: Icons.person_add),
-                if (members.isNotEmpty)
+                if (visibleMembers.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: [
                       const DataColumn(label: Text('Member')),
@@ -6591,7 +6790,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       const DataColumn(label: Text('Status')),
                       if (isAdmin) const DataColumn(label: Text('Actions')),
                     ],
-                    rows: members.map((raw) {
+                    rows: visibleMembers.map((raw) {
                       final member = Map<String, dynamic>.from(raw as Map);
                       final id = member['id']?.toString() ?? '';
                       return DataRow(cells: [
@@ -6621,6 +6820,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       ]);
                     }).toList(),
                   ),
+                if (schoolSearchQuery.isNotEmpty && visibleMembers.isEmpty)
+                  const Padding(padding: EdgeInsets.all(12), child: Text('No members match your search.')),
                 _schoolPager()
               ],
               if (section == 5) ...[
@@ -6639,14 +6840,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   actionButton('Register student', registerStudent,
                       icon: Icons.person_add_alt_1),
                 ],
-                Text('Enrolled students: ${students.length}',
+                Text('Enrolled students: ${visibleStudents.length} of ${students.length} loaded',
                     style: const TextStyle(fontWeight: FontWeight.bold)),
-                if (students.isEmpty)
-                  const Padding(
+                if (visibleStudents.isEmpty)
+                  Padding(
                       padding: EdgeInsets.all(16),
-                      child: Text(
-                          'No student records yet. School staff can register students above.')),
-                if (students.isNotEmpty)
+                      child: Text(schoolSearchQuery.isNotEmpty || schoolClassFilter != 'all'
+                          ? 'No students match the current search / class filter.'
+                          : 'No student records yet. School staff can register students above.')),
+                if (visibleStudents.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: [
                       const DataColumn(label: Text('Admission no.')),
@@ -6658,7 +6860,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       if (role != 'parent')
                         const DataColumn(label: Text('Actions')),
                     ],
-                    rows: students.map((raw) {
+                    rows: visibleStudents.map((raw) {
                       final student = Map<String, dynamic>.from(raw as Map);
                       return DataRow(cells: [
                         DataCell(Text(
@@ -9929,7 +10131,7 @@ class _ChatState extends State<Chat> {
     for (final participant in participants) {
       final id = _conversationParticipantId(participant);
       final name = participant['name']?.toString();
-      if (id != null && name != null && name.isNotEmpty) namesById[id] = name;
+      if (name != null && name.isNotEmpty) namesById[id] = name;
     }
     final spans = <TextSpan>[];
     var cursor = 0;

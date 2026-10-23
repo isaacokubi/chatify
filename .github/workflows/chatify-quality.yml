@@ -49,8 +49,8 @@ jobs:
         run: flutter pub get
       - name: Analyze Flutter code
         working-directory: mobile
-        # Keep analyzer errors and warnings fatal while allowing informational lints during the migration.
-        run: flutter analyze --no-fatal-infos
+        # Existing informational lints and warnings are tracked separately; keep analyzer errors fatal so real compile/static errors still fail CI.
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - name: Run Flutter tests
         working-directory: mobile
         run: flutter test

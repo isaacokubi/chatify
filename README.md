@@ -105,6 +105,29 @@ Before enabling this in the API deployment, configure these private environment 
 
 A school administrator must enter that school's Daraja consumer key, consumer secret, passkey and matching Paybill/Till. Live deployments reject sandbox credentials. Keep all real credentials in the private API environment or the authenticated school setup form over HTTPS, never in source control. Bank transfer remains a manual-verification workflow; it does not trigger an M-Pesa prompt.
 
+## School record navigation and alerts
+
+The school workspace includes a responsive record-search field for students, attendance,
+academics, fees and receipts. Where class/grade values are present in the active student
+register, the class filter narrows matching student-linked records using their class name.
+The demo seed includes class-linked students, attendance, assessments and a pending fee
+record linked to its student and class. Search and class filtering are client-side display
+filters; API membership checks remain the security boundary.
+
+Incoming real-time messages play a short platform alert, and foreground Firebase push
+notifications also trigger the notification alert path. Actual sound behavior depends on
+the device/browser notification permissions and audio policies. Verify on supported
+Android/iOS devices and browsers before release.
+
+These changes have been committed to `main`; automated Flutter analysis, widget tests,
+and deployed-device sound behavior have not yet been rerun for these specific changes.
+Do not treat this note as a passing test report.
+
+
+### Search and filter behavior follow-up
+
+The school workspace search now searches nested member/student/payment fields (including student names, admission numbers, roles, linked student names, payment references, receipt numbers and statuses). The table rows use the filtered results rather than only updating the search box. Clearing search also clears the visible input, and Members has its own text search; class/grade filtering is intentionally hidden for Members because memberships are not class records. The filter still works on the records returned by the current API page, so use the table pager to reach other pages when a school has more records than one page.
+
 ## Automated verification — 2026-10-22
 
 The billing renewal regression coverage and the CI reliability change are tracked separately from live payment acceptance. The verified source commit `951e4417b49e0afa40acdd92b2933b4ca2e4aff3` passed the full [Chatify CI workflow](https://github.com/isaacokubi/chatify/actions/runs/39739597321) and [quality checks](https://github.com/isaacokubi/chatify/actions/runs/39739597328): 193 backend tests passed with 0 failures; dependency audit, backend lint/syntax checks, backup/restore safety checks, Flutter analysis/tests, web build and Android debug APK build passed.
