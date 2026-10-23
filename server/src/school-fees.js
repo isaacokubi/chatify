@@ -32,14 +32,20 @@ export function normalizeFeeStructureInput(input = {}) {
 }
 
 /**
- * Derive a balance from the issued charge snapshot and confirmed payment records.
- * Pending/failed/cancelled/reversed records never reduce the amount owed.
+ * Derive a balance from an issued charge snapshot and confirmed payment records.
+ * Pending/failed/cancelled/rejected/reversed records never reduce the amount owed.
+ *
+ * `configured=false` is deliberately distinct from a zero charge: without an
+ * applicable issued charge, the school must resolve its fee setup before the
+ * UI or API can represent the student as paid.
  */
-export function calculateSchoolFeeBalance({chargeAmount, payments = [], credits = 0}) {
-  if (!Number.isSafeInteger(chargeAmount) || chargeAmount < 0 ||
+export function calculateSchoolFeeBalance({chargeAmount, payments = [], credits = 0, configured = true}) {
+  if (typeof configured !== 'boolean' ||
+      (configured && (!Number.isSafeInteger(chargeAmount) || chargeAmount < 0)) ||
       !Number.isSafeInteger(credits) || credits < 0 || !Array.isArray(payments)) {
-    throw new TypeError('Fee charges, credits and payments must be non-negative whole-KSh amounts');
+    throw new TypeError('Configured fee charges, credits and payments must be non-negative whole-KSh amounts');
   }
+
   let confirmedPaid = 0;
   for (const payment of payments) {
     if (payment?.status !== 'CONFIRMED') continue;
@@ -49,6 +55,18 @@ export function calculateSchoolFeeBalance({chargeAmount, payments = [], credits 
     confirmedPaid += payment.amount;
     if (!Number.isSafeInteger(confirmedPaid)) throw new RangeError('Confirmed payment total is too large');
   }
+
+  if (!configured) {
+    return {
+      chargeAmount: null,
+      credits: 0,
+      confirmedPaid,
+      balance: null,
+      overpayment: 0,
+      status: 'NOT_CONFIGURED',
+    };
+  }
+
   const netCharges = Math.max(0, chargeAmount - credits);
   const balance = Math.max(0, netCharges - confirmedPaid);
   const overpayment = Math.max(0, confirmedPaid - netCharges);
