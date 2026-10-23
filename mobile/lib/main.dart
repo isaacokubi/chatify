@@ -2003,6 +2003,8 @@ class AppState extends ChangeNotifier {
       messageEventVersion++;
       notifyListeners();
       if (senderId != null && senderId.isNotEmpty && senderId != currentId) {
+        // One short platform alert for incoming messages, not outgoing messages.
+        unawaited(SystemSound.play(SystemSoundType.alert).catchError((_) {}));
         unawaited(SystemSound.play(SystemSoundType.alert));
       }
     });
@@ -4525,6 +4527,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   bool schoolBillingLoading = false;
   bool loading = false;
   int section = 0, recordPage = 1, recordTotal = 0;
+  // Local search and class filtering for school record views.
+  String schoolSearchQuery = '';
+  String schoolClassFilter = 'all';
   static const int _recordPageSize = 20;
   final schoolName = TextEditingController(),
       schoolCode = TextEditingController(),
@@ -5858,19 +5863,44 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   @override
   Widget build(BuildContext context) {
     final isAdmin = role == 'admin' && isOwner;
-    final visibleAttendance = role == 'parent' && attendanceStudentId.isNotEmpty
-        ? attendance
-            .where(
-                (item) => item['studentId']?.toString() == attendanceStudentId)
-            .toList()
-        : attendance;
-    final visibleAssessments = role == 'parent' &&
-            assessmentStudentId.isNotEmpty
-        ? assessments
-            .where(
-                (item) => item['studentId']?.toString() == assessmentStudentId)
-            .toList()
-        : assessments;
+    final searchNeedle = schoolSearchQuery.trim().toLowerCase();
+    final schoolClasses = students
+        .whereType<Map>()
+        .map((student) => (student['className'] ?? '').toString().trim())
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    bool matchesSchoolRecord(dynamic raw) {
+      if (raw is! Map) return false;
+      final rawClass = (raw['className'] ?? '').toString().trim();
+      if (schoolClassFilter != 'all' && rawClass != schoolClassFilter) {
+        final studentId = (raw['studentId'] ?? '').toString();
+        final studentName = (raw['studentName'] ?? '').toString();
+        final linked = filterSchoolRecords(students).whereType<Map>().where((student) =>
+            (student['_id'] ?? '').toString() == studentId ||
+            (student['fullName'] ?? '').toString() == studentName).toList();
+        if (linked.isEmpty ||
+            (linked.first['className'] ?? '').toString() != schoolClassFilter) {
+          return false;
+        }
+      }
+      if (searchNeedle.isEmpty) return true;
+      return raw.values.any((value) =>
+          value != null && value.toString().toLowerCase().contains(searchNeedle));
+    }
+    List<dynamic> filterSchoolRecords(List<dynamic> records) =>
+        records.where(matchesSchoolRecord).toList();
+    final visibleAttendance = filterSchoolRecords(
+      role == 'parent' && attendanceStudentId.isNotEmpty
+          ? attendance.where((item) => item is Map &&
+              item['studentId']?.toString() == attendanceStudentId).toList()
+          : attendance);
+    final visibleAssessments = filterSchoolRecords(
+      role == 'parent' && assessmentStudentId.isNotEmpty
+          ? assessments.where((item) => item is Map &&
+              item['studentId']?.toString() == assessmentStudentId).toList()
+          : assessments);
     return Scaffold(
       body: RefreshIndicator(
           onRefresh: loadSchools,
@@ -6128,6 +6158,45 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       loadSection();
                     }),
               ]),
+              const SizedBox(height: 12),
+              if (schoolId != null && [2, 5, 6, 7, 8].contains(section)) ...[
+                TextField(
+                  key: const ValueKey('school-record-search'),
+                  onChanged: (value) => setState(() => schoolSearchQuery = value),
+                  decoration: InputDecoration(
+                    labelText: 'Search school records',
+                    hintText: 'Student, admission number, subject, status or receipt',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: schoolSearchQuery.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            onPressed: () => setState(() => schoolSearchQuery = ''),
+                            icon: const Icon(Icons.clear)),
+                    border: const OutlineInputBorder(),
+                    filled: true,
+                  ),
+                ),
+                if (schoolClasses.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    key: const ValueKey('school-record-class-filter'),
+                    value: schoolClassFilter,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Filter by class / grade',
+                      prefixIcon: Icon(Icons.class_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem(value: 'all', child: Text('All classes / grades')),
+                      ...schoolClasses.map((name) => DropdownMenuItem(value: name, child: Text(name))),
+                    ],
+                    onChanged: (value) => setState(() => schoolClassFilter = value ?? 'all'),
+                  ),
+                ],
+                const SizedBox(height: 8),
+              ],
               const SizedBox(height: 14),
               if (loading)
                 const Center(
