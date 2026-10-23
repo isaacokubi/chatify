@@ -9,7 +9,7 @@ import 'dotenv/config';
 import {validateClientMutationId} from './message-idempotency.js';
 import {isMentionNotification,normalizeMentionIds} from './mentions.js';
 import {createPresenceTracker} from './presence.js';
-import {markSparkViewed} from './sparks.js';
+import {canViewSpark,markSparkViewed,sparkAudienceOwnerIds} from './sparks.js';
 import {resolveMpesaProvider,normalizeMpesaPhone,validPaymentAmount,newPaymentId,PAYMENT_STATUSES,resolveCallbackOutcome,calculatePaymentTotal,buildPaymentRetryFields,canAccessPayment,canRetryPayment,canTransitionPayment,canCancelPayment} from './payments.js';
 import {createAuthMiddleware,createAdminMiddleware} from './auth.js';
 import {isValidEncryptedPayload} from './e2ee.js';
@@ -346,16 +346,35 @@ app.get('/api/users/blocked',auth,async(q,r)=>r.json({users:await User.find({_id
 // All Spark requests require the normal bearer-token auth middleware.
 // Sparks: authenticated updates visible to the author and their saved contacts.
 app.get('/api/sparks',auth,async(q,r)=>{
-  const contacts=await SavedContact.find({userId:q.user._id}).select('contactUserId').lean();
-  const visibleIds=[q.user._id,...contacts.map(item=>item.contactUserId)];
+  // A Spark author grants its audience by saving the viewer as a contact.
+  // This is the same direction enforced by the view endpoint below.
+  const audienceOwners=await sparkAudienceOwnerIds({viewerId:q.user._id,SavedContact});
+  const blockedByViewer=(q.user.blockedUsers||[]).map(String);
+  const activeOwners=audienceOwners.length
+    ? await User.find({_id:{$in:audienceOwners},status:'active',blockedUsers:{$ne:q.user._id}}).select('_id').lean()
+    : [];
+  const visibleIds=[q.user._id,...activeOwners.map(item=>item._id).filter(id=>!blockedByViewer.includes(String(id)))];
   const now=new Date();
-  const items=await Spark.find({authorId:{$in:visibleIds},expiresAt:{$gt:now}})
-    .sort({createdAt:-1}).limit(200).lean();
-  r.json({sparks:items.map(item=>({...item,isMine:String(item.authorId)===String(q.user._id),hasViewed:(item.viewedBy||[]).some(id=>String(id)===String(q.user._id))}))});
+  const page=Math.max(1,Number.parseInt(q.query.page,10)||1);
+  const limit=Math.max(1,Math.min(100,Number.parseInt(q.query.limit,10)||50));
+  const filter={authorId:{$in:visibleIds},expiresAt:{$gt:now}};
+  const [items,total]=await Promise.all([
+    Spark.find(filter).sort({createdAt:-1,_id:-1}).skip((page-1)*limit).limit(limit).lean(),
+    Spark.countDocuments(filter),
+  ]);
+  r.json({sparks:items.map(item=>({...item,isMine:String(item.authorId)===String(q.user._id),hasViewed:(item.viewedBy||[]).some(id=>String(id)===String(q.user._id))})),total,page,limit,hasMore:page*limit<total});
 });
 app.post('/api/sparks/:id/view',auth,async(q,r)=>{
-  const result=await markSparkViewed({sparkId:q.params.id,viewerId:q.user._id,Spark,SavedContact,isValidObjectId:mongoose.isValidObjectId});
+  const result=await markSparkViewed({sparkId:q.params.id,viewerId:q.user._id,Spark,SavedContact,User,viewerBlockedIds:q.user.blockedUsers||[],isValidObjectId:mongoose.isValidObjectId});
   r.status(result.statusCode).json(result.body);
+});
+app.get('/api/sparks/:id',auth,async(q,r)=>{
+  if(!mongoose.isValidObjectId(q.params.id))return r.status(400).json({error:'Invalid Spark id'});
+  const spark=await Spark.findOne({_id:q.params.id,expiresAt:{$gt:new Date()}}).lean();
+  if(!spark)return r.status(404).json({error:'Spark not found'});
+  const authorized=await canViewSpark({spark,viewerId:q.user._id,SavedContact,User,viewerBlockedIds:q.user.blockedUsers||[]});
+  if(!authorized)return r.status(404).json({error:'Spark not found'});
+  r.json({spark:{...spark,isMine:String(spark.authorId)===String(q.user._id),hasViewed:(spark.viewedBy||[]).some(id=>String(id)===String(q.user._id))}});
 });
 app.post('/api/sparks',auth,async(q,r)=>{
   const text=typeof q.body?.text==='string'?q.body.text.trim():'';

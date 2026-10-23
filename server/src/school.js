@@ -801,6 +801,17 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone -checkoutRequestId -merchantRequestId').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
         FeePayment.countDocuments(filter),
       ]);
+      // Guardian fields come from the authoritative student register; they are
+      // included only after the fee query has already been school/role scoped.
+      const paymentStudentNames = [...new Set(payments.map(payment => String(payment.studentName || '').trim().toLowerCase()).filter(Boolean))];
+      const guardianRecords = paymentStudentNames.length
+        ? await SchoolStudent.find({ schoolId: req.params.schoolId, $expr: { $in: [{ $toLower: '$fullName' }, paymentStudentNames] } }).select('fullName guardianName guardianPhone').lean()
+        : [];
+      const guardiansByName = new Map(guardianRecords.map(student => [String(student.fullName).trim().toLowerCase(), student]));
+      const paymentsWithGuardians = payments.map(payment => {
+        const guardian = guardiansByName.get(String(payment.studentName || '').trim().toLowerCase());
+        return { ...payment, guardianName: guardian?.guardianName || '', guardianPhone: guardian?.guardianPhone || '' };
+      });
       const school = await School.findById(req.params.schoolId).select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
       const profile = school?.paymentProfile;
       let officialPhone = school?.officialPhone || '';
@@ -820,7 +831,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         accountNumber: profile?.method === 'bank' ? profile.accountNumber : null,
         darajaConfigured: Boolean(profile?.darajaConfiguredAt),
       };
-      return res.json({ payments, paymentOptions, total, page: page.page, limit: page.limit });
+      return res.json({ payments: paymentsWithGuardians, paymentOptions, total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 

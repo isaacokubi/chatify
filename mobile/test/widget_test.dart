@@ -1,12 +1,83 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 import 'package:chatify/main.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
+  int _nextId = 1;
+  int playCalls = 0;
+  int pauseCalls = 0;
+  int disposeCalls = 0;
+  final Map<int, StreamController<VideoEvent>> _events = {};
+  final List<String> requestedUris = [];
+
+  @override
+  Future<int?> createWithOptions(VideoCreationOptions options) async {
+    final id = _nextId++;
+    requestedUris.add(options.dataSource.uri ?? '');
+    final controller = StreamController<VideoEvent>.broadcast();
+    _events[id] = controller;
+    Timer.run(() => controller.add(VideoEvent(
+          eventType: VideoEventType.initialized,
+          duration: const Duration(seconds: 20),
+          size: const Size(640, 360),
+        )));
+    return id;
+  }
+
+  @override
+  Stream<VideoEvent> videoEventsFor(int playerId) => _events[playerId]!.stream;
+
+  @override
+  Future<void> play(int playerId) async {
+    playCalls++;
+    _events[playerId]?.add(VideoEvent(
+      eventType: VideoEventType.isPlayingStateUpdate,
+      isPlaying: true,
+    ));
+  }
+
+  @override
+  Future<void> pause(int playerId) async {
+    pauseCalls++;
+    _events[playerId]?.add(VideoEvent(
+      eventType: VideoEventType.isPlayingStateUpdate,
+      isPlaying: false,
+    ));
+  }
+
+  @override
+  Future<void> dispose(int playerId) async {
+    disposeCalls++;
+    await _events.remove(playerId)?.close();
+  }
+
+  @override
+  Future<void> setLooping(int playerId, bool looping) async {}
+
+  @override
+  Future<void> setVolume(int playerId, double volume) async {}
+
+  @override
+  Future<void> setPlaybackSpeed(int playerId, double speed) async {}
+
+  @override
+  Future<void> seekTo(int playerId, Duration position) async {}
+
+  @override
+  Future<Duration> getPosition(int playerId) async => Duration.zero;
+
+  @override
+  Widget buildView(int playerId) =>
+      SizedBox(key: ValueKey('fake-video-$playerId'));
+}
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
@@ -35,6 +106,34 @@ void main() {
         DateTime(2027, 1, 1));
     expect(memoryDateFromText('call at 10:30, order 42'), isNull);
     expect(memoryDateFromText('24 Octoberr 2026'), isNull);
+  });
+
+  test(
+      'mention candidates exclude self and retain each selected participant ID',
+      () {
+    final candidates = eligibleMentionParticipants(
+      [
+        {'_id': 'current-user', 'name': 'Current User'},
+        {'userId': 'person-1', 'name': 'Émily O'},
+        {'_id': 'person-2', 'name': 'Emily O'},
+      ],
+      currentUserId: 'current-user',
+      query: 'e',
+    );
+
+    expect(candidates.map((item) => item['userId'] ?? item['_id']),
+        ['person-1', 'person-2']);
+    expect(candidates.any((item) => item['_id'] == 'current-user'), isFalse);
+    expect(
+      eligibleMentionParticipants(
+        [
+          {'userId': 'person-1', 'name': 'Émily O'},
+        ],
+        currentUserId: 'current-user',
+        query: 'ém',
+      ).map((item) => item['userId']),
+      ['person-1'],
+    );
   });
 
   test(
@@ -810,14 +909,16 @@ void main() {
     expect(find.text('An older own Spark'), findsNothing,
         reason: 'The owner viewer starts on the selected current Spark.');
     await tester.tap(find.byTooltip('Close Spark viewer'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(find.text('A contact moment').first);
     // Sparkle particles intentionally animate continuously while a Spark is open.
     await tester.pump(const Duration(milliseconds: 700));
     expect(find.text('A contact moment'), findsNWidgets(2));
     expect(find.byKey(const ValueKey('spark-glitter-overlay')), findsOneWidget);
     await tester.tap(find.byTooltip('Close Spark viewer'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
     expect(viewCalls, 1);
     expect(otherSpark['hasViewed'], isTrue);
     expect(find.text('Your Spark'), findsOneWidget);
@@ -838,6 +939,99 @@ void main() {
       greaterThan(tester.getTopLeft(find.text('Tomorrow')).dy),
       reason: 'Memory actions should sit below the content on a narrow screen.',
     );
+    await tester.pumpWidget(const SizedBox.shrink());
+    client.close();
+    state.dispose();
+  });
+
+  testWidgets(
+      'Spark video surface toggles playback and releases its controller',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    SharedPreferences.setMockInitialValues({});
+    final oldPlatform = VideoPlayerPlatform.instance;
+    final videoPlatform = _FakeVideoPlayerPlatform();
+    VideoPlayerPlatform.instance = videoPlatform;
+    addTearDown(() => VideoPlayerPlatform.instance = oldPlatform);
+    final client = MockClient((request) async {
+      if (request.url.path == '/api/sparks') {
+        return http.Response(
+          jsonEncode({
+            'sparks': [
+              {
+                '_id': 'video-spark',
+                'authorId': 'user-1',
+                'authorName': 'Miriam',
+                'isMine': true,
+                'hasViewed': false,
+                'mediaType': 'video',
+                'mediaUrl':
+                    'https://res.cloudinary.com/demo/video/upload/v1/clip.mp4',
+                'createdAt': DateTime.now().toIso8601String(),
+                'expiresAt': DateTime.now()
+                    .add(const Duration(hours: 24))
+                    .toIso8601String(),
+              }
+            ],
+          }),
+          200,
+        );
+      }
+      return http.Response('{}', 200);
+    });
+    final state = AppState(api: Api(client: client), autoInit: false)
+      ..api.token = 'spark-video-token'
+      ..user = {'id': 'user-1', 'name': 'Miriam'};
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: state,
+      child: MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.android),
+        home: Home(),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pump();
+
+    await tester.tapAt(
+        tester.getCenter(find.text('Your Spark')) + const Offset(0, -30));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+    expect(find.byTooltip('Close Spark viewer'), findsOneWidget);
+    expect(videoPlatform.playCalls, 1,
+        reason:
+            'Viewer initialization should attempt autoplay; created: ${videoPlatform.requestedUris}');
+    expect(
+        videoPlatform.requestedUris,
+        everyElement(
+            'https://res.cloudinary.com/demo/video/upload/v1/clip.mp4'));
+
+    await tester.tapAt(const Offset(200, 450));
+    await tester.pump();
+    expect(videoPlatform.pauseCalls, 1,
+        reason: 'Tapping the video surface should pause playback.');
+    await tester.tapAt(const Offset(200, 450));
+    await tester.pump();
+    expect(videoPlatform.playCalls, 2,
+        reason: 'Tapping the paused video surface should resume playback.');
+
+    await tester.tap(find.byTooltip('Close Spark viewer'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(videoPlatform.disposeCalls, greaterThanOrEqualTo(1));
+    await tester.tapAt(
+        tester.getCenter(find.text('Your Spark')) + const Offset(0, -30));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+    expect(find.byTooltip('Close Spark viewer'), findsOneWidget,
+        reason:
+            'The viewer should be usable again after disposing its player.');
+    expect(videoPlatform.playCalls, 3);
+
+    await tester.tap(find.byTooltip('Close Spark viewer'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpWidget(const SizedBox.shrink());
     client.close();
     state.dispose();

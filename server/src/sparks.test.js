@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SPARK_LIFETIME_MS, sparkExpiry, isSparkActive, normalizeSparkText, normalizeSparkPayload, isAllowedSparkMediaUrl, markSparkViewed} from './sparks.js';
+import {SPARK_LIFETIME_MS, sparkExpiry, isSparkActive, normalizeSparkText, normalizeSparkPayload, isAllowedSparkMediaUrl, markSparkViewed, sparkAudienceOwnerIds, canViewSpark} from './sparks.js';
 
 test('sparks stay active for a full 24 hours regardless of views', () => {
   const createdAt = new Date('2026-10-23T00:00:00.000Z');
@@ -59,6 +59,35 @@ test('Spark view is authorized to saved contacts and idempotently records the vi
   assert.deepEqual(result, {statusCode: 200, body: {ok: true, hasViewed: true}});
   assert.equal(updates.length, 1);
   assert.deepEqual(updates[0][1], {$addToSet: {viewedBy: 'viewer-1'}});
+});
+
+test('Spark audience uses the author-to-viewer contact relationship and deduplicates owners', async () => {
+  const SavedContact = {
+    find: (filter) => {
+      assert.equal(filter.contactUserId, 'viewer-1');
+      return {select: () => ({lean: async () => [
+        {userId: 'author-1'}, {userId: 'author-1'}, {userId: 'author-2'},
+      ]})};
+    },
+  };
+  assert.deepEqual(await sparkAudienceOwnerIds({viewerId: 'viewer-1', SavedContact}),
+    ['author-1', 'author-2']);
+  assert.equal(await canViewSpark({
+    spark: {authorId: 'author-1'}, viewerId: 'viewer-1',
+    SavedContact: {exists: async (filter) => filter.userId === 'author-1' && filter.contactUserId === 'viewer-1'},
+  }), true);
+});
+
+test('Spark authorization denies either blocked direction', async () => {
+  const SavedContact = {exists: async () => true};
+  assert.equal(await canViewSpark({
+    spark: {authorId: 'author-1'}, viewerId: 'viewer-1', SavedContact,
+    viewerBlockedIds: ['author-1'],
+  }), false);
+  assert.equal(await canViewSpark({
+    spark: {authorId: 'author-1'}, viewerId: 'viewer-1', SavedContact,
+    User: {exists: async (filter) => filter._id === 'author-1' && filter.blockedUsers === 'viewer-1'},
+  }), false);
 });
 
 test('Spark owner does not record a view and unrelated users cannot view a contact Spark', async () => {
