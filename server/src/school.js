@@ -532,6 +532,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const page = pageOptions(req);
       const q = String(req.query.q || '').trim().slice(0, 120);
       const filter = { schoolId: req.params.schoolId, ...visibility };
+      if (member.role === 'admin' && req.query.audience && ['direct','all_parents','all_staff','all_school','school_inbox'].includes(String(req.query.audience))) {
+        filter.audience = String(req.query.audience);
+      }
       if (q) {
         const safe = q.replace(/[.*+?^${}()|[\]\\]/g, (match) => `\\${match}`);
         const matchingUsers = await User.find({
