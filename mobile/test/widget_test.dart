@@ -571,7 +571,7 @@ void main() {
   });
 
   testWidgets(
-      'school fee form prefills editable parent phone and configured options',
+      'school fee form remains available when roster and balance calls fail',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.binding.setSurfaceSize(const Size(800, 1200));
@@ -605,11 +605,8 @@ void main() {
         );
       }
       if (path.endsWith('/students')) {
-        return http.Response(
-          '{"students":[{"fullName":"Amina Parent","className":"4"}]}',
-          200,
-          headers: {'content-type': 'application/json'},
-        );
+        return http.Response('{"error":"Roster unavailable"}', 503,
+            headers: {'content-type': 'application/json'});
       }
       return http.Response('{"error":"Unexpected request"}', 404,
           headers: {'content-type': 'application/json'});

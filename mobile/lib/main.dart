@@ -4955,14 +4955,19 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         feeBalances = List<dynamic>.from(results[1]['balances'] ?? []);
         recordTotal = feeStructures.length;
       } else if (section == 2 || section == 8) {
-        final results = await Future.wait([
-          app.api.call('GET', '/api/schools/$id/fees$pageQuery'),
-          // Load only the caller-visible roster so fee/receipt class filters can
-          // resolve student-linked records without widening parent access.
-          app.api.call('GET', '/api/schools/$id/students?page=1&limit=100'),
-        ]);
-        students = List<dynamic>.from(results[1]['students'] ?? []);
-        final r = results.first;
+        final feesResult =
+            await app.api.call('GET', '/api/schools/$id/fees$pageQuery');
+        Map<String, dynamic> studentResult = {};
+        try {
+          // The roster is useful for fee filters and parent student selection,
+          // but a roster failure must not hide the fee payment form.
+          studentResult = await app.api.call(
+              'GET', '/api/schools/$id/students?page=1&limit=100');
+          students = List<dynamic>.from(studentResult['students'] ?? []);
+        } catch (_) {
+          students = [];
+        }
+        final r = feesResult;
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         fees = List<dynamic>.from(r['payments'] ?? []);
         feePaymentOptions = r['paymentOptions'] is Map
@@ -4997,8 +5002,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           }
         }
         if (section == 2) {
-          final balanceResult = await app.api.call('GET', '/api/schools/$id/fee-balances');
-          feeBalances = List<dynamic>.from(balanceResult['balances'] ?? []);
+          // Fee balances are supplementary to the payment form. A failure to
+          // load them must not prevent parents from seeing configured payment
+          // methods or entering the phone used for an M-Pesa STK prompt.
+          try {
+            final balanceResult =
+                await app.api.call('GET', '/api/schools/$id/fee-balances');
+            feeBalances = List<dynamic>.from(balanceResult['balances'] ?? []);
+          } catch (_) {
+            feeBalances = [];
+          }
         }
         if (section == 2 && role == 'parent') {
           final options = _parentFeePaymentOptions();
@@ -5008,8 +5021,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 options.isEmpty ? '' : options.first['value']!.toString();
           }
         }
-        if (section == 2 && role == 'parent' && results.length > 1) {
-          feeStudents = List<dynamic>.from(results[1]['students'] ?? []);
+        if (section == 2 && role == 'parent') {
+          feeStudents = List<dynamic>.from(studentResult['students'] ?? []);
           if (!feeStudents.any(
               (student) => student['fullName']?.toString() == feeStudentName)) {
             feeStudentName = feeStudents.isNotEmpty
