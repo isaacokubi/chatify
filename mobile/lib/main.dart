@@ -1096,25 +1096,42 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
   }
 
   final content = StringBuffer()
-    ..write('0.07 0.19 0.34 rg\n0 750 595 92 re f\n')
-    ..write('0.10 0.63 0.55 rg\n0 746 595 4 re f\n')
+    // Strong outer frame and branded header.
+    ..write('0.07 0.19 0.34 RG\n3 w\n28 28 539 786 re S\n')
+    ..write('0.07 0.19 0.34 rg\n30 750 535 92 re f\n')
+    ..write('0.10 0.63 0.55 rg\n30 742 535 8 re f\n')
     ..write('BT\n/F2 18 Tf\n1 1 1 rg\n50 805 Td\n(' + safe('OFFICIAL SCHOOL FEE RECEIPT') + ') Tj\nET\n')
-    ..write('BT\n/F1 11 Tf\n0.88 0.93 0.98 rg\n50 782 Td\n(' + safe(school) + ') Tj\nET\n')
-    ..write('0.93 0.97 1 rg\n40 670 515 55 re f\n')
-    ..write('BT\n/F2 9 Tf\n0.25 0.36 0.48 rg\n55 706 Td\n(' + safe('AMOUNT RECEIVED') + ') Tj\nET\n')
-    ..write('BT\n/F2 20 Tf\n0.07 0.19 0.34 rg\n55 683 Td\n(' + safe('KES ' + formattedAmount) + ') Tj\nET\n')
-    ..write('0.82 0.87 0.92 RG\n0.8 w\n40 655 m\n555 655 l\nS\n')
-    ..write('BT\n/F1 10 Tf\n0.10 0.17 0.25 rg\n50 632 Td\n');
-  var firstDetail = true;
+    ..write('BT\n/F2 11 Tf\n0.88 0.95 1 rg\n50 781 Td\n(' + safe(school) + ') Tj\nET\n')
+    // Amount card with a thick teal rule.
+    ..write('0.91 0.96 1 rg\n40 670 515 55 re f\n')
+    ..write('0.10 0.63 0.55 RG\n3 w\n40 670 515 55 re S\n')
+    ..write('BT\n/F2 9 Tf\n0.20 0.34 0.47 rg\n55 706 Td\n(' + safe('AMOUNT RECEIVED') + ') Tj\nET\n')
+    ..write('BT\n/F2 21 Tf\n0.07 0.19 0.34 rg\n55 682 Td\n(' + safe('KES ' + formattedAmount) + ') Tj\nET\n')
+    ..write('0.07 0.19 0.34 RG\n2 w\n40 655 m\n555 655 l\nS\n');
+  var detailY = 632.0;
+  var detailIndex = 0;
   for (final line in wrapped.skip(1)) {
-    if (!firstDetail) content.write('0 -22 Td\n');
-    content.write('(' + safe(line) + ') Tj\n');
-    firstDetail = false;
+    final isMethod = line.toLowerCase().startsWith('payment method:');
+    final isBalance = line.toLowerCase().startsWith('remaining balance:');
+    final rowY = detailY - 7;
+    if (isMethod) {
+      content.write('0.87 0.97 0.93 rg\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re f\n');
+      content.write('0.10 0.63 0.55 RG\n1.5 w\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re S\n');
+    } else if (isBalance) {
+      content.write('1 0.96 0.86 rg\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re f\n');
+      content.write('0.80 0.48 0.06 RG\n1.5 w\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re S\n');
+    } else if (detailIndex.isEven) {
+      content.write('0.95 0.97 0.99 rg\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re f\n');
+    }
+    content.write('BT\n' + (isMethod || isBalance ? '/F2 10 Tf\n' : '/F1 10 Tf\n') +
+      (isMethod ? '0.04 0.40 0.31 rg\n' : isBalance ? '0.55 0.31 0.02 rg\n' : '0.10 0.17 0.25 rg\n') +
+      '50 ' + detailY.toStringAsFixed(2) + ' Td\n(' + safe(line) + ') Tj\nET\n');
+    detailY -= 22;
+    detailIndex++;
   }
   content
-    ..write('ET\n')
-    ..write('0.82 0.87 0.92 RG\n0.7 w\n40 88 m\n555 88 l\nS\n')
-    ..write('BT\n/F1 8 Tf\n0.35 0.42 0.50 rg\n50 68 Td\n(' + safe('Please retain this receipt. Quote the Chatify reference for any enquiry.') + ') Tj\nET\n');
+    ..write('0.07 0.19 0.34 RG\n2 w\n40 88 m\n555 88 l\nS\n')
+    ..write('BT\n/F1 8 Tf\n0.25 0.34 0.43 rg\n50 68 Td\n(' + safe('Please retain this receipt. Quote the Chatify reference for any enquiry.') + ') Tj\nET\n');
   if (stampBytes != null && stampSize != null) {
     final scale = math.min(120 / stampSize.width, 66 / stampSize.height);
     final width = stampSize.width * scale;
