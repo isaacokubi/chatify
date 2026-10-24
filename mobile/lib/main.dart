@@ -1097,30 +1097,30 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
   }
 
   final content = StringBuffer()
-    ..write('0.07 0.19 0.34 rg\\n0 750 595 92 re f\\n')
-    ..write('0.10 0.63 0.55 rg\\n0 746 595 4 re f\\n')
-    ..write('BT\\n/F2 18 Tf\\n1 1 1 rg\\n50 805 Td\\n(' + safe('OFFICIAL SCHOOL FEE RECEIPT') + ') Tj\\nET\\n')
-    ..write('BT\\n/F1 11 Tf\\n0.88 0.93 0.98 rg\\n50 782 Td\\n(' + safe(school) + ') Tj\\nET\\n')
-    ..write('0.93 0.97 1 rg\\n40 670 515 55 re f\\n')
-    ..write('BT\\n/F2 9 Tf\\n0.25 0.36 0.48 rg\\n55 706 Td\\n(' + safe('AMOUNT RECEIVED') + ') Tj\\nET\\n')
-    ..write('BT\\n/F2 20 Tf\\n0.07 0.19 0.34 rg\\n55 683 Td\\n(' + safe('KES ' + formattedAmount) + ') Tj\\nET\\n')
-    ..write('0.82 0.87 0.92 RG\\n0.8 w\\n40 655 m\\n555 655 l\\nS\\n')
-    ..write('BT\\n/F1 10 Tf\\n0.10 0.17 0.25 rg\\n50 632 Td\\n');
+    ..write('0.07 0.19 0.34 rg\n0 750 595 92 re f\n')
+    ..write('0.10 0.63 0.55 rg\n0 746 595 4 re f\n')
+    ..write('BT\n/F2 18 Tf\n1 1 1 rg\n50 805 Td\n(' + safe('OFFICIAL SCHOOL FEE RECEIPT') + ') Tj\nET\n')
+    ..write('BT\n/F1 11 Tf\n0.88 0.93 0.98 rg\n50 782 Td\n(' + safe(school) + ') Tj\nET\n')
+    ..write('0.93 0.97 1 rg\n40 670 515 55 re f\n')
+    ..write('BT\n/F2 9 Tf\n0.25 0.36 0.48 rg\n55 706 Td\n(' + safe('AMOUNT RECEIVED') + ') Tj\nET\n')
+    ..write('BT\n/F2 20 Tf\n0.07 0.19 0.34 rg\n55 683 Td\n(' + safe('KES ' + formattedAmount) + ') Tj\nET\n')
+    ..write('0.82 0.87 0.92 RG\n0.8 w\n40 655 m\n555 655 l\nS\n')
+    ..write('BT\n/F1 10 Tf\n0.10 0.17 0.25 rg\n50 632 Td\n');
   var firstDetail = true;
   for (final line in lines.skip(1)) {
-    if (!firstDetail) content.write('0 -22 Td\\n');
-    content.write('(' + safe(line) + ') Tj\\n');
+    if (!firstDetail) content.write('0 -22 Td\n');
+    content.write('(' + safe(line) + ') Tj\n');
     firstDetail = false;
   }
   content
-    ..write('ET\\n')
-    ..write('0.82 0.87 0.92 RG\\n0.7 w\\n40 88 m\\n555 88 l\\nS\\n')
-    ..write('BT\\n/F1 8 Tf\\n0.35 0.42 0.50 rg\\n50 68 Td\\n(' + safe('Please retain this receipt. Quote the Chatify reference for any enquiry.') + ') Tj\\nET\\n');
+    ..write('ET\n')
+    ..write('0.82 0.87 0.92 RG\n0.7 w\n40 88 m\n555 88 l\nS\n')
+    ..write('BT\n/F1 8 Tf\n0.35 0.42 0.50 rg\n50 68 Td\n(' + safe('Please retain this receipt. Quote the Chatify reference for any enquiry.') + ') Tj\nET\n');
   if (stampBytes != null && stampSize != null) {
     final scale = math.min(120 / stampSize.width, 66 / stampSize.height);
     final width = stampSize.width * scale;
     final height = stampSize.height * scale;
-    content.write('q\\n' + width.toStringAsFixed(2) + ' 0 0 ' + height.toStringAsFixed(2) + ' 425 100 cm\\n/Stamp Do\\nQ\\n');
+    content.write('q\n' + width.toStringAsFixed(2) + ' 0 0 ' + height.toStringAsFixed(2) + ' 425 100 cm\n/Stamp Do\nQ\n');
   }
   final stream = content.toString();
   final objects = <String>[
@@ -1128,12 +1128,12 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 6 0 R >>' + (stampBytes != null && stampSize != null ? ' /XObject << /Stamp 7 0 R >>' : '') + ' >> /Contents 5 0 R >>',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
-    '<< /Length ' + utf8.encode(stream).length.toString() + ' >>\\nstream\\n' + stream + 'endstream',
+    '<< /Length ' + utf8.encode(stream).length.toString() + ' >>\nstream\n' + stream + 'endstream',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>',
   ];
   if (stampBytes != null && stampSize != null) {
     final hex = stampBytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
-    objects.add('<< /Type /XObject /Subtype /Image /Width ' + stampSize.width.toInt().toString() + ' /Height ' + stampSize.height.toInt().toString() + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ' + (hex.length + 1).toString() + ' >>\\nstream\\n' + hex + '>\\nendstream');
+    objects.add('<< /Type /XObject /Subtype /Image /Width ' + stampSize.width.toInt().toString() + ' /Height ' + stampSize.height.toInt().toString() + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ' + (hex.length + 1).toString() + ' >>\nstream\n' + hex + '>\nendstream');
   }
   final output = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[0];
