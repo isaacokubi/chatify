@@ -15709,6 +15709,7 @@ class _BusinessHubState extends State<BusinessHub> {
               child: const Text('Save')),
         ],
       ),
+      ),
     );
     if (accepted != true || name.text.trim().isEmpty) return;
     setState(() => saving = true);
