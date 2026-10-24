@@ -333,7 +333,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     const allowed = String(process.env.SCHOOL_VERIFICATION_ADMIN_EMAILS || '')
       .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
     const email = String(req.user?.email || '').trim().toLowerCase();
-    return allowed.length > 0 && email.length > 0 && allowed.includes(email);
+    return req.user?.role === 'admin' || (allowed.length > 0 && email.length > 0 && allowed.includes(email));
   }
 
   // Anyone may request verification, but a request alone never creates a workspace.
