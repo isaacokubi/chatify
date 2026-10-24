@@ -7392,19 +7392,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 else
                   LayoutBuilder(builder: (context, constraints) {
                     final compact = constraints.maxWidth < 680;
-                    Widget cell(String label, String value, {double? width, bool strong = false}) =>
+                    Widget cell(String label, String value, {double? width, bool strong = false, bool showLabel = true}) =>
                         SizedBox(
                           width: width ?? (compact ? constraints.maxWidth - 32 : 130),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(label.toUpperCase(), style: TextStyle(fontSize: 10, letterSpacing: .6, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                                const SizedBox(height: 3),
-                                Text(value, style: TextStyle(fontSize: 13, fontWeight: strong ? FontWeight.w700 : FontWeight.w500), maxLines: compact ? 3 : 2, overflow: TextOverflow.ellipsis),
-                              ],
-                            ),
+                            child: showLabel
+                                ? Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(label.toUpperCase(), style: TextStyle(fontSize: 10, letterSpacing: .6, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                      const SizedBox(height: 3),
+                                      Text(value, style: TextStyle(fontSize: 13, fontWeight: strong ? FontWeight.w700 : FontWeight.w500), maxLines: compact ? 3 : 2, overflow: TextOverflow.ellipsis),
+                                    ],
+                                  )
+                                : Text(value, style: TextStyle(fontSize: 13, fontWeight: strong ? FontWeight.w700 : FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
                           ),
                         );
                     return Column(
@@ -7417,13 +7419,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                               border: Border.all(color: Theme.of(context).dividerColor),
                             ),
                             child: Row(children: [
-                              cell('Class / grade', 'Class / grade', width: 150, strong: true),
-                              cell('Academic year', 'Academic year', width: 110, strong: true),
-                              cell('Term', 'Term', width: 100, strong: true),
-                              cell('Total fees', 'Total fees', width: 120, strong: true),
-                              cell('Version / status', 'Version / status', width: 140, strong: true),
+                              cell('Class / grade', 'Class / grade', width: 150, strong: true, showLabel: false),
+                              cell('Academic year', 'Academic year', width: 110, strong: true, showLabel: false),
+                              cell('Term', 'Term', width: 100, strong: true, showLabel: false),
+                              cell('Total fees', 'Total fees', width: 120, strong: true, showLabel: false),
+                              cell('Version / status', 'Version / status', width: 140, strong: true, showLabel: false),
                               const Spacer(),
-                              cell('Actions', 'Actions', width: 105, strong: true),
+                              cell('Actions', 'Actions', width: 105, strong: true, showLabel: false),
                             ]),
                           ),
                         ...feeStructures.map((raw) {
@@ -7480,11 +7482,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                 : SingleChildScrollView(
                                     scrollDirection: Axis.horizontal,
                                     child: Row(children: [
-                                      cell((structure['className'] ?? '—').toString(), (structure['className'] ?? '—').toString(), width: 150, strong: true),
-                                      cell('Year', (structure['academicYear'] ?? '—').toString(), width: 110),
-                                      cell('Term', (structure['term'] ?? '—').toString(), width: 100),
-                                      cell('KSh', 'KSh ${structure['totalAmount'] ?? 0}', width: 120, strong: true),
-                                      cell('Version', 'v${structure['version'] ?? 1} • ${structure['status'] ?? 'UNKNOWN'}', width: 140),
+                                      cell('Class / grade', (structure['className'] ?? '—').toString(), width: 150, strong: true, showLabel: false),
+                                      cell('Year', (structure['academicYear'] ?? '—').toString(), width: 110, showLabel: false),
+                                      cell('Term', (structure['term'] ?? '—').toString(), width: 100, showLabel: false),
+                                      cell('KSh', 'KSh ${structure['totalAmount'] ?? 0}', width: 120, strong: true, showLabel: false),
+                                      cell('Version', 'v${structure['version'] ?? 1} • ${structure['status'] ?? 'UNKNOWN'}', width: 140, showLabel: false),
                                       SizedBox(width: 105, child: Row(mainAxisSize: MainAxisSize.min, children: [
                                         if (active) IconButton(tooltip: 'Issue charges to students', icon: const Icon(Icons.assignment_turned_in_outlined), onPressed: () => issueFeeStructure(structure)),
                                         IconButton(tooltip: 'Delete fee structure', icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _removeSchoolRecord(label: 'fee structure', endpoint: 'fee-structures/$structureId')),
