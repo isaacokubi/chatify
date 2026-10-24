@@ -1323,6 +1323,24 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           payments: chargePayments.get(String(charge._id)) || [],
         }) : null;
         const { checkoutRequestId: _checkoutRequestId, merchantRequestId: _merchantRequestId, ...publicPayment } = payment;
+        const safeFeeSummary = {
+          _id: payment._id,
+          studentName: payment.studentName,
+          term: payment.term,
+          amount: payment.amount,
+          status: payment.status,
+          paymentReference: payment.paymentReference,
+          mpesaReceipt: payment.mpesaReceipt,
+          paymentMethod: method,
+          paymentMethodLabel: schoolPaymentMethodLabel(method) || 'Not recorded',
+          createdAt: payment.createdAt,
+          verifiedAt: payment.verifiedAt,
+          totalFeeDue: balance?.chargeAmount ?? null,
+          outstandingBalance: balance?.balance ?? null,
+          confirmedPaidForTerm: balance?.confirmedPaid ?? null,
+          feeBalanceStatus: balance?.status || 'NOT_CONFIGURED',
+        };
+        if (req.schoolMembership.role === 'staff') return safeFeeSummary;
         return {
           ...publicPayment,
           paymentMethod: method,
