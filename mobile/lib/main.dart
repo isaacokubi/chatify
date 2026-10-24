@@ -5653,7 +5653,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           'schoolName': (payment['schoolName'] ??
               feePaymentOptions['schoolName'] ??
               (payment['school'] is Map ? payment['school']['name'] : null)),
-          'paymentMethod': payment['paymentMethod'] ?? payment['method'],
+          'paymentMethod': (
+            payment['paymentMethod'] == null ||
+                schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']) == '—'
+          ) ? (feePaymentOptions['method'] ?? payment['paymentMethod'] ?? payment['method'])
+            : (payment['paymentMethod'] ?? payment['method']),
         }),
         fileExtension: 'pdf',
       );
