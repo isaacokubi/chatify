@@ -5750,6 +5750,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         throw ApiException(response.statusCode,
             'Receipt is unavailable. Refresh the fee records and try again.');
       }
+      Map<String, dynamic> receiptSettings = {};
+      try {
+        receiptSettings = await app.api.call('GET', '/api/schools/$id/receipt-settings');
+      } catch (_) {
+        // Receipts remain downloadable even if optional stamp settings are unavailable.
+      }
       await FileSaver.instance.saveFile(
         name: 'school-fee-receipt-$reference',
         bytes: _buildSchoolFeeReceiptPdf({
@@ -5759,7 +5765,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               (payment['school'] is Map ? payment['school']['name'] : null)),
           'paymentMethod': schoolPaymentMethodForRecord(payment, configuredFallback: feePaymentOptions['method']),
           'configuredPaymentMethod': feePaymentOptions['method'],
-          'receiptStampDataUrl': feePaymentOptions['receiptStampDataUrl'] ?? '',
+          'receiptStampDataUrl': receiptSettings['receiptStampDataUrl'] ?? feePaymentOptions['receiptStampDataUrl'] ?? '',
         }),
         fileExtension: 'pdf',
       );
