@@ -578,6 +578,254 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     } catch (error) { return next(error); }
   });
 
+  app.get('/api/schools/:schoolId/fee-structures', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const filter = { schoolId: req.params.schoolId };
+      if (req.query.includeArchived !== 'true') filter.status = 'ACTIVE';
+      const page = pageOptions(req);
+      const [structures, total] = await Promise.all([
+        SchoolFeeStructure.find(filter).sort({ className: 1, academicYear: -1, term: 1, version: -1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolFeeStructure.countDocuments(filter),
+      ]);
+      return res.json({ structures, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/fee-structures', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const input = normalizeFeeStructureInput(req.body);
+      if (!input) return res.status(400).json({ error: 'Enter a class, academic year, term, and 1–100 unique positive whole-KSh fee items.' });
+      const classExists = await SchoolStudent.exists({ schoolId: req.params.schoolId, className: input.className, active: true });
+      if (!classExists) return res.status(400).json({ error: 'Choose a class/grade that exists in this school’s active student register.' });
+      const key = { schoolId: req.params.schoolId, className: input.className, academicYear: input.academicYear, term: input.term };
+      const previousActive = await SchoolFeeStructure.findOne({ ...key, status: 'ACTIVE' }).lean();
+      const latest = await SchoolFeeStructure.findOne(key).sort({ academicYear: -1, version: -1 }).lean();
+      const version = Number(latest?.version || 0) + 1;
+      if (previousActive) {
+        await SchoolFeeStructure.updateOne({ _id: previousActive._id, status: 'ACTIVE' }, { $set: { status: 'ARCHIVED', archivedAt: new Date(), updatedBy: req.user._id } });
+      }
+      try {
+        const structure = await SchoolFeeStructure.create({
+          ...key, ...input, version, status: 'ACTIVE',
+          createdBy: req.user._id, updatedBy: req.user._id,
+        });
+        return res.status(201).json({ structure, previousVersionArchived: Boolean(previousActive), note: 'This is a new version. Already-issued student charges are unchanged; issue this version only to students who do not already have a charge for this period.' });
+      } catch (error) {
+        // Restore the previous active version if a competing update wins the unique version/active transition.
+        if (previousActive) {
+          const anotherActive = await SchoolFeeStructure.exists({ ...key, status: 'ACTIVE' });
+          if (!anotherActive) await SchoolFeeStructure.updateOne({ _id: previousActive._id }, { $set: { status: 'ACTIVE' }, $unset: { archivedAt: 1 } });
+        }
+        if (error?.code === 11000) return res.status(409).json({ error: 'Another administrator updated this fee structure concurrently. Refresh the list and retry.' });
+        throw error;
+      }
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/fee-structures/:structureId/issue', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.structureId)) return res.status(400).json({ error: 'Invalid fee structure id' });
+      const structure = await SchoolFeeStructure.findOne({ _id: req.params.structureId, schoolId: req.params.schoolId, status: 'ACTIVE' }).lean();
+      if (!structure) return res.status(404).json({ error: 'Active fee structure not found in this school' });
+      const enrolled = await SchoolStudent.find({ schoolId: req.params.schoolId, className: structure.className, active: true })
+        .select('_id fullName admissionNumber className').lean();
+      if (!enrolled.length) return res.status(409).json({ error: 'There are no active students in this class to receive charges.' });
+      const operations = enrolled.map(student => ({
+        updateOne: {
+          filter: { schoolId: structure.schoolId, studentId: student._id, academicYear: structure.academicYear, term: structure.term },
+          update: { $setOnInsert: {
+            schoolId: structure.schoolId, studentId: student._id, studentName: student.fullName,
+            admissionNumber: student.admissionNumber, className: student.className,
+            academicYear: structure.academicYear, term: structure.term,
+            items: structure.items, totalAmount: structure.totalAmount, credits: 0,
+            structureId: structure._id, structureVersion: structure.version, issuedBy: req.user._id, issuedAt: new Date(),
+          } },
+          upsert: true,
+        },
+      }));
+      const result = await SchoolStudentCharge.bulkWrite(operations, { ordered: false });
+      return res.json({
+        studentsInClass: enrolled.length,
+        chargesCreated: result.upsertedCount || 0,
+        existingChargesPreserved: enrolled.length - (result.upsertedCount || 0),
+        note: 'Issuing is idempotent. Existing student charges are not overwritten by a later fee-structure version.',
+      });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/fee-balances', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+      const studentIds = visibleStudents.map(student => student._id);
+      const chargeFilter = { schoolId: req.params.schoolId, studentId: { $in: studentIds } };
+      if (req.query.academicYear) chargeFilter.academicYear = String(req.query.academicYear).trim().slice(0, 40);
+      if (req.query.term) chargeFilter.term = String(req.query.term).trim().slice(0, 80);
+      const charges = await SchoolStudentCharge.find(chargeFilter).sort({ className: 1, studentName: 1, academicYear: -1, term: 1 }).lean();
+      const chargeIds = charges.map(charge => charge.studentId);
+      const payments = chargeIds.length ? await FeePayment.find({
+        schoolId: req.params.schoolId, studentId: { $in: chargeIds }, status: 'CONFIRMED',
+      }).select('studentId academicYear term amount status').lean() : [];
+      const byPeriod = new Map();
+      for (const payment of payments) {
+        const key = [String(payment.studentId), String(payment.academicYear || ''), String(payment.term || '')].join('|');
+        byPeriod.set(key, [...(byPeriod.get(key) || []), payment]);
+      }
+      const balances = charges.map(charge => {
+        const key = [String(charge.studentId), charge.academicYear, charge.term].join('|');
+        const calculated = calculateSchoolFeeBalance({
+          chargeAmount: charge.totalAmount,
+          credits: charge.credits || 0,
+          payments: byPeriod.get(key) || [],
+        });
+        return { ...charge, ...calculated, chargeId: String(charge._id) };
+      });
+      return res.json({ balances, total: balances.length });
+    } catch (error) { return next(error); }
+  });
+
+  async function schoolVisibleStudents(req, page = pageOptions(req)) {
+    return SchoolStudent.find(schoolStudentFilter(req)).sort({ className: 1, fullName: 1 }).skip(page.skip).limit(page.limit).lean();
+  }
+  app.get('/api/schools/:schoolId/students', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const page = pageOptions(req), filter = schoolStudentFilter(req);
+      const [students, total] = await Promise.all([schoolVisibleStudents(req, page), SchoolStudent.countDocuments(filter)]);
+      return res.json({ students, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/students', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const admissionNumber = String(req.body?.admissionNumber || '').trim().toUpperCase();
+      const fullName = String(req.body?.fullName || '').trim();
+      const className = String(req.body?.className || '').trim();
+      if (!/^[A-Z0-9/-]{2,40}$/.test(admissionNumber) || !fullName || fullName.length > 120 || !className || className.length > 80)
+        return res.status(400).json({ error: 'Enter a valid admission number, student name and class/grade' });
+      const student = await SchoolStudent.create({ schoolId: req.params.schoolId, admissionNumber, fullName, className,
+        guardianName: String(req.body?.guardianName || '').trim().slice(0,120),
+        guardianPhone: String(req.body?.guardianPhone || '').trim().slice(0,30),
+        guardianEmail: String(req.body?.guardianEmail || '').trim().toLowerCase().slice(0,180) });
+      return res.status(201).json({ student });
+    } catch (error) {
+      if (error?.code === 11000) return res.status(409).json({ error: 'That admission number already exists in this school' });
+      return next(error);
+    }
+  });
+
+  app.patch('/api/schools/:schoolId/students/:studentId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.studentId)) return res.status(400).json({ error: 'Invalid student record' });
+      const update = {};
+      for (const key of ['fullName','className','guardianName','guardianPhone','guardianEmail']) {
+        if (req.body?.[key] !== undefined) update[key] = String(req.body[key]).trim();
+      }
+      if (req.body?.active !== undefined) update.active = req.body.active === true;
+      const student = await SchoolStudent.findOneAndUpdate({ _id: req.params.studentId, schoolId: req.params.schoolId }, { $set: update }, { new: true, runValidators: true });
+      if (!student) return res.status(404).json({ error: 'Student not found in this school' });
+      return res.json({ student });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/attendance', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const page = pageOptions(req);
+      const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+      const filter = { schoolId: req.params.schoolId, studentId: { $in: visibleStudents.map(s => s._id) } };
+      if (req.query.date) {
+        const date = new Date(String(req.query.date) + 'T00:00:00.000Z');
+        if (!Number.isFinite(date.getTime())) return res.status(400).json({ error: 'Use attendance date YYYY-MM-DD' });
+        filter.date = date;
+      }
+      const [attendance, total, students] = await Promise.all([
+        SchoolAttendance.find(filter).sort({ date: -1, className: 1, studentName: 1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolAttendance.countDocuments(filter),
+        schoolVisibleStudents(req, page),
+      ]);
+      return res.json({ attendance, students, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/attendance', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const studentId = String(req.body?.studentId || ''), status = String(req.body?.status || '');
+      const dateText = String(req.body?.date || new Date().toISOString().slice(0,10));
+      const date = new Date(dateText + 'T00:00:00.000Z');
+      if (!mongoose.isValidObjectId(studentId) || !['present','absent','late','excused'].includes(status) || !/^\d{4}-\d{2}-\d{2}$/.test(dateText) || !Number.isFinite(date.getTime()))
+        return res.status(400).json({ error: 'Choose a student, valid date and attendance status' });
+      const student = await SchoolStudent.findOne({ _id: studentId, schoolId: req.params.schoolId, active: true }).lean();
+      if (!student) return res.status(404).json({ error: 'Active student not found in this school' });
+      const record = await SchoolAttendance.findOneAndUpdate({ schoolId: req.params.schoolId, studentId, date },
+        { $set: { studentName: student.fullName, admissionNumber: student.admissionNumber, className: student.className, status, note: String(req.body?.note || '').trim().slice(0,300), markedBy: req.user._id } },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
+      return res.json({ attendance: record });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/academics', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const page = pageOptions(req);
+      const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+      const filter = { schoolId: req.params.schoolId, studentId: { $in: visibleStudents.map(s => s._id) } };
+      const [assessments, total] = await Promise.all([
+        SchoolAssessment.find(filter).sort({ term: -1, className: 1, studentName: 1, subject: 1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolAssessment.countDocuments(filter),
+      ]);
+      return res.json({ assessments, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/academics', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const studentId = String(req.body?.studentId || ''), subject = String(req.body?.subject || '').trim();
+      const assessment = String(req.body?.assessment || '').trim(), term = String(req.body?.term || '').trim();
+      const score = Number(req.body?.score), outOf = Number(req.body?.outOf ?? 100);
+      if (!mongoose.isValidObjectId(studentId) || !subject || subject.length > 80 || !assessment || assessment.length > 120 || !term || term.length > 80 ||
+          !Number.isFinite(score) || !Number.isFinite(outOf) || outOf <= 0 || score < 0 || score > outOf || outOf > 10000)
+        return res.status(400).json({ error: 'Enter student, subject, assessment, term and valid marks; score cannot exceed total marks' });
+      const student = await SchoolStudent.findOne({ _id: studentId, schoolId: req.params.schoolId, active: true }).lean();
+      if (!student) return res.status(404).json({ error: 'Active student not found in this school' });
+      const record = await SchoolAssessment.create({ schoolId: req.params.schoolId, studentId, studentName: student.fullName, admissionNumber: student.admissionNumber,
+        className: student.className, subject, assessment, term, score, outOf,
+        teacherNote: String(req.body?.teacherNote || '').trim().slice(0,500), recordedBy: req.user._id });
+      return res.status(201).json({ assessment: record });
+    } catch (error) {
+      if (error?.code === 11000) return res.status(409).json({ error: 'That assessment has already been recorded for this student and term' });
+      return next(error);
+    }
+  });
+
+  async function deliverSchoolReceipt(paymentId) {
+    const payment = await FeePayment.findById(paymentId).select('+receiptHtml');
+    if (!payment || payment.status !== 'CONFIRMED' || !payment.receiptHtml) return { sent: 0, pending: true };
+    if (!emailProvider?.available || typeof emailProvider.sendSchoolFeeReceipt !== 'function') {
+      await FeePayment.updateOne({ _id: payment._id }, { $set: { receiptEmailLastError: 'SMTP receipt email is not configured' } });
+      return { sent: 0, pending: true };
+    }
+    const school = await School.findById(payment.schoolId).select('name code').lean();
+    const parent = await User.findById(payment.parentId).select('name email').lean();
+    const admins = await Membership.find({ schoolId: payment.schoolId, active: true, role: 'admin' }).select('userId').lean();
+    const adminUsers = await User.find({ _id: { $in: admins.map(x => x.userId) } }).select('email').lean();
+    const recipients = [...new Set([parent?.email, ...adminUsers.map(x => x.email)].filter(x => typeof x === 'string' && x.includes('@')))];
+    let sent = 0;
+    for (const email of recipients) {
+      const latest = await FeePayment.findById(payment._id).select('receiptEmailSentTo').lean();
+      if (latest?.receiptEmailSentTo?.includes(email)) continue;
+      try {
+        await emailProvider.sendSchoolFeeReceipt({ email, schoolName: school?.name || 'School', paymentReference: payment.paymentReference, receiptNumber: payment.mpesaReceipt, amount: payment.amount, studentName: payment.studentName, term: payment.term, receiptHtml: payment.receiptHtml });
+        await FeePayment.updateOne({ _id: payment._id }, { $addToSet: { receiptEmailSentTo: email }, $unset: { receiptEmailLastError: 1 } });
+        sent++;
+      } catch (error) {
+        await FeePayment.updateOne({ _id: payment._id }, { $set: { receiptEmailLastError: String(error?.message || 'Email delivery failed').slice(0, 300) } });
+      }
+    }
+    const delivered = await FeePayment.findById(payment._id).select('receiptEmailSentTo').lean();
+    return { sent, pending: recipients.some(email => !delivered?.receiptEmailSentTo?.includes(email)) };
+  }
+
+
+  // Financial fee records are intentionally not deletable; these routes cover
+  // operational records and enforce school membership and role permissions.
+
   app.delete('/api/schools/:schoolId/students/:studentId', auth, requireRole('admin','staff'), async (req, res, next) => {
     try {
       const student = await SchoolStudent.findOneAndUpdate({ _id: req.params.studentId, schoolId: req.params.schoolId, active: true }, { $set: { active: false } }, { new: true });
