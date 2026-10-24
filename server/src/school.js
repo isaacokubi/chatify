@@ -1183,7 +1183,22 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         if (latest?.status === 'CONFIRMED' && latest.mpesaReceipt === receipt) return res.json({ payment: latest, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + latest.paymentReference + '/receipt', duplicate: true });
         return res.status(409).json({ error: 'This fee record has already been verified or changed. Refresh the fee list.' });
       }
-      const school = await School.findById(req.params.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
+      const school = await School.findById(req.params.schoolId)
+        .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber +receiptStampDataUrl')
+        .lean();
+      let resolvedMethod = confirmed.paymentMethod || null;
+      if (!schoolPaymentMethodLabel(resolvedMethod)) {
+        const destination = String(confirmed.destinationNumber || '').trim();
+        if (destination && destination === String(school?.paymentProfile?.paybillNumber || '').trim()) resolvedMethod = 'mpesa_paybill';
+        else if (destination && destination === String(school?.paymentProfile?.tillNumber || '').trim()) resolvedMethod = 'mpesa_till';
+        else if (destination && destination === String(school?.officialPhone || '').trim()) resolvedMethod = 'mpesa_send_money';
+        else resolvedMethod = school?.paymentProfile?.method || null;
+      }
+      if (resolvedMethod && resolvedMethod !== confirmed.paymentMethod) {
+        confirmed = await FeePayment.findByIdAndUpdate(
+          confirmed._id, { $set: { paymentMethod: resolvedMethod } }, { new: true, runValidators: true },
+        );
+      }
       let balanceDetails = {};
       if (confirmed.chargeId) {
         const charge = await SchoolStudentCharge.findOne({
