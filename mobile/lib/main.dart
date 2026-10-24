@@ -5067,77 +5067,78 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   Future<void> showSchoolSupportOptions() async {
     final id = schoolId;
     if (id == null || !mounted) return;
-    final selected = schools.whereType<Map>().cast<Map>().firstWhere(
-      (school) => school['id']?.toString() == id,
-      orElse: () => <String, dynamic>{},
-    );
-    final profile = selected['paymentProfile'] is Map
-        ? Map<String, dynamic>.from(selected['paymentProfile'] as Map)
-        : <String, dynamic>{};
-    final method = (profile['method'] ?? '').toString();
-    final schoolLabel = (selected['name'] ?? 'the school').toString();
-    final hasDetails = method == 'mpesa_paybill'
-        ? (profile['paybillNumber']?.toString().trim().isNotEmpty ?? false)
-        : method == 'mpesa_till'
-            ? (profile['tillNumber']?.toString().trim().isNotEmpty ?? false)
-            : method == 'bank'
-                ? (profile['accountNumber']?.toString().trim().isNotEmpty ?? false)
-                : method == 'mpesa_send_money'
-                    ? (selected['officialPhone']?.toString().trim().isNotEmpty ?? false)
-                    : false;
-    await showDialog<void>(
+    final donationAmount = TextEditingController();
+    final donationPhone = TextEditingController(text: payerPhone.text.trim());
+    final formKey = GlobalKey<FormState>();
+    var busy = false;
+    final submitted = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Row(children: const [
-          Icon(Icons.volunteer_activism_outlined),
-          SizedBox(width: 8),
-          Expanded(child: Text('Support our school')),
-        ]),
-        content: SingleChildScrollView(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Your contribution helps $schoolLabel support learners and school programmes.'),
-            const SizedBox(height: 14),
-            if (!hasDetails) const Text(
-              'The school has not configured a complete donation destination yet. Please contact the school office before sending money.',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-            if (hasDetails && method == 'mpesa_paybill') ...[
-              const Text('M-Pesa Paybill', style: TextStyle(fontWeight: FontWeight.bold)),
-              SelectableText(profile['paybillNumber'].toString()),
-              if ((profile['accountNumber'] ?? '').toString().trim().isNotEmpty) ...[
-                const SizedBox(height: 8),
-                const Text('Account / reference', style: TextStyle(fontWeight: FontWeight.bold)),
-                SelectableText(profile['accountNumber'].toString()),
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Row(children: [
+            Icon(Icons.volunteer_activism_outlined),
+            SizedBox(width: 8),
+            Expanded(child: Text('Donate / Support Us')),
+          ]),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Enter your donation amount and M-Pesa number. Safaricom will send an STK prompt to your phone. Payment goes to the school’s configured Paybill or Till.'),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: donationAmount,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Donation amount (KSh)', border: OutlineInputBorder()),
+                  validator: (value) {
+                    final n = int.tryParse((value ?? '').trim());
+                    return n == null || n < 1 || n > 150000 ? 'Enter KSh 1–150,000' : null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: donationPhone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: 'M-Pesa phone number', hintText: '07XXXXXXXX or 2547XXXXXXXX', border: OutlineInputBorder()),
+                  validator: (value) => normalizeKenyanPhone((value ?? '').trim()) == null ? 'Enter a valid Kenyan mobile number' : null,
+                ),
               ],
-            ],
-            if (hasDetails && method == 'mpesa_till') ...[
-              const Text('M-Pesa Buy Goods Till', style: TextStyle(fontWeight: FontWeight.bold)),
-              SelectableText(profile['tillNumber'].toString()),
-            ],
-            if (hasDetails && method == 'mpesa_send_money') ...[
-              const Text('School M-Pesa number', style: TextStyle(fontWeight: FontWeight.bold)),
-              SelectableText(selected['officialPhone'].toString()),
-            ],
-            if (hasDetails && method == 'bank') ...[
-              const Text('Bank', style: TextStyle(fontWeight: FontWeight.bold)),
-              SelectableText((profile['bankName'] ?? 'Contact school office').toString()),
-              const SizedBox(height: 8),
-              const Text('Account number', style: TextStyle(fontWeight: FontWeight.bold)),
-              SelectableText(profile['accountNumber'].toString()),
-            ],
-            if (hasDetails) ...[
-              const SizedBox(height: 12),
-              const Text('Please use “DONATION” as the payment reference where supported and share the transaction confirmation with the school office. Verify the destination with the school before transferring funds.'),
-            ],
+            )),
+          ),
+          actions: [
+            TextButton(onPressed: busy ? null : () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            FilledButton.icon(
+              onPressed: busy ? null : () async {
+                if (!(formKey.currentState?.validate() ?? false)) return;
+                setDialogState(() => busy = true);
+                try {
+                  final result = await app.api.call('POST', '/api/schools/$id/donations', {
+                    'amount': int.parse(donationAmount.text.trim()),
+                    'phone': donationPhone.text.trim(),
+                  });
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                  if (mounted) {
+                    final reference = result['donation']?['paymentReference'] ?? '';
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${result['note'] ?? 'M-Pesa prompt requested.'} Reference: $reference')));
+                  }
+                } catch (error) {
+                  setDialogState(() => busy = false);
+                  if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(error.toString())));
+                }
+              },
+              icon: busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.lock_outline),
+              label: Text(busy ? 'Requesting prompt…' : 'Send M-Pesa prompt'),
+            ),
           ],
-        )),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
-        ],
+        ),
       ),
     );
+    donationAmount.dispose();
+    donationPhone.dispose();
+    if (submitted == true) return;
   }
 
   Future<void> loadSection() async {
@@ -6908,7 +6909,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             ? 'Continue with Send Money'
                             : _selectedParentFeePaymentMethod() == 'bank'
                                 ? 'Record bank transfer'
-                                : 'Pay school fees with M-Pesa',
+                                : 'Pay Fees',
                         startFeePayment,
                         icon: Icons.payment)
                 ],
