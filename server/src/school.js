@@ -108,6 +108,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   const School = model('SchoolWorkspace', new mongoose.Schema({
     name: { type: String, required: true, trim: true, maxlength: 160 },
     code: { type: String, required: true, trim: true, uppercase: true, maxlength: 24 },
+    classNames: { type: [String], default: [] },
     officialPhone: { type: String, trim: true, maxlength: 24 },
     receiptStampDataUrl: { type: String, trim: true, maxlength: 1000000, default: '', select: false },
     staffInviteCode: { type: String, default: () => randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase(), select: false },
@@ -694,6 +695,45 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         senderId: message.senderId && typeof message.senderId === 'object' ? String(message.senderId._id) : message.senderId,
       }));
       return res.json({ messages, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  // School-owned class/grade options; include legacy classes already in student/fee records.
+  app.get('/api/schools/:schoolId/classes', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const school = await School.findById(req.params.schoolId).select('classNames').lean();
+      if (!school) return res.status(404).json({ error: 'School workspace not found' });
+      const [studentClasses, feeClasses] = await Promise.all([
+        SchoolStudent.distinct('className', { schoolId: req.params.schoolId, className: { $type: 'string', $ne: '' } }),
+        SchoolFeeStructure.distinct('className', { schoolId: req.params.schoolId, className: { $type: 'string', $ne: '' } }),
+      ]);
+      const classes = [...new Set([...(school.classNames || []), ...studentClasses, ...feeClasses]
+        .map(value => String(value || '').trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+      return res.json({ classes });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/classes', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const className = String(req.body?.className || '').trim().replace(/\s+/g, ' ');
+      if (!className || className.length > 80) return res.status(400).json({ error: 'Enter a class or grade name (1–80 characters).' });
+      const school = await School.findById(req.params.schoolId);
+      if (!school) return res.status(404).json({ error: 'School workspace not found' });
+      const classes = [...new Set((school.classNames || []).map(value => String(value).trim()).filter(Boolean))];
+      const existing = classes.find(value => value.toLowerCase() === className.toLowerCase());
+      if (!existing) {
+        classes.push(className);
+        school.classNames = classes;
+        await school.save();
+      }
+      const [studentClasses, feeClasses] = await Promise.all([
+        SchoolStudent.distinct('className', { schoolId: req.params.schoolId, className: { $type: 'string', $ne: '' } }),
+        SchoolFeeStructure.distinct('className', { schoolId: req.params.schoolId, className: { $type: 'string', $ne: '' } }),
+      ]);
+      const allClasses = [...new Set([...classes, ...studentClasses, ...feeClasses].map(value => String(value || '').trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+      return res.status(existing ? 200 : 201).json({ classes: allClasses, className: existing || className });
     } catch (error) { return next(error); }
   });
 
