@@ -995,7 +995,6 @@ String schoolPaymentMethodLabel(dynamic value) {
     'mpesa_send_money' || 'send_money' || 'm_pesa_send_money' => 'M-Pesa Send Money',
     'bank' || 'bank_transfer' || 'banktransfer' => 'Bank transfer',
     'stk' || 'stk_push' || 'mpesa_stk' || 'mpesa_stk_push' || 'm_pesa_(stk_push)' || 'daraja' => 'M-Pesa (STK Push)',
-    'bank_transfer' || 'banktransfer' => 'Bank transfer',
     _ => '—',
   };
 }
