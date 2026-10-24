@@ -1031,7 +1031,7 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     'Receipt / payment reference: ' + safe(reference),
     'Student: ' + safe(payment['studentName'] ?? 'N/A'),
     'Term / year: ' + safe(payment['term'] ?? 'N/A'),
-    'AMOUNT RECEIVED: KES ' + safe(Number.tryParse(amount.toString())?.toStringAsFixed(2) ?? amount),
+    'AMOUNT RECEIVED: KES ' + safe(double.tryParse(amount.toString())?.toStringAsFixed(2) ?? amount),
     'PAYMENT STATUS: ' + safe(payment['status'] ?? 'CONFIRMED'),
     'PAYMENT DATE: ' + safe(paidAt),
     'PAYMENT METHOD: ' + safe(method),
