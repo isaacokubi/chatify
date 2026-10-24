@@ -6278,7 +6278,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final contactRole = (member['role'] ?? '').toString().toLowerCase();
       if (contactRole == 'admin') return 'School administrator';
       final designation = (member['staffDesignation'] ?? '').toString().trim();
-      if (designation.isNotEmpty) return designation;
       final linkedNames = (member['studentNames'] as List? ?? [])
           .map((name) => name.toString().trim())
           .where((name) => name.isNotEmpty && parentStudentNames.any(
@@ -6290,9 +6289,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           .toSet()
           .toList()
         ..sort();
-      if (classes.isNotEmpty) return 'Staff • ${classes.join(', ')}';
-      if (linkedNames.isNotEmpty) return 'Staff • linked to your child';
-      return 'Staff';
+      final label = designation.isNotEmpty ? designation : 'Staff';
+      if (classes.isNotEmpty) return '$label • ${classes.join(', ')}';
+      if (linkedNames.isNotEmpty) return '$label • linked to your child';
+      return label;
     }
 
     final contacts = members.whereType<Map>().where((member) {
@@ -6320,7 +6320,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
     if (contacts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('No school administrator or child-linked staff contact is available yet.')));
+          content: Text('No school administrator or teaching staff contact is available yet.')));
       return;
     }
     String? selectedUserId = contacts.first['userId'].toString();
