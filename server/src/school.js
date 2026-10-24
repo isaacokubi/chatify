@@ -530,7 +530,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     } catch (error) { return next(error); }
   });
 
-  app.get('/api/schools/:schoolId/receipt-settings', auth, requireRole('admin'), async (req, res, next) => {
+  app.get('/api/schools/:schoolId/receipt-settings', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
       const school = await School.findById(req.params.schoolId).select('receiptStampDataUrl').lean();
       if (!school) return res.status(404).json({ error: 'School not found' });
@@ -1133,7 +1133,6 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         officialPhone,
         configured: Boolean(profile?.method),
         method: profile?.method || null,
-        receiptStampDataUrl: school?.receiptStampDataUrl || '',
         paybillNumber: profile?.method === 'mpesa_paybill' ? profile.paybillNumber : null,
         tillNumber: profile?.method === 'mpesa_till' ? profile.tillNumber : null,
         bankName: profile?.method === 'bank' ? profile.bankName : null,
