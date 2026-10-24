@@ -32,6 +32,7 @@ import {registerPublicStatusRoute,buildHealthResponse} from './service-status.js
 import {registerSchoolRoutes} from './school.js';
 import {createPlatformFeeCollector} from './platform-fee-collection.js';
 import {registerWorkspaceBillingRoutes,applyWorkspaceBillingPayment} from './workspace-billing.js';
+import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
 import {unhideConversationForUser} from './conversation-visibility.js';
 // Read runtime configuration first so production-only security rules can be applied consistently.
 const nodeEnv=resolveNodeEnv(process.env.NODE_ENV);
@@ -217,6 +218,20 @@ app.get('/api/admin/business-approvals',auth,requireAdmin,async(q,r)=>{
     Model.countDocuments(filter)
   ]);
   r.json({businesses:businesses.map(item=>({...item,id:String(item._id),owner:item.ownerId?{name:item.ownerId.name,email:item.ownerId.email,phone:item.ownerId.phone}:null,ownerId:undefined})),total});
+});
+app.get('/api/admin/workspace-billing-status',auth,requireAdmin,async(q,r)=>{
+  const Business=mongoose.models.BusinessOrganization;
+  const School=mongoose.models.SchoolWorkspace;
+  const Settings=mongoose.models.WorkspaceBillingSettings;
+  const settings=Settings?await Settings.findOne({key:'global'}).lean():null;
+  const graceDays=Number(settings?.gracePeriodDays??3);
+  const [businesses,schools]=await Promise.all([
+    Business?Business.find({}).sort({updatedAt:-1}).limit(500).populate('ownerId','name email').select('name slug industry approvalStatus ownerId billing createdAt updatedAt').lean():[],
+    School?School.find({}).sort({updatedAt:-1}).limit(500).populate('createdBy','name email').select('name code createdBy billing createdAt updatedAt').lean():[]
+  ]);
+  const businessRows=businesses.map(item=>({id:String(item._id),name:item.name,type:'business',owner:item.ownerId?{name:item.ownerId.name,email:item.ownerId.email}:null,approvalStatus:item.approvalStatus||'LEGACY',setupFeePaid:item.billing?.setupFeePaid===true,subscriptionExpiresAt:item.billing?.subscriptionExpiresAt||null,billing:getWorkspaceBillingStatus(item,graceDays),updatedAt:item.updatedAt||item.createdAt}));
+  const schoolRows=schools.map(item=>({id:String(item._id),name:item.name,type:'school',owner:item.createdBy?{name:item.createdBy.name,email:item.createdBy.email}:null,approvalStatus:'APPROVED',setupFeePaid:item.billing?.setupFeePaid===true,subscriptionExpiresAt:item.billing?.subscriptionExpiresAt||null,billing:getWorkspaceBillingStatus(item,graceDays),updatedAt:item.updatedAt||item.createdAt}));
+  r.json({workspaces:[...businessRows,...schoolRows].sort((a,b)=>new Date(b.updatedAt||0)-new Date(a.updatedAt||0)),gracePeriodDays:graceDays});
 });
 app.post('/api/admin/business-approvals/:businessId/review',auth,requireAdmin,async(q,r)=>{
   if(!mongoose.isValidObjectId(q.params.businessId))return r.status(400).json({error:'Invalid business ID'});
