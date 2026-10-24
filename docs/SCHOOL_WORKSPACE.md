@@ -37,6 +37,16 @@ The API paginates school records. The current Flutter learner selector fetches u
 For automated Daraja fees configure `PUBLIC_API_URL`, `SCHOOL_PAYMENT_ENCRYPTION_KEY`, and each school's own approved credentials. Configure SMTP for automatic receipt emails. Keep real credentials out of source control and chat. A sandbox STK acceptance is initiation only, not successful payment. See [M-Pesa deployment notes](M-PESA-DEPLOYMENT.md), the [QA report](QA_REPORT_2026-10-23.md) and [database notes](DATABASE.md).
 
 
+## School workspace usability and scale
+
+- School record lists use server-side pagination with a client page size of 50 records. Search results are paginated too; changing a search resets the current page.
+- School inbox search accepts a parent/staff name, email, subject or message text. Inbox results include the sender's display name. Administrators can open a normal one-to-one Chatify conversation from an inbox message for sensitive matters; it is a separate private conversation and is not a school-wide announcement.
+- School conferences are no longer a separate workspace section. Administrators schedule them from Messages; events are stored as school messages with a `messageType` of `conference`, title, agenda, audience, `startsAt`, `endsAt` and optional location. Events use the same message search, pagination, sender display and audience visibility rules as other messages. New event creation is admin-only and validates a future start time and an end after the start. Legacy conference records are not deleted by this UI change.
+- A parent account can hold a separate active membership in each school. Membership and linked-student access remain scoped to the selected school; joining another school must not replace the first school's membership.
+- The workspace billing banner is hidden in the Flutter interface to save space. Billing API checks, subscription status, setup/monthly payment logic and server-side workspace locks remain in place.
+
+For release verification, run the school API tests and Flutter analyze/build checks before deployment. Verify search with more than one page of parent records and school messages/events, cross-school parent membership, event start/end rendering, and that a parent cannot read another family's school-only records.
+ 
 ## Class fee structures and balances
 
 Administrators can create versioned fee structures for a specific class/grade, academic year and term through the authenticated `/api/schools/:schoolId/fee-structures` API. Each item is a positive whole-KSh amount; the server validates item codes, prevents duplicate items, and computes the total instead of trusting a client-supplied total. Only school administrators can create a structure or issue charges. Staff can read structures; parent balance queries are restricted to the students linked to their school membership.
