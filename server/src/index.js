@@ -206,6 +206,34 @@ app.put('/api/users/me/encryption-key',auth,async(q,r)=>{const key=q.body?.publi
  * the client cannot grant itself privileges by changing a submitted JSON field.
  */
 const requireAdmin=createAdminMiddleware();
+// Business approval is separate from workspace billing: approval never marks a subscription as paid.
+app.get('/api/admin/business-approvals',auth,requireAdmin,async(q,r)=>{
+  const Model=mongoose.models.BusinessOrganization;
+  if(!Model)return r.json({businesses:[],total:0});
+  const requested=String(q.query.status||'PENDING').toUpperCase();
+  const filter=['PENDING','APPROVED','REJECTED'].includes(requested)?{approvalStatus:requested}:requested==='ALL'?{}:{approvalStatus:'PENDING'};
+  const [businesses,total]=await Promise.all([
+    Model.find(filter).sort({createdAt:-1}).limit(100).populate('ownerId','name email phone').select('name slug industry email phone website country currency approvalStatus approvalReviewedAt approvalReviewNote createdAt ownerId billing').lean(),
+    Model.countDocuments(filter)
+  ]);
+  r.json({businesses:businesses.map(item=>({...item,id:String(item._id),owner:item.ownerId?{name:item.ownerId.name,email:item.ownerId.email,phone:item.ownerId.phone}:null,ownerId:undefined})),total});
+});
+app.post('/api/admin/business-approvals/:businessId/review',auth,requireAdmin,async(q,r)=>{
+  if(!mongoose.isValidObjectId(q.params.businessId))return r.status(400).json({error:'Invalid business ID'});
+  const decision=String(q.body?.decision||'').toUpperCase();
+  const reviewNote=typeof q.body?.reviewNote==='string'?q.body.reviewNote.trim().slice(0,500):'';
+  if(!['APPROVE','REJECT'].includes(decision))return r.status(400).json({error:'Choose APPROVE or REJECT'});
+  const Model=mongoose.models.BusinessOrganization;
+  const business=Model?await Model.findById(q.params.businessId):null;
+  if(!business)return r.status(404).json({error:'Business workspace not found'});
+  if(business.approvalStatus!=='PENDING')return r.status(409).json({error:'This business has already been reviewed'});
+  business.approvalStatus=decision==='APPROVE'?'APPROVED':'REJECTED';
+  business.approvalReviewedBy=q.user._id;
+  business.approvalReviewedAt=new Date();
+  business.approvalReviewNote=reviewNote||(decision==='APPROVE'?'Business approved by Chatify administrator.':'Business application rejected by Chatify administrator.');
+  await business.save();
+  r.json({business:{id:String(business._id),name:business.name,approvalStatus:business.approvalStatus,approvalReviewedAt:business.approvalReviewedAt,approvalReviewNote:business.approvalReviewNote}});
+});
 app.get('/api/admin/overview',auth,requireAdmin,async(q,r)=>{
   const since=new Date(Date.now()-24*60*60*1000);
   const optionalCount=(model,filter={})=>model?model.countDocuments(filter):Promise.resolve(0);
@@ -231,8 +259,19 @@ app.get('/api/admin/overview',auth,requireAdmin,async(q,r)=>{
     optionalCount(mongoose.models.SchoolFeePayment),
   ]);
   const revenue=await Payment.aggregate([{$match:{status:'SUCCESS'}},{$group:{_id:null,total:{$sum:{$ifNull:['$totalAmount','$amount']}},count:{$sum:1}}}]);
+  const [workspaceRevenue, pendingSchoolApprovals, pendingBusinessApprovals, approvedBusinesses] = await Promise.all([
+    Payment.aggregate([{$match:{status:'SUCCESS',billingType:{$in:['workspace_setup','workspace_subscription']}}},{$group:{_id:'$billingType',total:{$sum:{$ifNull:['$totalAmount','$amount']}},count:{$sum:1}}}]),
+    mongoose.models.SchoolVerificationRequest?mongoose.models.SchoolVerificationRequest.countDocuments({status:'PENDING'}):Promise.resolve(0),
+    mongoose.models.BusinessOrganization?mongoose.models.BusinessOrganization.countDocuments({approvalStatus:'PENDING'}):Promise.resolve(0),
+    mongoose.models.BusinessOrganization?mongoose.models.BusinessOrganization.countDocuments({approvalStatus:'APPROVED'}):Promise.resolve(0)
+  ]);
+  const setupIncome=workspaceRevenue.find(item=>item._id==='workspace_setup')?.total||0;
+  const subscriptionIncome=workspaceRevenue.find(item=>item._id==='workspace_subscription')?.total||0;
+  const workspacePaymentCount=workspaceRevenue.reduce((sum,item)=>sum+item.count,0);
+  const monthStart=new Date();monthStart.setDate(1);monthStart.setHours(0,0,0,0);
+  const currentMonthIncome=await Payment.aggregate([{$match:{status:'SUCCESS',billingType:{$in:['workspace_setup','workspace_subscription']},completedAt:{$gte:monthStart}}},{$group:{_id:null,total:{$sum:{$ifNull:['$totalAmount','$amount']}}}}]);
   const feeSummary=await PlatformFeeLedger.aggregate([{$match:{status:'PENDING_SETTLEMENT'}},{$group:{_id:null,totalFee:{$sum:'$feeAmount'},count:{$sum:1}}}]);
-  r.json({stats:{totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,failedPayments,successfulPaymentAmount:revenue[0]?.total||0,pendingPlatformFeeAmount:feeSummary[0]?.totalFee||0,pendingPlatformFeeCount:feeSummary[0]?.count||0,totalBusinesses,businessCustomers,catalogItems,openCases,newUsers24h,newMessages24h,newBusinesses24h,totalSchools,totalStudents,totalAttendanceRecords,totalAssessments,totalSchoolFees},recentUsers,recentPayments,generatedAt:new Date().toISOString()});
+  r.json({stats:{totalUsers,activeUsers,verifiedUsers,totalConversations,totalMessages,totalMemories,totalPayments,pendingPayments,successfulPayments,failedPayments,successfulPaymentAmount:revenue[0]?.total||0,chatifyTotalIncome:setupIncome+subscriptionIncome,workspaceSetupIncome:setupIncome,workspaceSubscriptionIncome:subscriptionIncome,workspaceBillingPaymentCount:workspacePaymentCount,currentMonthChatifyIncome:currentMonthIncome[0]?.total||0,pendingSchoolApprovals,pendingBusinessApprovals,approvedBusinesses,pendingPlatformFeeAmount:feeSummary[0]?.totalFee||0,pendingPlatformFeeCount:feeSummary[0]?.count||0,totalBusinesses,businessCustomers,catalogItems,openCases,newUsers24h,newMessages24h,newBusinesses24h,totalSchools,totalStudents,totalAttendanceRecords,totalAssessments,totalSchoolFees},recentUsers,recentPayments,generatedAt:new Date().toISOString()});
 });
 app.get('/api/admin/users',auth,requireAdmin,async(q,r)=>{
   const page=Math.max(1,Math.min(10000,Number.parseInt(q.query.page,10)||1));
