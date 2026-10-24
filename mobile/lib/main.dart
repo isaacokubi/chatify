@@ -1061,12 +1061,19 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     wrapped.add(remaining);
   }
 
-  final content = StringBuffer('BT\n/F1 11 Tf\n50 790 Td\n');
-  for (var i = 0; i < wrapped.length; i++) {
-    if (i > 0) content.write('0 -22 Td\n');
-    content.write('(' + safe(wrapped[i]) + ') Tj\n');
+  final content = StringBuffer()
+    ..write('BT\n/F1 16 Tf\n50 790 Td\n(' + safe('CHATIFY SCHOOL FEE RECEIPT') + ') Tj\nET\n')
+    ..write('0.12 0.25 0.20 RG\n1.5 w\n50 772 m\n545 772 l\nS\n')
+    ..write('BT\n/F1 10 Tf\n50 750 Td\n');
+  var firstDetail = true;
+  for (final line in wrapped.skip(1)) {
+    if (!firstDetail) content.write('0 -20 Td\n');
+    content.write('(' + safe(line) + ') Tj\n');
+    firstDetail = false;
   }
-  content.write('ET\n');
+  content.write('ET\n')
+    ..write('0.75 0.78 0.80 RG\n0.7 w\n50 72 m\n545 72 l\nS\n')
+    ..write('BT\n/F1 9 Tf\n50 54 Td\n(' + safe('Official record • Keep this receipt for your records.') + ') Tj\nET\n');
   final stream = content.toString();
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
