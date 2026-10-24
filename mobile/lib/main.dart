@@ -4220,7 +4220,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             child: Icon(icon,
                 size: 21, color: theme.colorScheme.onPrimaryContainer),
           ),
-          const Spacer(),
+          const SizedBox(height: 12),
           Text(shown,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
