@@ -629,6 +629,21 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const page = pageOptions(req);
       const q = String(req.query.q || '').trim().slice(0, 120);
       const filter = { schoolId: req.params.schoolId, ...visibility };
+      // Date filters use the server's local calendar boundaries, with Monday as
+      // the start of the week. "all" intentionally leaves the inbox unbounded.
+      const period = String(req.query.period || 'all').toLowerCase();
+      if (['today', 'week', 'month'].includes(period)) {
+        const now = new Date();
+        const start = new Date(now);
+        start.setHours(0, 0, 0, 0);
+        if (period === 'week') {
+          const daysSinceMonday = (start.getDay() + 6) % 7;
+          start.setDate(start.getDate() - daysSinceMonday);
+        } else if (period === 'month') {
+          start.setDate(1);
+        }
+        filter.createdAt = { $gte: start, $lte: now };
+      }
       if (member.role === 'admin' && req.query.audience && ['direct','all_parents','all_staff','all_school','school_inbox'].includes(String(req.query.audience))) {
         filter.audience = String(req.query.audience);
       }
