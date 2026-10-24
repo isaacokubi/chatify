@@ -29,20 +29,28 @@ function escapeReceipt(value) {
 }
 
 export function schoolPaymentMethodLabel(method) {
+  const raw = String(method ?? '').trim().toLowerCase().replace(/[\\s-]+/g, '_');
   return ({
-    mpesa_paybill: 'M-Pesa Paybill',
-    mpesa_till: 'M-Pesa Till',
-    mpesa_send_money: 'M-Pesa Send Money',
-    bank: 'Bank transfer',
-  })[method] || null;
+    mpesa_paybill: 'M-Pesa Paybill', paybill: 'M-Pesa Paybill', m_pesa_paybill: 'M-Pesa Paybill',
+    mpesa_till: 'M-Pesa Till', till: 'M-Pesa Till', buy_goods: 'M-Pesa Till', m_pesa_till: 'M-Pesa Till',
+    mpesa_send_money: 'M-Pesa Send Money', send_money: 'M-Pesa Send Money', m_pesa_send_money: 'M-Pesa Send Money',
+    mpesa_stk: 'M-Pesa (STK Push)', mpesa_stk_push: 'M-Pesa (STK Push)', stk: 'M-Pesa (STK Push)', stk_push: 'M-Pesa (STK Push)', daraja: 'M-Pesa (STK Push)',
+    bank: 'Bank transfer', bank_transfer: 'Bank transfer', banktransfer: 'Bank transfer',
+  })[raw] || null;
 }
 
 function renderSchoolReceipt(school, payment) {
   const esc = escapeReceipt;
-  const method = schoolPaymentMethodLabel(payment.paymentMethod);
-  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>School fee receipt</title><style>body{font:16px system-ui,sans-serif;max-width:720px;margin:32px auto;padding:24px;color:#172033}main{border:1px solid #ccd3df;border-radius:16px;padding:28px}h1{margin-top:0}dt{font-weight:700;margin-top:14px}dd{margin:4px 0}button{padding:10px 16px}@media print{button{display:none}body{margin:0}}</style></head><body><main><h1>' + esc(school?.name || 'School') + '</h1><h2>Official school fee receipt</h2><p>Payment confirmation recorded by the school.</p><dl><dt>Receipt number</dt><dd>' + esc(payment.mpesaReceipt) + '</dd><dt>Chatify reference</dt><dd>' + esc(payment.paymentReference) + '</dd><dt>Student</dt><dd>' + esc(payment.studentName) + '</dd><dt>Term</dt><dd>' + esc(payment.term) + '</dd><dt>Payment method</dt><dd>' + esc(method || 'Not recorded') + '</dd><dt>Amount received</dt><dd>KSh ' + esc(Number(payment.amount).toLocaleString('en-KE')) + '</dd><dt>Total term charge</dt><dd>' + (Number.isSafeInteger(payment.chargeAmount) ? 'KSh ' + esc(Number(payment.chargeAmount).toLocaleString('en-KE')) : 'Not available — contact the school office') + '</dd><dt>Remaining balance</dt><dd>' + (Number.isSafeInteger(payment.balance) ? 'KSh ' + esc(Number(payment.balance).toLocaleString('en-KE')) : 'Not available — no issued fee charge was linked to this payment') + '</dd><dt>Verified on</dt><dd>' + esc(payment.verifiedAt?.toISOString?.() || '') + '</dd></dl><button onclick="window.print()">Print receipt</button></main></body></html>';
+  const method = schoolPaymentMethodLabel(payment.paymentMethod || payment.method || school?.paymentProfile?.method) || 'Not recorded';
+  const stamp = typeof school?.receiptStampDataUrl === 'string' &&
+    /^data:image\\/jpeg;base64,[A-Za-z0-9+/=\\r\\n]+$/.test(school.receiptStampDataUrl)
+    ? '<img class="stamp" alt="School official stamp" src="' + school.receiptStampDataUrl + '">'
+    : '';
+  const amount = Number(payment.amount);
+  const money = Number.isFinite(amount) ? amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+  const verified = payment.verifiedAt ? new Date(payment.verifiedAt).toLocaleString('en-KE') : 'Recorded by school';
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Official school fee receipt</title><style>*{box-sizing:border-box}body{font:15px/1.55 Arial,Helvetica,sans-serif;max-width:760px;margin:28px auto;padding:20px;color:#172b4d;background:#f3f6fb}.receipt{background:#fff;border:1px solid #d8e1ee;border-radius:16px;overflow:hidden;box-shadow:0 8px 28px #102a4310}.brand{padding:26px 30px;background:#12345a;color:#fff;border-bottom:5px solid #25a18e}.brand h1{font-size:25px;letter-spacing:.2px;margin:0 0 4px}.brand p{margin:0;color:#dce8f5;font-size:12px;text-transform:uppercase;letter-spacing:1.3px}.body{padding:26px 30px}.title{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.title h2{margin:0;font-size:20px}.status{background:#e5f7ef;color:#17684f;border-radius:20px;padding:5px 11px;font-size:11px;font-weight:bold;white-space:nowrap}.amount{background:#f0f7ff;border:1px solid #d5e7fb;border-radius:12px;padding:16px 18px;margin:18px 0}.amount small{display:block;color:#58708d;text-transform:uppercase;font-size:11px;font-weight:bold;letter-spacing:1px}.amount strong{display:block;font-size:29px;color:#12345a;margin-top:4px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px;margin:20px 0}.field{border-bottom:1px solid #e5ebf3;padding-bottom:9px;min-width:0}.field span{display:block;color:#6b7c93;font-size:11px;text-transform:uppercase;letter-spacing:.65px;font-weight:bold}.field strong{display:block;margin-top:4px;overflow-wrap:anywhere;font-size:14px}.footer{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;border-top:1px solid #e5ebf3;padding-top:18px;margin-top:24px}.fine{font-size:11px;color:#6b7c93;max-width:60%}.stamp{display:block;max-width:150px;max-height:100px;object-fit:contain;opacity:.93}.actions{padding:0 30px 26px}button{background:#12345a;color:#fff;border:0;border-radius:8px;padding:11px 18px;font-weight:bold;cursor:pointer}@media(max-width:560px){body{padding:8px;margin:8px auto}.body,.brand{padding:20px}.grid{grid-template-columns:1fr}.title{align-items:flex-start;flex-direction:column}.footer{align-items:flex-start;flex-direction:column}.fine{max-width:100%}}@media print{body{margin:0;padding:0;background:#fff}.receipt{box-shadow:none;border-radius:0}.actions{display:none}}</style></head><body><main class="receipt"><header class="brand"><h1>' + esc(school?.name || 'School') + '</h1><p>Official school fee receipt</p></header><section class="body"><div class="title"><h2>Payment confirmation</h2><span class="status">PAYMENT CONFIRMED</span></div><p>This receipt confirms that the school has recorded the payment details below.</p><div class="amount"><small>Amount received</small><strong>KSh ' + esc(money) + '</strong></div><div class="grid"><div class="field"><span>Official receipt number</span><strong>' + esc(payment.mpesaReceipt || 'Not supplied') + '</strong></div><div class="field"><span>Chatify payment reference</span><strong>' + esc(payment.paymentReference || '—') + '</strong></div><div class="field"><span>Student name</span><strong>' + esc(payment.studentName || '—') + '</strong></div><div class="field"><span>Term / fee period</span><strong>' + esc(payment.term || '—') + '</strong></div><div class="field"><span>Payment method</span><strong>' + esc(method) + '</strong></div><div class="field"><span>Date verified</span><strong>' + esc(verified) + '</strong></div><div class="field"><span>Total term charge</span><strong>' + (Number.isSafeInteger(payment.chargeAmount) ? 'KSh ' + esc(Number(payment.chargeAmount).toLocaleString('en-KE')) : 'Refer to the school fee statement') + '</strong></div><div class="field"><span>Remaining balance</span><strong>' + (Number.isSafeInteger(payment.balance) ? 'KSh ' + esc(Number(payment.balance).toLocaleString('en-KE')) : 'Refer to the school fee statement') + '</strong></div></div><div class="footer"><div class="fine">Please retain this receipt for your records. For payment enquiries, quote the Chatify payment reference. Generated by Chatify; payment verification remains the responsibility of the school.</div>' + stamp + '</div></section><div class="actions"><button onclick="window.print()">Print / Save as PDF</button></div></main></body></html>';
 }
-
 function schoolCallbackUrl() {
   const base = String(process.env.PUBLIC_API_URL || process.env.API_URL || '').trim();
   if (!base) throw new Error('Set PUBLIC_API_URL or API_URL to the public HTTPS API URL before enabling school M-Pesa');
@@ -101,6 +109,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     name: { type: String, required: true, trim: true, maxlength: 160 },
     code: { type: String, required: true, trim: true, uppercase: true, maxlength: 24 },
     officialPhone: { type: String, trim: true, maxlength: 24 },
+    receiptStampDataUrl: { type: String, trim: true, maxlength: 1000000, default: '' },
     staffInviteCode: { type: String, default: () => randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase(), select: false },
     createdBy: { type: O, ref: 'User', required: true },
     billing: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -518,6 +527,25 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         },
         message: 'Linked pupil information updated.',
       });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/receipt-settings', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const school = await School.findById(req.params.schoolId).select('receiptStampDataUrl').lean();
+      if (!school) return res.status(404).json({ error: 'School not found' });
+      return res.json({ receiptStampDataUrl: school.receiptStampDataUrl || '' });
+    } catch (error) { return next(error); }
+  });
+
+  app.put('/api/schools/:schoolId/receipt-settings', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const stampDataUrl = String(req.body?.receiptStampDataUrl || '').trim();
+      if (stampDataUrl && (!/^data:image\\/jpeg;base64,[A-Za-z0-9+/=\\r\\n]+$/.test(stampDataUrl) || stampDataUrl.length > 950000)) {
+        return res.status(400).json({ error: 'Upload a JPEG school stamp smaller than 700 KB.' });
+      }
+      await School.updateOne({ _id: req.params.schoolId }, { $set: { receiptStampDataUrl: stampDataUrl } });
+      return res.json({ receiptStampConfigured: Boolean(stampDataUrl), message: stampDataUrl ? 'School receipt stamp saved.' : 'School receipt stamp removed.' });
     } catch (error) { return next(error); }
   });
 
@@ -1092,7 +1120,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           } : { totalFeeDue: null, outstandingBalance: null, feeBalanceStatus: 'NOT_CONFIGURED' }),
         };
       });
-      const school = await School.findById(req.params.schoolId).select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
+      const school = await School.findById(req.params.schoolId).select('name code officialPhone receiptStampDataUrl paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
       const profile = school?.paymentProfile;
       let officialPhone = school?.officialPhone || '';
       if (!officialPhone) {
@@ -1105,6 +1133,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         officialPhone,
         configured: Boolean(profile?.method),
         method: profile?.method || null,
+        receiptStampDataUrl: school?.receiptStampDataUrl || '',
         paybillNumber: profile?.method === 'mpesa_paybill' ? profile.paybillNumber : null,
         tillNumber: profile?.method === 'mpesa_till' ? profile.tillNumber : null,
         bankName: profile?.method === 'bank' ? profile.bankName : null,
@@ -1238,7 +1267,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         }
       }
       if (payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Receipt unavailable until the school verifies payment' });
-      const receipt = payment.receiptHtml || renderSchoolReceipt(await School.findById(req.params.schoolId).select('name code').lean(), payment);
+      const receipt = payment.receiptHtml || renderSchoolReceipt(await School.findById(req.params.schoolId).select('name code receiptStampDataUrl paymentProfile.method').lean(), payment);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="school-fee-receipt-' + payment.paymentReference + '.html"');
       return res.send(receipt);
