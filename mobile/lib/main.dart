@@ -6255,12 +6255,68 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   Future<void> _startPrivateSchoolConversation() async {
     if (role != 'parent') return;
-    final contacts = members.whereType<Map>().where((member) =>
-        ['admin', 'staff'].contains(member['role']?.toString()) &&
-        (member['userId']?.toString() ?? '').isNotEmpty).toList();
+
+    // Parents should contact the school office or staff linked to their own
+    // children, rather than unrelated staff such as cooks or cleaners.
+    final currentUserId = app.user?['id']?.toString();
+    final parentMembership = members.whereType<Map>().where((member) =>
+        member['userId']?.toString() == currentUserId &&
+        member['role']?.toString() == 'parent').firstOrNull;
+    final parentStudentNames = (parentMembership?['studentNames'] as List? ?? [])
+        .map((name) => name.toString().trim())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    final linkedClassByStudent = <String, String>{};
+    for (final student in students.whereType<Map>()) {
+      final name = (student['fullName'] ?? '').toString().trim();
+      final className = (student['className'] ?? '').toString().trim();
+      if (name.isNotEmpty && className.isNotEmpty) {
+        linkedClassByStudent[name.toLowerCase()] = className;
+      }
+    }
+
+    String contactDescription(Map member) {
+      final contactRole = (member['role'] ?? '').toString().toLowerCase();
+      if (contactRole == 'admin') return 'School administrator';
+      final linkedNames = (member['studentNames'] as List? ?? [])
+          .map((name) => name.toString().trim())
+          .where((name) => name.isNotEmpty && parentStudentNames.any(
+              (parentName) => parentName.toLowerCase() == name.toLowerCase()))
+          .toList();
+      final classes = linkedNames
+          .map((name) => linkedClassByStudent[name.toLowerCase()] ?? '')
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+      if (classes.isNotEmpty) return 'Staff • ${classes.join(', ')}';
+      if (linkedNames.isNotEmpty) return 'Staff • linked to your child';
+      return 'Staff';
+    }
+
+    final contacts = members.whereType<Map>().where((member) {
+      final contactRole = member['role']?.toString();
+      final userId = member['userId']?.toString() ?? '';
+      if (userId.isEmpty || !['admin', 'staff'].contains(contactRole)) return false;
+      if (contactRole == 'admin') return true;
+      final linkedNames = (member['studentNames'] as List? ?? [])
+          .map((name) => name.toString().trim().toLowerCase())
+          .where((name) => name.isNotEmpty)
+          .toSet();
+      return linkedNames.any((name) => parentStudentNames.any(
+          (parentName) => parentName.toLowerCase() == name));
+    }).toList()
+      ..sort((a, b) {
+        final roleOrder = (a['role'] == 'admin' ? 0 : 1)
+            .compareTo(b['role'] == 'admin' ? 0 : 1);
+        if (roleOrder != 0) return roleOrder;
+        return (a['name'] ?? a['email'] ?? '').toString().toLowerCase()
+            .compareTo((b['name'] ?? b['email'] ?? '').toString().toLowerCase());
+      });
+
     if (contacts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('No school administrator or staff contact is available yet.')));
+          content: Text('No school administrator or child-linked staff contact is available yet.')));
       return;
     }
     String? selectedUserId = contacts.first['userId'].toString();
@@ -6273,7 +6329,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Only you and the selected school contact will see this conversation. It will not appear in the shared school inbox.'),
+              const Text('Choose the school administrator or staff linked to your child. Staff who are not linked to your child are not listed. Only you and the selected contact will see this private conversation.'),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
                 value: selectedUserId,
@@ -6285,7 +6341,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 items: contacts.map((member) => DropdownMenuItem<String>(
                   value: member['userId'].toString(),
                   child: Text(
-                    '${member['name'] ?? member['email'] ?? 'School contact'} • ${member['role']}',
+                    '${member['name'] ?? member['email'] ?? 'School contact'} • ${contactDescription(member)}',
                     overflow: TextOverflow.ellipsis,
                   ),
                 )).toList(),
@@ -6311,7 +6367,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     );
     if (recipient != null && mounted) await _openPrivateParentChat(recipient);
   }
-
   Widget field(TextEditingController c, String label,
           {String? hint, TextInputType? keyboard}) =>
       Padding(
