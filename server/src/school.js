@@ -840,7 +840,1085 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
 
   app.get('/api/schools/:schoolId/fee-balances', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
+      let visibleStudents;
+      if (req.schoolMembership.role === 'staff') {
+        const linkedNames = (req.schoolMembership.studentNames || []).map(name => String(name).trim().toLowerCase()).filter(Boolean);
+        const email = String(req.user?.email || '').trim().toLowerCase();
+        const phone = String(req.user?.phone || '').replace(/\D/g, '');
+        const guardianMatch = [];
+        if (email) guardianMatch.push({ guardianEmail: email });
+        if (phone.length >= 8) guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '
+      if (req.query.academicYear) chargeFilter.academicYear = String(req.query.academicYear).trim().slice(0, 40);
+      if (req.query.term) chargeFilter.term = String(req.query.term).trim().slice(0, 80);
+      const charges = await SchoolStudentCharge.find(chargeFilter).sort({ className: 1, studentName: 1, academicYear: -1, term: 1 }).lean();
+      const chargeIds = charges.map(charge => charge.studentId);
+      const payments = chargeIds.length ? await FeePayment.find({
+        schoolId: req.params.schoolId, studentId: { $in: chargeIds }, status: 'CONFIRMED',
+      }).select('studentId academicYear term amount status').lean() : [];
+      const byPeriod = new Map();
+      for (const payment of payments) {
+        const key = [String(payment.studentId), String(payment.academicYear || ''), String(payment.term || '')].join('|');
+        byPeriod.set(key, [...(byPeriod.get(key) || []), payment]);
+      }
+      const balances = charges.map(charge => {
+        const key = [String(charge.studentId), charge.academicYear, charge.term].join('|');
+        const calculated = calculateSchoolFeeBalance({
+          chargeAmount: charge.totalAmount,
+          credits: charge.credits || 0,
+          payments: byPeriod.get(key) || [],
+        });
+        return { ...charge, ...calculated, chargeId: String(charge._id) };
+      });
+      return res.json({ balances, total: balances.length });
+    } catch (error) { return next(error); }
+  });
+
+  async function schoolVisibleStudents(req, page = pageOptions(req)) {
+    return SchoolStudent.find(schoolStudentFilter(req)).sort({ className: 1, fullName: 1 }).skip(page.skip).limit(page.limit).lean();
+  }
+  app.get('/api/schools/:schoolId/students', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const page = pageOptions(req), filter = schoolStudentFilter(req);
+      const [students, total] = await Promise.all([schoolVisibleStudents(req, page), SchoolStudent.countDocuments(filter)]);
+      return res.json({ students, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/students', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const admissionNumber = String(req.body?.admissionNumber || '').trim().toUpperCase();
+      const fullName = String(req.body?.fullName || '').trim();
+      const className = String(req.body?.className || '').trim();
+      if (!/^[A-Z0-9/-]{2,40}$/.test(admissionNumber) || !fullName || fullName.length > 120 || !className || className.length > 80)
+        return res.status(400).json({ error: 'Enter a valid admission number, student name and class/grade' });
+      const student = await SchoolStudent.create({ schoolId: req.params.schoolId, admissionNumber, fullName, className,
+        guardianName: String(req.body?.guardianName || '').trim().slice(0,120),
+        guardianPhone: String(req.body?.guardianPhone || '').trim().slice(0,30),
+        guardianEmail: String(req.body?.guardianEmail || '').trim().toLowerCase().slice(0,180) });
+      return res.status(201).json({ student });
+    } catch (error) {
+      if (error?.code === 11000) return res.status(409).json({ error: 'That admission number already exists in this school' });
+      return next(error);
+    }
+  });
+
+  app.patch('/api/schools/:schoolId/students/:studentId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.studentId)) return res.status(400).json({ error: 'Invalid student record' });
+      const update = {};
+      for (const key of ['fullName','className','guardianName','guardianPhone','guardianEmail']) {
+        if (req.body?.[key] !== undefined) update[key] = String(req.body[key]).trim();
+      }
+      if (req.body?.active !== undefined) update.active = req.body.active === true;
+      const student = await SchoolStudent.findOneAndUpdate({ _id: req.params.studentId, schoolId: req.params.schoolId }, { $set: update }, { new: true, runValidators: true });
+      if (!student) return res.status(404).json({ error: 'Student not found in this school' });
+      return res.json({ student });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/attendance', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const page = pageOptions(req);
       const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+      const filter = { schoolId: req.params.schoolId, studentId: { $in: visibleStudents.map(s => s._id) } };
+      if (req.query.date) {
+        const date = new Date(String(req.query.date) + 'T00:00:00.000Z');
+        if (!Number.isFinite(date.getTime())) return res.status(400).json({ error: 'Use attendance date YYYY-MM-DD' });
+        filter.date = date;
+      }
+      const [attendance, total, students] = await Promise.all([
+        SchoolAttendance.find(filter).sort({ date: -1, className: 1, studentName: 1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolAttendance.countDocuments(filter),
+        schoolVisibleStudents(req, page),
+      ]);
+      return res.json({ attendance, students, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/attendance', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const studentId = String(req.body?.studentId || ''), status = String(req.body?.status || '');
+      const dateText = String(req.body?.date || new Date().toISOString().slice(0,10));
+      const date = new Date(dateText + 'T00:00:00.000Z');
+      if (!mongoose.isValidObjectId(studentId) || !['present','absent','late','excused'].includes(status) || !/^\d{4}-\d{2}-\d{2}$/.test(dateText) || !Number.isFinite(date.getTime()))
+        return res.status(400).json({ error: 'Choose a student, valid date and attendance status' });
+      const student = await SchoolStudent.findOne({ _id: studentId, schoolId: req.params.schoolId, active: true }).lean();
+      if (!student) return res.status(404).json({ error: 'Active student not found in this school' });
+      const record = await SchoolAttendance.findOneAndUpdate({ schoolId: req.params.schoolId, studentId, date },
+        { $set: { studentName: student.fullName, admissionNumber: student.admissionNumber, className: student.className, status, note: String(req.body?.note || '').trim().slice(0,300), markedBy: req.user._id } },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
+      return res.json({ attendance: record });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/academics', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const page = pageOptions(req);
+      const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+      const filter = { schoolId: req.params.schoolId, studentId: { $in: visibleStudents.map(s => s._id) } };
+      const [assessments, total] = await Promise.all([
+        SchoolAssessment.find(filter).sort({ term: -1, className: 1, studentName: 1, subject: 1 }).skip(page.skip).limit(page.limit).lean(),
+        SchoolAssessment.countDocuments(filter),
+      ]);
+      return res.json({ assessments, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  function normalizeCbcLevel(value) {
+    const level = String(value || '').trim().toUpperCase();
+    return ['EE','ME','AE','BE','NE'].includes(level) ? level : null;
+  }
+  function normalizeAssessmentPayload(body = {}) {
+    const gradingMode = String(body.gradingMode || 'CBC').toUpperCase() === 'MARKS' ? 'MARKS' : 'CBC';
+    const score = body.score === undefined || body.score === null || body.score === '' ? null : Number(body.score);
+    const outOf = body.outOf === undefined || body.outOf === null || body.outOf === '' ? null : Number(body.outOf);
+    const competencyLevel = normalizeCbcLevel(body.competencyLevel);
+    const subject = String(body.subject || body.learningArea || '').trim();
+    const assessment = String(body.assessment || '').trim();
+    const term = String(body.term || '').trim();
+    const strand = String(body.strand || '').trim();
+    const subStrand = String(body.subStrand || '').trim();
+    const academicYear = String(body.academicYear || '').trim();
+    const teacherNote = String(body.teacherNote || '').trim().slice(0, 500);
+    const commonValid = subject.length > 0 && subject.length <= 80 && assessment.length > 0 && assessment.length <= 120 &&
+      term.length > 0 && term.length <= 80 && strand.length <= 120 && subStrand.length <= 120 && academicYear.length <= 40;
+    const marksValid = score !== null && outOf !== null && Number.isFinite(score) && Number.isFinite(outOf) &&
+      outOf > 0 && score >= 0 && score <= outOf && outOf <= 10000;
+    if (!commonValid || (gradingMode === 'CBC' && !competencyLevel) || (gradingMode === 'MARKS' && !marksValid)) return null;
+    return { gradingMode, subject, learningArea: subject, assessment, term, strand, subStrand, academicYear,
+      competencyLevel: gradingMode === 'CBC' ? competencyLevel : undefined,
+      score: gradingMode === 'MARKS' ? score : null, outOf: gradingMode === 'MARKS' ? outOf : null, teacherNote };
+  }
+  app.post('/api/schools/:schoolId/academics', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const studentId = String(req.body?.studentId || '');
+      const payload = normalizeAssessmentPayload(req.body);
+      if (!mongoose.isValidObjectId(studentId) || !payload)
+        return res.status(400).json({ error: 'Enter a student, learning area, assessment, term and a valid CBC achievement level (EE/ME/AE/BE/NE), or valid marks when using marks mode.' });
+      const student = await SchoolStudent.findOne({ _id: studentId, schoolId: req.params.schoolId, active: true }).lean();
+      if (!student) return res.status(404).json({ error: 'Active student not found in this school' });
+      const record = await SchoolAssessment.create({ schoolId: req.params.schoolId, studentId, studentName: student.fullName, admissionNumber: student.admissionNumber,
+        className: student.className, ...payload, recordedBy: req.user._id });
+      return res.status(201).json({ assessment: record });
+    } catch (error) {
+      if (error?.code === 11000) return res.status(409).json({ error: 'That assessment has already been recorded for this student and term' });
+      return next(error);
+    }
+  });
+
+  // Teachers/staff may correct an existing attendance record; school ownership and membership are checked by requireRole.
+  app.patch('/api/schools/:schoolId/attendance/:recordId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const update = {};
+      if (req.body?.status !== undefined) {
+        const status = String(req.body.status);
+        if (!['present','absent','late','excused'].includes(status)) return res.status(400).json({ error: 'Invalid attendance status' });
+        update.status = status;
+      }
+      if (req.body?.note !== undefined) update.note = String(req.body.note || '').trim().slice(0, 300);
+      if (req.body?.date !== undefined) {
+        const dateText = String(req.body.date);
+        const date = new Date(dateText + 'T00:00:00.000Z');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText) || !Number.isFinite(date.getTime())) return res.status(400).json({ error: 'Use attendance date YYYY-MM-DD' });
+        update.date = date;
+      }
+      const record = await SchoolAttendance.findOneAndUpdate({ _id: req.params.recordId, schoolId: req.params.schoolId }, { $set: update }, { new: true, runValidators: true });
+      if (!record) return res.status(404).json({ error: 'Attendance record not found' });
+      return res.json({ attendance: record });
+    } catch (error) { return next(error); }
+  });
+
+  app.patch('/api/schools/:schoolId/academics/:recordId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const payload = normalizeAssessmentPayload(req.body);
+      if (!payload) return res.status(400).json({ error: 'Provide a valid CBC achievement level or valid marks, together with the learning area, assessment and term.' });
+      const record = await SchoolAssessment.findOneAndUpdate({ _id: req.params.recordId, schoolId: req.params.schoolId },
+        { $set: { ...payload, recordedBy: req.user._id } }, { new: true, runValidators: true });
+      if (!record) return res.status(404).json({ error: 'Assessment record not found' });
+      return res.json({ assessment: record });
+    } catch (error) { return next(error); }
+  });
+
+  async function deliverSchoolReceipt(paymentId) {
+    const payment = await FeePayment.findById(paymentId).select('+receiptHtml');
+    if (!payment || payment.status !== 'CONFIRMED' || !payment.receiptHtml) return { sent: 0, pending: true };
+    if (!emailProvider?.available || typeof emailProvider.sendSchoolFeeReceipt !== 'function') {
+      await FeePayment.updateOne({ _id: payment._id }, { $set: { receiptEmailLastError: 'SMTP receipt email is not configured' } });
+      return { sent: 0, pending: true };
+    }
+    const school = await School.findById(payment.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
+    const parent = await User.findById(payment.parentId).select('name email').lean();
+    const admins = await Membership.find({ schoolId: payment.schoolId, active: true, role: 'admin' }).select('userId').lean();
+    const adminUsers = await User.find({ _id: { $in: admins.map(x => x.userId) } }).select('email').lean();
+    const recipients = [...new Set([parent?.email, ...adminUsers.map(x => x.email)].filter(x => typeof x === 'string' && x.includes('@')))];
+    let sent = 0;
+    for (const email of recipients) {
+      const latest = await FeePayment.findById(payment._id).select('receiptEmailSentTo').lean();
+      if (latest?.receiptEmailSentTo?.includes(email)) continue;
+      try {
+        await emailProvider.sendSchoolFeeReceipt({ email, schoolName: school?.name || 'School', paymentReference: payment.paymentReference, receiptNumber: payment.mpesaReceipt, amount: payment.amount, studentName: payment.studentName, term: payment.term, receiptHtml: payment.receiptHtml });
+        await FeePayment.updateOne({ _id: payment._id }, { $addToSet: { receiptEmailSentTo: email }, $unset: { receiptEmailLastError: 1 } });
+        sent++;
+      } catch (error) {
+        await FeePayment.updateOne({ _id: payment._id }, { $set: { receiptEmailLastError: String(error?.message || 'Email delivery failed').slice(0, 300) } });
+      }
+    }
+    const delivered = await FeePayment.findById(payment._id).select('receiptEmailSentTo').lean();
+    return { sent, pending: recipients.some(email => !delivered?.receiptEmailSentTo?.includes(email)) };
+  }
+
+
+  // Promote a whole active class at year-end in one auditable operation.
+  // Historical attendance, assessments, charges and receipts keep their original class snapshots.
+  app.post('/api/schools/:schoolId/students/promote-class', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const fromClass = String(req.body?.fromClass || '').trim();
+      const toClass = String(req.body?.toClass || '').trim();
+      const academicYear = String(req.body?.academicYear || '').trim();
+      if (!fromClass || fromClass.length > 80 || !toClass || toClass.length > 80 ||
+          !academicYear || academicYear.length > 40 || fromClass.toLowerCase() === toClass.toLowerCase()) {
+        return res.status(400).json({ error: 'Enter a valid current class, next class and academic year. The two classes must be different.' });
+      }
+      const schoolId = req.params.schoolId;
+      const totalInClass = await SchoolStudent.countDocuments({ schoolId, active: true, className: fromClass });
+      if (!totalInClass) return res.status(404).json({ error: 'No active pupils were found in that exact class name. Check the class spelling.' });
+      const eligibleFilter = {
+        schoolId, active: true, className: fromClass,
+        $nor: [{ promotionHistory: { $elemMatch: { academicYear, fromClass } } }],
+      };
+      const eligible = await SchoolStudent.countDocuments(eligibleFilter);
+      if (!eligible) {
+        return res.status(409).json({ error: 'This class has already been promoted for that academic year. No pupils were changed.', totalInClass, promoted: 0 });
+      }
+      const promotedAt = new Date();
+      const result = await SchoolStudent.updateMany(eligibleFilter, {
+        $set: { className: toClass },
+        $push: { promotionHistory: { fromClass, toClass, academicYear, promotedAt, promotedBy: req.user._id } },
+      }, { runValidators: true });
+      const promoted = Number(result.modifiedCount ?? result.nModified ?? 0);
+      return res.json({
+        success: true, fromClass, toClass, academicYear, promoted,
+        alreadyProcessed: totalInClass - eligible,
+        message: promoted ? `Promoted ${promoted} pupil(s) from ${fromClass} to ${toClass} for ${academicYear}.` : 'No pupils were changed.',
+      });
+    } catch (error) { return next(error); }
+  });
+
+  // Mark transferred pupils inactive rather than hard-deleting them. This removes
+  // them from the active register while preserving financial and academic history.
+  app.post('/api/schools/:schoolId/students/:studentId/transfer', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const student = await SchoolStudent.findOneAndUpdate(
+        { _id: req.params.studentId, schoolId: req.params.schoolId, active: true },
+        { $set: { active: false, transferredOutAt: new Date(), transferredOutBy: req.user._id } },
+        { new: true, runValidators: true },
+      );
+      if (!student) return res.status(404).json({ error: 'Active pupil not found. It may already have been transferred or removed.' });
+      return res.json({ transferred: true, archived: true, id: String(student._id), transferredOutAt: student.transferredOutAt });
+    } catch (error) { return next(error); }
+  });
+
+  // Financial fee records are intentionally not deletable; these routes cover
+  // operational records and enforce school membership and role permissions.
+
+  app.delete('/api/schools/:schoolId/students/:studentId', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const student = await SchoolStudent.findOneAndUpdate({ _id: req.params.studentId, schoolId: req.params.schoolId, active: true }, { $set: { active: false } }, { new: true });
+      if (!student) return res.status(404).json({ error: 'Active student not found' });
+      return res.json({ deleted: true, archived: true, id: String(student._id) });
+    } catch (error) { return next(error); }
+  });
+  app.delete('/api/schools/:schoolId/attendance/:recordId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const result = await SchoolAttendance.deleteOne({ _id: req.params.recordId, schoolId: req.params.schoolId });
+      if (!result.deletedCount) return res.status(404).json({ error: 'Attendance record not found' });
+      return res.json({ deleted: true, id: req.params.recordId });
+    } catch (error) { return next(error); }
+  });
+  app.delete('/api/schools/:schoolId/academics/:recordId', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const result = await SchoolAssessment.deleteOne({ _id: req.params.recordId, schoolId: req.params.schoolId });
+      if (!result.deletedCount) return res.status(404).json({ error: 'Assessment record not found' });
+      return res.json({ deleted: true, id: req.params.recordId });
+    } catch (error) { return next(error); }
+  });
+  app.delete('/api/schools/:schoolId/members/:memberId', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const member = await Membership.findOneAndUpdate({ _id: req.params.memberId, schoolId: req.params.schoolId, active: true }, { $set: { active: false } }, { new: true });
+      if (!member) return res.status(404).json({ error: 'Active school member not found' });
+      return res.json({ deleted: true, archived: true, id: String(member._id) });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/fees', auth, requireRole('parent'), async (req, res, next) => {
+    try {
+      const studentName = String(req.body?.studentName || '').trim();
+      const term = String(req.body?.term || '').trim();
+      const amount = Number(req.body?.amount);
+      const phone = normalizeMpesaPhone(String(req.body?.phone || req.user?.phone || ''));
+      if (!studentName || studentName.length > 100 || !(req.schoolMembership.studentNames || []).some(name => String(name).trim().toLowerCase() === studentName.toLowerCase())) return res.status(403).json({ error: 'Choose a student linked to your parent account' });
+      // A membership name alone is not proof of enrolment: fees can be requested only for a pupil in this school's active register.
+      const registeredStudent = await SchoolStudent.findOne({
+        schoolId: req.params.schoolId, active: true,
+        $expr: { $eq: [{ $toLower: '$fullName' }, studentName.toLowerCase()] },
+      }).select('_id fullName admissionNumber className').lean();
+      if (!registeredStudent) return res.status(404).json({ error: 'This student is not in the school register yet. Contact the school office to link the correct registered pupil.' });
+      if (!Number.isSafeInteger(amount) || amount < 1 || amount > 150000 || !term || term.length > 80) return res.status(400).json({ error: 'Enter a valid whole-KSh amount and school term' });
+      const requestedAcademicYear = String(req.body?.academicYear || '').trim().slice(0, 40);
+      let feeContext = { studentId: registeredStudent._id, className: registeredStudent.className, academicYear: requestedAcademicYear || 'unspecified' };
+      const schoolHasFeeStructures = await SchoolFeeStructure.exists({ schoolId: req.params.schoolId, status: 'ACTIVE' });
+      if (schoolHasFeeStructures) {
+        const structureFilter = {
+          schoolId: req.params.schoolId, className: registeredStudent.className, term, status: 'ACTIVE',
+          ...(requestedAcademicYear ? { academicYear: requestedAcademicYear } : {}),
+        };
+        const structure = await SchoolFeeStructure.findOne(structureFilter).sort({ version: -1 }).lean();
+        if (!structure) return res.status(409).json({ error: 'No active fee structure is configured for this student’s class and term. Ask the school administrator to configure it first.' });
+        const charge = await SchoolStudentCharge.findOne({
+          schoolId: req.params.schoolId, studentId: registeredStudent._id,
+          academicYear: structure.academicYear, term,
+        }).lean();
+        if (!charge) return res.status(409).json({ error: 'Fees have not been issued to this student for the selected period. Ask the school administrator to issue the class fee structure.' });
+        const confirmedPayments = await FeePayment.find({
+          schoolId: req.params.schoolId, studentId: registeredStudent._id,
+          academicYear: structure.academicYear, term, status: 'CONFIRMED',
+        }).select('amount status').lean();
+        const balance = calculateSchoolFeeBalance({ chargeAmount: charge.totalAmount, credits: charge.credits || 0, payments: confirmedPayments });
+        if (balance.balance <= 0) return res.status(409).json({ error: 'There is no outstanding balance for this student and period.' });
+        if (amount > balance.balance) return res.status(400).json({ error: 'Payment amount cannot exceed the current outstanding balance.', outstandingBalance: balance.balance });
+        feeContext = { studentId: registeredStudent._id, className: registeredStudent.className, academicYear: structure.academicYear, chargeId: charge._id };
+      }
+      const school = await School.findById(req.params.schoolId).select('+paymentProfile.darajaConsumerKeyEnc +paymentProfile.darajaConsumerSecretEnc +paymentProfile.darajaPasskeyEnc').lean();
+      const requestedMethod = String(req.body?.paymentMethod || school?.paymentProfile?.method || '');
+      if (!['mpesa_paybill','mpesa_till','mpesa_send_money','bank'].includes(requestedMethod)) return res.status(400).json({ error: 'Choose one of the school’s configured fee payment methods.' });
+      if (!school || (!school.paymentProfile?.method && requestedMethod !== 'mpesa_send_money')) return res.status(409).json({ error: 'This school has not configured payment details. Contact the school office before paying.' });
+      if (requestedMethod === 'mpesa_send_money') {
+        let officialPhone = normalizeMpesaPhone(school.officialPhone || '');
+        if (!officialPhone) {
+          const verification = await SchoolVerificationRequest.findOne({ schoolId: req.params.schoolId, status: 'APPROVED' }).select('officialPhone').sort({ reviewedAt: -1 }).lean();
+          officialPhone = normalizeMpesaPhone(verification?.officialPhone || '');
+        }
+        if (!officialPhone) return res.status(409).json({ error: 'The school has not configured a verified M-Pesa phone number for Send Money.' });
+        const paymentReference = 'SCH-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
+        const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, ...feeContext, paymentMethod: requestedMethod, destinationNumber: officialPhone, status: 'PENDING_VERIFICATION' });
+        return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status }, paymentDestination: { method: requestedMethod, officialPhone }, note: 'Send the amount to the school’s configured M-Pesa phone using Send Money. This record remains pending until school staff verify the M-Pesa receipt.' });
+      }
+      if (requestedMethod !== school.paymentProfile.method) return res.status(409).json({ error: 'The selected Till, Paybill or bank destination is not configured for this school.' });
+      const isMpesa = ['mpesa_paybill','mpesa_till'].includes(requestedMethod);
+      if (isMpesa && !phone) return res.status(400).json({ error: 'Enter a valid Kenyan M-Pesa phone number to receive the school fee STK prompt.' });
+      if (isMpesa && (!school.paymentProfile.darajaConsumerKeyEnc || !school.paymentProfile.darajaConsumerSecretEnc || !school.paymentProfile.darajaPasskeyEnc)) return res.status(409).json({ error: 'This school has configured a Paybill/Till destination but has not completed its own Daraja STK Push setup. Contact the school administrator; no payment prompt has been sent.' });
+      const paymentReference = 'SCH-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
+      const destinationNumber = requestedMethod === 'mpesa_paybill' ? school.paymentProfile.paybillNumber : requestedMethod === 'mpesa_till' ? school.paymentProfile.tillNumber : undefined;
+      const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, ...feeContext, paymentMethod: requestedMethod, destinationNumber, ...(isMpesa ? { payerPhone: phone, status: 'PENDING_STK' } : { status: 'PENDING_VERIFICATION' }) });
+      if (isMpesa) {
+        try {
+          const provider = providerForSchool(school);
+          const refs = await provider.initiate({ paymentId: paymentReference, amount, phone, description: 'School fees', now: new Date() });
+          payment.checkoutRequestId = refs.checkoutRequestId;
+          payment.merchantRequestId = refs.merchantRequestId;
+          await payment.save();
+          return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status, checkoutRequestId: payment.checkoutRequestId }, paymentDestination: { method: requestedMethod, paybillNumber: school.paymentProfile.paybillNumber, tillNumber: school.paymentProfile.tillNumber }, note: 'A school-specific M-Pesa STK Push was submitted to Safaricom. The fee is not confirmed until the Daraja callback verifies the amount, payer phone and receipt number.' });
+        } catch (error) {
+          await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          console.error('School STK Push initiation failed', { schoolId: String(school._id), paymentReference, stage: error?.stage || 'configuration_or_unknown' });
+          return res.status(503).json({ error: 'Safaricom could not start the school fee STK prompt. No receipt was issued. Check the school Daraja configuration and try again.' });
+        }
+      }
+      return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status }, paymentDestination: { method: requestedMethod, bankName: school.paymentProfile.bankName, accountNumber: school.paymentProfile.accountNumber }, note: 'Bank payment details provided. This record remains pending until school staff verify the bank transaction.' });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/donations', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const amount = Number(req.body?.amount);
+      const phone = normalizeMpesaPhone(String(req.body?.phone || req.user?.phone || ''));
+      if (!Number.isSafeInteger(amount) || amount < 1 || amount > 150000) return res.status(400).json({ error: 'Enter a whole-KSh donation amount between 1 and 150,000.' });
+      if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan M-Pesa phone number for the STK prompt.' });
+      const school = await School.findById(req.params.schoolId).select('+paymentProfile.darajaConsumerKeyEnc +paymentProfile.darajaConsumerSecretEnc +paymentProfile.darajaPasskeyEnc').lean();
+      if (!school) return res.status(404).json({ error: 'School not found.' });
+      const profile = school.paymentProfile || {};
+      if (!['mpesa_paybill','mpesa_till'].includes(profile.method)) return res.status(409).json({ error: 'Configure an M-Pesa Paybill or Till for this school before accepting STK donations.' });
+      if (!profile.darajaConsumerKeyEnc || !profile.darajaConsumerSecretEnc || !profile.darajaPasskeyEnc || !profile.darajaConfiguredAt) return res.status(409).json({ error: 'The school has not completed its Daraja STK Push setup. No payment prompt was sent.' });
+      const paymentReference = 'DON-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
+      const destinationNumber = profile.method === 'mpesa_paybill' ? profile.paybillNumber : profile.tillNumber;
+      const donation = await SchoolDonation.create({ paymentReference, schoolId: school._id, donorId: req.user._id, amount, payerPhone: phone, destinationNumber, paymentMethod: profile.method, status: 'PENDING_STK' });
+      try {
+        const provider = providerForSchool(school);
+        const refs = await provider.initiate({ paymentId: paymentReference, amount, phone, description: 'School donation', now: new Date() });
+        donation.checkoutRequestId = refs.checkoutRequestId;
+        donation.merchantRequestId = refs.merchantRequestId;
+        await donation.save();
+        return res.status(201).json({ donation: { paymentReference, schoolName: school.name, amount, status: donation.status }, paymentDestination: { method: profile.method, destinationNumber }, note: 'M-Pesa STK Push requested. Check your phone and enter your M-Pesa PIN. The donation is recorded as paid only after Safaricom confirms it.' });
+      } catch (error) {
+        await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+        console.error('School donation STK initiation failed', { schoolId: String(school._id), paymentReference, stage: error?.stage || 'configuration_or_unknown' });
+        return res.status(503).json({ error: 'Safaricom could not start the donation prompt. Check the school Daraja configuration and try again.' });
+      }
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/fees', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const filter = { schoolId: req.params.schoolId };
+      if (req.schoolMembership.role === 'parent') {
+        const linkedNames = (req.schoolMembership.studentNames || []).map(name => String(name).trim().toLowerCase()).filter(Boolean);
+        filter.$expr = { $in: [{ $toLower: '$studentName' }, linkedNames] };
+        filter.parentId = req.user._id;
+      } else if (req.schoolMembership.role === 'staff') {
+        // A staff membership link by itself is not proof of parenthood. Only show
+        // fee records for active registered pupils whose guardian details match
+        // the authenticated staff account and who are explicitly linked to it.
+        const linkedNames = (req.schoolMembership.studentNames || []).map(name => String(name).trim().toLowerCase()).filter(Boolean);
+        const email = String(req.user?.email || '').trim().toLowerCase();
+        const phone = String(req.user?.phone || '').replace(/\D/g, '');
+        const guardianMatch = [];
+        if (email) guardianMatch.push({ guardianEmail: email });
+        if (phone.length >= 8) guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '
+      const page = pageOptions(req);
+      const [payments, total] = await Promise.all([
+        FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
+        FeePayment.countDocuments(filter),
+      ]);
+      // Resolve the school's current payment configuration before shaping records.
+      // New payments persist their method; legacy records without it are inferred
+      // from their destination first, then the school's configured default.
+      const school = await School.findById(req.params.schoolId)
+        .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt +receiptStampDataUrl')
+        .lean();
+      const profile = school?.paymentProfile || {};
+      const resolveRecordMethod = payment => {
+        if (schoolPaymentMethodLabel(payment.paymentMethod || payment.method)) {
+          return payment.paymentMethod || payment.method;
+        }
+        const destination = String(payment.destinationNumber || '').trim();
+        if (destination && profile.paybillNumber && destination === String(profile.paybillNumber).trim()) return 'mpesa_paybill';
+        if (destination && profile.tillNumber && destination === String(profile.tillNumber).trim()) return 'mpesa_till';
+        if (destination && (school?.officialPhone || '') === destination) return 'mpesa_send_money';
+        // Legacy STK Push payments may have no destination number or saved method.
+        // Their Daraja request identifiers are the reliable signal for this channel.
+        if (payment.checkoutRequestId || payment.merchantRequestId || payment.status === 'PENDING_STK') return 'mpesa_stk';
+        const configuredMethod = profile.method || null;
+        return schoolPaymentMethodLabel(configuredMethod) ? configuredMethod : null;
+      };
+      // Guardian fields come from the authoritative student register; they are
+      // included only after the fee query has already been school/role scoped.
+      const paymentStudentNames = [...new Set(payments.map(payment => String(payment.studentName || '').trim().toLowerCase()).filter(Boolean))];
+      const guardianRecords = paymentStudentNames.length
+        ? await SchoolStudent.find({ schoolId: req.params.schoolId, $expr: { $in: [{ $toLower: '$fullName' }, paymentStudentNames] } }).select('fullName guardianName guardianPhone').lean()
+        : [];
+      const guardiansByName = new Map(guardianRecords.map(student => [String(student.fullName).trim().toLowerCase(), student]));
+      const paymentChargeIds = [...new Set(payments.map(payment => payment.chargeId).filter(Boolean).map(String))];
+      const [charges, confirmedChargePayments] = paymentChargeIds.length ? await Promise.all([
+        SchoolStudentCharge.find({ _id: { $in: paymentChargeIds }, schoolId: req.params.schoolId }).lean(),
+        FeePayment.find({ schoolId: req.params.schoolId, chargeId: { $in: paymentChargeIds }, status: 'CONFIRMED' }).select('chargeId amount status').lean(),
+      ]) : [[], []];
+      const chargesById = new Map(charges.map(charge => [String(charge._id), charge]));
+      const chargePayments = new Map();
+      for (const confirmedPayment of confirmedChargePayments) {
+        const key = String(confirmedPayment.chargeId);
+        chargePayments.set(key, [...(chargePayments.get(key) || []), confirmedPayment]);
+      }
+      const paymentsWithGuardians = payments.map(payment => {
+        const guardian = guardiansByName.get(String(payment.studentName || '').trim().toLowerCase());
+        const method = resolveRecordMethod(payment);
+        const charge = payment.chargeId ? chargesById.get(String(payment.chargeId)) : null;
+        const balance = charge ? calculateSchoolFeeBalance({
+          chargeAmount: charge.totalAmount,
+          credits: charge.credits || 0,
+          payments: chargePayments.get(String(charge._id)) || [],
+        }) : null;
+        const { checkoutRequestId: _checkoutRequestId, merchantRequestId: _merchantRequestId, ...publicPayment } = payment;
+        const safeFeeSummary = {
+          _id: payment._id,
+          studentName: payment.studentName,
+          term: payment.term,
+          amount: payment.amount,
+          status: payment.status,
+          paymentReference: payment.paymentReference,
+          mpesaReceipt: payment.mpesaReceipt,
+          paymentMethod: method,
+          paymentMethodLabel: schoolPaymentMethodLabel(method) || 'Not recorded',
+          createdAt: payment.createdAt,
+          verifiedAt: payment.verifiedAt,
+          totalFeeDue: balance?.chargeAmount ?? null,
+          outstandingBalance: balance?.balance ?? null,
+          confirmedPaidForTerm: balance?.confirmedPaid ?? null,
+          feeBalanceStatus: balance?.status || 'NOT_CONFIGURED',
+        };
+        if (req.schoolMembership.role === 'staff') return safeFeeSummary;
+        return {
+          ...publicPayment,
+          paymentMethod: method,
+          paymentMethodLabel: schoolPaymentMethodLabel(method) || 'Not recorded',
+          guardianName: guardian?.guardianName || '',
+          guardianPhone: guardian?.guardianPhone || '',
+          ...(balance ? {
+            totalFeeDue: balance.chargeAmount,
+            outstandingBalance: balance.balance,
+            confirmedPaidForTerm: balance.confirmedPaid,
+            feeBalanceStatus: balance.status,
+          } : { totalFeeDue: null, outstandingBalance: null, feeBalanceStatus: 'NOT_CONFIGURED' }),
+        };
+      });
+      let officialPhone = school?.officialPhone || '';
+      if (!officialPhone) {
+        const verification = await SchoolVerificationRequest.findOne({ schoolId: req.params.schoolId, status: 'APPROVED' })
+          .select('officialPhone').sort({ reviewedAt: -1 }).lean();
+        officialPhone = verification?.officialPhone || '';
+      }
+      const paymentOptions = {
+        schoolName: school?.name || 'School',
+        officialPhone,
+        configured: Boolean(profile?.method),
+        method: profile?.method || null,
+        paybillNumber: profile?.method === 'mpesa_paybill' ? profile.paybillNumber : null,
+        tillNumber: profile?.method === 'mpesa_till' ? profile.tillNumber : null,
+        bankName: profile?.method === 'bank' ? profile.bankName : null,
+        accountNumber: profile?.method === 'bank' ? profile.accountNumber : null,
+        darajaConfigured: Boolean(profile?.darajaConfiguredAt),
+      };
+      // Payment destinations and account configuration are private to administrators
+      // and parents making payments; teaching staff only receive their verified child rows.
+      return res.json({ payments: paymentsWithGuardians, ...(req.schoolMembership.role === 'staff' ? {} : { paymentOptions }), total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/fees/:paymentReference/verify', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const receipt = String(req.body?.mpesaReceipt || '').trim().toUpperCase();
+      if (!/^[A-Z0-9/-]{4,40}$/.test(receipt)) return res.status(400).json({ error: 'Enter the actual payment receipt/reference from the confirmed transaction' });
+      const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference });
+      if (!payment) return res.status(404).json({ error: 'Fee record not found' });
+      if (payment.status === 'CONFIRMED') {
+        if (payment.mpesaReceipt === receipt) return res.json({ payment, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + payment.paymentReference + '/receipt' });
+        return res.status(409).json({ error: 'This fee record is already confirmed with a different receipt' });
+      }
+      let confirmed;
+      try {
+        // Atomic compare-and-set prevents two administrators confirming the same
+        // pending record with different receipt numbers at the same time.
+        confirmed = await FeePayment.findOneAndUpdate(
+          { _id: payment._id, status: 'PENDING_VERIFICATION' },
+          { $set: { status: 'CONFIRMED', mpesaReceipt: receipt, verifiedBy: req.user._id, verifiedAt: new Date() } },
+          { new: true, runValidators: true }
+        );
+      } catch (error) { if (error?.code === 11000) return res.status(409).json({ error: 'This M-Pesa receipt has already been used for another fee payment at this school' }); throw error; }
+      if (!confirmed) {
+        const latest = await FeePayment.findById(payment._id);
+        if (latest?.status === 'CONFIRMED' && latest.mpesaReceipt === receipt) return res.json({ payment: latest, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + latest.paymentReference + '/receipt', duplicate: true });
+        return res.status(409).json({ error: 'This fee record has already been verified or changed. Refresh the fee list.' });
+      }
+      const school = await School.findById(req.params.schoolId)
+        .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber +receiptStampDataUrl')
+        .lean();
+      let resolvedMethod = confirmed.paymentMethod || null;
+      if (!schoolPaymentMethodLabel(resolvedMethod)) {
+        const destination = String(confirmed.destinationNumber || '').trim();
+        if (destination && destination === String(school?.paymentProfile?.paybillNumber || '').trim()) resolvedMethod = 'mpesa_paybill';
+        else if (destination && destination === String(school?.paymentProfile?.tillNumber || '').trim()) resolvedMethod = 'mpesa_till';
+        else if (destination && destination === String(school?.officialPhone || '').trim()) resolvedMethod = 'mpesa_send_money';
+        else resolvedMethod = school?.paymentProfile?.method || null;
+      }
+      if (resolvedMethod && resolvedMethod !== confirmed.paymentMethod) {
+        confirmed = await FeePayment.findByIdAndUpdate(
+          confirmed._id, { $set: { paymentMethod: resolvedMethod } }, { new: true, runValidators: true },
+        );
+      }
+      let balanceDetails = {};
+      if (confirmed.chargeId) {
+        const charge = await SchoolStudentCharge.findOne({
+          _id: confirmed.chargeId, schoolId: req.params.schoolId,
+        }).lean();
+        if (charge) {
+          const confirmedPayments = await FeePayment.find({
+            schoolId: req.params.schoolId, chargeId: charge._id, status: 'CONFIRMED',
+          }).select('amount status').lean();
+          const calculated = calculateSchoolFeeBalance({
+            chargeAmount: charge.totalAmount,
+            credits: charge.credits || 0,
+            payments: confirmedPayments,
+          });
+          balanceDetails = { chargeAmount: calculated.chargeAmount, balance: calculated.balance };
+        }
+      }
+      const receiptHtml = renderSchoolReceipt(school, {
+        ...confirmed.toObject(), ...balanceDetails,
+      });
+      await FeePayment.updateOne({ _id: confirmed._id }, { $set: { receiptHtml } });
+      await deliverSchoolReceipt(confirmed._id);
+      return res.json({ payment: confirmed, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + confirmed.paymentReference + '/receipt' });
+    } catch (error) { return next(error); }
+  });
+
+  // Safaricom callback: require both request IDs and verify result, amount, payer phone,
+  // and receipt before atomically confirming a school fee. Duplicate callbacks are harmless.
+  app.post('/api/schools/daraja/callback', async (req, res, next) => {
+    try {
+      const cb = req.body?.Body?.stkCallback;
+      if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string') return res.status(400).json({ error: 'Malformed Daraja callback' });
+      // Donations are deliberately stored separately from student fee ledger entries.
+      const donation = await SchoolDonation.findOne({ checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID });
+      if (donation) {
+        if (donation.callbackProcessedAt || ['CONFIRMED','FAILED','CANCELLED'].includes(donation.status)) return res.json({ ok: true, duplicate: true });
+        const outcome = resolveCallbackOutcome(cb, { amount: donation.amount, totalAmount: donation.amount, phone: donation.payerPhone });
+        if (outcome.error) {
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          return res.json({ ok: true, rejected: true });
+        }
+        if (outcome.status !== 'SUCCESS') {
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: outcome.status, callbackProcessedAt: new Date() } });
+          return res.json({ ok: true });
+        }
+        const donationItems = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
+        const donationReceipt = String(donationItems.find(item => item?.Name === 'MpesaReceiptNumber')?.Value || '').trim().toUpperCase();
+        if (!/^[A-Z0-9]{6,40}$/.test(donationReceipt)) {
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          return res.json({ ok: true, rejected: true });
+        }
+        try {
+          const confirmedDonation = await SchoolDonation.findOneAndUpdate(
+            { _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } },
+            { $set: { status: 'CONFIRMED', mpesaReceipt: donationReceipt, callbackProcessedAt: new Date() } },
+            { new: true, runValidators: true },
+          );
+          if (!confirmedDonation) return res.json({ ok: true, duplicate: true });
+        } catch (error) {
+          if (error?.code === 11000) {
+            await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+            return res.json({ ok: true, rejected: true });
+          }
+          throw error;
+        }
+        return res.json({ ok: true, donationConfirmed: true });
+      }
+      const payment = await FeePayment.findOne({ checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID });
+      if (!payment) return res.json({ ok: true, ignored: true });
+      if (payment.callbackProcessedAt || ['CONFIRMED','FAILED','CANCELLED'].includes(payment.status)) return res.json({ ok: true, duplicate: true });
+      const outcome = resolveCallbackOutcome(cb, { amount: payment.amount, totalAmount: payment.amount, phone: payment.payerPhone });
+      if (outcome.error) {
+        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'Daraja callback did not match the original amount or payer phone' } });
+        return res.json({ ok: true, rejected: true });
+      }
+      if (outcome.status !== 'SUCCESS') {
+        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: outcome.status, callbackProcessedAt: new Date() } });
+        return res.json({ ok: true });
+      }
+      const items = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
+      const receipt = String(items.find(item => item?.Name === 'MpesaReceiptNumber')?.Value || '').trim().toUpperCase();
+      if (!/^[A-Z0-9]{6,40}$/.test(receipt)) {
+        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'Successful callback had no valid M-Pesa receipt number' } });
+        return res.json({ ok: true, rejected: true });
+      }
+      const school = await School.findById(payment.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
+      const verifiedAt = new Date();
+      const receiptHtml = renderSchoolReceipt(school, { ...payment.toObject(), mpesaReceipt: receipt, verifiedAt });
+      let confirmed;
+      try {
+        confirmed = await FeePayment.findOneAndUpdate(
+          { _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } },
+          { $set: { status: 'CONFIRMED', mpesaReceipt: receipt, verifiedAt, callbackProcessedAt: verifiedAt, receiptHtml } },
+          { new: true, runValidators: true },
+        );
+      } catch (error) {
+        if (error?.code === 11000) {
+          await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'M-Pesa receipt already used for another school fee record' } });
+          return res.json({ ok: true, rejected: true });
+        }
+        throw error;
+      }
+      if (!confirmed) return res.json({ ok: true, duplicate: true });
+      // Chatify monetizes school workspaces through setup and subscription fees.
+      // Do not initiate a percentage-based second STK prompt for school-fee payments.
+      res.json({ ok: true });
+      deliverSchoolReceipt(confirmed._id).catch(error => console.error('School receipt delivery processing failed', { paymentReference: confirmed.paymentReference, message: String(error?.message || 'unknown').slice(0, 160) }));
+      return;
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/fees/:paymentReference/receipt/resend', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference });
+      if (!payment || payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Only confirmed payments have receipts that can be delivered' });
+      const school = await School.findById(req.params.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
+      const receiptHtml = renderSchoolReceipt(school, payment);
+      await FeePayment.updateOne({ _id: payment._id }, { $set: { receiptHtml } });
+      const result = await deliverSchoolReceipt(payment._id);
+      return res.json({ receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + payment.paymentReference + '/receipt', emailDelivery: result });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/fees/:paymentReference/receipt', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference }).select('+receiptHtml').lean();
+      if (!payment) return res.status(404).json({ error: 'Fee record not found' });
+      if (req.schoolMembership.role === 'parent' && String(payment.parentId) !== String(req.user._id)) return res.status(403).json({ error: 'This receipt belongs to another parent' });
+      if (['parent', 'staff'].includes(req.schoolMembership.role)) {
+        const linkedNames = (req.schoolMembership.studentNames || []).map(name => String(name).trim().toLowerCase()).filter(Boolean);
+        if (!linkedNames.includes(String(payment.studentName || '').trim().toLowerCase())) {
+          return res.status(403).json({ error: 'This receipt is not for a student linked to your school membership.' });
+        }
+      }
+      if (payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Receipt unavailable until the school verifies payment' });
+      const school = await School.findById(req.params.schoolId)
+        .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber +receiptStampDataUrl')
+        .lean();
+      let resolvedMethod = payment.paymentMethod || payment.method || null;
+      if (!schoolPaymentMethodLabel(resolvedMethod)) {
+        const destination = String(payment.destinationNumber || '').trim();
+        if (destination && destination === String(school?.paymentProfile?.paybillNumber || '').trim()) resolvedMethod = 'mpesa_paybill';
+        else if (destination && destination === String(school?.paymentProfile?.tillNumber || '').trim()) resolvedMethod = 'mpesa_till';
+        else if (destination && destination === String(school?.officialPhone || '').trim()) resolvedMethod = 'mpesa_send_money';
+        else resolvedMethod = school?.paymentProfile?.method || null;
+      }
+      let balanceDetails = {};
+      if (payment.chargeId) {
+        const charge = await SchoolStudentCharge.findOne({ _id: payment.chargeId, schoolId: req.params.schoolId }).lean();
+        if (charge) {
+          const confirmedPayments = await FeePayment.find({
+            schoolId: req.params.schoolId, chargeId: charge._id, status: 'CONFIRMED',
+          }).select('amount status').lean();
+          const calculated = calculateSchoolFeeBalance({
+            chargeAmount: charge.totalAmount,
+            credits: charge.credits || 0,
+            payments: confirmedPayments,
+          });
+          balanceDetails = { chargeAmount: calculated.chargeAmount, balance: calculated.balance };
+        }
+      }
+      const receiptPayment = { ...payment, paymentMethod: resolvedMethod, ...balanceDetails };
+      const receipt = renderSchoolReceipt(school, receiptPayment);
+      // Refresh stale cached receipt HTML so historical records also receive the
+      // resolved method and current balance when their receipt is downloaded.
+      await FeePayment.updateOne({ _id: payment._id }, {
+        $set: { paymentMethod: resolvedMethod, receiptHtml: receipt },
+      });
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="school-fee-receipt-' + payment.paymentReference + '.html"');
+      return res.send(receipt);
+
+    } catch (error) { return next(error); }
+  });
+}
+ } });
+        const ownChildren = guardianMatch.length && linkedNames.length
+          ? await SchoolStudent.find({ schoolId: req.params.schoolId, active: true, $expr: { $in: [{ $toLower: '$fullName' }, linkedNames] }, $or: guardianMatch }).select('fullName').lean()
+          : [];
+        const verifiedNames = ownChildren.map(student => String(student.fullName).trim().toLowerCase());
+        filter.$expr = { $in: [{ $toLower: '$studentName' }, verifiedNames] };
+      }
+      const page = pageOptions(req);
+      const [payments, total] = await Promise.all([
+        FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
+        FeePayment.countDocuments(filter),
+      ]);
+      // Resolve the school's current payment configuration before shaping records.
+      // New payments persist their method; legacy records without it are inferred
+      // from their destination first, then the school's configured default.
+      const school = await School.findById(req.params.schoolId)
+        .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt +receiptStampDataUrl')
+        .lean();
+      const profile = school?.paymentProfile || {};
+      const resolveRecordMethod = payment => {
+        if (schoolPaymentMethodLabel(payment.paymentMethod || payment.method)) {
+          return payment.paymentMethod || payment.method;
+        }
+        const destination = String(payment.destinationNumber || '').trim();
+        if (destination && profile.paybillNumber && destination === String(profile.paybillNumber).trim()) return 'mpesa_paybill';
+        if (destination && profile.tillNumber && destination === String(profile.tillNumber).trim()) return 'mpesa_till';
+        if (destination && (school?.officialPhone || '') === destination) return 'mpesa_send_money';
+        // Legacy STK Push payments may have no destination number or saved method.
+        // Their Daraja request identifiers are the reliable signal for this channel.
+        if (payment.checkoutRequestId || payment.merchantRequestId || payment.status === 'PENDING_STK') return 'mpesa_stk';
+        const configuredMethod = profile.method || null;
+        return schoolPaymentMethodLabel(configuredMethod) ? configuredMethod : null;
+      };
+      // Guardian fields come from the authoritative student register; they are
+      // included only after the fee query has already been school/role scoped.
+      const paymentStudentNames = [...new Set(payments.map(payment => String(payment.studentName || '').trim().toLowerCase()).filter(Boolean))];
+      const guardianRecords = paymentStudentNames.length
+        ? await SchoolStudent.find({ schoolId: req.params.schoolId, $expr: { $in: [{ $toLower: '$fullName' }, paymentStudentNames] } }).select('fullName guardianName guardianPhone').lean()
+        : [];
+      const guardiansByName = new Map(guardianRecords.map(student => [String(student.fullName).trim().toLowerCase(), student]));
+      const paymentChargeIds = [...new Set(payments.map(payment => payment.chargeId).filter(Boolean).map(String))];
+      const [charges, confirmedChargePayments] = paymentChargeIds.length ? await Promise.all([
+        SchoolStudentCharge.find({ _id: { $in: paymentChargeIds }, schoolId: req.params.schoolId }).lean(),
+        FeePayment.find({ schoolId: req.params.schoolId, chargeId: { $in: paymentChargeIds }, status: 'CONFIRMED' }).select('chargeId amount status').lean(),
+      ]) : [[], []];
+      const chargesById = new Map(charges.map(charge => [String(charge._id), charge]));
+      const chargePayments = new Map();
+      for (const confirmedPayment of confirmedChargePayments) {
+        const key = String(confirmedPayment.chargeId);
+        chargePayments.set(key, [...(chargePayments.get(key) || []), confirmedPayment]);
+      }
+      const paymentsWithGuardians = payments.map(payment => {
+        const guardian = guardiansByName.get(String(payment.studentName || '').trim().toLowerCase());
+        const method = resolveRecordMethod(payment);
+        const charge = payment.chargeId ? chargesById.get(String(payment.chargeId)) : null;
+        const balance = charge ? calculateSchoolFeeBalance({
+          chargeAmount: charge.totalAmount,
+          credits: charge.credits || 0,
+          payments: chargePayments.get(String(charge._id)) || [],
+        }) : null;
+        const { checkoutRequestId: _checkoutRequestId, merchantRequestId: _merchantRequestId, ...publicPayment } = payment;
+        return {
+          ...publicPayment,
+          paymentMethod: method,
+          paymentMethodLabel: schoolPaymentMethodLabel(method) || 'Not recorded',
+          guardianName: guardian?.guardianName || '',
+          guardianPhone: guardian?.guardianPhone || '',
+          ...(balance ? {
+            totalFeeDue: balance.chargeAmount,
+            outstandingBalance: balance.balance,
+            confirmedPaidForTerm: balance.confirmedPaid,
+            feeBalanceStatus: balance.status,
+          } : { totalFeeDue: null, outstandingBalance: null, feeBalanceStatus: 'NOT_CONFIGURED' }),
+        };
+      });
+      let officialPhone = school?.officialPhone || '';
+      if (!officialPhone) {
+        const verification = await SchoolVerificationRequest.findOne({ schoolId: req.params.schoolId, status: 'APPROVED' })
+          .select('officialPhone').sort({ reviewedAt: -1 }).lean();
+        officialPhone = verification?.officialPhone || '';
+      }
+      const paymentOptions = {
+        schoolName: school?.name || 'School',
+        officialPhone,
+        configured: Boolean(profile?.method),
+        method: profile?.method || null,
+        paybillNumber: profile?.method === 'mpesa_paybill' ? profile.paybillNumber : null,
+        tillNumber: profile?.method === 'mpesa_till' ? profile.tillNumber : null,
+        bankName: profile?.method === 'bank' ? profile.bankName : null,
+        accountNumber: profile?.method === 'bank' ? profile.accountNumber : null,
+        darajaConfigured: Boolean(profile?.darajaConfiguredAt),
+      };
+      return res.json({ payments: paymentsWithGuardians, paymentOptions, total, page: page.page, limit: page.limit });
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/fees/:paymentReference/verify', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const receipt = String(req.body?.mpesaReceipt || '').trim().toUpperCase();
+      if (!/^[A-Z0-9/-]{4,40}$/.test(receipt)) return res.status(400).json({ error: 'Enter the actual payment receipt/reference from the confirmed transaction' });
+      const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference });
+      if (!payment) return res.status(404).json({ error: 'Fee record not found' });
+      if (payment.status === 'CONFIRMED') {
+        if (payment.mpesaReceipt === receipt) return res.json({ payment, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + payment.paymentReference + '/receipt' });
+        return res.status(409).json({ error: 'This fee record is already confirmed with a different receipt' });
+      }
+      let confirmed;
+      try {
+        // Atomic compare-and-set prevents two administrators confirming the same
+        // pending record with different receipt numbers at the same time.
+        confirmed = await FeePayment.findOneAndUpdate(
+          { _id: payment._id, status: 'PENDING_VERIFICATION' },
+          { $set: { status: 'CONFIRMED', mpesaReceipt: receipt, verifiedBy: req.user._id, verifiedAt: new Date() } },
+          { new: true, runValidators: true }
+        );
+      } catch (error) { if (error?.code === 11000) return res.status(409).json({ error: 'This M-Pesa receipt has already been used for another fee payment at this school' }); throw error; }
+      if (!confirmed) {
+        const latest = await FeePayment.findById(payment._id);
+        if (latest?.status === 'CONFIRMED' && latest.mpesaReceipt === receipt) return res.json({ payment: latest, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + latest.paymentReference + '/receipt', duplicate: true });
+        return res.status(409).json({ error: 'This fee record has already been verified or changed. Refresh the fee list.' });
+      }
+      const school = await School.findById(req.params.schoolId)
+        .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber +receiptStampDataUrl')
+        .lean();
+      let resolvedMethod = confirmed.paymentMethod || null;
+      if (!schoolPaymentMethodLabel(resolvedMethod)) {
+        const destination = String(confirmed.destinationNumber || '').trim();
+        if (destination && destination === String(school?.paymentProfile?.paybillNumber || '').trim()) resolvedMethod = 'mpesa_paybill';
+        else if (destination && destination === String(school?.paymentProfile?.tillNumber || '').trim()) resolvedMethod = 'mpesa_till';
+        else if (destination && destination === String(school?.officialPhone || '').trim()) resolvedMethod = 'mpesa_send_money';
+        else resolvedMethod = school?.paymentProfile?.method || null;
+      }
+      if (resolvedMethod && resolvedMethod !== confirmed.paymentMethod) {
+        confirmed = await FeePayment.findByIdAndUpdate(
+          confirmed._id, { $set: { paymentMethod: resolvedMethod } }, { new: true, runValidators: true },
+        );
+      }
+      let balanceDetails = {};
+      if (confirmed.chargeId) {
+        const charge = await SchoolStudentCharge.findOne({
+          _id: confirmed.chargeId, schoolId: req.params.schoolId,
+        }).lean();
+        if (charge) {
+          const confirmedPayments = await FeePayment.find({
+            schoolId: req.params.schoolId, chargeId: charge._id, status: 'CONFIRMED',
+          }).select('amount status').lean();
+          const calculated = calculateSchoolFeeBalance({
+            chargeAmount: charge.totalAmount,
+            credits: charge.credits || 0,
+            payments: confirmedPayments,
+          });
+          balanceDetails = { chargeAmount: calculated.chargeAmount, balance: calculated.balance };
+        }
+      }
+      const receiptHtml = renderSchoolReceipt(school, {
+        ...confirmed.toObject(), ...balanceDetails,
+      });
+      await FeePayment.updateOne({ _id: confirmed._id }, { $set: { receiptHtml } });
+      await deliverSchoolReceipt(confirmed._id);
+      return res.json({ payment: confirmed, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + confirmed.paymentReference + '/receipt' });
+    } catch (error) { return next(error); }
+  });
+
+  // Safaricom callback: require both request IDs and verify result, amount, payer phone,
+  // and receipt before atomically confirming a school fee. Duplicate callbacks are harmless.
+  app.post('/api/schools/daraja/callback', async (req, res, next) => {
+    try {
+      const cb = req.body?.Body?.stkCallback;
+      if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string') return res.status(400).json({ error: 'Malformed Daraja callback' });
+      // Donations are deliberately stored separately from student fee ledger entries.
+      const donation = await SchoolDonation.findOne({ checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID });
+      if (donation) {
+        if (donation.callbackProcessedAt || ['CONFIRMED','FAILED','CANCELLED'].includes(donation.status)) return res.json({ ok: true, duplicate: true });
+        const outcome = resolveCallbackOutcome(cb, { amount: donation.amount, totalAmount: donation.amount, phone: donation.payerPhone });
+        if (outcome.error) {
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          return res.json({ ok: true, rejected: true });
+        }
+        if (outcome.status !== 'SUCCESS') {
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: outcome.status, callbackProcessedAt: new Date() } });
+          return res.json({ ok: true });
+        }
+        const donationItems = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
+        const donationReceipt = String(donationItems.find(item => item?.Name === 'MpesaReceiptNumber')?.Value || '').trim().toUpperCase();
+        if (!/^[A-Z0-9]{6,40}$/.test(donationReceipt)) {
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          return res.json({ ok: true, rejected: true });
+        }
+        try {
+          const confirmedDonation = await SchoolDonation.findOneAndUpdate(
+            { _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } },
+            { $set: { status: 'CONFIRMED', mpesaReceipt: donationReceipt, callbackProcessedAt: new Date() } },
+            { new: true, runValidators: true },
+          );
+          if (!confirmedDonation) return res.json({ ok: true, duplicate: true });
+        } catch (error) {
+          if (error?.code === 11000) {
+            await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+            return res.json({ ok: true, rejected: true });
+          }
+          throw error;
+        }
+        return res.json({ ok: true, donationConfirmed: true });
+      }
+      const payment = await FeePayment.findOne({ checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID });
+      if (!payment) return res.json({ ok: true, ignored: true });
+      if (payment.callbackProcessedAt || ['CONFIRMED','FAILED','CANCELLED'].includes(payment.status)) return res.json({ ok: true, duplicate: true });
+      const outcome = resolveCallbackOutcome(cb, { amount: payment.amount, totalAmount: payment.amount, phone: payment.payerPhone });
+      if (outcome.error) {
+        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'Daraja callback did not match the original amount or payer phone' } });
+        return res.json({ ok: true, rejected: true });
+      }
+      if (outcome.status !== 'SUCCESS') {
+        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: outcome.status, callbackProcessedAt: new Date() } });
+        return res.json({ ok: true });
+      }
+      const items = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
+      const receipt = String(items.find(item => item?.Name === 'MpesaReceiptNumber')?.Value || '').trim().toUpperCase();
+      if (!/^[A-Z0-9]{6,40}$/.test(receipt)) {
+        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'Successful callback had no valid M-Pesa receipt number' } });
+        return res.json({ ok: true, rejected: true });
+      }
+      const school = await School.findById(payment.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
+      const verifiedAt = new Date();
+      const receiptHtml = renderSchoolReceipt(school, { ...payment.toObject(), mpesaReceipt: receipt, verifiedAt });
+      let confirmed;
+      try {
+        confirmed = await FeePayment.findOneAndUpdate(
+          { _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } },
+          { $set: { status: 'CONFIRMED', mpesaReceipt: receipt, verifiedAt, callbackProcessedAt: verifiedAt, receiptHtml } },
+          { new: true, runValidators: true },
+        );
+      } catch (error) {
+        if (error?.code === 11000) {
+          await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'M-Pesa receipt already used for another school fee record' } });
+          return res.json({ ok: true, rejected: true });
+        }
+        throw error;
+      }
+      if (!confirmed) return res.json({ ok: true, duplicate: true });
+      // Chatify monetizes school workspaces through setup and subscription fees.
+      // Do not initiate a percentage-based second STK prompt for school-fee payments.
+      res.json({ ok: true });
+      deliverSchoolReceipt(confirmed._id).catch(error => console.error('School receipt delivery processing failed', { paymentReference: confirmed.paymentReference, message: String(error?.message || 'unknown').slice(0, 160) }));
+      return;
+    } catch (error) { return next(error); }
+  });
+
+  app.post('/api/schools/:schoolId/fees/:paymentReference/receipt/resend', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference });
+      if (!payment || payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Only confirmed payments have receipts that can be delivered' });
+      const school = await School.findById(req.params.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
+      const receiptHtml = renderSchoolReceipt(school, payment);
+      await FeePayment.updateOne({ _id: payment._id }, { $set: { receiptHtml } });
+      const result = await deliverSchoolReceipt(payment._id);
+      return res.json({ receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + payment.paymentReference + '/receipt', emailDelivery: result });
+    } catch (error) { return next(error); }
+  });
+
+  app.get('/api/schools/:schoolId/fees/:paymentReference/receipt', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference }).select('+receiptHtml').lean();
+      if (!payment) return res.status(404).json({ error: 'Fee record not found' });
+      if (req.schoolMembership.role === 'parent' && String(payment.parentId) !== String(req.user._id)) return res.status(403).json({ error: 'This receipt belongs to another parent' });
+      if (['parent', 'staff'].includes(req.schoolMembership.role)) {
+        const linkedNames = (req.schoolMembership.studentNames || []).map(name => String(name).trim().toLowerCase()).filter(Boolean);
+        if (!linkedNames.includes(String(payment.studentName || '').trim().toLowerCase())) {
+          return res.status(403).json({ error: 'This receipt is not for a student linked to your school membership.' });
+        }
+      }
+      if (payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Receipt unavailable until the school verifies payment' });
+      const school = await School.findById(req.params.schoolId)
+        .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber +receiptStampDataUrl')
+        .lean();
+      let resolvedMethod = payment.paymentMethod || payment.method || null;
+      if (!schoolPaymentMethodLabel(resolvedMethod)) {
+        const destination = String(payment.destinationNumber || '').trim();
+        if (destination && destination === String(school?.paymentProfile?.paybillNumber || '').trim()) resolvedMethod = 'mpesa_paybill';
+        else if (destination && destination === String(school?.paymentProfile?.tillNumber || '').trim()) resolvedMethod = 'mpesa_till';
+        else if (destination && destination === String(school?.officialPhone || '').trim()) resolvedMethod = 'mpesa_send_money';
+        else resolvedMethod = school?.paymentProfile?.method || null;
+      }
+      let balanceDetails = {};
+      if (payment.chargeId) {
+        const charge = await SchoolStudentCharge.findOne({ _id: payment.chargeId, schoolId: req.params.schoolId }).lean();
+        if (charge) {
+          const confirmedPayments = await FeePayment.find({
+            schoolId: req.params.schoolId, chargeId: charge._id, status: 'CONFIRMED',
+          }).select('amount status').lean();
+          const calculated = calculateSchoolFeeBalance({
+            chargeAmount: charge.totalAmount,
+            credits: charge.credits || 0,
+            payments: confirmedPayments,
+          });
+          balanceDetails = { chargeAmount: calculated.chargeAmount, balance: calculated.balance };
+        }
+      }
+      const receiptPayment = { ...payment, paymentMethod: resolvedMethod, ...balanceDetails };
+      const receipt = renderSchoolReceipt(school, receiptPayment);
+      // Refresh stale cached receipt HTML so historical records also receive the
+      // resolved method and current balance when their receipt is downloaded.
+      await FeePayment.updateOne({ _id: payment._id }, {
+        $set: { paymentMethod: resolvedMethod, receiptHtml: receipt },
+      });
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="school-fee-receipt-' + payment.paymentReference + '.html"');
+      return res.send(receipt);
+
+    } catch (error) { return next(error); }
+  });
+}
+ } });
+        visibleStudents = guardianMatch.length && linkedNames.length
+          ? await SchoolStudent.find({ schoolId: req.params.schoolId, active: true,
+              $expr: { $in: [{ $toLower: '$fullName' }, linkedNames] }, $or: guardianMatch }).select('_id').lean()
+          : [];
+      } else {
+        visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+      }
       const studentIds = visibleStudents.map(student => student._id);
       const chargeFilter = { schoolId: req.params.schoolId, studentId: { $in: studentIds } };
       if (req.query.academicYear) chargeFilter.academicYear = String(req.query.academicYear).trim().slice(0, 40);
