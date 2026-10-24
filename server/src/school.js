@@ -224,6 +224,17 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     guardianPhone: { type: String, trim: true, maxlength: 30 },
     guardianEmail: { type: String, trim: true, lowercase: true, maxlength: 180 },
     active: { type: Boolean, default: true },
+    // Promotion history makes year-end class changes auditable and prevents a class
+    // from being promoted twice for the same academic year.
+    promotionHistory: [{
+      fromClass: { type: String, required: true, trim: true, maxlength: 80 },
+      toClass: { type: String, required: true, trim: true, maxlength: 80 },
+      academicYear: { type: String, required: true, trim: true, maxlength: 40 },
+      promotedAt: { type: Date, required: true },
+      promotedBy: { type: O, ref: 'User', required: true },
+    }],
+    transferredOutAt: Date,
+    transferredOutBy: { type: O, ref: 'User' },
   }, { timestamps: true }));
   SchoolStudent.schema.index({ schoolId: 1, admissionNumber: 1 }, { unique: true });
 
@@ -865,6 +876,56 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     return { sent, pending: recipients.some(email => !delivered?.receiptEmailSentTo?.includes(email)) };
   }
 
+
+  // Promote a whole active class at year-end in one auditable operation.
+  // Historical attendance, assessments, charges and receipts keep their original class snapshots.
+  app.post('/api/schools/:schoolId/students/promote-class', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const fromClass = String(req.body?.fromClass || '').trim();
+      const toClass = String(req.body?.toClass || '').trim();
+      const academicYear = String(req.body?.academicYear || '').trim();
+      if (!fromClass || fromClass.length > 80 || !toClass || toClass.length > 80 ||
+          !academicYear || academicYear.length > 40 || fromClass.toLowerCase() === toClass.toLowerCase()) {
+        return res.status(400).json({ error: 'Enter a valid current class, next class and academic year. The two classes must be different.' });
+      }
+      const schoolId = req.params.schoolId;
+      const totalInClass = await SchoolStudent.countDocuments({ schoolId, active: true, className: fromClass });
+      if (!totalInClass) return res.status(404).json({ error: 'No active pupils were found in that exact class name. Check the class spelling.' });
+      const eligibleFilter = {
+        schoolId, active: true, className: fromClass,
+        $nor: [{ promotionHistory: { $elemMatch: { academicYear, fromClass } } }],
+      };
+      const eligible = await SchoolStudent.countDocuments(eligibleFilter);
+      if (!eligible) {
+        return res.status(409).json({ error: 'This class has already been promoted for that academic year. No pupils were changed.', totalInClass, promoted: 0 });
+      }
+      const promotedAt = new Date();
+      const result = await SchoolStudent.updateMany(eligibleFilter, {
+        $set: { className: toClass },
+        $push: { promotionHistory: { fromClass, toClass, academicYear, promotedAt, promotedBy: req.user._id } },
+      }, { runValidators: true });
+      const promoted = Number(result.modifiedCount ?? result.nModified ?? 0);
+      return res.json({
+        success: true, fromClass, toClass, academicYear, promoted,
+        alreadyProcessed: totalInClass - eligible,
+        message: promoted ? `Promoted ${promoted} pupil(s) from ${fromClass} to ${toClass} for ${academicYear}.` : 'No pupils were changed.',
+      });
+    } catch (error) { return next(error); }
+  });
+
+  // Mark transferred pupils inactive rather than hard-deleting them. This removes
+  // them from the active register while preserving financial and academic history.
+  app.post('/api/schools/:schoolId/students/:studentId/transfer', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const student = await SchoolStudent.findOneAndUpdate(
+        { _id: req.params.studentId, schoolId: req.params.schoolId, active: true },
+        { $set: { active: false, transferredOutAt: new Date(), transferredOutBy: req.user._id } },
+        { new: true, runValidators: true },
+      );
+      if (!student) return res.status(404).json({ error: 'Active pupil not found. It may already have been transferred or removed.' });
+      return res.json({ transferred: true, archived: true, id: String(student._id), transferredOutAt: student.transferredOutAt });
+    } catch (error) { return next(error); }
+  });
 
   // Financial fee records are intentionally not deletable; these routes cover
   // operational records and enforce school membership and role permissions.

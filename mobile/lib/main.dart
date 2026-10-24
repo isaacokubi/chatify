@@ -4684,6 +4684,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       guardianName = TextEditingController(),
       guardianPhone = TextEditingController(),
       guardianEmail = TextEditingController();
+  final promotionFromClass = TextEditingController(),
+      promotionToClass = TextEditingController(),
+      promotionYear = TextEditingController(text: DateTime.now().year.toString());
   final attendanceDate = TextEditingController(
           text: DateTime.now().toIso8601String().substring(0, 10)),
       attendanceNote = TextEditingController();
@@ -4752,6 +4755,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       guardianName,
       guardianPhone,
       guardianEmail,
+      promotionFromClass,
+      promotionToClass,
+      promotionYear,
       attendanceDate,
       attendanceNote,
       subjectName,
@@ -5858,6 +5864,81 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
+  Future<void> promoteSchoolClass() async {
+    final id = schoolId;
+    final fromClass = promotionFromClass.text.trim();
+    final toClass = promotionToClass.text.trim();
+    final academicYear = promotionYear.text.trim();
+    if (id == null || fromClass.isEmpty || toClass.isEmpty || academicYear.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Enter the current class, next class and academic year first.'),
+        ));
+      }
+      return;
+    }
+    if (fromClass.toLowerCase() == toClass.toLowerCase()) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('The next class must be different from the current class.'),
+      ));
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Promote the whole class?'),
+        content: Text('Move every active pupil in "$fromClass" to "$toClass" for academic year $academicYear? This operation is recorded in each pupil’s promotion history and cannot be repeated for the same class and year.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Promote class')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _action(() async {
+      final result = await app.api.call('POST', '/api/schools/$id/students/promote-class', {
+        'fromClass': fromClass,
+        'toClass': toClass,
+        'academicYear': academicYear,
+      });
+      await loadSection();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result['message']?.toString() ?? 'Class promotion completed.'),
+      ));
+      promotionFromClass.clear();
+      promotionToClass.clear();
+    });
+  }
+
+  Future<void> _transferSchoolStudent(String studentId, String studentName) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Remove transferred pupil?'),
+        content: Text('Mark $studentName as transferred and remove them from this school’s active register? Historical fees, receipts, attendance and academic records will be preserved.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Mark transferred')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || schoolId == null) return;
+    try {
+      await app.api.call('POST', '/api/schools/$schoolId/students/$studentId/transfer', {});
+      await loadSection();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('$studentName was removed from the active register. Historical records were preserved.'),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Could not mark pupil as transferred: $error'),
+      ));
+    }
+  }
+
   Future<void> saveAttendance() async {
     final id = schoolId;
     if (id == null || attendanceStudentId.isEmpty) return;
@@ -6840,6 +6921,17 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 _schoolPager()
               ],
               if (section == 5) ...[
+                if (role == 'admin') ...[
+                  const Text('Year-end class promotion',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text('Promote every active pupil in a class at once. Use the exact current class name shown in the register; promotion is recorded by academic year and cannot be repeated for the same class/year.'),
+                  field(promotionFromClass, 'Current class / grade to promote'),
+                  field(promotionToClass, 'Next class / grade'),
+                  field(promotionYear, 'Academic year being completed'),
+                  actionButton('Promote whole class', promoteSchoolClass,
+                      icon: Icons.school_outlined),
+                  const Divider(height: 28),
+                ],
                 if (role != 'parent') ...[
                   const Text('Student admission register',
                       style:
@@ -6890,10 +6982,19 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             Text((student['guardianPhone'] ?? '').toString())),
                         DataCell(
                             Text((student['guardianEmail'] ?? '').toString())),
-                        if (role != 'parent')
+                        if (role == 'admin')
                           DataCell(IconButton(
-                            tooltip: 'Delete student record',
-                            icon: const Icon(Icons.delete_outline),
+                            tooltip: 'Mark transferred and remove from active register',
+                            icon: const Icon(Icons.person_remove_alt_1_outlined),
+                            onPressed: () => _transferSchoolStudent(
+                              student['_id'].toString(),
+                              (student['fullName'] ?? 'Pupil').toString(),
+                            ),
+                          ))
+                        else if (role == 'staff')
+                          DataCell(IconButton(
+                            tooltip: 'Archive student record',
+                            icon: const Icon(Icons.archive_outlined),
                             onPressed: () => _removeSchoolRecord(
                               label: 'student',
                               endpoint: 'students/${student['_id']}',
