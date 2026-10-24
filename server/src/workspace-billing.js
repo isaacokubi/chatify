@@ -143,7 +143,7 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
     if (!modelName || !mongoose.models[modelName]) return null;
     const Model = mongoose.models[modelName];
     const ownerField = type === 'business' ? 'ownerId' : 'createdBy';
-    const workspace = await Model.findOne({ _id: id, [ownerField]: userId }).select('name code billing').lean();
+    const workspace = await Model.findOne({ _id: id, [ownerField]: userId }).select('name code billing approvalStatus').lean();
     return workspace ? { ...workspace, type, modelName, ownerField } : null;
   };
 
@@ -184,6 +184,9 @@ export function registerWorkspaceBillingRoutes({ app, auth, mongoose, Payment, m
   app.post('/api/workspace-billing/:type/:workspaceId/checkout', auth, async (req, res) => {
     const workspace = await findWorkspace(req.params.type, req.params.workspaceId, req.user._id);
     if (!workspace) return res.status(404).json({ error: 'Workspace not found or you are not its owner' });
+    if (workspace.type === 'business' && workspace.approvalStatus && workspace.approvalStatus !== 'APPROVED') {
+      return res.status(403).json({ error: workspace.approvalStatus === 'REJECTED' ? 'This business application was rejected. Contact Chatify support before subscribing.' : 'This business workspace must be approved by Chatify before it can purchase a subscription.', code: 'BUSINESS_APPROVAL_REQUIRED' });
+    }
     const type = String(req.body?.billingType || '');
     if (!['workspace_setup', 'workspace_subscription'].includes(type)) return res.status(400).json({ error: 'billingType must be workspace_setup or workspace_subscription' });
     const billing = workspace.billing || {};
