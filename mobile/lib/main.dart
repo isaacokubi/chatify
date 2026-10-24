@@ -6209,7 +6209,20 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> _openPrivateParentChat(String userId) async {
-    if (!(role == 'admin' || isOwner) || userId.isEmpty || userId == 'null') return;
+    if (!['admin', 'staff', 'parent'].contains(role) ||
+        userId.isEmpty ||
+        userId == 'null' ||
+        userId == app.user?['id']?.toString()) return;
+    // Parents may only start school-private chats with an active school
+    // administrator/staff member returned by this school's member directory.
+    if (role == 'parent' &&
+        !members.whereType<Map>().any((member) =>
+            member['userId']?.toString() == userId &&
+            ['admin', 'staff'].contains(member['role']?.toString()))) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Choose an administrator or staff member from this school.')));
+      return;
+    }
     try {
       final result = await app.api.call('POST', '/api/conversations/direct', {'userId': userId});
       if (!mounted) return;
@@ -6219,6 +6232,65 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not open private chat: $error')));
     }
+  }
+
+  Future<void> _startPrivateSchoolConversation() async {
+    if (role != 'parent') return;
+    final contacts = members.whereType<Map>().where((member) =>
+        ['admin', 'staff'].contains(member['role']?.toString()) &&
+        (member['userId']?.toString() ?? '').isNotEmpty).toList();
+    if (contacts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('No school administrator or staff contact is available yet.')));
+      return;
+    }
+    String? selectedUserId = contacts.first['userId'].toString();
+    final recipient = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Start a private school conversation'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Only you and the selected school contact will see this conversation. It will not appear in the shared school inbox.'),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                value: selectedUserId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'School contact',
+                  border: OutlineInputBorder(),
+                ),
+                items: contacts.map((member) => DropdownMenuItem<String>(
+                  value: member['userId'].toString(),
+                  child: Text(
+                    '${member['name'] ?? member['email'] ?? 'School contact'} • ${member['role']}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )).toList(),
+                onChanged: (value) => setDialogState(() => selectedUserId = value),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: selectedUserId == null
+                  ? null
+                  : () => Navigator.pop(dialogContext, selectedUserId),
+              icon: const Icon(Icons.lock_outline),
+              label: const Text('Open private chat'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (recipient != null && mounted) await _openPrivateParentChat(recipient);
   }
 
   Widget field(TextEditingController c, String label,
@@ -6634,6 +6706,40 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error)),
               if (section == 0) ...[
+                if (role == 'parent')
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.lock_outline, color: Colors.indigo),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Private conversation with school',
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          const Text('Send a confidential message directly to a school administrator or staff member. Other parents cannot see this chat.'),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: _startPrivateSchoolConversation,
+                              icon: const Icon(Icons.chat_bubble_outline),
+                              label: const Text('Start private conversation'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Column(
@@ -6781,7 +6887,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                               (m['body'] ?? '').toString(),
                             ].where((line) => line.isNotEmpty).join(' • ')),
                             isThreeLine: true,
-                            trailing: isAdmin && m['senderId'] != null && m['senderId'].toString() != app.user?['id']?.toString() ? IconButton(tooltip: 'Open private Chatify conversation', icon: const Icon(Icons.lock_outline), onPressed: () => _openPrivateParentChat(m['senderId'].toString())) : null)))),
+                            trailing: (role == 'admin' || role == 'staff') && m['senderId'] != null && m['senderId'].toString() != app.user?['id']?.toString() ? IconButton(tooltip: 'Reply privately to sender', icon: const Icon(Icons.lock_outline), onPressed: () => _openPrivateParentChat(m['senderId'].toString())) : null)))),
                 _schoolPager(),
               ],
               if (section == 2) ...[
