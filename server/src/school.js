@@ -840,20 +840,46 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
 
   app.get('/api/schools/:schoolId/fee-balances', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
-      let visibleStudents;
+      let visibleStudentIds;
       if (req.schoolMembership.role === 'staff') {
-        const linkedNames = (req.schoolMembership.studentNames || []).map(name => String(name).trim().toLowerCase()).filter(Boolean);
+        const linkedNames = (req.schoolMembership.studentNames || [])
+          .map(name => String(name).trim().toLowerCase()).filter(Boolean);
         const email = String(req.user?.email || '').trim().toLowerCase();
         const phone = String(req.user?.phone || '').replace(/\D/g, '');
         const guardianMatch = [];
         if (email) guardianMatch.push({ guardianEmail: email });
-        if (phone.length >= 8) guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '
+        if (phone.length >= 8) {
+          guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '$', $options: 'i' } });
+        }
+        if (!linkedNames.length || !guardianMatch.length) {
+          return res.json({ balances: [], total: 0 });
+        }
+        const candidates = await SchoolStudent.find({
+          schoolId: req.params.schoolId,
+          active: true,
+          $or: guardianMatch,
+        }).select('_id fullName').lean();
+        visibleStudentIds = candidates
+          .filter(student => linkedNames.includes(String(student.fullName || '').trim().toLowerCase()))
+          .map(student => student._id);
+      } else {
+        const students = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+        visibleStudentIds = students.map(student => student._id);
+      }
+      if (!visibleStudentIds.length) return res.json({ balances: [], total: 0 });
+      const chargeFilter = {
+        schoolId: req.params.schoolId,
+        studentId: { $in: visibleStudentIds },
+      };
       if (req.query.academicYear) chargeFilter.academicYear = String(req.query.academicYear).trim().slice(0, 40);
       if (req.query.term) chargeFilter.term = String(req.query.term).trim().slice(0, 80);
-      const charges = await SchoolStudentCharge.find(chargeFilter).sort({ className: 1, studentName: 1, academicYear: -1, term: 1 }).lean();
+      const charges = await SchoolStudentCharge.find(chargeFilter)
+        .sort({ className: 1, studentName: 1, academicYear: -1, term: 1 }).lean();
       const chargeIds = charges.map(charge => charge.studentId);
       const payments = chargeIds.length ? await FeePayment.find({
-        schoolId: req.params.schoolId, studentId: { $in: chargeIds }, status: 'CONFIRMED',
+        schoolId: req.params.schoolId,
+        studentId: { $in: chargeIds },
+        status: 'CONFIRMED',
       }).select('studentId academicYear term amount status').lean() : [];
       const byPeriod = new Map();
       for (const payment of payments) {
