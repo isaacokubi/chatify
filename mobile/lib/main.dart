@@ -15479,7 +15479,7 @@ class _BusinessHubState extends State<BusinessHub> {
               onPressed: () => Navigator.pop(dialogContext, true),
               child: const Text('Create')),
         ],
-      )),
+      ),
     );
     if (accepted != true || name.text.trim().isEmpty) return;
     try {
