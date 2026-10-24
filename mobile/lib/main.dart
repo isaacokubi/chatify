@@ -15146,13 +15146,20 @@ class _StorefrontPageState extends State<StorefrontPage> {
                   onTap: () => showProduct(item),
                   child: Row(children: [
                     if (image.startsWith('https://'))
-                      SizedBox(
+                      GestureDetector(
+                        onTap: () => _showExpandedCatalogueImage(
+                            context,
+                            image,
+                            title: item['name']?.toString() ?? 'Product image'),
+                        child: SizedBox(
                           width: 100,
                           height: 110,
                           child: OfflineCachedImage(image,
                               fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) =>
-                                  const Icon(Icons.inventory_2_outlined)))
+                                  const Icon(Icons.inventory_2_outlined)),
+                        ),
+                      )
                     else
                       Container(
                           width: 100,
