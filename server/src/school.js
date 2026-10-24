@@ -1058,10 +1058,39 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         ? await SchoolStudent.find({ schoolId: req.params.schoolId, $expr: { $in: [{ $toLower: '$fullName' }, paymentStudentNames] } }).select('fullName guardianName guardianPhone').lean()
         : [];
       const guardiansByName = new Map(guardianRecords.map(student => [String(student.fullName).trim().toLowerCase(), student]));
+      const paymentChargeIds = [...new Set(payments.map(payment => payment.chargeId).filter(Boolean).map(String))];
+      const [charges, confirmedChargePayments] = paymentChargeIds.length ? await Promise.all([
+        SchoolStudentCharge.find({ _id: { $in: paymentChargeIds }, schoolId: req.params.schoolId }).lean(),
+        FeePayment.find({ schoolId: req.params.schoolId, chargeId: { $in: paymentChargeIds }, status: 'CONFIRMED' }).select('chargeId amount status').lean(),
+      ]) : [[], []];
+      const chargesById = new Map(charges.map(charge => [String(charge._id), charge]));
+      const chargePayments = new Map();
+      for (const confirmedPayment of confirmedChargePayments) {
+        const key = String(confirmedPayment.chargeId);
+        chargePayments.set(key, [...(chargePayments.get(key) || []), confirmedPayment]);
+      }
       const paymentsWithGuardians = payments.map(payment => {
         const guardian = guardiansByName.get(String(payment.studentName || '').trim().toLowerCase());
         const method = payment.paymentMethod || payment.method;
-        return { ...payment, paymentMethodLabel: schoolPaymentMethodLabel(method), guardianName: guardian?.guardianName || '', guardianPhone: guardian?.guardianPhone || '' };
+        const charge = payment.chargeId ? chargesById.get(String(payment.chargeId)) : null;
+        const balance = charge ? calculateSchoolFeeBalance({
+          chargeAmount: charge.totalAmount,
+          credits: charge.credits || 0,
+          payments: chargePayments.get(String(charge._id)) || [],
+        }) : null;
+        return {
+          ...payment,
+          schoolName: undefined,
+          paymentMethodLabel: schoolPaymentMethodLabel(method),
+          guardianName: guardian?.guardianName || '',
+          guardianPhone: guardian?.guardianPhone || '',
+          ...(balance ? {
+            totalFeeDue: balance.chargeAmount,
+            outstandingBalance: balance.balance,
+            confirmedPaidForTerm: balance.confirmedPaid,
+            feeBalanceStatus: balance.status,
+          } : { totalFeeDue: null, outstandingBalance: null, feeBalanceStatus: 'NOT_CONFIGURED' }),
+        };
       });
       const school = await School.findById(req.params.schoolId).select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
       const profile = school?.paymentProfile;
