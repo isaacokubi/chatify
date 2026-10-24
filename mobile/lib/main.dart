@@ -4727,7 +4727,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
           const SizedBox(height: 14),
           _healthPanel(theme),
           const SizedBox(height: 14),
-          SegmentedButton<_AdminSection>(
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<_AdminSection>(
             segments: const [
               ButtonSegment(
                   value: _AdminSection.overview,
@@ -4762,6 +4764,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 loadWorkspaceBillingRows();
               }
             },
+            ),
           ),
           const SizedBox(height: 18),
           if (section == _AdminSection.overview) ...[
