@@ -147,6 +147,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     country: {type: String, default: 'KE'}, currency: {type: String, default: 'KES'}, timezone: {type: String, default: 'Africa/Nairobi'},
     plan: {type: String, enum: ['free', 'business_pro', 'teams', 'enterprise'], default: 'free'},
     members: {type: [memberSchema], default: []}, settings: {type: mongoose.Schema.Types.Mixed, default: {}}, billing: {type: mongoose.Schema.Types.Mixed, default: {}},
+    approvalStatus: {type: String, enum: ['PENDING','APPROVED','REJECTED'], default: 'PENDING', index: true},
+    approvalReviewedBy: {type: O, ref: 'User'}, approvalReviewedAt: Date, approvalReviewNote: {type: String, trim: true, maxlength: 500},
     branches: {type: [{name: String, address: String, phone: String, active: {type: Boolean, default: true}}], default: []},
   }, {timestamps: true}));
   Organization.schema.index({'members.userId': 1});
@@ -321,7 +323,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const organizations = await Organization.find({
         _id: {$in: counts.map(row => row._id)},
         'settings.storefrontPublished': {$ne: false},
-      }).select('name slug description logo industry country currency website billing').sort({name: 1}).lean();
+        $or: [{approvalStatus: 'APPROVED'}, {approvalStatus: {$exists: false}}],
+      }).select('name slug description logo industry country currency website billing approvalStatus').sort({name: 1}).lean();
       const activeOrganizations = [];
       const graceDays = await getBillingGraceDays();
       for (const organization of organizations) if (!(await getPublicBillingStatus(organization, graceDays)).locked) activeOrganizations.push(organization);
@@ -338,7 +341,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   app.get('/api/storefront/:slug', async (req, res) => {
     try {
       const slug = slugifyBusinessName(req.params.slug);
-      const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}}).select('name slug description logo website phone currency country ownerId settings billing');
+      const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}, $or: [{approvalStatus: 'APPROVED'}, {approvalStatus: {$exists: false}}]}).select('name slug description logo website phone currency country ownerId settings billing approvalStatus');
       if (!org) return res.status(404).json({error: 'Storefront not found'});
        if ((await getPublicBillingStatus(org)).locked) return res.status(404).json({error: 'Storefront not found'});
       const owner = await User.findById(org.ownerId).select('phone');
@@ -394,7 +397,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     let document;
     try {
       const slug = slugifyBusinessName(req.params.slug);
-      const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}});
+      const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}, $or: [{approvalStatus: 'APPROVED'}, {approvalStatus: {$exists: false}}]});
       if (!org || (await getPublicBillingStatus(org)).locked) return res.status(404).json({error: 'Storefront not found'});
       if (!await canCreateWithinPlan(org, 'documents', BusinessDocument, res)) return;
       if (String(org.ownerId) === String(req.user._id)) return res.status(400).json({error: 'Use a separate customer account to test a purchase from your own store'});
@@ -449,7 +452,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     try {
       const name = shortText(req.body?.name, 120); const slug = slugifyBusinessName(req.body?.slug || name);
       if (!name || !slug) return res.status(400).json({error: 'Business name is required'});
-      const org = await Organization.create({name, slug, ownerId: req.user._id, industry: INDUSTRIES.includes(req.body?.industry) ? req.body.industry : 'other', description: shortText(req.body?.description, 2000), email: shortText(req.body?.email, 200), phone: shortText(req.body?.phone, 40), website: shortText(req.body?.website, 500), country: shortText(req.body?.country, 2) || 'KE', currency: shortText(req.body?.currency, 3) || 'KES', timezone: shortText(req.body?.timezone, 80) || 'Africa/Nairobi', members: [{userId: req.user._id, role: 'owner'}], billing: {billingEnforced: true, setupFeePaid: false, subscriptionExpiresAt: null, status: 'SETUP_PAYMENT_REQUIRED'}});
+      const org = await Organization.create({name, slug, ownerId: req.user._id, industry: INDUSTRIES.includes(req.body?.industry) ? req.body.industry : 'other', description: shortText(req.body?.description, 2000), email: shortText(req.body?.email, 200), phone: shortText(req.body?.phone, 40), website: shortText(req.body?.website, 500), country: shortText(req.body?.country, 2) || 'KE', currency: shortText(req.body?.currency, 3) || 'KES', timezone: shortText(req.body?.timezone, 80) || 'Africa/Nairobi', members: [{userId: req.user._id, role: 'owner'}], approvalStatus: 'PENDING', billing: {billingEnforced: true, setupFeePaid: false, subscriptionExpiresAt: null, status: 'SETUP_PAYMENT_REQUIRED'}});
       await recordAudit(org, req.user._id, 'organization.created', 'organization', org._id, 'Created business workspace'); res.status(201).json({organization: sanitizeBusinessOrganization(org)});
     } catch (error) { safeError(res, error); }
   });
@@ -701,8 +704,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     res.setHeader('Content-Disposition', 'attachment; filename="chatify-business-' + org.slug + '-' + new Date().toISOString().slice(0,10) + '.json"');
     res.json(archive);
   });
-  app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('name slug description industry country currency phone website billing');if(!org||(await getPublicBillingStatus(org)).locked)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);const publicBusiness=org.toObject();delete publicBusiness.billing;res.json({business:publicBusiness,items});});
-  app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false}}).select('_id billing');if(!org||(await getPublicBillingStatus(org)).locked)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
+  app.get('/api/business/storefront/:slug', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false},$or:[{approvalStatus:'APPROVED'},{approvalStatus:{$exists:false}}]}).select('name slug description industry country currency phone website billing approvalStatus');if(!org||(await getPublicBillingStatus(org)).locked)return res.status(404).json({error:'Storefront not found'});const items=await CatalogItem.find({organizationId:org._id,active:true}).select('type name description price currency images category').sort({name:1}).limit(200);const publicBusiness=org.toObject();delete publicBusiness.billing;res.json({business:publicBusiness,items});});
+  app.post('/api/business/storefront/:slug/enquiries', async (req,res)=>{const org=await Organization.findOne({slug:String(req.params.slug).toLowerCase(),'settings.storefrontPublished':{$ne:false},$or:[{approvalStatus:'APPROVED'},{approvalStatus:{$exists:false}}]}).select('_id billing approvalStatus');if(!org||(await getPublicBillingStatus(org)).locked)return res.status(404).json({error:'Storefront not found'});const name=shortText(req.body?.name,160);const message=shortText(req.body?.message,2000);if(!name||!message)return res.status(400).json({error:'Your name and enquiry are required'});const customer=await Customer.create({organizationId:org._id,name,email:shortText(req.body.email,200),phone:shortText(req.body.phone,40),notes:message,source:'storefront'});res.status(201).json({ok:true,enquiryId:String(customer._id),message:'Enquiry received. The business can now follow up.'});});
   // Only platform administrators may manage global tax rates. Rates are selected by each
   // workspace's country/currency and applied consistently to business documents.
   app.get('/api/admin/tax-rates', auth, async (req,res)=>{
