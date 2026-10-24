@@ -1076,7 +1076,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       if (req.schoolMembership.role === 'parent') filter.parentId = req.user._id;
       const page = pageOptions(req);
       const [payments, total] = await Promise.all([
-        FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone -checkoutRequestId -merchantRequestId').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
+        FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
         FeePayment.countDocuments(filter),
       ]);
       // Resolve the school's current payment configuration before shaping records.
@@ -1094,7 +1094,11 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         if (destination && profile.paybillNumber && destination === String(profile.paybillNumber).trim()) return 'mpesa_paybill';
         if (destination && profile.tillNumber && destination === String(profile.tillNumber).trim()) return 'mpesa_till';
         if (destination && (school?.officialPhone || '') === destination) return 'mpesa_send_money';
-        return profile.method || null;
+        // Legacy STK Push payments may have no destination number or saved method.
+        // Their Daraja request identifiers are the reliable signal for this channel.
+        if (payment.checkoutRequestId || payment.merchantRequestId || payment.status === 'PENDING_STK') return 'mpesa_stk';
+        const configuredMethod = profile.method || null;
+        return schoolPaymentMethodLabel(configuredMethod) ? configuredMethod : null;
       };
       // Guardian fields come from the authoritative student register; they are
       // included only after the fee query has already been school/role scoped.
