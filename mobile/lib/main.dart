@@ -28,6 +28,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:video_player/video_player.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 String _conversationParticipantId(Map participant) {
   final nested = participant['user'];
@@ -2045,6 +2046,24 @@ class AppState extends ChangeNotifier {
   StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
   StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
   String? _registeredPushToken;
+  DateTime? _lastIncomingBellAt;
+
+  // Use the device's notification tone for a familiar bell-like alert. A short
+  // cooldown prevents Socket.IO and Firebase from sounding twice for one message.
+  void _playIncomingMessageBell() {
+    final now = DateTime.now();
+    final last = _lastIncomingBellAt;
+    if (last != null && now.difference(last) < const Duration(milliseconds: 900)) {
+      return;
+    }
+    _lastIncomingBellAt = now;
+    try {
+      unawaited(FlutterRingtonePlayer().playNotification());
+    } catch (_) {
+      // Audio is best-effort; messaging must continue if the platform has no tone.
+      unawaited(SystemSound.play(SystemSoundType.alert).catchError((_) {}));
+    }
+  }
   AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
     if (autoInit) init();
   }
@@ -2192,8 +2211,8 @@ class AppState extends ChangeNotifier {
       messageEventVersion++;
       notifyListeners();
       if (senderId != null && senderId.isNotEmpty && senderId != currentId) {
-        // One short platform alert for incoming messages, not outgoing messages.
-        unawaited(SystemSound.play(SystemSoundType.alert).catchError((_) {}));
+        // Bell alert for incoming messages, never for messages sent by this user.
+        _playIncomingMessageBell();
       }
     });
     _presenceSocket!.on('presence:initial', (data) {
@@ -2250,7 +2269,7 @@ class AppState extends ChangeNotifier {
           .listen(_openConversationFromNotification);
       await _foregroundMessageSubscription?.cancel();
       _foregroundMessageSubscription = FirebaseMessaging.onMessage.listen((_) {
-        unawaited(SystemSound.play(SystemSoundType.alert));
+        _playIncomingMessageBell();
         chatifyScaffoldMessengerKey.currentState?.showSnackBar(
           const SnackBar(content: Text('You received a new message.')),
         );
