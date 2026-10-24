@@ -291,9 +291,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
 
   function schoolStudentFilter(req) {
     const filter = { schoolId: req.params.schoolId, active: true };
-    if (['parent', 'staff'].includes(req.schoolMembership.role)) {
-      // Parents and staff see only pupils explicitly linked to their membership.
-      // An empty list intentionally matches no student records.
+    if (req.schoolMembership.role === 'parent') {
+      // Parents see only pupils explicitly linked to their membership. Teachers
+      // need the school's active register to record attendance and CBC outcomes.
       const names = (req.schoolMembership.studentNames || []).map(x => String(x).trim().toLowerCase()).filter(Boolean);
       filter.$expr = { $in: [{ $toLower: '$fullName' }, names] };
     }
