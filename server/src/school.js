@@ -1079,6 +1079,23 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone -checkoutRequestId -merchantRequestId').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
         FeePayment.countDocuments(filter),
       ]);
+      // Resolve the school's current payment configuration before shaping records.
+      // New payments persist their method; legacy records without it are inferred
+      // from their destination first, then the school's configured default.
+      const school = await School.findById(req.params.schoolId)
+        .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt +receiptStampDataUrl')
+        .lean();
+      const profile = school?.paymentProfile || {};
+      const resolveRecordMethod = payment => {
+        if (schoolPaymentMethodLabel(payment.paymentMethod || payment.method)) {
+          return payment.paymentMethod || payment.method;
+        }
+        const destination = String(payment.destinationNumber || '').trim();
+        if (destination && profile.paybillNumber && destination === String(profile.paybillNumber).trim()) return 'mpesa_paybill';
+        if (destination && profile.tillNumber && destination === String(profile.tillNumber).trim()) return 'mpesa_till';
+        if (destination && (school?.officialPhone || '') === destination) return 'mpesa_send_money';
+        return profile.method || null;
+      };
       // Guardian fields come from the authoritative student register; they are
       // included only after the fee query has already been school/role scoped.
       const paymentStudentNames = [...new Set(payments.map(payment => String(payment.studentName || '').trim().toLowerCase()).filter(Boolean))];
@@ -1099,7 +1116,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       }
       const paymentsWithGuardians = payments.map(payment => {
         const guardian = guardiansByName.get(String(payment.studentName || '').trim().toLowerCase());
-        const method = payment.paymentMethod || payment.method;
+        const method = resolveRecordMethod(payment);
         const charge = payment.chargeId ? chargesById.get(String(payment.chargeId)) : null;
         const balance = charge ? calculateSchoolFeeBalance({
           chargeAmount: charge.totalAmount,
@@ -1108,8 +1125,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         }) : null;
         return {
           ...payment,
-          schoolName: undefined,
-          paymentMethodLabel: schoolPaymentMethodLabel(method),
+          paymentMethod: method,
+          paymentMethodLabel: schoolPaymentMethodLabel(method) || 'Not recorded',
           guardianName: guardian?.guardianName || '',
           guardianPhone: guardian?.guardianPhone || '',
           ...(balance ? {
@@ -1120,8 +1137,6 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           } : { totalFeeDue: null, outstandingBalance: null, feeBalanceStatus: 'NOT_CONFIGURED' }),
         };
       });
-      const school = await School.findById(req.params.schoolId).select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt +receiptStampDataUrl').lean();
-      const profile = school?.paymentProfile;
       let officialPhone = school?.officialPhone || '';
       if (!officialPhone) {
         const verification = await SchoolVerificationRequest.findOne({ schoolId: req.params.schoolId, status: 'APPROVED' })
