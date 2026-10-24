@@ -6420,12 +6420,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       style: TextStyle(
                           color: Theme.of(context).colorScheme.secondary,
                           fontWeight: FontWeight.w600))),
-            if (schools.isEmpty) ...[
-              const Card(
+            ...[
+              Card(
                   child: Padding(
-                      padding: EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(12),
                       child: Text(
-                          'School workspaces are not created instantly. Chatify must verify that the school exists before an administrator workspace is activated. Do not submit a school you cannot represent.'))),
+                          'Create a school workspace request. Parents, staff, and other users can submit a school for verification. Chatify verifies the school before activating its workspace. Only submit details for a school you are authorized to represent.'))),
               field(schoolName, 'Official school name'),
               field(schoolCode, 'Proposed unique school code',
                   hint: 'e.g. NAIROBI-PRI'),
@@ -6435,8 +6435,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               field(schoolOfficialPhone, 'Official school phone number',
                   hint: 'The school office contact number',
                   keyboard: TextInputType.phone),
-              actionButton('Submit school for verification', createSchool,
-                  icon: Icons.verified_user),
+              actionButton('Create a school workspace', createSchool,
+                  icon: Icons.add_business),
             ],
             if (schoolVerificationRequests.isNotEmpty) ...[
               const SizedBox(height: 12),
