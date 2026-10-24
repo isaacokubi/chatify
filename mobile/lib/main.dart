@@ -4719,6 +4719,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   String schoolSearchQuery = '';
   String schoolClassFilter = 'all';
   String messageAudienceFilter = 'all';
+  String messagePeriodFilter = 'all';
   bool scheduleSchoolEvent = false;
   final TextEditingController schoolSearchController = TextEditingController();
   static const int _recordPageSize = 50;
@@ -4888,6 +4889,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     schoolSearchController.clear();
     schoolClassFilter = 'all';
     messageAudienceFilter = 'all';
+    messagePeriodFilter = 'all';
     role = s['role']?.toString();
     isOwner = s['isOwner'] == true;
     schoolCode.text = (s['code'] ?? '').toString();
@@ -5062,6 +5064,82 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     }
   }
 
+  Future<void> showSchoolSupportOptions() async {
+    final id = schoolId;
+    if (id == null || !mounted) return;
+    final selected = schools.whereType<Map>().cast<Map>().firstWhere(
+      (school) => school['id']?.toString() == id,
+      orElse: () => <String, dynamic>{},
+    );
+    final profile = selected['paymentProfile'] is Map
+        ? Map<String, dynamic>.from(selected['paymentProfile'] as Map)
+        : <String, dynamic>{};
+    final method = (profile['method'] ?? '').toString();
+    final schoolLabel = (selected['name'] ?? 'the school').toString();
+    final hasDetails = method == 'mpesa_paybill'
+        ? (profile['paybillNumber']?.toString().trim().isNotEmpty ?? false)
+        : method == 'mpesa_till'
+            ? (profile['tillNumber']?.toString().trim().isNotEmpty ?? false)
+            : method == 'bank'
+                ? (profile['accountNumber']?.toString().trim().isNotEmpty ?? false)
+                : method == 'mpesa_send_money'
+                    ? (selected['officialPhone']?.toString().trim().isNotEmpty ?? false)
+                    : false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Row(children: const [
+          Icon(Icons.volunteer_activism_outlined),
+          SizedBox(width: 8),
+          Expanded(child: Text('Support our school')),
+        ]),
+        content: SingleChildScrollView(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Your contribution helps $schoolLabel support learners and school programmes.'),
+            const SizedBox(height: 14),
+            if (!hasDetails) const Text(
+              'The school has not configured a complete donation destination yet. Please contact the school office before sending money.',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            if (hasDetails && method == 'mpesa_paybill') ...[
+              const Text('M-Pesa Paybill', style: TextStyle(fontWeight: FontWeight.bold)),
+              SelectableText(profile['paybillNumber'].toString()),
+              if ((profile['accountNumber'] ?? '').toString().trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text('Account / reference', style: TextStyle(fontWeight: FontWeight.bold)),
+                SelectableText(profile['accountNumber'].toString()),
+              ],
+            ],
+            if (hasDetails && method == 'mpesa_till') ...[
+              const Text('M-Pesa Buy Goods Till', style: TextStyle(fontWeight: FontWeight.bold)),
+              SelectableText(profile['tillNumber'].toString()),
+            ],
+            if (hasDetails && method == 'mpesa_send_money') ...[
+              const Text('School M-Pesa number', style: TextStyle(fontWeight: FontWeight.bold)),
+              SelectableText(selected['officialPhone'].toString()),
+            ],
+            if (hasDetails && method == 'bank') ...[
+              const Text('Bank', style: TextStyle(fontWeight: FontWeight.bold)),
+              SelectableText((profile['bankName'] ?? 'Contact school office').toString()),
+              const SizedBox(height: 8),
+              const Text('Account number', style: TextStyle(fontWeight: FontWeight.bold)),
+              SelectableText(profile['accountNumber'].toString()),
+            ],
+            if (hasDetails) ...[
+              const SizedBox(height: 12),
+              const Text('Please use “DONATION” as the payment reference where supported and share the transaction confirmation with the school office. Verify the destination with the school before transferring funds.'),
+            ],
+          ],
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
   Future<void> loadSection() async {
     final id = schoolId;
     if (id == null) return;
@@ -5073,7 +5151,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     try {
       if (section == 0) {
         final r =
-            await app.api.call('GET', '/api/schools/$id/messages$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}${messageAudienceFilter == 'all' ? '' : '&audience=$messageAudienceFilter'}');
+            await app.api.call('GET', '/api/schools/$id/messages$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}${messageAudienceFilter == 'all' ? '' : '&audience=$messageAudienceFilter'}${messagePeriodFilter == 'all' ? '' : '&period=$messagePeriodFilter'}');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         messages = List<dynamic>.from(r['messages'] ?? []);
         final directory = await app.api
@@ -6549,6 +6627,20 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error)),
               if (section == 0) ...[
+                DropdownButtonFormField<String>(
+                  initialValue: messagePeriodFilter,
+                  decoration: const InputDecoration(labelText: 'Filter messages by date', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: 'today', child: Text('Today')),
+                    DropdownMenuItem(value: 'week', child: Text('This week')),
+                    DropdownMenuItem(value: 'month', child: Text('This month')),
+                    DropdownMenuItem(value: 'all', child: Text('All messages')),
+                  ],
+                  onChanged: (value) {
+                    setState(() { messagePeriodFilter = value ?? 'all'; recordPage = 1; });
+                    loadSection();
+                  },
+                ),
                 if (isAdmin) DropdownButtonFormField<String>(
                   initialValue: messageAudienceFilter,
                   decoration: const InputDecoration(labelText: 'Filter messages by audience', border: OutlineInputBorder()),
@@ -6659,6 +6751,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: FilledButton.icon(
+                                  onPressed: showSchoolSupportOptions,
+                                  icon: const Icon(Icons.volunteer_activism_outlined),
+                                  label: const Text('Donate / Support Us'),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
                               Text(
                                   (feePaymentOptions['schoolName'] ?? 'School')
                                           .toString() +
