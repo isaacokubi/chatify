@@ -6202,7 +6202,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             Text('Student: ${payment['studentName'] ?? 'Student'}'),
             Text('Status: ${payment['status'] ?? 'Unknown'}'),
             Text('Amount: KSh ${payment['amount'] ?? '—'}'),
-            Text('Method: ${method ?? '—'}'),
+            Text('Method: $method'),
             Text('Reference: ${payment['paymentReference'] ?? '—'}'),
           ],
         ),
