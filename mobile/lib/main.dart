@@ -1071,7 +1071,8 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     content.write('(' + safe(line) + ') Tj\n');
     firstDetail = false;
   }
-  content.write('ET\n')
+  content
+    ..write('ET\n')
     ..write('0.75 0.78 0.80 RG\n0.7 w\n50 72 m\n545 72 l\nS\n')
     ..write('BT\n/F1 9 Tf\n50 54 Td\n(' + safe('Official record • Keep this receipt for your records.') + ') Tj\nET\n');
   final stream = content.toString();
