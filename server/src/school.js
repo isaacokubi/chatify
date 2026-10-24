@@ -40,7 +40,7 @@ export function schoolPaymentMethodLabel(method) {
 function renderSchoolReceipt(school, payment) {
   const esc = escapeReceipt;
   const method = schoolPaymentMethodLabel(payment.paymentMethod);
-  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>School fee receipt</title><style>body{font:16px system-ui,sans-serif;max-width:720px;margin:32px auto;padding:24px;color:#172033}main{border:1px solid #ccd3df;border-radius:16px;padding:28px}h1{margin-top:0}dt{font-weight:700;margin-top:14px}dd{margin:4px 0}button{padding:10px 16px}@media print{button{display:none}body{margin:0}}</style></head><body><main><h1>' + esc(school?.name || 'School') + '</h1><h2>Official school fee receipt</h2><p>Payment confirmation recorded by the school.</p><dl><dt>Receipt number</dt><dd>' + esc(payment.mpesaReceipt) + '</dd><dt>Chatify reference</dt><dd>' + esc(payment.paymentReference) + '</dd><dt>Student</dt><dd>' + esc(payment.studentName) + '</dd><dt>Term</dt><dd>' + esc(payment.term) + '</dd><dt>Payment method</dt><dd>' + esc(method || 'Not recorded') + '</dd><dt>Amount received</dt><dd>KSh ' + esc(Number(payment.amount).toLocaleString('en-KE')) + '</dd><dt>Verified on</dt><dd>' + esc(payment.verifiedAt?.toISOString?.() || '') + '</dd></dl><button onclick="window.print()">Print receipt</button></main></body></html>';
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>School fee receipt</title><style>body{font:16px system-ui,sans-serif;max-width:720px;margin:32px auto;padding:24px;color:#172033}main{border:1px solid #ccd3df;border-radius:16px;padding:28px}h1{margin-top:0}dt{font-weight:700;margin-top:14px}dd{margin:4px 0}button{padding:10px 16px}@media print{button{display:none}body{margin:0}}</style></head><body><main><h1>' + esc(school?.name || 'School') + '</h1><h2>Official school fee receipt</h2><p>Payment confirmation recorded by the school.</p><dl><dt>Receipt number</dt><dd>' + esc(payment.mpesaReceipt) + '</dd><dt>Chatify reference</dt><dd>' + esc(payment.paymentReference) + '</dd><dt>Student</dt><dd>' + esc(payment.studentName) + '</dd><dt>Term</dt><dd>' + esc(payment.term) + '</dd><dt>Payment method</dt><dd>' + esc(method || 'Not recorded') + '</dd><dt>Amount received</dt><dd>KSh ' + esc(Number(payment.amount).toLocaleString('en-KE')) + '</dd><dt>Total term charge</dt><dd>' + (Number.isSafeInteger(payment.chargeAmount) ? 'KSh ' + esc(Number(payment.chargeAmount).toLocaleString('en-KE')) : 'Not available — contact the school office') + '</dd><dt>Remaining balance</dt><dd>' + (Number.isSafeInteger(payment.balance) ? 'KSh ' + esc(Number(payment.balance).toLocaleString('en-KE')) : 'Not available — no issued fee charge was linked to this payment') + '</dd><dt>Verified on</dt><dd>' + esc(payment.verifiedAt?.toISOString?.() || '') + '</dd></dl><button onclick="window.print()">Print receipt</button></main></body></html>';
 }
 
 function schoolCallbackUrl() {
@@ -1141,7 +1141,26 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         return res.status(409).json({ error: 'This fee record has already been verified or changed. Refresh the fee list.' });
       }
       const school = await School.findById(req.params.schoolId).select('name code').lean();
-      const receiptHtml = renderSchoolReceipt(school, confirmed);
+      let balanceDetails = {};
+      if (confirmed.chargeId) {
+        const charge = await SchoolStudentCharge.findOne({
+          _id: confirmed.chargeId, schoolId: req.params.schoolId,
+        }).lean();
+        if (charge) {
+          const confirmedPayments = await FeePayment.find({
+            schoolId: req.params.schoolId, chargeId: charge._id, status: 'CONFIRMED',
+          }).select('amount status').lean();
+          const calculated = calculateSchoolFeeBalance({
+            chargeAmount: charge.totalAmount,
+            credits: charge.credits || 0,
+            payments: confirmedPayments,
+          });
+          balanceDetails = { chargeAmount: calculated.chargeAmount, balance: calculated.balance };
+        }
+      }
+      const receiptHtml = renderSchoolReceipt(school, {
+        ...confirmed.toObject(), ...balanceDetails,
+      });
       await FeePayment.updateOne({ _id: confirmed._id }, { $set: { receiptHtml } });
       await deliverSchoolReceipt(confirmed._id);
       return res.json({ payment: confirmed, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + confirmed.paymentReference + '/receipt' });
