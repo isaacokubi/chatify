@@ -6990,15 +6990,17 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: FilledButton.icon(
-                                  onPressed: showSchoolSupportOptions,
-                                  icon: const Icon(Icons.volunteer_activism_outlined),
-                                  label: const Text('Donate / Support Us'),
+                              if (!isOwner) ...[
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: FilledButton.icon(
+                                    onPressed: showSchoolSupportOptions,
+                                    icon: const Icon(Icons.volunteer_activism_outlined),
+                                    label: const Text('Donate / Support Us'),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 10),
+                                const SizedBox(height: 10),
+                              ],
                               Text(
                                   (feePaymentOptions['schoolName'] ?? 'School')
                                           .toString() +
