@@ -29,7 +29,7 @@ function escapeReceipt(value) {
 }
 
 export function schoolPaymentMethodLabel(method) {
-  const raw = String(method ?? '').trim().toLowerCase().replace(/[\\s-]+/g, '_');
+  const raw = String(method ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   return ({
     mpesa_paybill: 'M-Pesa Paybill', paybill: 'M-Pesa Paybill', m_pesa_paybill: 'M-Pesa Paybill',
     mpesa_till: 'M-Pesa Till', till: 'M-Pesa Till', buy_goods: 'M-Pesa Till', m_pesa_till: 'M-Pesa Till',
@@ -43,7 +43,7 @@ function renderSchoolReceipt(school, payment) {
   const esc = escapeReceipt;
   const method = schoolPaymentMethodLabel(payment.paymentMethod || payment.method || school?.paymentProfile?.method) || 'Not recorded';
   const stamp = typeof school?.receiptStampDataUrl === 'string' &&
-    /^data:image\\/jpeg;base64,[A-Za-z0-9+/=\\r\\n]+$/.test(school.receiptStampDataUrl)
+    /^data:image\/jpeg;base64,[A-Za-z0-9+/=\r\n]+$/.test(school.receiptStampDataUrl)
     ? '<img class="stamp" alt="School official stamp" src="' + school.receiptStampDataUrl + '">'
     : '';
   const amount = Number(payment.amount);
@@ -541,7 +541,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   app.put('/api/schools/:schoolId/receipt-settings', auth, requireRole('admin'), async (req, res, next) => {
     try {
       const stampDataUrl = String(req.body?.receiptStampDataUrl || '').trim();
-      if (stampDataUrl && (!/^data:image\\/jpeg;base64,[A-Za-z0-9+/=\\r\\n]+$/.test(stampDataUrl) || stampDataUrl.length > 950000)) {
+      if (stampDataUrl && (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=\r\n]+$/.test(stampDataUrl) || stampDataUrl.length > 950000)) {
         return res.status(400).json({ error: 'Upload a JPEG school stamp smaller than 700 KB.' });
       }
       await School.updateOne({ _id: req.params.schoolId }, { $set: { receiptStampDataUrl: stampDataUrl } });
