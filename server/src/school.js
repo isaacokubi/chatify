@@ -781,6 +781,26 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     } catch (error) { return next(error); }
   });
 
+  // Permanently remove a fee template only while it has no issued student charges.
+  // Issued charges and payment history are immutable and must never be deleted with a template.
+  app.delete('/api/schools/:schoolId/fee-structures/:structureId', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.structureId)) return res.status(400).json({ error: 'Invalid fee structure id' });
+      const filter = { _id: req.params.structureId, schoolId: req.params.schoolId };
+      const structure = await SchoolFeeStructure.findOne(filter).lean();
+      if (!structure) return res.status(404).json({ error: 'Fee structure not found in this school' });
+      const issuedCharges = await SchoolStudentCharge.countDocuments({
+        schoolId: req.params.schoolId, structureId: structure._id,
+      });
+      if (issuedCharges > 0) return res.status(409).json({
+        error: 'This fee structure has already been issued to students and cannot be deleted. Archive it by creating a new version; existing student charges and payment history are preserved.',
+        issuedCharges,
+      });
+      await SchoolFeeStructure.deleteOne(filter);
+      return res.json({ success: true, deletedId: String(structure._id) });
+    } catch (error) { return next(error); }
+  });
+
   app.post('/api/schools/:schoolId/fee-structures/:structureId/issue', auth, requireRole('admin'), async (req, res, next) => {
     try {
       if (!mongoose.isValidObjectId(req.params.structureId)) return res.status(400).json({ error: 'Invalid fee structure id' });
