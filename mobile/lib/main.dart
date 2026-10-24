@@ -5034,12 +5034,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   final subjectName = TextEditingController(),
       assessmentName = TextEditingController(),
       assessmentTerm = TextEditingController(),
+      assessmentStrand = TextEditingController(),
+      assessmentSubStrand = TextEditingController(),
+      assessmentYear = TextEditingController(text: DateTime.now().year.toString()),
       assessmentScore = TextEditingController(),
       assessmentOutOf = TextEditingController(text: '100'),
       teacherNote = TextEditingController();
   String attendanceStudentId = '',
       attendanceStatus = 'present',
-      assessmentStudentId = '';
+      assessmentStudentId = '',
+      competencyLevel = 'ME';
   String memberRole = 'parent',
       staffDesignation = 'Teacher',
       audience = 'direct',
@@ -5106,6 +5110,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       subjectName,
       assessmentName,
       assessmentTerm,
+      assessmentStrand,
+      assessmentSubStrand,
+      assessmentYear,
       assessmentScore,
       assessmentOutOf,
       teacherNote
@@ -6471,25 +6478,28 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   Future<void> saveAssessment() async {
     final id = schoolId;
-    final score = double.tryParse(assessmentScore.text.trim()),
-        outOf = double.tryParse(assessmentOutOf.text.trim());
-    if (id == null ||
-        assessmentStudentId.isEmpty ||
-        score == null ||
-        outOf == null) return;
+    if (id == null || assessmentStudentId.isEmpty ||
+        subjectName.text.trim().isEmpty ||
+        assessmentName.text.trim().isEmpty ||
+        assessmentTerm.text.trim().isEmpty) return;
     await _action(() async {
       await app.api.call('POST', '/api/schools/$id/academics', {
         'studentId': assessmentStudentId,
+        'gradingMode': 'CBC',
         'subject': subjectName.text.trim(),
+        'learningArea': subjectName.text.trim(),
         'assessment': assessmentName.text.trim(),
         'term': assessmentTerm.text.trim(),
-        'score': score,
-        'outOf': outOf,
+        'academicYear': assessmentYear.text.trim(),
+        'strand': assessmentStrand.text.trim(),
+        'subStrand': assessmentSubStrand.text.trim(),
+        'competencyLevel': competencyLevel,
         'teacherNote': teacherNote.text.trim()
       });
       subjectName.clear();
       assessmentName.clear();
-      assessmentScore.clear();
+      assessmentStrand.clear();
+      assessmentSubStrand.clear();
       teacherNote.clear();
       await loadSection();
     });
@@ -7815,7 +7825,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       icon: Icons.school_outlined),
                   const Divider(height: 28),
                 ],
-                if (role != 'parent') ...[
+                if (role == 'admin') ...[
                   const Text('Student admission register',
                       style:
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -7829,7 +7839,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       keyboard: TextInputType.emailAddress),
                   actionButton('Register student', registerStudent,
                       icon: Icons.person_add_alt_1),
-                ],
+                ] else if (role == 'staff')
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Text('Only the school administrator can register or remove learners. Teachers can update attendance and CBC assessments.'),
+                  ),
                 Text('Enrolled students: ${visibleStudents.length} of ${students.length} loaded',
                     style: const TextStyle(fontWeight: FontWeight.bold)),
                 if (visibleStudents.isEmpty)
@@ -7837,7 +7851,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       padding: EdgeInsets.all(16),
                       child: Text(schoolSearchQuery.isNotEmpty || schoolClassFilter != 'all'
                           ? 'No students match the current search / class filter.'
-                          : 'No student records yet. School staff can register students above.')),
+                          : 'No student records yet. Ask the school administrator to register learners.')),
                 if (visibleStudents.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: [
@@ -7847,7 +7861,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       const DataColumn(label: Text('Parent / guardian')),
                       const DataColumn(label: Text('Phone')),
                       const DataColumn(label: Text('Email')),
-                      if (role != 'parent')
+                      if (role == 'admin')
                         const DataColumn(label: Text('Actions')),
                     ],
                     rows: visibleStudents.map((raw) {
@@ -7872,15 +7886,6 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             onPressed: () => _transferSchoolStudent(
                               student['_id'].toString(),
                               (student['fullName'] ?? 'Pupil').toString(),
-                            ),
-                          ))
-                        else if (role == 'staff')
-                          DataCell(IconButton(
-                            tooltip: 'Archive student record',
-                            icon: const Icon(Icons.archive_outlined),
-                            onPressed: () => _removeSchoolRecord(
-                              label: 'student',
-                              endpoint: 'students/${student['_id']}',
                             ),
                           )),
                       ]);
@@ -8014,14 +8019,29 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                           setState(() => assessmentStudentId = v ?? '')),
                 ],
                 if (role != 'parent' && students.isNotEmpty) ...[
-                  field(subjectName, 'Subject'),
-                  field(assessmentName, 'Assessment name (e.g. CAT 1)'),
-                  field(assessmentTerm, 'Term / academic year'),
-                  field(assessmentScore, 'Score',
-                      keyboard: TextInputType.number),
-                  field(assessmentOutOf, 'Total marks',
-                      keyboard: TextInputType.number),
-                  field(teacherNote, 'Teacher comment (optional)'),
+                  field(subjectName, 'Learning area / subject'),
+                  field(assessmentName, 'Assessment / activity name'),
+                  field(assessmentTerm, 'Term'),
+                  field(assessmentYear, 'Academic year'),
+                  field(assessmentStrand, 'Strand (optional)'),
+                  field(assessmentSubStrand, 'Sub-strand (optional)'),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('cbc-level-$competencyLevel'),
+                    initialValue: competencyLevel,
+                    decoration: const InputDecoration(
+                      labelText: 'CBC achievement level',
+                      helperText: 'EE: Exceeding • ME: Meeting • AE: Approaching • BE: Below • NE: Not Evaluated',
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'EE', child: Text('EE — Exceeding Expectations')),
+                      DropdownMenuItem(value: 'ME', child: Text('ME — Meeting Expectations')),
+                      DropdownMenuItem(value: 'AE', child: Text('AE — Approaching Expectations')),
+                      DropdownMenuItem(value: 'BE', child: Text('BE — Below Expectations')),
+                      DropdownMenuItem(value: 'NE', child: Text('NE — Not Evaluated')),
+                    ],
+                    onChanged: (value) => setState(() => competencyLevel = value ?? 'ME'),
+                  ),
+                  field(teacherNote, 'Teacher observation / next steps (optional)'),
                   actionButton('Save assessment result', saveAssessment,
                       icon: Icons.grading_outlined),
                 ],
@@ -8047,8 +8067,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       const DataColumn(label: Text('Subject')),
                       const DataColumn(label: Text('Term')),
                       const DataColumn(label: Text('Assessment')),
-                      const DataColumn(label: Text('Score')),
-                      const DataColumn(label: Text('Teacher note')),
+                      const DataColumn(label: Text('CBC level')),
+                      const DataColumn(label: Text('Strand')),
+                      const DataColumn(label: Text('Teacher observation')),
                       if (role != 'parent')
                         const DataColumn(label: Text('Actions')),
                     ],
@@ -8064,7 +8085,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         DataCell(Text((record['term'] ?? '').toString())),
                         DataCell(Text((record['assessment'] ?? '').toString())),
                         DataCell(Text(
-                            '${record['score'] ?? '—'} / ${record['outOf'] ?? '—'}')),
+                            '${record['competencyLevel'] ?? (record['score'] != null ? '${record['score']} / ${record['outOf'] ?? '—'}' : '—')}')),
+                        DataCell(Text((record['strand'] ?? '—').toString())),
                         DataCell(
                             Text((record['teacherNote'] ?? '').toString())),
                         if (role != 'parent')
