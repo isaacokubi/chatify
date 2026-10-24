@@ -7367,17 +7367,139 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 actionButton('Save fee structure version', saveFeeStructure, icon: Icons.save_outlined),
                 const SizedBox(height: 12),
                 const Text('Existing fee structure versions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                if (feeStructures.isEmpty) const Text('No fee structures are configured yet.'),
-                ...feeStructures.map((raw) {
-                  final structure = Map<String, dynamic>.from(raw as Map);
-                  final items = (structure['items'] as List? ?? const []).whereType<Map>().map((item) => '${item['description']}: KSh ${item['amount']}').join(', ');
-                  return Card(child: ListTile(
-                    title: Text('${structure['className']} • ${structure['academicYear']} • ${structure['term']} (v${structure['version']})'),
-                    subtitle: Text('KSh ${structure['totalAmount']} • ${structure['status']}\\n$items'),
-                    isThreeLine: true,
-                    trailing: structure['status'] == 'ACTIVE' ? IconButton(tooltip: 'Issue charges to students without existing charges', icon: const Icon(Icons.assignment_turned_in_outlined), onPressed: () => issueFeeStructure(structure)) : const Icon(Icons.history),
-                  ));
-                }),
+                const SizedBox(height: 6),
+                Text('Review each class fee plan, its academic period, total and status. Swipe a row to delete an unused structure, or use the delete action. Structures already issued to students are protected to preserve charges and payment history.',
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                const SizedBox(height: 10),
+                if (feeStructures.isEmpty)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            Icon(Icons.receipt_long_outlined, size: 36, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                            const SizedBox(height: 8),
+                            const Text('No fee structures yet', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const Text('Create a class fee plan above to get started.'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  LayoutBuilder(builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 680;
+                    Widget cell(String label, String value, {double? width, bool strong = false}) =>
+                        SizedBox(
+                          width: width ?? (compact ? constraints.maxWidth - 32 : 130),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(label.toUpperCase(), style: TextStyle(fontSize: 10, letterSpacing: .6, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                const SizedBox(height: 3),
+                                Text(value, style: TextStyle(fontSize: 13, fontWeight: strong ? FontWeight.w700 : FontWeight.w500), maxLines: compact ? 3 : 2, overflow: TextOverflow.ellipsis),
+                              ],
+                            ),
+                          ),
+                        );
+                    return Column(
+                      children: [
+                        if (!compact)
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                              border: Border.all(color: Theme.of(context).dividerColor),
+                            ),
+                            child: Row(children: [
+                              cell('Class / grade', 'Class / grade', width: 150, strong: true),
+                              cell('Academic year', 'Academic year', width: 110, strong: true),
+                              cell('Term', 'Term', width: 100, strong: true),
+                              cell('Total fees', 'Total fees', width: 120, strong: true),
+                              cell('Version / status', 'Version / status', width: 140, strong: true),
+                              const Spacer(),
+                              cell('Actions', 'Actions', width: 105, strong: true),
+                            ]),
+                          ),
+                        ...feeStructures.map((raw) {
+                          final structure = Map<String, dynamic>.from(raw as Map);
+                          final structureId = (structure['_id'] ?? '').toString();
+                          final items = (structure['items'] as List? ?? const [])
+                              .whereType<Map>()
+                              .map((item) => '${item['description']}: KSh ${item['amount']}')
+                              .join(' • ');
+                          final active = structure['status'] == 'ACTIVE';
+                          final row = Card(
+                            margin: const EdgeInsets.symmetric(vertical: 3),
+                            clipBehavior: Clip.antiAlias,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: BorderSide(color: Theme.of(context).dividerColor),
+                            ),
+                            child: compact
+                                ? Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(children: [
+                                          Expanded(child: Text('${structure['className'] ?? 'Class'} • ${structure['academicYear'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                            decoration: BoxDecoration(color: active ? Colors.green.withValues(alpha: .12) : Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(20)),
+                                            child: Text((structure['status'] ?? 'UNKNOWN').toString(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: active ? Colors.green.shade800 : Theme.of(context).colorScheme.onSurfaceVariant)),
+                                          ),
+                                        ]),
+                                        const SizedBox(height: 6),
+                                        Wrap(spacing: 8, runSpacing: 2, children: [
+                                          Text('Term: ${structure['term'] ?? '—'}'),
+                                          Text('Version: ${structure['version'] ?? '—'}'),
+                                          Text('Total: KSh ${structure['totalAmount'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                                        ]),
+                                        if (items.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(items, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant))),
+                                        Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                                          if (active) TextButton.icon(
+                                            onPressed: () => issueFeeStructure(structure),
+                                            icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
+                                            label: const Text('Issue charges'),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Delete fee structure',
+                                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                            onPressed: () => _removeSchoolRecord(label: 'fee structure', endpoint: 'fee-structures/$structureId'),
+                                          ),
+                                        ]),
+                                      ],
+                                    ),
+                                  )
+                                : SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(children: [
+                                      cell((structure['className'] ?? '—').toString(), (structure['className'] ?? '—').toString(), width: 150, strong: true),
+                                      cell('Year', (structure['academicYear'] ?? '—').toString(), width: 110),
+                                      cell('Term', (structure['term'] ?? '—').toString(), width: 100),
+                                      cell('KSh', 'KSh ${structure['totalAmount'] ?? 0}', width: 120, strong: true),
+                                      cell('Version', 'v${structure['version'] ?? 1} • ${structure['status'] ?? 'UNKNOWN'}', width: 140),
+                                      SizedBox(width: 105, child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                        if (active) IconButton(tooltip: 'Issue charges to students', icon: const Icon(Icons.assignment_turned_in_outlined), onPressed: () => issueFeeStructure(structure)),
+                                        IconButton(tooltip: 'Delete fee structure', icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _removeSchoolRecord(label: 'fee structure', endpoint: 'fee-structures/$structureId')),
+                                      ])),
+                                    ]),
+                                  ),
+                          );
+                          return _swipeSchoolRecord(
+                            id: structureId,
+                            label: 'fee structure',
+                            endpoint: 'fee-structures/$structureId',
+                            child: row,
+                          );
+                        }),
+                      ],
+                    );
+                  }),
                 _schoolPager(),
               ],
               if (section == 3 && (role == 'staff' || isAdmin)) ...[
