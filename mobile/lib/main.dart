@@ -6258,12 +6258,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
     // Parents should contact the school office or staff linked to their own
     // children, rather than unrelated staff such as cooks or cleaners.
-    final currentUserId = app.user?['id']?.toString();
-    final parentMembership = members.whereType<Map>().where((member) =>
-        member['userId']?.toString() == currentUserId &&
-        member['role']?.toString() == 'parent').firstOrNull;
-    final parentStudentNames = (parentMembership?['studentNames'] as List? ?? [])
-        .map((name) => name.toString().trim())
+    final parentStudentNames = students.whereType<Map>()
+        .map((student) => (student['fullName'] ?? '').toString().trim())
         .where((name) => name.isNotEmpty)
         .toSet();
     final linkedClassByStudent = <String, String>{};
