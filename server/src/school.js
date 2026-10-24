@@ -128,6 +128,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     schoolId: { type: O, ref: 'SchoolWorkspace', required: true, index: true },
     userId: { type: O, ref: 'User', required: true, index: true },
     role: { type: String, enum: ['admin','staff','parent'], required: true },
+    staffDesignation: { type: String, trim: true, maxlength: 80, default: '' },
     studentNames: { type: [String], default: [] },
     active: { type: Boolean, default: true },
   }, { timestamps: true }));
@@ -439,11 +440,15 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     try {
       const code = String(req.body?.code || '').trim().toUpperCase();
       const role = String(req.body?.role || '');
+      const staffDesignation = role === 'staff' ? String(req.body?.staffDesignation || '').trim() : '';
       const studentNames = Array.isArray(req.body?.studentNames)
         ? [...new Set(req.body.studentNames.map(x => String(x).trim()).filter(Boolean))].slice(0, 10)
         : [];
       if (!code || code.length > 40 || !['parent', 'staff'].includes(role)) {
         return res.status(400).json({ error: 'Enter the school invite code and choose Parent or Staff.' });
+      }
+      if (role === 'staff' && !['Teacher','Class teacher','Subject teacher','Head teacher','Cook','Cleaner','Other staff'].includes(staffDesignation)) {
+        return res.status(400).json({ error: 'Choose your staff role / designation.' });
       }
       if (studentNames.length === 0) {
         return res.status(400).json({ error: 'Parents and staff must enter at least one linked student name. Use the exact registered student name(s) supplied by the school office.' });
@@ -458,10 +463,10 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       }
       const member = await Membership.findOneAndUpdate(
         { schoolId: school._id, userId: req.user._id },
-        { $set: { role, studentNames, active: true } },
+        { $set: { role, staffDesignation, studentNames, active: true } },
         { upsert: true, new: true, runValidators: true }
       );
-      return res.status(200).json({ school: { id: String(school._id), name: school.name, code: school.code }, member: { id: String(member._id), role: member.role, studentNames: member.studentNames } });
+      return res.status(200).json({ school: { id: String(school._id), name: school.name, code: school.code }, member: { id: String(member._id), role: member.role, staffDesignation: member.staffDesignation, studentNames: member.studentNames } });
     } catch (error) { return next(error); }
   });
 
@@ -469,12 +474,14 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     try {
       const email = String(req.body?.email || '').trim().toLowerCase();
       const role = String(req.body?.role || '');
+      const staffDesignation = role === 'staff' ? String(req.body?.staffDesignation || '').trim() : '';
       const studentNames = Array.isArray(req.body?.studentNames) ? req.body.studentNames.map(x => String(x).trim()).filter(Boolean).slice(0, 10) : [];
       if (!/^\S+@\S+\.\S+$/.test(email) || !['staff','parent'].includes(role)) return res.status(400).json({ error: 'Enter a valid existing account email and choose staff or parent' });
+      if (role === 'staff' && !['Teacher','Class teacher','Subject teacher','Head teacher','Cook','Cleaner','Other staff'].includes(staffDesignation)) return res.status(400).json({ error: 'Choose a valid staff role / designation' });
       const user = await User.findOne({ email }).select('_id name email');
       if (!user) return res.status(404).json({ error: 'Create or invite the user to Chatify before adding them to this school' });
-      const member = await Membership.findOneAndUpdate({ schoolId: req.params.schoolId, userId: user._id }, { $set: { role, studentNames, active: true } }, { upsert: true, new: true, runValidators: true });
-      return res.status(200).json({ member: { id: String(member._id), userId: String(user._id), name: user.name, email: user.email, role: member.role, studentNames: member.studentNames } });
+      const member = await Membership.findOneAndUpdate({ schoolId: req.params.schoolId, userId: user._id }, { $set: { role, staffDesignation, studentNames, active: true } }, { upsert: true, new: true, runValidators: true });
+      return res.status(200).json({ member: { id: String(member._id), userId: String(user._id), name: user.name, email: user.email, role: member.role, staffDesignation: member.staffDesignation, studentNames: member.studentNames } });
     } catch (error) { return next(error); }
   });
 
@@ -499,7 +506,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         Membership.find(filter).sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).populate('userId', 'name email').lean(),
         Membership.countDocuments(filter),
       ]);
-      return res.json({ members: rows.filter(x => x.userId).map(x => ({ id: String(x._id), userId: String(x.userId._id), name: x.userId.name, email: x.userId.email, role: x.role, studentNames: x.studentNames })), total, page: page.page, limit: page.limit });
+      return res.json({ members: rows.filter(x => x.userId).map(x => ({ id: String(x._id), userId: String(x.userId._id), name: x.userId.name, email: x.userId.email, role: x.role, staffDesignation: x.staffDesignation, studentNames: x.studentNames })), total, page: page.page, limit: page.limit });
     } catch (error) { return next(error); }
   });
 
