@@ -6627,19 +6627,52 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     style:
                         TextStyle(color: Theme.of(context).colorScheme.error)),
               if (section == 0) ...[
-                DropdownButtonFormField<String>(
-                  initialValue: messagePeriodFilter,
-                  decoration: const InputDecoration(labelText: 'Filter messages by date', border: OutlineInputBorder()),
-                  items: const [
-                    DropdownMenuItem(value: 'today', child: Text('Today')),
-                    DropdownMenuItem(value: 'week', child: Text('This week')),
-                    DropdownMenuItem(value: 'month', child: Text('This month')),
-                    DropdownMenuItem(value: 'all', child: Text('All messages')),
-                  ],
-                  onChanged: (value) {
-                    setState(() { messagePeriodFilter = value ?? 'all'; recordPage = 1; });
-                    loadSection();
-                  },
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        role == 'parent'
+                            ? 'Filter school messages'
+                            : 'Filter messages by date',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final option in const [
+                            ('today', 'Today'),
+                            ('week', 'This week'),
+                            ('month', 'This month'),
+                            ('all', 'All messages'),
+                          ])
+                            ChoiceChip(
+                              label: Text(option.$2),
+                              selected: messagePeriodFilter == option.$1,
+                              onSelected: (selected) {
+                                if (!selected) return;
+                                setState(() {
+                                  messagePeriodFilter = option.$1;
+                                  recordPage = 1;
+                                });
+                                loadSection();
+                              },
+                            ),
+                        ],
+                      ),
+                      if (role == 'parent')
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Choose a period to view school announcements and messages sent to parents.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 if (isAdmin) DropdownButtonFormField<String>(
                   initialValue: messageAudienceFilter,
