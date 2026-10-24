@@ -1531,7 +1531,24 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         const phone = String(req.user?.phone || '').replace(/\D/g, '');
         const guardianMatch = [];
         if (email) guardianMatch.push({ guardianEmail: email });
-        if (phone.length >= 8) guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '
+        if (phone.length >= 8) {
+          guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '$', $options: 'i' } });
+        }
+        const paymentStudentName = String(payment.studentName || '').trim().toLowerCase();
+        const matchingStudents = guardianMatch.length
+          ? await SchoolStudent.find({
+              schoolId: req.params.schoolId,
+              active: true,
+              $or: guardianMatch,
+            }).select('fullName').lean()
+          : [];
+        const verifiedChild = matchingStudents.some(student =>
+          String(student.fullName || '').trim().toLowerCase() === paymentStudentName &&
+          linkedNames.includes(paymentStudentName));
+        if (!verifiedChild) {
+          return res.status(403).json({ error: 'This receipt is not for a verified child linked to your staff account.' });
+        }
+      }
       if (payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Receipt unavailable until the school verifies payment' });
       const school = await School.findById(req.params.schoolId)
         .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber +receiptStampDataUrl')
