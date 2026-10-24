@@ -988,12 +988,15 @@ class _OfflineCachedImageState extends State<OfflineCachedImage> {
 // Builds a portable PDF receipt from a confirmed school-fee record.
 // The authenticated receipt endpoint is checked before this function is called.
 String schoolPaymentMethodLabel(dynamic value) {
-  final method = value?.toString().trim().toLowerCase();
-  return switch (method) {
-    'mpesa_paybill' => 'M-Pesa Paybill',
-    'mpesa_till' => 'M-Pesa Till',
-    'mpesa_send_money' => 'M-Pesa Send Money',
-    'bank' => 'Bank transfer',
+  // Normalize historical API/database variants so older confirmed receipts
+  // still show the method that was used instead of an empty dash.
+  final raw = value?.toString().trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+  return switch (raw) {
+    'mpesa_paybill' || 'paybill' || 'mpesa' || 'm_pesa_paybill' => 'M-Pesa Paybill',
+    'mpesa_till' || 'till' || 'buy_goods' || 'm_pesa_till' => 'M-Pesa Till',
+    'mpesa_send_money' || 'send_money' || 'm_pesa_send_money' => 'M-Pesa Send Money',
+    'bank' || 'bank_transfer' || 'banktransfer' => 'Bank transfer',
+    'stk' || 'stk_push' || 'mpesa_stk' || 'daraja' => 'M-Pesa (STK Push)',
     _ => '—',
   };
 }
