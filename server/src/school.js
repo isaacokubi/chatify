@@ -1249,6 +1249,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     try {
       const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference });
       if (!payment || payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Only confirmed payments have receipts that can be delivered' });
+      const school = await School.findById(req.params.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
+      const receiptHtml = renderSchoolReceipt(school, payment);
+      await FeePayment.updateOne({ _id: payment._id }, { $set: { receiptHtml } });
       const result = await deliverSchoolReceipt(payment._id);
       return res.json({ receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + payment.paymentReference + '/receipt', emailDelivery: result });
     } catch (error) { return next(error); }
