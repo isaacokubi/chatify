@@ -34,7 +34,7 @@ export function schoolPaymentMethodLabel(method) {
     mpesa_paybill: 'M-Pesa Paybill', paybill: 'M-Pesa Paybill', m_pesa_paybill: 'M-Pesa Paybill',
     mpesa_till: 'M-Pesa Till', till: 'M-Pesa Till', buy_goods: 'M-Pesa Till', m_pesa_till: 'M-Pesa Till',
     mpesa_send_money: 'M-Pesa Send Money', send_money: 'M-Pesa Send Money', m_pesa_send_money: 'M-Pesa Send Money',
-    mpesa_stk: 'M-Pesa (STK Push)', mpesa_stk_push: 'M-Pesa (STK Push)', stk: 'M-Pesa (STK Push)', stk_push: 'M-Pesa (STK Push)', daraja: 'M-Pesa (STK Push)',
+    mpesa_stk: 'M-Pesa (STK Push)', mpesa_stk_push: 'M-Pesa (STK Push)', m_pesa_(stk_push): 'M-Pesa (STK Push)', stk: 'M-Pesa (STK Push)', stk_push: 'M-Pesa (STK Push)', daraja: 'M-Pesa (STK Push)',
     bank: 'Bank transfer', bank_transfer: 'Bank transfer', banktransfer: 'Bank transfer',
   })[raw] || null;
 }
