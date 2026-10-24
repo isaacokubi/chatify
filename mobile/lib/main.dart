@@ -5820,8 +5820,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   }
 
   Future<void> showFeePaymentStatus(Map<String, dynamic> payment) async {
-    final method = payment['paymentMethodLabel'] ??
-        schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']);
+    final method = schoolPaymentMethodForRecord(payment, configuredFallback: feePaymentOptions['method']);
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -6783,14 +6782,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             Text((payment['guardianPhone'] ?? '—').toString())),
                         DataCell(Text((payment['term'] ?? '').toString())),
                         DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
-                        DataCell(Text(schoolPaymentMethodLabel(
-                          payment['paymentMethod'] ??
-                              payment['method'] ??
-                              payment['destinationMethod'] ??
-                              (payment['paymentDestination'] is Map
-                                  ? (payment['paymentDestination'] as Map)['method']
-                                  : null) ??
-                              payment['paymentMethodLabel']))),
+                        DataCell(Text(schoolPaymentMethodForRecord(payment, configuredFallback: feePaymentOptions['method']))),
                         DataCell(Text(
                             (payment['paymentReference'] ?? '—').toString())),
                         DataCell(Text(status)),
@@ -6943,9 +6935,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         DataCell(Text(
                             confirmedAt?.toString().split('T').first ?? '—')),
                         DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
-                        DataCell(Text((payment['paymentMethodLabel'] ??
-                                schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']))
-                            .toString())),
+                        DataCell(Text(schoolPaymentMethodForRecord(payment, configuredFallback: feePaymentOptions['method']))),
                         DataCell(Text((payment['status'] ?? '').toString())),
                         DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
                           IconButton(
