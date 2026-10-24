@@ -851,99 +851,18 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         if (phone.length >= 8) {
           guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '$', $options: 'i' } });
         }
-        if (!linkedNames.length || !guardianMatch.length) {
-          return res.json({ balances: [], total: 0 });
-        }
-        const candidates = await SchoolStudent.find({
-          schoolId: req.params.schoolId,
-          active: true,
-          $or: guardianMatch,
-        }).select('_id fullName').lean();
-        visibleStudentIds = candidates
-          .filter(student => linkedNames.includes(String(student.fullName || '').trim().toLowerCase()))
-          .map(student => student._id);
-      } else {
-        const students = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
-        visibleStudentIds = students.map(student => student._id);
+        const matchedStudents = linkedNames.length && guardianMatch.length
+          ? await SchoolStudent.find({
+              schoolId: req.params.schoolId,
+              active: true,
+              $or: guardianMatch,
+            }).select('fullName').lean()
+          : [];
+        const matchedNames = matchedStudents
+          .map(student => String(student.fullName || '').trim().toLowerCase())
+          .filter(name => linkedNames.includes(name));
+        filter.$expr = { $in: [{ $toLower: '$studentName' }, matchedNames] };
       }
-      if (!visibleStudentIds.length) return res.json({ balances: [], total: 0 });
-      const chargeFilter = {
-        schoolId: req.params.schoolId,
-        studentId: { $in: visibleStudentIds },
-      };
-      if (req.query.academicYear) chargeFilter.academicYear = String(req.query.academicYear).trim().slice(0, 40);
-      if (req.query.term) chargeFilter.term = String(req.query.term).trim().slice(0, 80);
-      const charges = await SchoolStudentCharge.find(chargeFilter)
-        .sort({ className: 1, studentName: 1, academicYear: -1, term: 1 }).lean();
-      const chargeIds = charges.map(charge => charge.studentId);
-      const payments = chargeIds.length ? await FeePayment.find({
-        schoolId: req.params.schoolId,
-        studentId: { $in: chargeIds },
-        status: 'CONFIRMED',
-      }).select('studentId academicYear term amount status').lean() : [];
-      const byPeriod = new Map();
-      for (const payment of payments) {
-        const key = [String(payment.studentId), String(payment.academicYear || ''), String(payment.term || '')].join('|');
-        byPeriod.set(key, [...(byPeriod.get(key) || []), payment]);
-      }
-      const balances = charges.map(charge => {
-        const key = [String(charge.studentId), charge.academicYear, charge.term].join('|');
-        const calculated = calculateSchoolFeeBalance({
-          chargeAmount: charge.totalAmount,
-          credits: charge.credits || 0,
-          payments: byPeriod.get(key) || [],
-        });
-        return { ...charge, ...calculated, chargeId: String(charge._id) };
-      });
-      return res.json({ balances, total: balances.length });
-    } catch (error) { return next(error); }
-  });
-
-  async function schoolVisibleStudents(req, page = pageOptions(req)) {
-    return SchoolStudent.find(schoolStudentFilter(req)).sort({ className: 1, fullName: 1 }).skip(page.skip).limit(page.limit).lean();
-  }
-  app.get('/api/schools/:schoolId/students', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
-    try {
-      const page = pageOptions(req), filter = schoolStudentFilter(req);
-      const [students, total] = await Promise.all([schoolVisibleStudents(req, page), SchoolStudent.countDocuments(filter)]);
-      return res.json({ students, total, page: page.page, limit: page.limit });
-    } catch (error) { return next(error); }
-  });
-
-  app.post('/api/schools/:schoolId/students', auth, requireRole('admin'), async (req, res, next) => {
-    try {
-      const admissionNumber = String(req.body?.admissionNumber || '').trim().toUpperCase();
-      const fullName = String(req.body?.fullName || '').trim();
-      const className = String(req.body?.className || '').trim();
-      if (!/^[A-Z0-9/-]{2,40}$/.test(admissionNumber) || !fullName || fullName.length > 120 || !className || className.length > 80)
-        return res.status(400).json({ error: 'Enter a valid admission number, student name and class/grade' });
-      const student = await SchoolStudent.create({ schoolId: req.params.schoolId, admissionNumber, fullName, className,
-        guardianName: String(req.body?.guardianName || '').trim().slice(0,120),
-        guardianPhone: String(req.body?.guardianPhone || '').trim().slice(0,30),
-        guardianEmail: String(req.body?.guardianEmail || '').trim().toLowerCase().slice(0,180) });
-      return res.status(201).json({ student });
-    } catch (error) {
-      if (error?.code === 11000) return res.status(409).json({ error: 'That admission number already exists in this school' });
-      return next(error);
-    }
-  });
-
-  app.patch('/api/schools/:schoolId/students/:studentId', auth, requireRole('admin'), async (req, res, next) => {
-    try {
-      if (!mongoose.isValidObjectId(req.params.studentId)) return res.status(400).json({ error: 'Invalid student record' });
-      const update = {};
-      for (const key of ['fullName','className','guardianName','guardianPhone','guardianEmail']) {
-        if (req.body?.[key] !== undefined) update[key] = String(req.body[key]).trim();
-      }
-      if (req.body?.active !== undefined) update.active = req.body.active === true;
-      const student = await SchoolStudent.findOneAndUpdate({ _id: req.params.studentId, schoolId: req.params.schoolId }, { $set: update }, { new: true, runValidators: true });
-      if (!student) return res.status(404).json({ error: 'Student not found in this school' });
-      return res.json({ student });
-    } catch (error) { return next(error); }
-  });
-
-  app.get('/api/schools/:schoolId/attendance', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
-    try {
       const page = pageOptions(req);
       const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
       const filter = { schoolId: req.params.schoolId, studentId: { $in: visibleStudents.map(s => s._id) } };
@@ -2393,7 +2312,21 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         const phone = String(req.user?.phone || '').replace(/\D/g, '');
         const guardianMatch = [];
         if (email) guardianMatch.push({ guardianEmail: email });
-        if (phone.length >= 8) guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '
+        if (phone.length >= 8) {
+          guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '$', $options: 'i' } });
+        }
+        const matchedStudents = linkedNames.length && guardianMatch.length
+          ? await SchoolStudent.find({
+              schoolId: req.params.schoolId,
+              active: true,
+              $or: guardianMatch,
+            }).select('fullName').lean()
+          : [];
+        const matchedNames = matchedStudents
+          .map(student => String(student.fullName || '').trim().toLowerCase())
+          .filter(name => linkedNames.includes(name));
+        filter.$expr = { $in: [{ $toLower: '$studentName' }, matchedNames] };
+      }
       const page = pageOptions(req);
       const [payments, total] = await Promise.all([
         FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
@@ -3826,7 +3759,21 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         const phone = String(req.user?.phone || '').replace(/\D/g, '');
         const guardianMatch = [];
         if (email) guardianMatch.push({ guardianEmail: email });
-        if (phone.length >= 8) guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '
+        if (phone.length >= 8) {
+          guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '$', $options: 'i' } });
+        }
+        const matchedStudents = linkedNames.length && guardianMatch.length
+          ? await SchoolStudent.find({
+              schoolId: req.params.schoolId,
+              active: true,
+              $or: guardianMatch,
+            }).select('fullName').lean()
+          : [];
+        const matchedNames = matchedStudents
+          .map(student => String(student.fullName || '').trim().toLowerCase())
+          .filter(name => linkedNames.includes(name));
+        filter.$expr = { $in: [{ $toLower: '$studentName' }, matchedNames] };
+      }
       const page = pageOptions(req);
       const [payments, total] = await Promise.all([
         FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
