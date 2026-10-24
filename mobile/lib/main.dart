@@ -6018,6 +6018,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   Future<void> startFeePayment() async {
     final id = schoolId;
     if (id == null) return;
+    if (_parentFeePaymentOptions().isEmpty || _selectedParentFeePaymentMethod().isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('The school has not configured a supported payment destination. Please contact the school office.'),
+      ));
+      return;
+    }
     final n = int.tryParse(amount.text.trim());
     if (n == null ||
         n < 1 ||
@@ -6903,15 +6909,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         ),
                       ),
                   ],
-                  if (_selectedParentFeePaymentMethod().isNotEmpty)
-                    actionButton(
-                        _selectedParentFeePaymentMethod() == 'mpesa_send_money'
-                            ? 'Continue with Send Money'
-                            : _selectedParentFeePaymentMethod() == 'bank'
-                                ? 'Record bank transfer'
-                                : 'Pay Fees',
-                        startFeePayment,
-                        icon: Icons.payment)
+                  actionButton(
+                      _selectedParentFeePaymentMethod() == 'mpesa_send_money'
+                          ? 'Continue with Send Money'
+                          : _selectedParentFeePaymentMethod() == 'bank'
+                              ? 'Record bank transfer'
+                              : 'Pay Fees',
+                      startFeePayment,
+                      icon: Icons.payment)
                 ],
                 if (fees.isNotEmpty)
                   _responsiveSchoolTable(
