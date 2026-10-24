@@ -3660,12 +3660,14 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-enum _AdminSection { overview, people, payments, billing }
+enum _AdminSection { overview, approvals, people, payments, billing }
 
 class _AdminDashboardState extends State<AdminDashboard> {
   Map<String, dynamic> overview = {};
   Map<String, dynamic> platformStatus = {};
-  List<dynamic> users = [], payments = [];
+  List<dynamic> users = [], payments = [], schoolApprovals = [], businessApprovals = [];
+  bool approvalsLoading = false;
+  String? approvalsError;
   bool loading = true,
       usersLoading = false,
       paymentsLoading = false,
@@ -3794,6 +3796,148 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } finally {
       if (mounted) setState(() => paymentsLoading = false);
     }
+  }
+
+  Future<void> loadApprovals() async {
+    if (mounted) setState(() { approvalsLoading = true; approvalsError = null; });
+    try {
+      final schoolsResult = await api.call('GET', '/api/schools/verification-requests');
+      if (schoolsResult['reviewer'] != true) throw Exception('This account is not authorized to review school applications.');
+      final businessesResult = await api.call('GET', '/api/admin/business-approvals');
+      if (!mounted) return;
+      setState(() {
+        schoolApprovals = List<dynamic>.from(schoolsResult['requests'] ?? []);
+        businessApprovals = List<dynamic>.from(businessesResult['businesses'] ?? []);
+      });
+    } catch (e) {
+      if (mounted) setState(() => approvalsError = e.toString());
+    } finally {
+      if (mounted) setState(() => approvalsLoading = false);
+    }
+  }
+
+  Future<void> reviewApproval(String type, Map<String, dynamic> item, String decision) async {
+    final isSchool = type == 'school';
+    final label = (item[isSchool ? 'schoolName' : 'name'] ?? type).toString();
+    final approved = decision == 'APPROVE';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${approved ? 'Approve' : 'Reject'} $label?'),
+        content: Text(approved
+            ? 'This verifies the ${isSchool ? 'school' : 'business'} for Chatify. Workspace subscription payment remains a separate requirement.'
+            : 'This marks the ${isSchool ? 'school' : 'business'} application as rejected.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(
+            style: approved ? null : FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(approved ? 'Approve' : 'Reject'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final id = (item['id'] ?? item['_id'] ?? '').toString();
+      if (id.isEmpty) throw Exception('The application is missing its ID.');
+      if (isSchool) {
+        await api.call('POST', '/api/schools/verification-requests/$id/review', {
+          'decision': decision,
+          'reviewNote': approved ? 'Approved from Chatify Control Center.' : 'Rejected from Chatify Control Center.',
+        });
+      } else {
+        await api.call('POST', '/api/admin/business-approvals/$id/review', {
+          'decision': decision,
+          'reviewNote': approved ? 'Approved from Chatify Control Center.' : 'Rejected from Chatify Control Center.',
+        });
+      }
+      await loadApprovals();
+      await loadOverview();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label ${approved ? 'approved' : 'rejected'}.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not review $label: $e')));
+    }
+  }
+
+  Widget _approvalCard({
+    required String name,
+    required String detail,
+    required String location,
+    required VoidCallback onApprove,
+    required VoidCallback onReject,
+  }) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            CircleAvatar(backgroundColor: theme.colorScheme.primaryContainer, child: Icon(Icons.verified_user_outlined, color: theme.colorScheme.onPrimaryContainer)),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text(detail, style: theme.textTheme.bodySmall),
+              if (location.isNotEmpty) ...[const SizedBox(height: 3), Text(location, style: theme.textTheme.bodySmall)],
+            ])),
+            _statusChip('PENDING', Colors.orange.shade800),
+          ]),
+          const SizedBox(height: 12),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            FilledButton.icon(onPressed: onApprove, icon: const Icon(Icons.check_circle_outline), label: const Text('Approve')),
+            OutlinedButton.icon(onPressed: onReject, icon: const Icon(Icons.close), label: const Text('Reject')),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Widget _approvalsSection(ThemeData theme) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Applications and verification', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 4),
+      const Text('Review school identity requests and business workspace applications. Approval is separate from subscription payment.'),
+      const SizedBox(height: 12),
+      Row(children: [
+        Expanded(child: _metric('Schools awaiting review', schoolApprovals.length, Icons.school_outlined)),
+        const SizedBox(width: 10),
+        Expanded(child: _metric('Businesses awaiting review', businessApprovals.length, Icons.business_outlined)),
+      ]),
+      const SizedBox(height: 12),
+      Align(alignment: Alignment.centerRight, child: OutlinedButton.icon(onPressed: approvalsLoading ? null : loadApprovals, icon: const Icon(Icons.refresh), label: const Text('Refresh applications'))),
+      if (approvalsLoading) const LinearProgressIndicator(),
+      if (approvalsError != null) Card(child: ListTile(leading: const Icon(Icons.error_outline), title: const Text('Applications could not be loaded'), subtitle: Text(approvalsError!), trailing: IconButton(onPressed: loadApprovals, icon: const Icon(Icons.refresh)))),
+      Text('School applications', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 8),
+      if (!approvalsLoading && schoolApprovals.isEmpty) const Card(child: ListTile(leading: Icon(Icons.school_outlined), title: Text('No pending school applications'))),
+      ...schoolApprovals.map((raw) {
+        final item = Map<String, dynamic>.from(raw as Map);
+        return _approvalCard(
+          name: (item['schoolName'] ?? 'Unnamed school').toString(),
+          detail: 'Code: ${item['proposedCode'] ?? '—'} · County: ${item['county'] ?? '—'}',
+          location: '${item['officialEmail'] ?? ''} · ${item['officialPhone'] ?? ''}',
+          onApprove: () => reviewApproval('school', item, 'APPROVE'),
+          onReject: () => reviewApproval('school', item, 'REJECT'),
+        );
+      }),
+      const SizedBox(height: 12),
+      Text('Business applications', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 8),
+      if (!approvalsLoading && businessApprovals.isEmpty) const Card(child: ListTile(leading: Icon(Icons.business_outlined), title: Text('No pending business applications'))),
+      ...businessApprovals.map((raw) {
+        final item = Map<String, dynamic>.from(raw as Map);
+        final owner = item['owner'] is Map ? Map<String, dynamic>.from(item['owner'] as Map) : <String, dynamic>{};
+        return _approvalCard(
+          name: (item['name'] ?? 'Unnamed business').toString(),
+          detail: '${item['industry'] ?? 'Business'} · Owner: ${owner['name'] ?? 'Unknown'}',
+          location: '${owner['email'] ?? item['email'] ?? ''} · ${item['phone'] ?? owner['phone'] ?? ''}',
+          onApprove: () => reviewApproval('business', item, 'APPROVE'),
+          onReject: () => reviewApproval('business', item, 'REJECT'),
+        );
+      }),
+    ]);
   }
 
   Future<void> loadFeeWalletSettings() async {
@@ -4532,6 +4676,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   label: Text('Overview'),
                   icon: Icon(Icons.dashboard_outlined)),
               ButtonSegment(
+                  value: _AdminSection.approvals,
+                  label: Text('Approvals'),
+                  icon: Icon(Icons.fact_check_outlined)),
+              ButtonSegment(
                   value: _AdminSection.people,
                   label: Text('People'),
                   icon: Icon(Icons.people_outline)),
@@ -4547,6 +4695,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             selected: {section},
             onSelectionChanged: (value) {
               setState(() => section = value.first);
+              if (section == _AdminSection.approvals) loadApprovals();
               if (section == _AdminSection.people && users.isEmpty) loadUsers();
               if (section == _AdminSection.payments && payments.isEmpty)
                 loadPayments();
@@ -4653,6 +4802,27 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       ?.copyWith(fontWeight: FontWeight.w800)),
             )),
             const SizedBox(height: 12),
+            Card(child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Chatify income', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                const Text('Confirmed school and business workspace setup fees and subscriptions only. School fees paid directly to schools and ordinary business sales are not counted as Chatify income.'),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(child: _metric('Total earned', 'KSh ${((overview['chatifyTotalIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}', Icons.account_balance_wallet_outlined)),
+                  const SizedBox(width: 10),
+                  Expanded(child: _metric('This month', 'KSh ${((overview['currentMonthChatifyIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}', Icons.calendar_month_outlined)),
+                ]),
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(child: _metric('Setup fees', 'KSh ${((overview['workspaceSetupIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}', Icons.receipt_long_outlined)),
+                  const SizedBox(width: 10),
+                  Expanded(child: _metric('Subscriptions', 'KSh ${((overview['workspaceSubscriptionIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}', Icons.autorenew_outlined)),
+                ]),
+              ]),
+            )),
+            const SizedBox(height: 12),
             Card(
                 child: ListTile(
               leading: const Icon(Icons.admin_panel_settings_outlined),
@@ -4661,6 +4831,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   'Account actions and platform data are authorized by the API for administrator accounts.'),
               trailing: const Icon(Icons.lock_outline),
             )),
+          ] else if (section == _AdminSection.approvals) ...[
+            _approvalsSection(theme),
           ] else if (section == _AdminSection.people) ...[
             _peopleSection(theme),
           ] else if (section == _AdminSection.payments) ...[
