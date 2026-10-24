@@ -1127,8 +1127,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           credits: charge.credits || 0,
           payments: chargePayments.get(String(charge._id)) || [],
         }) : null;
+        const { checkoutRequestId: _checkoutRequestId, merchantRequestId: _merchantRequestId, ...publicPayment } = payment;
         return {
-          ...payment,
+          ...publicPayment,
           paymentMethod: method,
           paymentMethodLabel: schoolPaymentMethodLabel(method) || 'Not recorded',
           guardianName: guardian?.guardianName || '',
