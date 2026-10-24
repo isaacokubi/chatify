@@ -4802,6 +4802,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       attendanceStatus = 'present',
       assessmentStudentId = '';
   String memberRole = 'parent',
+      staffDesignation = 'Teacher',
       audience = 'direct',
       paymentMethod = 'mpesa_paybill',
       darajaMode = 'production';
@@ -5690,6 +5691,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final joined = await app.api.call('POST', '/api/schools/join', {
         'code': code,
         'role': memberRole,
+        if (memberRole == 'staff') 'staffDesignation': staffDesignation,
         if (memberRole == 'staff') 'staffInviteCode': joinStaffCode.text.trim(),
         'studentNames': studentNames.text
             .split(',')
@@ -5719,6 +5721,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       await app.api.call('POST', '/api/schools/$id/members', {
         'email': memberEmail.text.trim(),
         'role': memberRole,
+        if (memberRole == 'staff') 'staffDesignation': staffDesignation,
         'studentNames': studentNames.text
             .split(',')
             .map((x) => x.trim())
@@ -6274,6 +6277,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     String contactDescription(Map member) {
       final contactRole = (member['role'] ?? '').toString().toLowerCase();
       if (contactRole == 'admin') return 'School administrator';
+      final designation = (member['staffDesignation'] ?? '').toString().trim();
+      if (designation.isNotEmpty) return designation;
       final linkedNames = (member['studentNames'] as List? ?? [])
           .map((name) => name.toString().trim())
           .where((name) => name.isNotEmpty && parentStudentNames.any(
@@ -6295,11 +6300,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final userId = member['userId']?.toString() ?? '';
       if (userId.isEmpty || !['admin', 'staff'].contains(contactRole)) return false;
       if (contactRole == 'admin') return true;
+      final designation = (member['staffDesignation'] ?? '').toString().trim().toLowerCase();
+      if (!['teacher', 'class teacher', 'subject teacher', 'head teacher'].contains(designation)) return false;
       final linkedNames = (member['studentNames'] as List? ?? [])
           .map((name) => name.toString().trim().toLowerCase())
           .where((name) => name.isNotEmpty)
           .toSet();
-      return linkedNames.any((name) => parentStudentNames.any(
+      // Teachers are selectable even when the school has not linked individual pupils to them.
+      return linkedNames.isEmpty || linkedNames.any((name) => parentStudentNames.any(
           (parentName) => parentName.toLowerCase() == name));
     }).toList()
       ..sort((a, b) {
@@ -6325,7 +6333,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Choose the school administrator or staff linked to your child. Staff who are not linked to your child are not listed. Only you and the selected contact will see this private conversation.'),
+              const Text('Choose the school administrator or a teacher (class teacher, subject teacher, or head teacher). Non-teaching staff such as cooks and cleaners are not listed. Only you and the selected contact will see this private conversation.'),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
                 value: selectedUserId,
@@ -6508,10 +6516,25 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                               ],
                               onChanged: (v) =>
                                   setState(() => memberRole = v ?? 'parent')),
-                          if (memberRole == 'staff')
+                          if (memberRole == 'staff') ...[
+                            DropdownButtonFormField<String>(
+                              value: staffDesignation,
+                              decoration: const InputDecoration(labelText: 'Staff role / designation', border: OutlineInputBorder()),
+                              items: const [
+                                DropdownMenuItem(value: 'Teacher', child: Text('Teacher')),
+                                DropdownMenuItem(value: 'Class teacher', child: Text('Class teacher')),
+                                DropdownMenuItem(value: 'Subject teacher', child: Text('Subject teacher')),
+                                DropdownMenuItem(value: 'Head teacher', child: Text('Head teacher')),
+                                DropdownMenuItem(value: 'Cook', child: Text('Cook')),
+                                DropdownMenuItem(value: 'Cleaner', child: Text('Cleaner')),
+                                DropdownMenuItem(value: 'Other staff', child: Text('Other staff')),
+                              ],
+                              onChanged: (value) => setState(() => staffDesignation = value ?? 'Teacher'),
+                            ),
                             field(joinStaffCode, 'Staff invitation code',
                                 hint:
                                     'Separate code supplied by the school administrator'),
+                          ],
                           field(studentNames, 'Linked student name(s)',
                               hint:
                                   'Enter exact registered names, separated by commas'),
