@@ -6664,9 +6664,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             Text((payment['guardianPhone'] ?? '—').toString())),
                         DataCell(Text((payment['term'] ?? '').toString())),
                         DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
-                        DataCell(Text((payment['paymentMethodLabel'] ??
-                                schoolPaymentMethodLabel(payment['paymentMethod'] ?? payment['method']))
-                            .toString())),
+                        DataCell(Text(schoolPaymentMethodLabel(
+                          payment['paymentMethod'] ??
+                              payment['method'] ??
+                              payment['destinationMethod'] ??
+                              (payment['paymentDestination'] is Map
+                                  ? (payment['paymentDestination'] as Map)['method']
+                                  : null) ??
+                              payment['paymentMethodLabel']))),
                         DataCell(Text(
                             (payment['paymentReference'] ?? '—').toString())),
                         DataCell(Text(status)),
