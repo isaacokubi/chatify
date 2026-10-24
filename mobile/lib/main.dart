@@ -4716,6 +4716,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       messages = [],
       fees = [],
       feeStructures = [],
+      schoolClasses = [],
       feeBalances = [],
       members = [],
       students = [],
@@ -4759,6 +4760,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       feeStudent = TextEditingController(),
       feeTerm = TextEditingController(),
       payerPhone = TextEditingController();
+  final newSchoolClass = TextEditingController();
   final feeStructureClass = TextEditingController(),
       feeStructureYear = TextEditingController(text: DateTime.now().year.toString()),
       feeStructureTerm = TextEditingController(text: 'Term 1'),
@@ -4835,6 +4837,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       feeStudent,
       feeTerm,
       payerPhone,
+      newSchoolClass,
       feeStructureClass,
       feeStructureYear,
       feeStructureTerm,
@@ -5182,9 +5185,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         final results = await Future.wait([
           app.api.call('GET', '/api/schools/$id/fee-structures?page=$recordPage&limit=$_recordPageSize&includeArchived=true'),
           app.api.call('GET', '/api/schools/$id/fee-balances'),
+          app.api.call('GET', '/api/schools/$id/classes'),
         ]);
         feeStructures = List<dynamic>.from(results[0]['structures'] ?? []);
         feeBalances = List<dynamic>.from(results[1]['balances'] ?? []);
+        schoolClasses = List<dynamic>.from(results[2]['classes'] ?? []);
+        if (feeStructureClass.text.trim().isNotEmpty && !schoolClasses.map((v) => v.toString()).contains(feeStructureClass.text.trim())) {
+          schoolClasses = [...schoolClasses, feeStructureClass.text.trim()];
+        }
         recordTotal = (results[0]['total'] as num?)?.toInt() ?? feeStructures.length;
       } else if (section == 2 || section == 8) {
         final feesResult =
@@ -5986,6 +5994,24 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.toString())));
     }
+  }
+
+  Future<void> saveSchoolClass() async {
+    final id = schoolId;
+    final name = newSchoolClass.text.trim();
+    if (id == null || name.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a class or grade name first.')));
+      return;
+    }
+    await _action(() async {
+      final result = await app.api.call('POST', '/api/schools/$id/classes', {'className': name});
+      schoolClasses = List<dynamic>.from(result['classes'] ?? schoolClasses);
+      final savedName = (result['className'] ?? name).toString();
+      feeStructureClass.text = savedName;
+      newSchoolClass.clear();
+      if (mounted) setState(() {});
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Class/grade "$savedName" is configured and available in fee setup.')));
+    });
   }
 
   /// Saves a new class/academic-period fee template version.
@@ -7321,7 +7347,20 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               if (section == 9) ...[
                 const Text('Configure class fees', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const Text('Enter one fee item per line as Description:Amount. Saving creates a new version; previously issued student charges are not overwritten.'),
-                field(feeStructureClass, 'Class / grade (must match the student register)'),
+                const Text('School classes / grades', style: TextStyle(fontWeight: FontWeight.w600)),
+                const Text('Add the classes or grades used by your school. They will appear in this fee setup dropdown. Existing classes already used by students or fee records are also included.'),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(child: field(newSchoolClass, 'New class / grade', hint: 'e.g. PP1, Grade 4, Form 2')),
+                  const SizedBox(width: 8),
+                  Padding(padding: const EdgeInsets.only(top: 8), child: IconButton.filled(tooltip: 'Add class or grade', onPressed: saveSchoolClass, icon: const Icon(Icons.add))),
+                ]),
+                DropdownButtonFormField<String>(
+                  value: schoolClasses.map((v) => v.toString()).contains(feeStructureClass.text.trim()) && feeStructureClass.text.trim().isNotEmpty ? feeStructureClass.text.trim() : null,
+                  decoration: const InputDecoration(labelText: 'Class / grade for this fee structure'),
+                  hint: const Text('Choose a configured class / grade'),
+                  items: schoolClasses.map((raw) => DropdownMenuItem<String>(value: raw.toString(), child: Text(raw.toString()))).toList(),
+                  onChanged: (value) => setState(() => feeStructureClass.text = value ?? ''),
+                ),
                 field(feeStructureYear, 'Academic year (for example 2027)'),
                 field(feeStructureTerm, 'Term / fee period (for example Term 1)'),
                 field(feeStructureItems, 'Fee items', hint: 'Tuition:12000\\nTransport:2500\\nActivities:1000'),
