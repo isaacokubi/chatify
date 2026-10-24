@@ -1014,7 +1014,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       if (req.body?.date !== undefined) {
         const dateText = String(req.body.date);
         const date = new Date(dateText + 'T00:00:00.000Z');
-        if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(dateText) || !Number.isFinite(date.getTime())) return res.status(400).json({ error: 'Use attendance date YYYY-MM-DD' });
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText) || !Number.isFinite(date.getTime())) return res.status(400).json({ error: 'Use attendance date YYYY-MM-DD' });
         update.date = date;
       }
       const record = await SchoolAttendance.findOneAndUpdate({ _id: req.params.recordId, schoolId: req.params.schoolId }, { $set: update }, { new: true, runValidators: true });
@@ -1265,7 +1265,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         // the authenticated staff account and who are explicitly linked to it.
         const linkedNames = (req.schoolMembership.studentNames || []).map(name => String(name).trim().toLowerCase()).filter(Boolean);
         const email = String(req.user?.email || '').trim().toLowerCase();
-        const phone = String(req.user?.phone || '').replace(/\\D/g, '');
+        const phone = String(req.user?.phone || '').replace(/\D/g, '');
         const guardianMatch = [];
         if (email) guardianMatch.push({ guardianEmail: email });
         if (phone.length >= 8) guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '
