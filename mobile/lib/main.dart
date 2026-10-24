@@ -3668,6 +3668,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
   List<dynamic> users = [], payments = [], schoolApprovals = [], businessApprovals = [];
   bool approvalsLoading = false;
   String? approvalsError;
+  List<dynamic> workspaceBillingRows = [];
+  bool workspaceBillingRowsLoading = false;
+  String? workspaceBillingRowsError;
   bool loading = true,
       usersLoading = false,
       paymentsLoading = false,
@@ -3938,6 +3941,61 @@ class _AdminDashboardState extends State<AdminDashboard> {
         );
       }),
     ]);
+  }
+
+  Future<void> loadWorkspaceBillingRows() async {
+    if (mounted) setState(() { workspaceBillingRowsLoading = true; workspaceBillingRowsError = null; });
+    try {
+      final result = await api.call('GET', '/api/admin/workspace-billing-status');
+      if (mounted) setState(() => workspaceBillingRows = List<dynamic>.from(result['workspaces'] ?? []));
+    } catch (e) {
+      if (mounted) setState(() => workspaceBillingRowsError = e.toString());
+    } finally {
+      if (mounted) setState(() => workspaceBillingRowsLoading = false);
+    }
+  }
+
+  Widget _workspaceBillingStatusSection(ThemeData theme) {
+    final active = workspaceBillingRows.where((raw) {
+      final row = raw is Map ? raw : <String, dynamic>{};
+      final billing = row['billing'] is Map ? row['billing'] as Map : <String, dynamic>{};
+      return billing['locked'] != true;
+    }).length;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text('Workspace subscription monitor', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+            IconButton(tooltip: 'Refresh workspace billing', onPressed: workspaceBillingRowsLoading ? null : loadWorkspaceBillingRows, icon: const Icon(Icons.refresh)),
+          ]),
+          const SizedBox(height: 4),
+          Text('${workspaceBillingRows.length} workspaces tracked · $active currently within their billing access window'),
+          const SizedBox(height: 10),
+          if (workspaceBillingRowsLoading) const LinearProgressIndicator(),
+          if (workspaceBillingRowsError != null) ListTile(leading: const Icon(Icons.error_outline), title: const Text('Could not load workspace billing'), subtitle: Text(workspaceBillingRowsError!)),
+          if (!workspaceBillingRowsLoading && workspaceBillingRows.isEmpty) const ListTile(leading: Icon(Icons.info_outline), title: Text('No school or business workspaces found')),
+          ...workspaceBillingRows.map((raw) {
+            final row = Map<String, dynamic>.from(raw as Map);
+            final billing = row['billing'] is Map ? Map<String, dynamic>.from(row['billing'] as Map) : <String, dynamic>{};
+            final owner = row['owner'] is Map ? Map<String, dynamic>.from(row['owner'] as Map) : <String, dynamic>{};
+            final locked = billing['locked'] == true;
+            final status = (billing['status'] ?? (locked ? 'PAYMENT REQUIRED' : 'ACTIVE')).toString().toUpperCase();
+            final expiry = row['subscriptionExpiresAt']?.toString();
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: CircleAvatar(child: Icon(row['type'] == 'school' ? Icons.school_outlined : Icons.business_outlined)),
+                title: Text((row['name'] ?? 'Unnamed workspace').toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text('${(row['type'] ?? 'workspace').toString().toUpperCase()} · ${owner['name'] ?? owner['email'] ?? 'Owner unavailable'}\nSetup: ${row['setupFeePaid'] == true ? 'Paid' : 'Unpaid'} · Subscription expiry: ${expiry == null ? 'Not active' : expiry.split('T').first}\nApproval: ${row['approvalStatus'] ?? '—'}'),
+                isThreeLine: true,
+                trailing: _statusChip(status, locked ? theme.colorScheme.error : Colors.green),
+              ),
+            );
+          }),
+        ]),
+      ),
+    );
   }
 
   Future<void> loadFeeWalletSettings() async {
@@ -4699,8 +4757,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
               if (section == _AdminSection.people && users.isEmpty) loadUsers();
               if (section == _AdminSection.payments && payments.isEmpty)
                 loadPayments();
-              if (section == _AdminSection.billing)
+              if (section == _AdminSection.billing) {
                 loadWorkspaceBillingSettings();
+                loadWorkspaceBillingRows();
+              }
             },
           ),
           const SizedBox(height: 18),
@@ -4839,6 +4899,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
             _paymentsSection(theme),
           ] else ...[
             _workspaceBillingSection(theme),
+            const SizedBox(height: 12),
+            _workspaceBillingStatusSection(theme),
           ],
         ],
       ),
