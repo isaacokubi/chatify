@@ -851,32 +851,40 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         if (phone.length >= 8) {
           guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '$', $options: 'i' } });
         }
-        const matchedStudents = linkedNames.length && guardianMatch.length
-          ? await SchoolStudent.find({
-              schoolId: req.params.schoolId,
-              active: true,
-              $or: guardianMatch,
-            }).select('fullName').lean()
-          : [];
-        const matchedNames = matchedStudents
-          .map(student => String(student.fullName || '').trim().toLowerCase())
-          .filter(name => linkedNames.includes(name));
-        filter.$expr = { $in: [{ $toLower: '$studentName' }, matchedNames] };
+        if (!linkedNames.length || !guardianMatch.length) return res.json({ balances: [], total: 0 });
+        const candidates = await SchoolStudent.find({
+          schoolId: req.params.schoolId, active: true, $or: guardianMatch,
+        }).select('_id fullName').lean();
+        visibleStudentIds = candidates
+          .filter(student => linkedNames.includes(String(student.fullName || '').trim().toLowerCase()))
+          .map(student => student._id);
+      } else {
+        const students = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
+        visibleStudentIds = students.map(student => student._id);
       }
-      const page = pageOptions(req);
-      const visibleStudents = await SchoolStudent.find(schoolStudentFilter(req)).select('_id').lean();
-      const filter = { schoolId: req.params.schoolId, studentId: { $in: visibleStudents.map(s => s._id) } };
-      if (req.query.date) {
-        const date = new Date(String(req.query.date) + 'T00:00:00.000Z');
-        if (!Number.isFinite(date.getTime())) return res.status(400).json({ error: 'Use attendance date YYYY-MM-DD' });
-        filter.date = date;
+      if (!visibleStudentIds.length) return res.json({ balances: [], total: 0 });
+      const chargeFilter = { schoolId: req.params.schoolId, studentId: { $in: visibleStudentIds } };
+      if (req.query.academicYear) chargeFilter.academicYear = String(req.query.academicYear).trim().slice(0, 40);
+      if (req.query.term) chargeFilter.term = String(req.query.term).trim().slice(0, 80);
+      const charges = await SchoolStudentCharge.find(chargeFilter)
+        .sort({ className: 1, studentName: 1, academicYear: -1, term: 1 }).lean();
+      const chargeIds = charges.map(charge => charge.studentId);
+      const payments = chargeIds.length ? await FeePayment.find({
+        schoolId: req.params.schoolId, studentId: { $in: chargeIds }, status: 'CONFIRMED',
+      }).select('studentId academicYear term amount status').lean() : [];
+      const byPeriod = new Map();
+      for (const payment of payments) {
+        const key = [String(payment.studentId), String(payment.academicYear || ''), String(payment.term || '')].join('|');
+        byPeriod.set(key, [...(byPeriod.get(key) || []), payment]);
       }
-      const [attendance, total, students] = await Promise.all([
-        SchoolAttendance.find(filter).sort({ date: -1, className: 1, studentName: 1 }).skip(page.skip).limit(page.limit).lean(),
-        SchoolAttendance.countDocuments(filter),
-        schoolVisibleStudents(req, page),
-      ]);
-      return res.json({ attendance, students, total, page: page.page, limit: page.limit });
+      const balances = charges.map(charge => {
+        const key = [String(charge.studentId), charge.academicYear, charge.term].join('|');
+        const calculated = calculateSchoolFeeBalance({
+          chargeAmount: charge.totalAmount, credits: charge.credits || 0, payments: byPeriod.get(key) || [],
+        });
+        return { ...charge, ...calculated, chargeId: String(charge._id) };
+      });
+      return res.json({ balances, total: balances.length });
     } catch (error) { return next(error); }
   });
 
