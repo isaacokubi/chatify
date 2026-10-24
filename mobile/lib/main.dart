@@ -1106,7 +1106,7 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     ..write('0.82 0.87 0.92 RG\n0.8 w\n40 655 m\n555 655 l\nS\n')
     ..write('BT\n/F1 10 Tf\n0.10 0.17 0.25 rg\n50 632 Td\n');
   var firstDetail = true;
-  for (final line in lines.skip(1)) {
+  for (final line in wrapped.skip(1)) {
     if (!firstDetail) content.write('0 -22 Td\n');
     content.write('(' + safe(line) + ') Tj\n');
     firstDetail = false;
