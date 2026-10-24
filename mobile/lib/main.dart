@@ -14260,6 +14260,64 @@ class _ProfileState extends State<Profile> {
   }
 }
 
+/// Opens a catalogue/product image in a dark, zoomable viewer.
+Future<void> _showExpandedCatalogueImage(
+    BuildContext context, String imageUrl, {String title = 'Product image'}) async {
+  if (!imageUrl.startsWith('https://')) return;
+  await showDialog<void>(
+    context: context,
+    barrierColor: Colors.black87,
+    builder: (dialogContext) => Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(12),
+      child: SizedBox(
+        width: MediaQuery.sizeOf(dialogContext).width * .96,
+        height: MediaQuery.sizeOf(dialogContext).height * .82,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: 0.8,
+                maxScale: 5,
+                child: Center(
+                  child: Image.network(
+                    imageUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.broken_image_outlined,
+                      color: Colors.white,
+                      size: 56,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 8,
+              right: 56,
+              top: 8,
+              child: Text(title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w700)),
+            ),
+            Positioned(
+              top: 0,
+              right: 0,
+              child: IconButton(
+                tooltip: 'Close enlarged image',
+                onPressed: () => Navigator.pop(dialogContext),
+                icon: const Icon(Icons.close, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 /// Customer-facing public marketplace for discovering businesses and their published catalogue.
 class StoreDirectoryPage extends StatefulWidget {
   const StoreDirectoryPage({super.key});
@@ -14519,19 +14577,40 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                   clipBehavior: Clip.antiAlias,
                                   child: ListTile(
                                     contentPadding: const EdgeInsets.all(12),
-                                    leading: CircleAvatar(
-                                      radius: 28,
-                                      backgroundColor: const Color(0xFFDDF5F2),
-                                      backgroundImage:
-                                          image.startsWith('https://')
-                                              ? NetworkImage(image)
-                                              : null,
-                                      child: image.startsWith('https://')
-                                          ? null
-                                          : const Icon(
+                                    leading: image.startsWith('https://')
+                                        ? GestureDetector(
+                                            onTap: () =>
+                                                _showExpandedCatalogueImage(
+                                              context,
+                                              image,
+                                              title: entry['name']?.toString() ??
+                                                  'Product image',
+                                            ),
+                                            child: ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              child: Image.network(
+                                                image,
+                                                width: 64,
+                                                height: 64,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) =>
+                                                    const SizedBox(
+                                                  width: 64,
+                                                  height: 64,
+                                                  child: Icon(
+                                                      Icons.broken_image_outlined),
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : const CircleAvatar(
+                                            radius: 28,
+                                            backgroundColor: Color(0xFFDDF5F2),
+                                            child: Icon(
                                               Icons.inventory_2_outlined,
                                               color: Color(0xFF087F8C)),
-                                    ),
+                                          ),
                                     title: Text(
                                         entry['name']?.toString() ??
                                             'Product or service',
@@ -15393,7 +15472,7 @@ class _BusinessHubState extends State<BusinessHub> {
               onPressed: () => Navigator.pop(dialogContext, true),
               child: const Text('Create')),
         ],
-      ),
+      )),
     );
     if (accepted != true || name.text.trim().isEmpty) return;
     try {
@@ -15414,6 +15493,8 @@ class _BusinessHubState extends State<BusinessHub> {
     final amount = TextEditingController();
     final quantity = TextEditingController(text: '1');
     final docType = ValueNotifier<String>('quote');
+    final selectedImageUrls = <String>[];
+    var uploadingCatalogImages = false;
     final id = organization?['_id']?.toString();
     if (id == null) return;
     final title = kind == 'catalog'
@@ -15425,7 +15506,8 @@ class _BusinessHubState extends State<BusinessHub> {
                 : 'Create follow-up task';
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
         title: Text(title),
         content: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -15453,6 +15535,126 @@ class _BusinessHubState extends State<BusinessHub> {
                 controller: quantity,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(labelText: 'Stock quantity')),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: uploadingCatalogImages
+                        ? null
+                        : () async {
+                            try {
+                              final selected = await ImagePicker().pickMultiImage(
+                                  imageQuality: 85);
+                              if (selected.isEmpty || !dialogContext.mounted) return;
+                              setDialogState(() => uploadingCatalogImages = true);
+                              for (final file in selected) {
+                                if (selectedImageUrls.length >= 8) break;
+                                final bytes = await file.readAsBytes();
+                                if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
+                                  throw const FormatException(
+                                      'Each image must be smaller than 10 MB.');
+                                }
+                                final lower = file.name.toLowerCase();
+                                final mimeType = lower.endsWith('.png')
+                                    ? 'image/png'
+                                    : lower.endsWith('.webp')
+                                        ? 'image/webp'
+                                        : 'image/jpeg';
+                                final upload = await app.api.call('POST', '/api/media', {
+                                  'data': base64Encode(bytes),
+                                  'mimeType': mimeType,
+                                });
+                                final url = upload['mediaUrl']?.toString() ?? '';
+                                if (!url.startsWith('https://')) {
+                                  throw Exception('Image upload did not return a secure URL.');
+                                }
+                                if (!selectedImageUrls.contains(url)) {
+                                  selectedImageUrls.add(url);
+                                }
+                                if (selectedImageUrls.length >= 8) break;
+                              }
+                              if (dialogContext.mounted) setDialogState(() {});
+                            } catch (error) {
+                              if (dialogContext.mounted) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  SnackBar(content: Text('Could not add image: $error')),
+                                );
+                              }
+                            } finally {
+                              if (dialogContext.mounted) {
+                                setDialogState(() => uploadingCatalogImages = false);
+                              }
+                            }
+                          },
+                    icon: uploadingCatalogImages
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.add_photo_alternate_outlined),
+                    label: Text(uploadingCatalogImages
+                        ? 'Uploading…'
+                        : 'Add product images'),
+                  ),
+                  Text('${selectedImageUrls.length}/8 images',
+                      style: Theme.of(dialogContext).textTheme.bodySmall),
+                ],
+              ),
+            ),
+            if (selectedImageUrls.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 76,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: selectedImageUrls.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, imageIndex) => Stack(
+                    children: [
+                      GestureDetector(
+                        onTap: () => _showExpandedCatalogueImage(
+                          dialogContext,
+                          selectedImageUrls[imageIndex],
+                          title: name.text.trim().isEmpty
+                              ? 'Product image'
+                              : name.text.trim(),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            selectedImageUrls[imageIndex],
+                            width: 76,
+                            height: 76,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const SizedBox(
+                              width: 76,
+                              height: 76,
+                              child: Icon(Icons.broken_image_outlined),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: IconButton.filledTonal(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Remove image',
+                          onPressed: () => setDialogState(
+                              () => selectedImageUrls.removeAt(imageIndex)),
+                          icon: const Icon(Icons.close, size: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ] else if (kind == 'customer') ...[
             TextField(
                 controller: detail,
@@ -15514,7 +15716,8 @@ class _BusinessHubState extends State<BusinessHub> {
           'name': name.text.trim(),
           'description': detail.text.trim(),
           'price': price,
-          'stock': int.tryParse(quantity.text) ?? 0
+          'stock': int.tryParse(quantity.text) ?? 0,
+          'images': List<String>.from(selectedImageUrls),
         });
       } else if (kind == 'customer') {
         final contact = detail.text.trim();
@@ -16962,8 +17165,27 @@ class _BusinessHubState extends State<BusinessHub> {
                 .join(' · ')
             : details;
         final amount = item['price'] ?? item['total'];
+        final images = item['images'] is List
+            ? List<dynamic>.from(item['images'] as List)
+            : <dynamic>[];
+        final firstImage = images.isNotEmpty ? images.first.toString() : '';
         return ListTile(
-          leading: CircleAvatar(child: Icon(icon)),
+          leading: firstImage.startsWith('https://')
+              ? GestureDetector(
+                  onTap: () => _showExpandedCatalogueImage(context, firstImage,
+                      title: title),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(
+                      firstImage,
+                      width: 58,
+                      height: 58,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => CircleAvatar(child: Icon(icon)),
+                    ),
+                  ),
+                )
+              : CircleAvatar(child: Icon(icon)),
           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle:
               Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
