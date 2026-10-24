@@ -372,7 +372,8 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const stores = await Organization.find({
         ownerId: sellerUserId,
         'settings.storefrontPublished': {$ne: false},
-      }).select('slug settings.posPaymentProfile billing').limit(100).lean();
+        $or: [{approvalStatus: 'APPROVED'}, {approvalStatus: {$exists: false}}],
+      }).select('slug settings.posPaymentProfile billing approvalStatus').limit(100).lean();
       const activeStores = [];
        const graceDays = await getBillingGraceDays();
        for (const store of stores) if (!(await getPublicBillingStatus(store, graceDays)).locked) activeStores.push(store);
