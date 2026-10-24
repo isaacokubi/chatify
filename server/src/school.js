@@ -215,6 +215,49 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
   SchoolStudentCharge.schema.index({ schoolId: 1, studentId: 1, academicYear: 1, term: 1 }, { unique: true });
   SchoolStudentCharge.schema.index({ schoolId: 1, className: 1, academicYear: 1, term: 1 });
 
+  const SchoolStudent = model('SchoolStudent', new mongoose.Schema({
+    schoolId: { type: O, required: true, index: true },
+    admissionNumber: { type: String, required: true, trim: true, uppercase: true, maxlength: 40 },
+    fullName: { type: String, required: true, trim: true, maxlength: 120 },
+    className: { type: String, required: true, trim: true, maxlength: 80 },
+    guardianName: { type: String, trim: true, maxlength: 120 },
+    guardianPhone: { type: String, trim: true, maxlength: 30 },
+    guardianEmail: { type: String, trim: true, lowercase: true, maxlength: 180 },
+    active: { type: Boolean, default: true },
+  }, { timestamps: true }));
+  SchoolStudent.schema.index({ schoolId: 1, admissionNumber: 1 }, { unique: true });
+
+  const SchoolAttendance = model('SchoolAttendance', new mongoose.Schema({
+    schoolId: { type: O, required: true, index: true },
+    studentId: { type: O, ref: 'SchoolStudent', required: true, index: true },
+    studentName: { type: String, required: true }, admissionNumber: { type: String, required: true },
+    className: { type: String, required: true }, date: { type: Date, required: true },
+    status: { type: String, enum: ['present','absent','late','excused'], required: true },
+    note: { type: String, trim: true, maxlength: 300 }, markedBy: { type: O, required: true },
+  }, { timestamps: true }));
+  SchoolAttendance.schema.index({ schoolId: 1, studentId: 1, date: 1 }, { unique: true });
+
+  const SchoolAssessment = model('SchoolAssessment', new mongoose.Schema({
+    schoolId: { type: O, required: true, index: true }, studentId: { type: O, ref: 'SchoolStudent', required: true, index: true },
+    studentName: { type: String, required: true }, admissionNumber: { type: String, required: true }, className: { type: String, required: true },
+    subject: { type: String, required: true, trim: true, maxlength: 80 }, assessment: { type: String, required: true, trim: true, maxlength: 120 },
+    term: { type: String, required: true, trim: true, maxlength: 80 }, score: { type: Number, required: true, min: 0 },
+    outOf: { type: Number, required: true, min: 1 }, teacherNote: { type: String, trim: true, maxlength: 500 }, recordedBy: { type: O, required: true },
+  }, { timestamps: true }));
+  SchoolAssessment.schema.index({ schoolId: 1, studentId: 1, subject: 1, assessment: 1, term: 1 }, { unique: true });
+
+  function schoolStudentFilter(req) {
+    const filter = { schoolId: req.params.schoolId, active: true };
+    if (['parent', 'staff'].includes(req.schoolMembership.role)) {
+      // Parents and staff see only pupils explicitly linked to their membership.
+      // An empty list intentionally matches no student records.
+      const names = (req.schoolMembership.studentNames || []).map(x => String(x).trim().toLowerCase()).filter(Boolean);
+      filter.$expr = { $in: [{ $toLower: '$fullName' }, names] };
+    }
+    return filter;
+  }
+
+
   // Bounded server-side pagination for every school register.
   function pageOptions(req) {
     const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
