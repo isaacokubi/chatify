@@ -6505,6 +6505,117 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     });
   }
 
+  Future<void> _editAttendanceRecord(Map<String, dynamic> record) async {
+    final id = schoolId;
+    if (id == null) return;
+    final dateController = TextEditingController(
+        text: record['date']?.toString().split('T').first ?? '');
+    final noteController = TextEditingController(text: (record['note'] ?? '').toString());
+    var status = (record['status'] ?? 'present').toString();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Edit attendance'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: dateController, decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)')),
+              DropdownButtonFormField<String>(
+                value: status,
+                decoration: const InputDecoration(labelText: 'Attendance status'),
+                items: const [
+                  DropdownMenuItem(value: 'present', child: Text('Present')),
+                  DropdownMenuItem(value: 'absent', child: Text('Absent')),
+                  DropdownMenuItem(value: 'late', child: Text('Late')),
+                  DropdownMenuItem(value: 'excused', child: Text('Excused')),
+                ],
+                onChanged: (value) => setDialogState(() => status = value ?? 'present'),
+              ),
+              TextField(controller: noteController, decoration: const InputDecoration(labelText: 'Note')),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save changes')),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _action(() async {
+        await app.api.call('PATCH', '/api/schools/$id/attendance/${record['_id']}', {
+          'date': dateController.text.trim(), 'status': status, 'note': noteController.text.trim(),
+        });
+        await loadSection();
+      });
+    }
+    dateController.dispose();
+    noteController.dispose();
+  }
+
+  Future<void> _editAcademicRecord(Map<String, dynamic> record) async {
+    final id = schoolId;
+    if (id == null) return;
+    final subject = TextEditingController(text: (record['subject'] ?? '').toString());
+    final assessment = TextEditingController(text: (record['assessment'] ?? '').toString());
+    final term = TextEditingController(text: (record['term'] ?? '').toString());
+    final year = TextEditingController(text: (record['academicYear'] ?? DateTime.now().year).toString());
+    final strand = TextEditingController(text: (record['strand'] ?? '').toString());
+    final subStrand = TextEditingController(text: (record['subStrand'] ?? '').toString());
+    final note = TextEditingController(text: (record['teacherNote'] ?? '').toString());
+    var level = (record['competencyLevel'] ?? 'ME').toString();
+    if (!['EE','ME','AE','BE','NE'].contains(level)) level = 'ME';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Edit CBC assessment'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: subject, decoration: const InputDecoration(labelText: 'Learning area / subject')),
+              TextField(controller: assessment, decoration: const InputDecoration(labelText: 'Assessment / activity')),
+              TextField(controller: term, decoration: const InputDecoration(labelText: 'Term')),
+              TextField(controller: year, decoration: const InputDecoration(labelText: 'Academic year')),
+              TextField(controller: strand, decoration: const InputDecoration(labelText: 'Strand')),
+              TextField(controller: subStrand, decoration: const InputDecoration(labelText: 'Sub-strand')),
+              DropdownButtonFormField<String>(
+                value: level,
+                decoration: const InputDecoration(labelText: 'CBC achievement level'),
+                items: const [
+                  DropdownMenuItem(value: 'EE', child: Text('EE — Exceeding Expectations')),
+                  DropdownMenuItem(value: 'ME', child: Text('ME — Meeting Expectations')),
+                  DropdownMenuItem(value: 'AE', child: Text('AE — Approaching Expectations')),
+                  DropdownMenuItem(value: 'BE', child: Text('BE — Below Expectations')),
+                  DropdownMenuItem(value: 'NE', child: Text('NE — Not Evaluated')),
+                ],
+                onChanged: (value) => setDialogState(() => level = value ?? 'ME'),
+              ),
+              TextField(controller: note, decoration: const InputDecoration(labelText: 'Teacher observation')),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save changes')),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _action(() async {
+        await app.api.call('PATCH', '/api/schools/$id/academics/${record['_id']}', {
+          'gradingMode': 'CBC', 'subject': subject.text.trim(), 'learningArea': subject.text.trim(),
+          'assessment': assessment.text.trim(), 'term': term.text.trim(), 'academicYear': year.text.trim(),
+          'strand': strand.text.trim(), 'subStrand': subStrand.text.trim(),
+          'competencyLevel': level, 'teacherNote': note.text.trim(),
+        });
+        await loadSection();
+      });
+    }
+    for (final controller in [subject, assessment, term, year, strand, subStrand, note]) {
+      controller.dispose();
+    }
+  }
+
   Future<void> _openPrivateParentChat(String userId) async {
     if (!['admin', 'staff', 'parent'].contains(role) ||
         userId.isEmpty ||
@@ -7980,14 +8091,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             (record['status'] ?? '—').toString().toUpperCase())),
                         DataCell(Text((record['note'] ?? '').toString())),
                         if (role != 'parent')
-                          DataCell(IconButton(
-                            tooltip: 'Delete attendance record',
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () => _removeSchoolRecord(
-                              label: 'attendance record',
-                              endpoint: 'attendance/${record['_id']}',
+                          DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                            IconButton(
+                              tooltip: 'Edit attendance',
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: () => _editAttendanceRecord(record),
                             ),
-                          )),
+                            IconButton(
+                              tooltip: 'Delete attendance record',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _removeSchoolRecord(
+                                label: 'attendance record',
+                                endpoint: 'attendance/${record['_id']}',
+                              ),
+                            ),
+                          ])),
                       ]);
                     }).toList(),
                   ),
@@ -8090,14 +8208,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         DataCell(
                             Text((record['teacherNote'] ?? '').toString())),
                         if (role != 'parent')
-                          DataCell(IconButton(
-                            tooltip: 'Delete academic record',
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () => _removeSchoolRecord(
-                              label: 'academic record',
-                              endpoint: 'academics/${record['_id']}',
+                          DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                            IconButton(
+                              tooltip: 'Edit CBC assessment',
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: () => _editAcademicRecord(record),
                             ),
-                          )),
+                            IconButton(
+                              tooltip: 'Delete academic record',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _removeSchoolRecord(
+                                label: 'academic record',
+                                endpoint: 'academics/${record['_id']}',
+                              ),
+                            ),
+                          ])),
                       ]);
                     }).toList(),
                   ),
