@@ -5513,7 +5513,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       {required String id,
       required String label,
       required String endpoint,
-      required Widget child}) {
+      required Widget child,
+      bool showDeleteButton = true}) {
     final swipe = Dismissible(
       key: ValueKey('school-$section-$id'),
       direction: DismissDirection.startToEnd,
@@ -5561,6 +5562,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       child: child,
     );
     if (_useSwipeToDelete(context)) return swipe;
+    if (!showDeleteButton) return child;
     return Row(children: [
       Expanded(child: child),
       IconButton(
@@ -7494,6 +7496,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             id: structureId,
                             label: 'fee structure',
                             endpoint: 'fee-structures/$structureId',
+                            showDeleteButton: false,
                             child: row,
                           );
                         }),
