@@ -1299,7 +1299,21 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         const phone = String(req.user?.phone || '').replace(/\D/g, '');
         const guardianMatch = [];
         if (email) guardianMatch.push({ guardianEmail: email });
-        if (phone.length >= 8) guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '
+        if (phone.length >= 8) {
+          guardianMatch.push({ guardianPhone: { $regex: phone.slice(-8) + '$', $options: 'i' } });
+        }
+        const matchedStudents = linkedNames.length && guardianMatch.length
+          ? await SchoolStudent.find({
+              schoolId: req.params.schoolId,
+              active: true,
+              $or: guardianMatch,
+            }).select('fullName').lean()
+          : [];
+        const matchedNames = matchedStudents
+          .map(student => String(student.fullName || '').trim().toLowerCase())
+          .filter(name => linkedNames.includes(name));
+        filter.$expr = { $in: [{ $toLower: '$studentName' }, matchedNames] };
+      }
       const page = pageOptions(req);
       const [payments, total] = await Promise.all([
         FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
