@@ -184,6 +184,21 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     verifiedBy: O,
     verifiedAt: Date,
   }, { timestamps: true }));
+  const SchoolDonation = model('SchoolDonation', new mongoose.Schema({
+    paymentReference: { type: String, required: true, unique: true, index: true },
+    schoolId: { type: O, required: true, index: true },
+    donorId: { type: O, ref: 'User', required: true, index: true },
+    amount: { type: Number, required: true, min: 1, max: 150000 },
+    payerPhone: { type: String, required: true },
+    destinationNumber: { type: String, required: true },
+    paymentMethod: { type: String, enum: ['mpesa_paybill','mpesa_till'], required: true },
+    status: { type: String, enum: ['PENDING_STK','CONFIRMED','FAILED','CANCELLED'], default: 'PENDING_STK', index: true },
+    checkoutRequestId: { type: String, sparse: true, index: true },
+    merchantRequestId: String,
+    mpesaReceipt: { type: String, trim: true, uppercase: true, maxlength: 40 },
+    callbackProcessedAt: Date,
+  }, { timestamps: true }));
+  SchoolDonation.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
   FeePayment.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
   FeePayment.schema.index({ checkoutRequestId: 1, merchantRequestId: 1 }, { unique: true, sparse: true });
 
@@ -1080,6 +1095,35 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     } catch (error) { return next(error); }
   });
 
+  app.post('/api/schools/:schoolId/donations', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
+    try {
+      const amount = Number(req.body?.amount);
+      const phone = normalizeMpesaPhone(String(req.body?.phone || req.user?.phone || ''));
+      if (!Number.isSafeInteger(amount) || amount < 1 || amount > 150000) return res.status(400).json({ error: 'Enter a whole-KSh donation amount between 1 and 150,000.' });
+      if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan M-Pesa phone number for the STK prompt.' });
+      const school = await School.findById(req.params.schoolId).select('+paymentProfile.darajaConsumerKeyEnc +paymentProfile.darajaConsumerSecretEnc +paymentProfile.darajaPasskeyEnc').lean();
+      if (!school) return res.status(404).json({ error: 'School not found.' });
+      const profile = school.paymentProfile || {};
+      if (!['mpesa_paybill','mpesa_till'].includes(profile.method)) return res.status(409).json({ error: 'Configure an M-Pesa Paybill or Till for this school before accepting STK donations.' });
+      if (!profile.darajaConsumerKeyEnc || !profile.darajaConsumerSecretEnc || !profile.darajaPasskeyEnc || !profile.darajaConfiguredAt) return res.status(409).json({ error: 'The school has not completed its Daraja STK Push setup. No payment prompt was sent.' });
+      const paymentReference = 'DON-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
+      const destinationNumber = profile.method === 'mpesa_paybill' ? profile.paybillNumber : profile.tillNumber;
+      const donation = await SchoolDonation.create({ paymentReference, schoolId: school._id, donorId: req.user._id, amount, payerPhone: phone, destinationNumber, paymentMethod: profile.method, status: 'PENDING_STK' });
+      try {
+        const provider = providerForSchool(school);
+        const refs = await provider.initiate({ paymentId: paymentReference, amount, phone, description: 'School donation', now: new Date() });
+        donation.checkoutRequestId = refs.checkoutRequestId;
+        donation.merchantRequestId = refs.merchantRequestId;
+        await donation.save();
+        return res.status(201).json({ donation: { paymentReference, schoolName: school.name, amount, status: donation.status }, paymentDestination: { method: profile.method, destinationNumber }, note: 'M-Pesa STK Push requested. Check your phone and enter your M-Pesa PIN. The donation is recorded as paid only after Safaricom confirms it.' });
+      } catch (error) {
+        await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+        console.error('School donation STK initiation failed', { schoolId: String(school._id), paymentReference, stage: error?.stage || 'configuration_or_unknown' });
+        return res.status(503).json({ error: 'Safaricom could not start the donation prompt. Check the school Daraja configuration and try again.' });
+      }
+    } catch (error) { return next(error); }
+  });
+
   app.get('/api/schools/:schoolId/fees', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
       const filter = { schoolId: req.params.schoolId };
@@ -1251,6 +1295,41 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     try {
       const cb = req.body?.Body?.stkCallback;
       if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string') return res.status(400).json({ error: 'Malformed Daraja callback' });
+      // Donations are deliberately stored separately from student fee ledger entries.
+      const donation = await SchoolDonation.findOne({ checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID });
+      if (donation) {
+        if (donation.callbackProcessedAt || ['CONFIRMED','FAILED','CANCELLED'].includes(donation.status)) return res.json({ ok: true, duplicate: true });
+        const outcome = resolveCallbackOutcome(cb, { amount: donation.amount, totalAmount: donation.amount, phone: donation.payerPhone });
+        if (outcome.error) {
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          return res.json({ ok: true, rejected: true });
+        }
+        if (outcome.status !== 'SUCCESS') {
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: outcome.status, callbackProcessedAt: new Date() } });
+          return res.json({ ok: true });
+        }
+        const donationItems = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
+        const donationReceipt = String(donationItems.find(item => item?.Name === 'MpesaReceiptNumber')?.Value || '').trim().toUpperCase();
+        if (!/^[A-Z0-9]{6,40}$/.test(donationReceipt)) {
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          return res.json({ ok: true, rejected: true });
+        }
+        try {
+          const confirmedDonation = await SchoolDonation.findOneAndUpdate(
+            { _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } },
+            { $set: { status: 'CONFIRMED', mpesaReceipt: donationReceipt, callbackProcessedAt: new Date() } },
+            { new: true, runValidators: true },
+          );
+          if (!confirmedDonation) return res.json({ ok: true, duplicate: true });
+        } catch (error) {
+          if (error?.code === 11000) {
+            await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+            return res.json({ ok: true, rejected: true });
+          }
+          throw error;
+        }
+        return res.json({ ok: true, donationConfirmed: true });
+      }
       const payment = await FeePayment.findOne({ checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID });
       if (!payment) return res.json({ ok: true, ignored: true });
       if (payment.callbackProcessedAt || ['CONFIRMED','FAILED','CANCELLED'].includes(payment.status)) return res.json({ ok: true, duplicate: true });
