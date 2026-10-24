@@ -109,7 +109,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     name: { type: String, required: true, trim: true, maxlength: 160 },
     code: { type: String, required: true, trim: true, uppercase: true, maxlength: 24 },
     officialPhone: { type: String, trim: true, maxlength: 24 },
-    receiptStampDataUrl: { type: String, trim: true, maxlength: 1000000, default: '' },
+    receiptStampDataUrl: { type: String, trim: true, maxlength: 1000000, default: '', select: false },
     staffInviteCode: { type: String, default: () => randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase(), select: false },
     createdBy: { type: O, ref: 'User', required: true },
     billing: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -532,7 +532,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
 
   app.get('/api/schools/:schoolId/receipt-settings', auth, requireRole('admin','staff','parent'), async (req, res, next) => {
     try {
-      const school = await School.findById(req.params.schoolId).select('receiptStampDataUrl').lean();
+      const school = await School.findById(req.params.schoolId).select('+receiptStampDataUrl').lean();
       if (!school) return res.status(404).json({ error: 'School not found' });
       return res.json({ receiptStampDataUrl: school.receiptStampDataUrl || '' });
     } catch (error) { return next(error); }
@@ -883,7 +883,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       await FeePayment.updateOne({ _id: payment._id }, { $set: { receiptEmailLastError: 'SMTP receipt email is not configured' } });
       return { sent: 0, pending: true };
     }
-    const school = await School.findById(payment.schoolId).select('name code receiptStampDataUrl paymentProfile.method').lean();
+    const school = await School.findById(payment.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
     const parent = await User.findById(payment.parentId).select('name email').lean();
     const admins = await Membership.find({ schoolId: payment.schoolId, active: true, role: 'admin' }).select('userId').lean();
     const adminUsers = await User.find({ _id: { $in: admins.map(x => x.userId) } }).select('email').lean();
@@ -1120,7 +1120,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           } : { totalFeeDue: null, outstandingBalance: null, feeBalanceStatus: 'NOT_CONFIGURED' }),
         };
       });
-      const school = await School.findById(req.params.schoolId).select('name code officialPhone receiptStampDataUrl paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt').lean();
+      const school = await School.findById(req.params.schoolId).select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt +receiptStampDataUrl').lean();
       const profile = school?.paymentProfile;
       let officialPhone = school?.officialPhone || '';
       if (!officialPhone) {
@@ -1168,7 +1168,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         if (latest?.status === 'CONFIRMED' && latest.mpesaReceipt === receipt) return res.json({ payment: latest, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + latest.paymentReference + '/receipt', duplicate: true });
         return res.status(409).json({ error: 'This fee record has already been verified or changed. Refresh the fee list.' });
       }
-      const school = await School.findById(req.params.schoolId).select('name code receiptStampDataUrl paymentProfile.method').lean();
+      const school = await School.findById(req.params.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
       let balanceDetails = {};
       if (confirmed.chargeId) {
         const charge = await SchoolStudentCharge.findOne({
@@ -1219,7 +1219,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'Successful callback had no valid M-Pesa receipt number' } });
         return res.json({ ok: true, rejected: true });
       }
-      const school = await School.findById(payment.schoolId).select('name code receiptStampDataUrl paymentProfile.method').lean();
+      const school = await School.findById(payment.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
       const verifiedAt = new Date();
       const receiptHtml = renderSchoolReceipt(school, { ...payment.toObject(), mpesaReceipt: receipt, verifiedAt });
       let confirmed;
@@ -1266,7 +1266,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         }
       }
       if (payment.status !== 'CONFIRMED') return res.status(409).json({ error: 'Receipt unavailable until the school verifies payment' });
-      const school = await School.findById(req.params.schoolId).select('name code receiptStampDataUrl paymentProfile.method').lean();
+      const school = await School.findById(req.params.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
       const receipt = renderSchoolReceipt(school, payment);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="school-fee-receipt-' + payment.paymentReference + '.html"');
