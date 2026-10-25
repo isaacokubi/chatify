@@ -98,3 +98,12 @@ Latest continuation supersedes older rows below for final-source results: backen
 - Final automated suites: backend **232 passed, 0 failed, 1 skipped**, isolated Mongo API integration **1/1 passed**, and Flutter **35/35 passed**. The Mongo integration is reported separately because it is guarded and omitted from ordinary `npm test` runs without the explicit disposable database URI.
 - Full REST tenant-isolation across every module, device/offline restart, provider sandbox callback, live settlement, signed release build, physical-device install, and performance measurements are not included in those counts.
 - Android debug APK and default JS/O4 web builds completed. Device installation, signed release, WASM support, and external deployment are not verified.
+
+
+## Addendum — successful Daraja sandbox transaction recorded (2026-10-25)
+
+A manually completed KSh 1 Daraja sandbox transaction is now recorded as end-to-end acceptance: the STK prompt reached the test phone, the user completed the payment, Daraja result code was `0`, the provider callback was processed, and the payment's persisted status became `SUCCESS` with a provider receipt (`provider_callback`). Recorded transaction reference: `a3c55d8d-836e-4e5c-ab86-3e527b5f1372`.
+
+This updates the earlier sandbox section above, which documented only OAuth and no STK attempt at the time of that earlier run. Preserve the historical notes as a dated snapshot, but use this addendum as the later acceptance result. The evidence confirms one successful **sandbox** payment; it does not certify live production settlement or independent end-to-end acceptance for every school fee, merchant POS, C2B or QR flow.
+
+The subsequent disposable-MongoDB backend acceptance test passed its synthetic callback, fee receipt/balance and scoped deletion assertions (234 passed, 0 failed, 0 skipped in that recorded run). A separate `stk_transport` error log appeared during an error-path scenario even though the suite passed; it is not the recorded successful transaction. Treat transport/ambiguous outcomes as pending/reviewable, and do not interpret an accepted STK initiation alone as payment success.
