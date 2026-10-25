@@ -3660,7 +3660,7 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-enum _AdminSection { overview, approvals, people, payments, billing, backups }
+enum _AdminSection { overview, approvals, people, payments, billing }
 
 class _AdminDashboardState extends State<AdminDashboard> {
   Map<String, dynamic> overview = {};
@@ -4932,10 +4932,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   value: _AdminSection.billing,
                   label: Text('Workspace billing'),
                   icon: Icon(Icons.workspace_premium_outlined)),
-              ButtonSegment(
-                  value: _AdminSection.backups,
-                  label: Text('Backup & recovery'),
-                  icon: Icon(Icons.backup_outlined)),
+
             ],
             selected: {section},
             onSelectionChanged: (value) {
@@ -4948,7 +4945,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 loadWorkspaceBillingSettings();
                 loadWorkspaceBillingRows();
               }
-              if (section == _AdminSection.backups) loadBackups();
+
             },
             ),
           ),
@@ -5086,11 +5083,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
             _peopleSection(theme),
           ] else if (section == _AdminSection.payments) ...[
             _paymentsSection(theme),
-          ] else if (section == _AdminSection.billing) ...[
+          ] else ...[
             _workspaceBillingSection(theme),
             const SizedBox(height: 12),
             _workspaceBillingStatusSection(theme),
-          ] else ...[
+            const SizedBox(height: 18),
             _backupRecoverySection(theme),
           ],
         ],
