@@ -1,6 +1,18 @@
 # Production readiness test results
 
-Audit date: 2026-10-25. Repository: `chatify`, branch `fix/flutter-fee-and-spark-tests-oct-2026`, initial `HEAD` `51e47a9`. This report is evidence-only; planned inventory is in [PRODUCTION_READINESS_AUDIT.md](PRODUCTION_READINESS_AUDIT.md). Commands not yet executed are NOT RUN. External/device checks are BLOCKED until access is available.
+## Latest verification — 2026-10-26
+
+| Check | Command | Result |
+|---|---|---|
+| Payment-focused baseline | `node --test src/payments.test.js src/school.test.js src/school-fees.test.js src/business-pos.test.js tests/payments.test.js` (from `server/`) | 5 test files passed, exit 0 |
+| Full backend suite | `cd server && npm test` | **236 passed, 0 failed, 1 skipped**, exit 0. The skip is the guarded DB test without a URI. The first sandbox attempt could not bind a local socket; rerunning with socket access passed. |
+| Backend lint/syntax | `cd server && npm run lint` | exit 0 |
+| Isolated database/API payment integration | `CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_20261026 node --test --test-reporter=spec src/database.integration.test.js` (from `server/`) | **1 passed, 0 failed, 0 skipped**, exit 0. Used a fresh allow-listed database; test teardown drops it. Synthetic callback and financial records only. |
+| Daraja sandbox/provider | No request made | BLOCKED for this run: all relevant Daraja variables were unset in this local shell. No live/deployed configuration, DNS, callback reachability, STK, or settlement was checked. |
+
+The 2026-10-25 manual KSh 1 sandbox STK transaction remains historical evidence, as recorded in [M-PESA_TESTING.md](M-PESA_TESTING.md). This run did not repeat or supersede it. No source-code defect reproduced in the payment-focused suite; no production behavior was changed. See the dated payment guide for the flow matrix, required environment variable names, safe sandbox procedure, and remaining operational gates.
+
+Historical audit snapshot metadata (2026-10-25): repository `chatify`, branch `fix/flutter-fee-and-spark-tests-oct-2026`, initial `HEAD` `51e47a9` as recorded at that time. The current 2026-10-26 run is on production branch `main`, initial `HEAD` `0091f6d`; current evidence is listed above. The planned inventory is in [PRODUCTION_READINESS_AUDIT.md](PRODUCTION_READINESS_AUDIT.md). Older rows below are historical unless marked current.
 
 ## Latest continuation run (2026-10-25)
 

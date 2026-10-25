@@ -1,5 +1,48 @@
 # M-Pesa testing and evidence boundaries
 
+## Verification update — 2026-10-26
+
+### Current automated evidence
+
+- `cd server && npm test`: **236 passed, 0 failed, 1 skipped**, exit 0. The skipped test is the guarded MongoDB integration test when no test URI is provided.
+- `cd server && npm run lint`: exit 0.
+- Focused payment/provider, school and POS test files passed before the complete suite.
+- `CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_20261026 node --test --test-reporter=spec src/database.integration.test.js`: **1 passed, 0 failed, 0 skipped**, exit 0. It used a newly named audit database and the test dropped that database in teardown. The integration exercises synthetic requests and callbacks against the actual API and Mongo persistence; it is not a Daraja transaction.
+
+The first full-suite attempt inside the restricted shell failed because the sandbox denied the API startup test's socket bind. Rerunning with local socket access passed. On this date, the shell had none of the platform, school, or POS Daraja environment variables set. This only establishes what was available to this local run; hosted environment values and deployed callback reachability were not inspected. No provider request was sent. Do not repeat the earlier 2026-10-25 OAuth check as current evidence.
+
+### Implemented flows and evidence boundary
+
+| Flow | Implemented path | Latest verification |
+|---|---|---|
+| Chatify Pay / platform STK | Authenticated request creates a durable attempt; Daraja callback uses `/api/payments/daraja/callback/:token`; participant status/reconciliation and bounded background queries exist. | Automated unit and isolated Mongo/API tests; **one historical manual KSh 1 sandbox end-to-end transaction on 2026-10-25** is recorded below. No production transaction was tested. |
+| School fees and donations | School-scoped fee/donation records; per-school encrypted credentials; callback at `/api/schools/daraja/callback/:token`; receipt and fee balance update on confirmed or audited manual review. | Automated unit and isolated Mongo/API synthetic callback, receipt and balance tests. No school-specific Daraja transaction is documented. |
+| Merchant POS/storefront STK | Merchant-specific encrypted credentials and shortcode; callback at `/api/business/pos/stk/callback/:token`; orders/charges remain pending until matching callback. | Automated route/database callback tests and POS unit tests. No merchant Daraja transaction is documented. |
+| POS C2B | Token-protected `/api/business/pos/c2b/confirmation/:token`; matches destination, amount, receipt and sale reference. Safaricom callback registration is external configuration. | Synthetic API/database confirmation and duplicate tests only; no provider registration or delivery check. |
+| Safaricom Dynamic QR | Daraja generates an M-Pesa-readable QR for the merchant shortcode; the sale remains pending until a matching C2B callback or authorized manual reconciliation. | Deterministic provider request/validation tests; no QR payment or provider confirmation end to end. |
+| Bank transfer / other M-Pesa | Bank transfer remains a manual school workflow. No B2C transfer API is present. | No B2C capability claimed. |
+
+### Configuration and callback requirements
+
+Platform sandbox/live STK uses `MPESA_ENV`, `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET`, `MPESA_SHORTCODE`, `MPESA_PASSKEY`, `MPESA_CALLBACK_TOKEN`, and `MPESA_CALLBACK_URL`; `MPESA_TRANSACTION_TYPE` is optional. Set the callback URL to the public HTTPS route whose final path contains the same minimum-32-character random token. Safaricom callback authenticity is not established by a documented signature in this implementation; the high-entropy path token, exact stored provider IDs, amount/phone/receipt checks and idempotent update are the implemented controls. Redact callback paths from access logs.
+
+School callback routing uses `PUBLIC_API_URL`, `SCHOOL_DARAJA_CALLBACK_TOKEN`, and `SCHOOL_PAYMENT_ENCRYPTION_KEY`; each school supplies its own authorized shortcode and Daraja credentials. Merchant POS uses `POS_STK_PUBLIC_BASE_URL`, `POS_STK_CALLBACK_TOKEN`, and `POS_DARAJA_ENCRYPTION_KEY`; the authenticated merchant setup stores shortcode-specific Daraja credentials encrypted at rest. POS C2B uses `POS_C2B_CALLBACK_TOKEN` and optional `POS_C2B_ALLOWED_IPS`. C2B URL registration/validation with Safaricom must be completed outside this application. Keep these settings in the deployment secret manager; never paste secret values into this document, test output, or source control. The environment values themselves are unset in the current local shell. No hostname or public route reachability conclusion can be made from that fact.
+
+### Repeatable sandbox acceptance
+
+1. Deploy an isolated non-production API with a sandbox-eligible shortcode/app and approved test phone. Set the required platform variables above in the private runtime environment. Confirm that startup/configuration succeeds without printing credentials.
+2. Confirm DNS resolves and HTTPS reaches the API from outside the deployment network. POST to the exact callback path with a wrong token in an isolated test environment and confirm it is rejected; do not expose the valid token in logs.
+3. Create a small sandbox STK payment through the application. Record only a redacted payment ID and time. An accepted initiation must remain `PENDING`.
+4. Complete or cancel the sandbox prompt. Verify trusted callback delivery, final backend status, `confirmationSource=provider_callback` (or the flow-specific callback source), and persisted provider receipt through an authorized server/database view. Never use a client message or screenshot as payment confirmation.
+5. For safe replay testing, use synthetic callback fixtures/database tests, not a second provider charge. Replay the same callback serially and concurrently; verify one terminal update, one receipt, one balance/order effect. Test cancellation/failure, malformed values, wrong IDs/amount/phone/token, delayed callbacks, query timeout, unknown checkout ID, and reconciliation separately. Keep unresolved outcomes pending for review; do not retry an uncertain charge.
+6. For C2B/Dynamic QR, verify external Safaricom callback registration first, then independently record callback delivery and exact reference/amount/shortcode matching. The platform STK result does not establish these paths.
+
+For production rollout, verify merchant/school authorization, secret rotation/backup, callback DNS/TLS and redacted access logging, provider callback configuration, bounded reconciliation alerts, duplicate receipt handling, statement-to-record settlement, and a documented manual review owner. Sandbox success does not establish production settlement. Reconcile provider statements to persisted receipts and investigate unmatched transactions before closing a period.
+
+### Evidence carried forward
+
+The previously documented manual **KSh 1 Daraja sandbox STK payment on 2026-10-25** remains historical evidence: prompt reached the approved test phone, the payment was completed, result code `0` was observed, the callback was processed, status persisted as `SUCCESS`, and a provider receipt was recorded with source `provider_callback`. It is not repeated in this run, does not establish live-money settlement, and does not independently verify school, POS, C2B, or Dynamic QR. Older notes below are dated snapshots and should be read with this update.
+
 ## Latest recovery continuation (2026-10-25)
 
 Sandbox check in the current continuation: sandbox mode and the consumer key/secret, shortcode, passkey, and callback URL are configured in ignored `server/.env`; the callback authentication token is absent. Callback URL is HTTPS, but the expected tokenized path cannot be validated, and DNS lookup for its host failed. Do not infer reachability from a configured URL. The user supplied an approved sandbox test phone; no STK request was sent because the callback receiver is not safe/ready. A redacted OAuth request to the sandbox endpoint returned HTTP 200 and an access token was present. This confirms OAuth only, not STK/callback/payment settlement.
