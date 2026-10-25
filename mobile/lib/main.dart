@@ -3660,7 +3660,7 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-enum _AdminSection { overview, approvals, people, payments, billing }
+enum _AdminSection { overview, approvals, people, payments, billing, backups }
 
 class _AdminDashboardState extends State<AdminDashboard> {
   Map<String, dynamic> overview = {};
@@ -3671,6 +3671,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
   List<dynamic> workspaceBillingRows = [];
   bool workspaceBillingRowsLoading = false;
   String? workspaceBillingRowsError;
+  List<dynamic> backupRows = [];
+  bool backupsLoading = false, backupActionRunning = false;
+  String? backupsError;
+  bool backupDirectoryConfigured = false, restoreConfigured = false, backupToolConfigured = false;
   bool loading = true,
       usersLoading = false,
       paymentsLoading = false,
@@ -3953,6 +3957,183 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } finally {
       if (mounted) setState(() => workspaceBillingRowsLoading = false);
     }
+  }
+
+  Future<void> loadBackups() async {
+    if (mounted) setState(() { backupsLoading = true; backupsError = null; });
+    try {
+      final result = await api.call('GET', '/api/admin/backups');
+      if (!mounted) return;
+      setState(() {
+        backupRows = List<dynamic>.from(result['backups'] ?? []);
+        backupDirectoryConfigured = result['backupDirectoryConfigured'] == true;
+        restoreConfigured = result['restoreConfigured'] == true;
+        backupToolConfigured = result['backupToolConfigured'] == true;
+      });
+    } catch (e) {
+      if (mounted) setState(() => backupsError = e.toString());
+    } finally {
+      if (mounted) setState(() => backupsLoading = false);
+    }
+  }
+
+  Future<void> createSystemBackup() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create system backup?'),
+        content: const Text('Chatify will create a compressed MongoDB archive and checksum in the configured backup directory. This does not replace encrypted off-site storage or a tested recovery drill.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create backup')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() { backupActionRunning = true; backupsError = null; });
+    try {
+      final result = await api.call('POST', '/api/admin/backups');
+      await loadBackups();
+      if (mounted) {
+        final message = (result['message'] ?? 'Backup command completed.').toString();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      if (mounted) setState(() => backupsError = e.toString());
+    } finally {
+      if (mounted) setState(() => backupActionRunning = false);
+    }
+  }
+
+  Future<void> restoreSystemBackup(Map<String, dynamic> backup) async {
+    final filename = backup['filename']?.toString() ?? '';
+    if (filename.isEmpty || backup['hasChecksum'] != true) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Restore backup to recovery database?'),
+        content: Text('This restores "$filename" only to the separately configured NON-PRODUCTION recovery database. It does not switch production traffic. You must validate the restored data and application before planning a cutover. Continue?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Restore to recovery database'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() { backupActionRunning = true; backupsError = null; });
+    try {
+      final result = await api.call(
+        'POST',
+        '/api/admin/backups/${Uri.encodeComponent(filename)}/restore',
+        {'confirmRestore': true},
+      );
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Recovery command finished'),
+            content: Text((result['message'] ?? 'Restore completed.').toString()),
+            actions: [FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => backupsError = e.toString());
+    } finally {
+      if (mounted) setState(() => backupActionRunning = false);
+    }
+  }
+
+  Widget _backupRecoverySection(ThemeData theme) {
+    String formatBytes(dynamic value) {
+      final bytes = (value as num?)?.toDouble() ?? 0;
+      if (bytes >= 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+      if (bytes >= 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+      if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+      return '${bytes.toInt()} bytes';
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Backup & recovery', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Create point-in-time database archives, verify their checksum availability, and restore into a separately configured recovery database after an incident. Production restore is intentionally blocked from this screen.'),
+      const SizedBox(height: 12),
+      Card(child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.security_outlined),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Recovery readiness', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
+            IconButton(tooltip: 'Refresh backups', onPressed: backupsLoading || backupActionRunning ? null : loadBackups, icon: const Icon(Icons.refresh)),
+          ]),
+          const SizedBox(height: 8),
+          _backupStatusLine('Database backup configuration', backupToolConfigured, 'Database URI configured', 'Missing database URI'),
+          _backupStatusLine('Persistent backup directory', backupDirectoryConfigured, 'Custom backup directory configured', 'Using default path; verify it persists across redeploys'),
+          _backupStatusLine('Non-production recovery target', restoreConfigured, 'Recovery target configured', 'Restore disabled until a separate recovery database is configured'),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            FilledButton.icon(
+              onPressed: backupsLoading || backupActionRunning ? null : createSystemBackup,
+              icon: backupActionRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.backup_outlined),
+              label: Text(backupActionRunning ? 'Working…' : 'Create backup now'),
+            ),
+            OutlinedButton.icon(
+              onPressed: backupsLoading || backupActionRunning ? null : loadBackups,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh backup list'),
+            ),
+          ]),
+        ]),
+      )),
+      if (backupsError != null) Card(child: ListTile(leading: Icon(Icons.error_outline, color: theme.colorScheme.error), title: const Text('Backup operation needs attention'), subtitle: Text(backupsError!))),
+      const SizedBox(height: 8),
+      Text('Available backup archives', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      if (backupsLoading) const LinearProgressIndicator(),
+      if (!backupsLoading && backupRows.isEmpty) const Card(child: ListTile(leading: Icon(Icons.backup_outlined), title: Text('No backup archives found'), subtitle: Text('Create a backup after configuring MongoDB Database Tools and persistent private storage.'))),
+      ...backupRows.map((raw) {
+        final backup = Map<String, dynamic>.from(raw as Map);
+        final filename = backup['filename']?.toString() ?? 'Backup archive';
+        final hasChecksum = backup['hasChecksum'] == true;
+        final size = formatBytes(backup['sizeBytes']);
+        final created = backup['createdAt']?.toString() ?? '';
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: Icon(hasChecksum ? Icons.verified_outlined : Icons.warning_amber_outlined, color: hasChecksum ? Colors.green : Colors.orange),
+            title: Text(filename, maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text('$size · ${created.isEmpty ? 'Date unavailable' : created} · ${hasChecksum ? 'Checksum available' : 'Checksum missing — restore blocked'}'),
+            trailing: restoreConfigured && hasChecksum
+                ? IconButton(
+                    tooltip: 'Restore to non-production recovery database',
+                    onPressed: backupActionRunning ? null : () => restoreSystemBackup(backup),
+                    icon: const Icon(Icons.settings_backup_restore_outlined),
+                  )
+                : null,
+          ),
+        );
+      }),
+      const SizedBox(height: 8),
+      const Card(child: Padding(
+        padding: EdgeInsets.all(14),
+        child: Text('Before relying on recovery: configure encrypted off-site replication and retention, restrict backup access, and periodically test a restore in isolated staging. A successful archive alone does not prove recovery readiness.'),
+      )),
+    ]);
+  }
+
+  Widget _backupStatusLine(String label, bool ready, String success, String warning) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(ready ? Icons.check_circle_outline : Icons.warning_amber_outlined, size: 19, color: ready ? Colors.green : Colors.orange),
+        const SizedBox(width: 8),
+        Expanded(child: Text('$label: ${ready ? success : warning}')),
+      ]),
+    );
   }
 
   Widget _workspaceBillingStatusSection(ThemeData theme) {
@@ -4751,6 +4932,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   value: _AdminSection.billing,
                   label: Text('Workspace billing'),
                   icon: Icon(Icons.workspace_premium_outlined)),
+              ButtonSegment(
+                  value: _AdminSection.backups,
+                  label: Text('Backup & recovery'),
+                  icon: Icon(Icons.backup_outlined)),
             ],
             selected: {section},
             onSelectionChanged: (value) {
@@ -4763,6 +4948,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 loadWorkspaceBillingSettings();
                 loadWorkspaceBillingRows();
               }
+              if (section == _AdminSection.backups) loadBackups();
             },
             ),
           ),
@@ -4900,10 +5086,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
             _peopleSection(theme),
           ] else if (section == _AdminSection.payments) ...[
             _paymentsSection(theme),
-          ] else ...[
+          ] else if (section == _AdminSection.billing) ...[
             _workspaceBillingSection(theme),
             const SizedBox(height: 12),
             _workspaceBillingStatusSection(theme),
+          ] else ...[
+            _backupRecoverySection(theme),
           ],
         ],
       ),
