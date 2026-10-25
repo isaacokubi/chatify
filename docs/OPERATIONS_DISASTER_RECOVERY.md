@@ -2,6 +2,22 @@
 
 This runbook provides repeatable MongoDB archive and restore commands. It does not create a backup provider, schedule a hosted job, encrypt off-site copies, or prove that a restore works against your production infrastructure.
 
+## In-app platform-admin controls
+
+The Chatify Control Center includes **Backup & recovery** for platform administrators. Its API can list archives, trigger a manual archive, and request a restore only to a separately configured non-production recovery database.
+
+Configure these hosting secrets/environment values before using the controls:
+
+- `MONGODB_URI`: the application database connection string.
+- `CHATIFY_BACKUP_DIR`: a private, persistent directory mounted for the API service. Do not rely on an ephemeral container filesystem.
+- `CHATIFY_RESTORE_TARGET_URI`: a separate empty staging/recovery database URI; never point this at production.
+- `CHATIFY_RESTORE_TARGET_IS_NON_PRODUCTION=YES`: explicit deployment-level confirmation that the recovery URI is non-production.
+- Install MongoDB Database Tools (`mongodump` and `mongorestore`) in the API runtime.
+
+The API requires an authenticated platform-admin account. Restore requests additionally require an explicit confirmation from the admin and a matching checksum. The server rejects a target URI that exactly matches the configured production/application URI. This guard is not a substitute for reviewing the target database identity and permissions before enabling recovery.
+
+The UI does not automatically schedule backups, configure encrypted off-site replication, or switch production traffic after a restore. Configure a scheduled job and off-site copy separately, and test recovery in isolation.
+
 ## Backup
 
 Requirements: MongoDB Database Tools, access to the intended database, and a private persistent directory with sufficient disk space.
