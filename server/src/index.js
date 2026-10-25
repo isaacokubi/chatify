@@ -130,7 +130,7 @@ const revokeUserSockets=userId=>io.in('user:'+String(userId)).disconnectSockets(
 // Register Business routes only after auth and Socket.IO exist. Registering earlier hits
 // JavaScript's temporal-dead-zone for these const bindings and prevents the API from booting.
 registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io,mpesaProvider,platformFeeCollector});
-registerAdminBackupRoutes({app,auth,requireAdmin});
+
 // In-person merchant checkout routes depend on the organization model created above.
 registerBusinessPosRoutes({app,auth,mongoose,mpesaProvider,platformFeeCollector});
 // Register additional enterprise tools only after the core Business models and auth are available.
@@ -209,6 +209,7 @@ app.put('/api/users/me/encryption-key',auth,async(q,r)=>{const key=q.body?.publi
  * the client cannot grant itself privileges by changing a submitted JSON field.
  */
 const requireAdmin=createAdminMiddleware();
+registerAdminBackupRoutes({app,auth,requireAdmin});
 // Business approval is separate from workspace billing: approval never marks a subscription as paid.
 app.get('/api/admin/business-approvals',auth,requireAdmin,async(q,r)=>{
   const Model=mongoose.models.BusinessOrganization;
