@@ -17197,26 +17197,34 @@ class _BusinessHubState extends State<BusinessHub> {
           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle:
               Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-          trailing: kind == 'tasks' && item['_id'] != null
+          trailing: (kind == 'products or services' || kind == 'tasks') && item['_id'] != null
               ? IconButton(
-                  tooltip: 'Delete saved task',
+                  tooltip: kind == 'products or services'
+                      ? 'Delete catalogue product'
+                      : 'Delete saved task',
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () async {
-                    final taskId = item['_id'].toString();
+                    final recordId = item['_id'].toString();
+                    final isCatalog = kind == 'products or services';
                     final confirmed = await showDialog<bool>(
                       context: context,
                       builder: (dialogContext) => AlertDialog(
-                        title: const Text('Delete saved task?'),
-                        content: Text('Delete “$title” from this workspace?'),
+                        title: Text(isCatalog ? 'Remove product from catalogue?' : 'Delete saved task?'),
+                        content: Text(isCatalog
+                            ? 'Remove “$title” from the active catalogue? Past sales documents will keep their saved item details.'
+                            : 'Delete “$title” from this workspace?'),
                         actions: [
                           TextButton(
-                              onPressed: () =>
-                                  Navigator.pop(dialogContext, false),
-                              child: const Text('Cancel')),
+                            onPressed: () => Navigator.pop(dialogContext, false),
+                            child: const Text('Cancel'),
+                          ),
                           FilledButton(
-                              onPressed: () =>
-                                  Navigator.pop(dialogContext, true),
-                              child: const Text('Delete')),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Theme.of(context).colorScheme.error,
+                            ),
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            child: const Text('Delete'),
+                          ),
                         ],
                       ),
                     );
@@ -17224,16 +17232,25 @@ class _BusinessHubState extends State<BusinessHub> {
                     try {
                       final orgId = organization?['_id']?.toString();
                       if (orgId == null) return;
-                      await app.api.call('DELETE',
-                          '/api/business/organizations/${Uri.encodeComponent(orgId)}/tasks/${Uri.encodeComponent(taskId)}');
+                      final base = '/api/business/organizations/${Uri.encodeComponent(orgId)}';
+                      await app.api.call(
+                        'DELETE',
+                        isCatalog
+                            ? '$base/catalog/${Uri.encodeComponent(recordId)}'
+                            : '$base/tasks/${Uri.encodeComponent(recordId)}',
+                      );
                       await loadWorkspaceData();
-                      if (mounted)
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Task deleted.')));
-                    } catch (error) {
-                      if (mounted)
+                      if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text('Could not delete task: $error')));
+                          content: Text(isCatalog ? 'Product removed from catalogue.' : 'Task deleted.'),
+                        ));
+                      }
+                    } catch (error) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('Could not delete ${isCatalog ? 'product' : 'task'}: $error'),
+                        ));
+                      }
                     }
                   },
                 )
