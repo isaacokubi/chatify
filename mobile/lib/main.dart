@@ -3936,9 +3936,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
           userTotal = (result['total'] as num?)?.toInt() ?? users.length;
         });
     } catch (e) {
-      if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not load users: ' + e.toString())));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load users: ' + e.toString())));
     } finally {
       if (mounted) setState(() => usersLoading = false);
     }
@@ -3956,9 +3956,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
           paymentTotal = (result['total'] as num?)?.toInt() ?? payments.length;
         });
     } catch (e) {
-      if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Could not load payments: ' + e.toString())));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load payments: ' + e.toString())));
     } finally {
       if (mounted) setState(() => paymentsLoading = false);
     }
@@ -3977,26 +3977,47 @@ class _AdminDashboardState extends State<AdminDashboard> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Text('Payment ${payment['paymentId']} · KES ${payment['amount']}'),
             const SizedBox(height: 8),
-            const Text('Check the Daraja portal or Safaricom statement. Screenshots or client claims alone are not evidence. Confirmation will be recorded as manual review, not provider callback confirmation.'),
-            TextField(controller: receipt, decoration: const InputDecoration(labelText: 'Actual provider receipt')),
-            TextField(controller: evidence, decoration: const InputDecoration(labelText: 'Statement / support reference')),
-            TextField(controller: transactionAt, decoration: const InputDecoration(labelText: 'Provider transaction time (ISO 8601)')),
-            TextField(controller: reason, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'Review reason (20–500 characters)')),
+            const Text(
+                'Check the Daraja portal or Safaricom statement. Screenshots or client claims alone are not evidence. Confirmation will be recorded as manual review, not provider callback confirmation.'),
+            TextField(
+                controller: receipt,
+                decoration: const InputDecoration(
+                    labelText: 'Actual provider receipt')),
+            TextField(
+                controller: evidence,
+                decoration: const InputDecoration(
+                    labelText: 'Statement / support reference')),
+            TextField(
+                controller: transactionAt,
+                decoration: const InputDecoration(
+                    labelText: 'Provider transaction time (ISO 8601)')),
+            TextField(
+                controller: reason,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                    labelText: 'Review reason (20–500 characters)')),
           ]),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Record review')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Record review')),
         ],
       ),
     );
     if (accepted == true && mounted) {
       try {
-        final paymentReference = payment['paymentId'].toString().replaceAll('-', '');
+        final paymentReference =
+            payment['paymentId'].toString().replaceAll('-', '');
         final accountReference = paymentReference.length <= 12
             ? paymentReference
             : paymentReference.substring(paymentReference.length - 12);
-        await api.call('POST', '/api/admin/payments/${payment['paymentId']}/review', {
+        await api.call(
+            'POST', '/api/admin/payments/${payment['paymentId']}/review', {
           'decision': 'confirm',
           'providerReceipt': receipt.text.trim(),
           'evidenceType': 'safaricom_statement',
@@ -4010,9 +4031,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
           'accountReference': accountReference,
         });
         await loadPayments();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Manual review recorded. This is not provider callback confirmation.')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Manual review recorded. This is not provider callback confirmation.')));
       } catch (error) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment review was not applied: $error')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Payment review was not applied: $error')));
       }
     }
     receipt.dispose();
@@ -4826,14 +4852,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
           'PATCH', '/api/admin/users/' + id + '/status', {'status': next});
       await loadOverview();
       await loadUsers();
-      if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Account ' +
-                (next == 'active' ? 'reactivated.' : 'suspended.'))));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Account ' +
+              (next == 'active' ? 'reactivated.' : 'suspended.'))));
     } catch (e) {
-      if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Account status was not changed: ' + e.toString())));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Account status was not changed: ' + e.toString())));
     }
   }
 
@@ -5237,17 +5263,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
           subtitle: Text(
               '${payment['provider'] ?? 'Provider'} · $status$resolutionLabel\n${payment['paymentId'] ?? ''}${platformFee > 0 ? '\nHistorical platform fee KSh ${platformFee.toStringAsFixed(0)} · ${payment['platformFeeStatus'] ?? 'PENDING_SETTLEMENT'}' : ''}'),
           isThreeLine: true,
-          trailing: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('KES ${totalAmount.toStringAsFixed(2)}',
-                style: theme.textTheme.titleSmall
-                    ?.copyWith(fontWeight: FontWeight.w700)),
-            if (initiationState == 'REQUIRES_REVIEW' && status == 'PENDING')
-              TextButton.icon(
-                onPressed: () => reviewUncertainPayment(payment),
-                icon: const Icon(Icons.fact_check_outlined, size: 16),
-                label: const Text('Review'),
-              ),
-          ]),
+          trailing: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text('KES ${totalAmount.toStringAsFixed(2)}',
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+                if (initiationState == 'REQUIRES_REVIEW' && status == 'PENDING')
+                  TextButton.icon(
+                    onPressed: () => reviewUncertainPayment(payment),
+                    icon: const Icon(Icons.fact_check_outlined, size: 16),
+                    label: const Text('Review'),
+                  ),
+              ]),
         ));
       }),
       _pager(
@@ -6527,13 +6556,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   Future<void> _action(Future<void> Function() action) async {
     try {
       await action();
-      if (context.mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Saved successfully.')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Saved successfully.')));
     } catch (e) {
-      if (context.mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -6919,15 +6948,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     if (approved == true && mounted) {
       final method = payment['paymentMethod']?.toString() ?? '';
       await _action(() async {
-        await app.api.call(
-            'POST',
+        await app.api.call('POST',
             '/api/schools/$id/fees/${payment['paymentReference']}/verify', {
           'mpesaReceipt': receiptController.text.trim(),
           'amount': payment['amount'],
           'currency': 'KES',
           'payerPhone': payment['payerPhone'],
           'destinationNumber': payment['destinationNumber'],
-          'evidenceType': method == 'bank' ? 'bank_statement' : 'mpesa_statement',
+          'evidenceType':
+              method == 'bank' ? 'bank_statement' : 'mpesa_statement',
           'evidenceReference': evidenceController.text.trim(),
           'reason': reasonController.text.trim(),
         });
@@ -6954,13 +6983,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           children: [
             Text('Student: ${payment['studentName'] ?? 'Student'}'),
             Text('Status: ${payment['status'] ?? 'Unknown'}'),
-            Text('Verification: ${payment['confirmationSource'] == 'manual_review' ? 'Manually reviewed by school; not provider callback confirmed' : payment['confirmationSource'] == 'provider_callback' ? 'Validated provider callback' : 'Not recorded'}'),
+            Text(
+                'Verification: ${payment['confirmationSource'] == 'manual_review' ? 'Manually reviewed by school; not provider callback confirmed' : payment['confirmationSource'] == 'provider_callback' ? 'Validated provider callback' : 'Not recorded'}'),
             Text('Amount: KSh ${payment['amount'] ?? '—'}'),
             Text('Method: $method'),
             Text('Reference: ${payment['paymentReference'] ?? '—'}'),
             if (role == 'admin' && manualReview != null) ...[
               Text('Reviewer: ${manualReview['reviewerId'] ?? '—'}'),
-              Text('Evidence: ${manualReview['evidenceType'] ?? '—'} · ${manualReview['evidenceReference'] ?? '—'}'),
+              Text(
+                  'Evidence: ${manualReview['evidenceType'] ?? '—'} · ${manualReview['evidenceReference'] ?? '—'}'),
               Text('Review reason: ${manualReview['reason'] ?? '—'}'),
               Text('Reviewed at: ${manualReview['reviewedAt'] ?? '—'}'),
             ],
@@ -6983,15 +7014,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final result = await app.api.call('POST',
           '/api/schools/$id/fees/${payment['paymentReference']}/receipt/resend');
       final delivery = Map<String, dynamic>.from(result['emailDelivery'] ?? {});
-      if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(delivery['pending'] == true
-                ? 'Receipt remains stored and downloadable; email delivery is still pending. Check SMTP configuration.'
-                : 'Receipt email sent to the parent and school administrators.')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(delivery['pending'] == true
+              ? 'Receipt remains stored and downloadable; email delivery is still pending. Check SMTP configuration.'
+              : 'Receipt email sent to the parent and school administrators.')));
     } catch (e) {
-      if (context.mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -7329,7 +7360,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   decoration:
                       const InputDecoration(labelText: 'Date (YYYY-MM-DD)')),
               DropdownButtonFormField<String>(
-                value: status,
+                initialValue: status,
                 decoration:
                     const InputDecoration(labelText: 'Attendance status'),
                 items: const [
@@ -7419,7 +7450,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   controller: subStrand,
                   decoration: const InputDecoration(labelText: 'Sub-strand')),
               DropdownButtonFormField<String>(
-                value: level,
+                initialValue: level,
                 decoration:
                     const InputDecoration(labelText: 'CBC achievement level'),
                 items: const [
@@ -7609,7 +7640,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   'Choose the school administrator or a teacher (class teacher, subject teacher, or head teacher). Non-teaching staff such as cooks and cleaners are not listed. Only you and the selected contact will see this private conversation.'),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
-                value: selectedUserId,
+                initialValue: selectedUserId,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'School contact',
@@ -7807,7 +7838,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                   setState(() => memberRole = v ?? 'parent')),
                           if (memberRole == 'staff') ...[
                             DropdownButtonFormField<String>(
-                              value: staffDesignation,
+                              initialValue: staffDesignation,
                               decoration: const InputDecoration(
                                   labelText: 'Staff role / designation',
                                   border: OutlineInputBorder()),
@@ -8084,7 +8115,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     key: const ValueKey('school-record-class-filter'),
-                    value: schoolClassFilter,
+                    initialValue: schoolClassFilter,
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Filter by class / grade',
@@ -8505,9 +8536,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         DataCell(Text(schoolPaymentMethodForRecord(payment))),
                         DataCell(Text(
                             (payment['paymentReference'] ?? '—').toString())),
-                        DataCell(Text(payment['confirmationSource'] == 'manual_review'
-                            ? '$status · MANUALLY REVIEWED'
-                            : status)),
+                        DataCell(Text(
+                            payment['confirmationSource'] == 'manual_review'
+                                ? '$status · MANUALLY REVIEWED'
+                                : status)),
                         DataCell(PopupMenuButton<String>(
                           tooltip: 'Payment actions',
                           onSelected: (action) {
@@ -8711,7 +8743,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                           icon: const Icon(Icons.add))),
                 ]),
                 DropdownButtonFormField<String>(
-                  value: schoolClasses
+                  initialValue: schoolClasses
                               .map((v) => v.toString())
                               .contains(feeStructureClass.text.trim()) &&
                           feeStructureClass.text.trim().isNotEmpty
@@ -10556,9 +10588,9 @@ class _HomeState extends State<Home> {
                 await loadChats();
               } catch (error) {
                 await loadChats();
-                if (context.mounted)
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('Could not remove conversation: $error')));
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('Could not remove conversation: $error')));
               }
             },
             child: ListTile(
@@ -12429,7 +12461,7 @@ class _ChatState extends State<Chat> {
     final name = selected['name']?.toString().trim() ?? '';
     if (id.isEmpty || name.isEmpty) return;
     final spacer = input.text.isEmpty || input.text.endsWith(' ') ? '' : ' ';
-    final text = '${input.text}${spacer}@$name ';
+    final text = '${input.text}$spacer@$name ';
     input.value = TextEditingValue(
       text: text,
       selection: TextSelection.collapsed(offset: text.length),
@@ -12767,6 +12799,8 @@ class _ChatState extends State<Chat> {
         return;
       }
 
+      if (!mounted) return;
+
       final amount = TextEditingController();
       final senderPhone = TextEditingController(
         text: app.user?['mpesaPhone']?.toString() ??
@@ -12838,7 +12872,7 @@ class _ChatState extends State<Chat> {
           ],
         ),
       );
-      if (accepted == true && context.mounted) {
+      if (accepted == true && mounted) {
         final normalizedSender = normalizeKenyanPhone(senderPhone.text);
         final amountValue = int.parse(amount.text.trim());
         await Clipboard.setData(ClipboardData(text: recipientPhone));
@@ -12847,7 +12881,7 @@ class _ChatState extends State<Chat> {
             Uri(scheme: 'tel', path: '*334#'),
             mode: LaunchMode.externalApplication,
           );
-          if (context.mounted) {
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(opened
                   ? 'M-Pesa menu opened. Recipient $recipientPhone copied. Choose Send Money, enter KSh $amountValue, and confirm the recipient before entering your PIN.'
@@ -12856,7 +12890,7 @@ class _ChatState extends State<Chat> {
             ));
           }
         } catch (_) {
-          if (context.mounted) {
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(
                 'Recipient $recipientPhone copied. Open M-Pesa, choose Send Money, and enter KSh $amountValue.',
@@ -13790,7 +13824,7 @@ class _ChatState extends State<Chat> {
             link: LinkDetails(link: downloadUri.toString()),
             name: 'chatify_image_$timestamp.$guessedExtension',
           );
-          if (context.mounted) {
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text(
                   'Image download requested. Check your browser downloads.'),
@@ -16133,7 +16167,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
         builder: (_) => Chat(conversation: conversation, initialMessage: draft),
       ));
     } catch (e) {
-      if (context.mounted)
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Unable to open seller chat: $e')),
         );
@@ -19088,11 +19122,11 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       darajaConsumerKey.clear();
       darajaConsumerSecret.clear();
       darajaPasskey.clear();
-      if (context.mounted)
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Merchant payment instructions saved.')));
     } catch (e) {
-      if (context.mounted)
+      if (mounted)
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
@@ -19139,7 +19173,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         await showCharge(Map<String, dynamic>.from(r['charge'] ?? {}));
       await load();
     } catch (e) {
-      if (context.mounted)
+      if (mounted)
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
@@ -19185,7 +19219,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       }
       await load();
     } catch (e) {
-      if (context.mounted)
+      if (mounted)
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.toString())));
     }
@@ -19240,11 +19274,11 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
               'verified': verified,
             });
         await load();
-        if (context.mounted)
+        if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text('Receipt recorded as manually reconciled.')));
       } catch (e) {
-        if (context.mounted)
+        if (mounted)
           ScaffoldMessenger.of(context)
               .showSnackBar(SnackBar(content: Text(e.toString())));
       }
@@ -19259,7 +19293,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
             '$base/charges/${Uri.encodeComponent(item['paymentId'].toString())}');
         item = Map<String, dynamic>.from(details['charge'] ?? item);
       } catch (e) {
-        if (context.mounted)
+        if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Could not load payment QR: $e')));
         return;
