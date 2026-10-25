@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {createWorkflowTickRunner, workflowErrorDetails} from './workflow-scheduler.js';
 import {normalizeMpesaPhone, validPaymentAmount, newPaymentId} from './payments.js';
 import {planQuotaStatus} from './business-entitlements.js';
 import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
@@ -965,7 +966,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
 
   // Scheduled workflows use a database compare-and-set so multiple app instances do not normally
   // run the same interval twice. Actions are intentionally allow-listed and audited.
-  const runWorkflowTick = async () => {
+  const executeWorkflowTick = async () => {
     const now=new Date();
     const due=await Workflow.find({enabled:true,trigger:'schedule'}).limit(100);
     for(const candidate of due){
@@ -1007,13 +1008,30 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
         workflow.runs.push({status:'completed',triggerData:{trigger:'schedule',scheduledAt:now},result:{actions:results},ranAt:now});
         if(workflow.runs.length>100)workflow.runs=workflow.runs.slice(-100);
         await workflow.save();
-      }catch(error){workflow.runs.push({status:'failed',triggerData:{trigger:'schedule',scheduledAt:now},result:{error:'Workflow action failed'},ranAt:now});if(workflow.runs.length>100)workflow.runs=workflow.runs.slice(-100);await workflow.save().catch(()=>{});console.error('Business workflow failed',{workflowId:String(workflow._id)});}
+      }catch(error){workflow.runs.push({status:'failed',triggerData:{trigger:'schedule',scheduledAt:now},result:{error:'Workflow action failed'},ranAt:now});if(workflow.runs.length>100)workflow.runs=workflow.runs.slice(-100);await workflow.save().catch(()=>{});console.error('Business workflow failed',{workflowId:String(workflow._id),...workflowErrorDetails(error)});}
     }
   };
+  const runWorkflowTick = createWorkflowTickRunner({
+    runTick: executeWorkflowTick,
+    isDatabaseReady: () => mongoose.connection.readyState === 1,
+  });
   if (startScheduler) {
-    const workflowTimer=setInterval(()=>runWorkflowTick().catch(()=>console.error('Business workflow scheduler tick failed')),60000);
+    // A disconnected database is a normal transient state; the runner skips it.
+    // The runner also serializes ticks and logs unexpected failures with redacted details.
+    const workflowTimer=setInterval(()=>{void runWorkflowTick().catch(()=>{});},60000);
     workflowTimer.unref();
   }
-  app.post('/api/internal/business/workflows/tick',async(req,res)=>{const secret=process.env.BUSINESS_WORKFLOW_CRON_SECRET?.trim();if(!secret||req.get('authorization')!=='Bearer '+secret)return res.status(404).json({error:'Not found'});try{await runWorkflowTick();res.json({ok:true});}catch(error){res.status(500).json({error:'Workflow scheduler tick failed'});}});
+  app.post('/api/internal/business/workflows/tick',async(req,res)=>{
+    const secret=process.env.BUSINESS_WORKFLOW_CRON_SECRET?.trim();
+    if(!secret||req.get('authorization')!=='Bearer '+secret)return res.status(404).json({error:'Not found'});
+    try{
+      const result=await runWorkflowTick();
+      if(result.skipped==='database_unavailable')return res.status(503).json({error:'Database unavailable'});
+      if(result.skipped==='already_running')return res.status(409).json({error:'Workflow tick already running'});
+      return res.json({ok:true});
+    }catch{
+      return res.status(500).json({error:'Workflow scheduler tick failed'});
+    }
+  });
 
 }
