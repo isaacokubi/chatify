@@ -16,6 +16,7 @@ import {isValidEncryptedPayload} from './e2ee.js';
 import {randomBytes} from 'node:crypto';
 import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback,resolveNodeEnv,requireProductionMongoUri} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials,createShutdownHandler} from './lifecycle.js';
 import {registerBusinessRoutes} from './business.js';
+import {registerAdminBackupRoutes} from './admin-backups.js';
 import {MAX_NOTIFICATION_ATTEMPTS,notificationRetryDelayMs,notificationExpiryDate} from './notification-queue.js';
 import {registerBusinessPosRoutes} from './business-pos.js';
 import {registerBusinessEnterpriseRoutes} from './business-enterprise.js';
@@ -129,6 +130,7 @@ const revokeUserSockets=userId=>io.in('user:'+String(userId)).disconnectSockets(
 // Register Business routes only after auth and Socket.IO exist. Registering earlier hits
 // JavaScript's temporal-dead-zone for these const bindings and prevents the API from booting.
 registerBusinessRoutes({app,auth,mongoose,User,Conversation,Payment,io,mpesaProvider,platformFeeCollector});
+registerAdminBackupRoutes({app,auth,requireAdmin});
 // In-person merchant checkout routes depend on the organization model created above.
 registerBusinessPosRoutes({app,auth,mongoose,mpesaProvider,platformFeeCollector});
 // Register additional enterprise tools only after the core Business models and auth are available.
