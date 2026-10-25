@@ -61,3 +61,28 @@ Use an isolated database and non-production API. Follow [M-PESA-DEPLOYMENT.md](M
 ## MongoDB API integration scenarios
 
 Executed in the final full suite with `CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify npm test`. The URI was restricted in test code to a loopback MongoDB server at port 27018 and a disposable Chatify database. The container had no persistent volume and used synthetic identities only. Actual route assertions cover platform STK callbacks, school fee callbacks and receipt/balance lookup, merchant POS STK callbacks, POS C2B confirmation, owner/parent school authorization, and scoped contact/memory/Spark deletes. Callback contents were synthetic fixtures; provider authenticity is not inferred.
+
+
+## Recorded manual sandbox acceptance — 2026-10-25 (latest evidence)
+
+This section records the successful controlled test reported and verified in the Codex work session, and supersedes earlier statements in this file that said no STK request had ever been completed. During that successful test:
+
+- A Daraja sandbox STK prompt arrived on the test phone.
+- The user entered the payment PIN and completed a **KSh 1** sandbox payment.
+- Daraja's result was success (result code `0`).
+- Chatify processed the provider callback; the stored confirmation source was `provider_callback`.
+- The payment status was updated and persisted as `SUCCESS`, and a provider receipt was present.
+- Recorded transaction reference: `a3c55d8d-836e-4e5c-ab86-3e527b5f1372`.
+
+**Conclusion:** one end-to-end Daraja **sandbox** payment is confirmed, including prompt delivery, user completion, callback processing and persisted terminal status. This is stronger evidence than OAuth or mocked callback tests alone. It does not establish production-mode credentials/approval, live-money settlement, or separate end-to-end acceptance for every school fee, merchant POS, C2B or QR flow.
+
+The later disposable MongoDB acceptance run also passed payment callback, school fee receipt/balance and scoped deletion assertions using synthetic test callbacks. During that run, a separate `stk_transport` failure was logged while testing an error path; the suite still passed. Treat this as a distinct failed/uncertain attempt, not as evidence that the successful KSh 1 transaction failed. For transport/ambiguous outcomes, Chatify must retain a pending/review state and avoid automatically sending a duplicate STK prompt.
+
+| Gate | Latest status | Evidence boundary |
+|---|---|---|
+| Daraja sandbox OAuth | PASS | Sandbox authentication had returned HTTP 200 in the earlier redacted check. |
+| Sandbox STK prompt and payment | **PASS — one KSh 1 test** | User received prompt and completed payment. |
+| Provider callback and persisted success | **PASS — recorded transaction** | Result code 0, `provider_callback`, persisted `SUCCESS`, provider receipt present. |
+| Automated callback/fee/receipt/balance integration | PASS | Disposable MongoDB test with synthetic callbacks; separate from the manual provider transaction. |
+| Live production M-Pesa settlement | NOT VERIFIED | No production-mode transaction is claimed. |
+| All school/POS/C2B/QR provider paths | NOT VERIFIED end to end | Each has separate configuration and acceptance requirements. |
