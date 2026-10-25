@@ -145,3 +145,10 @@ Automated CI does not prove successful live Safaricom Daraja delivery, productio
 Passwords are bcrypt-hashed. JWTs protect REST and Socket.IO. Server-side membership/admin checks protect conversations and groups. Helmet, CORS and rate limiting are enabled. Secrets are excluded by Git ignore rules. New text-message bodies are encrypted on the client, but legacy messages, attachments, Memory Cards, multi-device recovery and forward secrecy are not yet covered; do not claim the whole system is fully end-to-end encrypted. Message expiration is application-level removal/hiding and is not cryptographic secure deletion. See [docs/E2EE.md](docs/E2EE.md) for the threat model and production gates.
 
 See docs/ for the defense-oriented architecture, API, database, development, security and demo notes.
+
+
+## Daraja sandbox end-to-end acceptance — 2026-10-25
+
+A controlled **KSh 1 Daraja sandbox payment was completed manually**: the STK prompt reached the test phone, the payer completed the prompt, Daraja returned success (result code `0`), the authenticated provider callback was processed, and Chatify persisted the payment as `SUCCESS` with a provider receipt. The recorded confirmation source was `provider_callback`. This is evidence of one successful sandbox end-to-end payment, not proof of production-mode settlement or that every school/POS payment path has independently passed a live-provider test.
+
+Automated regression checks separately passed for callback handling, idempotency, fee receipt/balance persistence and scoped deletion against a disposable MongoDB database. A later test run also logged a separate `stk_transport` failure while exercising a failure scenario; that does not invalidate the earlier successful transaction, but transport failures must continue to leave uncertain payments pending/reviewable rather than falsely mark them paid. See [M-Pesa testing evidence](docs/M-PESA_TESTING.md) and [test results](docs/TEST_RESULTS.md) for scope and limitations.
