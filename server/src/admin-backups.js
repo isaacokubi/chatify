@@ -2,7 +2,7 @@
 // configured non-production target; the application never restores over its live database.
 import {execFile as execFileCallback} from 'node:child_process';
 import {promisify} from 'node:util';
-import {readdir,stat,readFile} from 'node:fs/promises';
+import {readdir,stat} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
