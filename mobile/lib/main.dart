@@ -4944,6 +4944,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
               if (section == _AdminSection.billing) {
                 loadWorkspaceBillingSettings();
                 loadWorkspaceBillingRows();
+                loadBackups();
               }
 
             },
