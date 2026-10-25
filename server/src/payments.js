@@ -1,7 +1,16 @@
-import {randomUUID} from 'node:crypto';
+import {randomUUID, timingSafeEqual} from 'node:crypto';
 import {isIP} from 'node:net';
 
 export const PAYMENT_STATUSES = Object.freeze(['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED']);
+
+// Only failures known to occur before a prompt can exist are retryable. Treat any
+// unclassified failure as uncertain so callers never accidentally create a second charge.
+export function classifyStkInitiationFailure(stage) {
+  if (['oauth_transport','oauth_auth','stk_rejected','stk_validation'].includes(String(stage || ''))) {
+    return 'DEFINITIVE_FAILURE';
+  }
+  return 'REQUIRES_REVIEW';
+}
 export const MAX_PAYMENT_AMOUNT = 150000;
 export function calculatePaymentTotal(amount) {
   if (!Number.isSafeInteger(amount) || amount < 1 || amount > MAX_PAYMENT_AMOUNT) {
@@ -18,6 +27,28 @@ export function normalizeMpesaPhone(value) {
   if (/^0[17]\d{8}$/.test(digits)) return `254${digits.slice(1)}`;
   if (/^\+?254[17]\d{8}$/.test(digits)) return digits.replace(/^\+/, '');
   return null;
+}
+
+export function isValidDarajaCallbackToken(supplied, expected) {
+  if (typeof supplied !== 'string' || typeof expected !== 'string') return false;
+  const expectedBytes = Buffer.from(expected, 'utf8');
+  const suppliedBytes = Buffer.from(supplied, 'utf8');
+  return expectedBytes.length >= 32 && suppliedBytes.length === expectedBytes.length &&
+    timingSafeEqual(suppliedBytes, expectedBytes);
+}
+
+export function validateDarajaCallbackConfiguration(callbackUrl, token) {
+  if (typeof token !== 'string' || Buffer.byteLength(token, 'utf8') < 32) {
+    throw new Error('A Daraja callback token of at least 32 characters is required');
+  }
+  let callback;
+  try { callback = new URL(callbackUrl); } catch {
+    throw new Error('Daraja callback URL must include its configured callback token');
+  }
+  const expectedPath = `/api/payments/daraja/callback/${token}`;
+  if (callback.pathname !== expectedPath) {
+    throw new Error('Daraja callback URL must end with the configured authenticated callback path');
+  }
 }
 
 export function buildPaymentRetryFields(previous, provider, requestedAt = new Date()) {
@@ -71,7 +102,7 @@ export function createMockMpesaProvider() {
   };
 }
 
-export function createDarajaProvider(config = {}, transport = globalThis.fetch) {
+export function createDarajaProvider(config = {}, transport = globalThis.fetch, clock = Date.now) {
   const mode = config.mode || 'sandbox';
   if (!['sandbox', 'production'].includes(mode)) throw new Error('Invalid Daraja environment');
   const required = ['consumerKey', 'consumerSecret', 'shortcode', 'passkey', 'callbackUrl'];
@@ -84,13 +115,14 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
   const reservedHost=['localhost','local','internal','test','example','invalid','lan'].some(suffix=>hostname===suffix||hostname.endsWith(`.${suffix}`));
   if (callback.protocol !== 'https:' || callback.username || callback.password || isIP(hostname) || !hostname.includes('.') || reservedHost) throw new Error('Daraja callback URL must be a public HTTPS URL');
   if (typeof transport !== 'function') throw new Error('HTTP transport is unavailable');
+  if (typeof clock !== 'function') throw new Error('Clock is unavailable');
   const host = mode === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke';
   const type = config.transactionType || 'CustomerPayBillOnline';
   if (!['CustomerPayBillOnline', 'CustomerBuyGoodsOnline'].includes(type)) throw new Error('Invalid Daraja transaction type');
   let cachedToken;
   let tokenExpiry = 0;
   async function token() {
-    if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
+    if (cachedToken && clock() < tokenExpiry) return cachedToken;
     const basic = Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64');
     let response;
     try {
@@ -105,12 +137,13 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
       throw Object.assign(new Error('Daraja authentication failed'), {stage: 'oauth_auth'});
     }
     cachedToken = data.access_token;
-    tokenExpiry = Date.now() + Math.max(0, Number(data.expires_in || 0) - 30) * 1000;
+    tokenExpiry = clock() + Math.max(0, Number(data.expires_in || 0) - 30) * 1000;
     return cachedToken;
   }
   return {
     name: `daraja-${mode}`,
     isMock: false,
+    shortcode: config.shortcode,
     // Dynamic QR creates a Safaricom-readable Buy Goods/Paybill QR for the actual
     // merchant shortcode. Merchant numbers are data, never platform credentials.
     async generateDynamicQr({merchantName, reference, amount, shortcode, transactionCode}) {
@@ -165,11 +198,54 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch) 
       } catch {
         throw Object.assign(new Error('Daraja STK network request failed'), {stage: 'stk_transport'});
       }
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.ResponseCode !== '0' || !data.CheckoutRequestID || !data.MerchantRequestID) {
+      const data = await response.json().catch(() => null);
+      if (data && typeof data === 'object' && !Array.isArray(data) && data.ResponseCode !== '0' && data.ResponseCode != null) {
         throw Object.assign(new Error('Daraja rejected the STK request'), {stage: 'stk_rejected'});
       }
+      if (!response.ok || !data || typeof data !== 'object' || Array.isArray(data) ||
+          !data.CheckoutRequestID || !data.MerchantRequestID) {
+        // A timeout, malformed response or accepted response without identifiers does
+        // not establish whether Safaricom created a prompt. Callers must leave it pending
+        // and block a duplicate initiation until an operator reconciles it.
+        throw Object.assign(new Error('Daraja STK response did not establish the checkout outcome'), {stage:'stk_response'});
+      }
       return {checkoutRequestId: data.CheckoutRequestID, merchantRequestId: data.MerchantRequestID};
+    },
+    async queryStatus({checkoutRequestId, now = new Date()}) {
+      if (typeof checkoutRequestId !== 'string' || !checkoutRequestId.trim() || checkoutRequestId.length > 100) {
+        throw Object.assign(new Error('A valid Daraja CheckoutRequestID is required'), {stage:'query_validation'});
+      }
+      const timestamp = darajaTimestamp(now);
+      const password = Buffer.from(`${config.shortcode}${config.passkey}${timestamp}`).toString('base64');
+      const accessToken = await token();
+      let response;
+      try {
+        response = await transport(`${host}/mpesa/stkpushquery/v1/query`, {
+          method:'POST',
+          headers:{Authorization:`Bearer ${accessToken}`, 'Content-Type':'application/json'},
+          body:JSON.stringify({BusinessShortCode:config.shortcode, Password:password, Timestamp:timestamp, CheckoutRequestID:checkoutRequestId}),
+          signal:AbortSignal.timeout(15000),
+        });
+      } catch {
+        throw Object.assign(new Error('Daraja STK status query network request failed'), {stage:'query_transport'});
+      }
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || typeof data !== 'object' || Array.isArray(data)) {
+        throw Object.assign(new Error('Daraja STK status query returned an invalid response'), {stage:'query_response'});
+      }
+      if (data.CheckoutRequestID && data.CheckoutRequestID !== checkoutRequestId) {
+        throw Object.assign(new Error('Daraja status query response did not match the original checkout'), {stage:'query_mismatch'});
+      }
+      if (data.ResponseCode !== '0' || typeof data.ResultCode !== 'string' && typeof data.ResultCode !== 'number' || !/^-?\d+$/.test(String(data.ResultCode))) {
+        return {state:'PENDING', description:'Daraja has not returned a definitive STK result'};
+      }
+      const code = Number(data.ResultCode);
+      // A status query normally omits the callback metadata (amount, phone and receipt).
+      // Even ResultCode 0 is not enough to issue a receipt; retain pending until callback
+      // evidence or an authorized human reconciliation supplies the actual receipt.
+      if (code === 0) return {state:'SUCCESS_EVIDENCE_INCOMPLETE', resultCode:code, description:String(data.ResultDesc || '').slice(0,160)};
+      if (code === 1032) return {state:'CANCELLED', resultCode:code, description:String(data.ResultDesc || '').slice(0,160)};
+      return {state:'FAILED', resultCode:code, description:String(data.ResultDesc || '').slice(0,160)};
     },
   };
 }
@@ -185,11 +261,21 @@ export function resolveMpesaProvider(env = process.env, transport) {
   }
   if (mode === 'mock') return createMockMpesaProvider();
   if (mode !== 'sandbox' && mode !== 'production') throw new Error('MPESA_ENV must be mock, sandbox, or production');
-  return createDarajaProvider({
+  const callbackUrl = env.MPESA_CALLBACK_URL;
+  try { validateDarajaCallbackConfiguration(callbackUrl, env.MPESA_CALLBACK_TOKEN); }
+  catch (error) { throw new Error(`Invalid Daraja callback configuration: ${error.message}. Set MPESA_CALLBACK_TOKEN (at least 32 random characters) and MPESA_CALLBACK_URL to the matching /api/payments/daraja/callback/<token> HTTPS route.`); }
+  const provider = createDarajaProvider({
     mode, consumerKey:env.MPESA_CONSUMER_KEY, consumerSecret:env.MPESA_CONSUMER_SECRET,
-    shortcode:env.MPESA_SHORTCODE, passkey:env.MPESA_PASSKEY, callbackUrl:env.MPESA_CALLBACK_URL,
+    shortcode:env.MPESA_SHORTCODE, passkey:env.MPESA_PASSKEY, callbackUrl,
     transactionType:env.MPESA_TRANSACTION_TYPE,
   }, transport);
+  return provider;
+}
+
+export function reconciliationRetryAt(attempt, now = new Date()) {
+  const delays = [60_000, 120_000, 240_000, 480_000, 960_000];
+  const index = Math.max(0, Math.min(delays.length - 1, Number(attempt) - 1));
+  return new Date(now.getTime() + delays[index]);
 }
 
 export const newPaymentId = () => randomUUID();
@@ -225,6 +311,30 @@ export function resolveCallbackOutcome(callback, payment) {
     if (!/^[A-Z0-9]{6,40}$/.test(receipt)) return {error:'malformed'};
   }
   return {resultCode:code,status:code === 0 ? 'SUCCESS' : code === 1032 ? 'CANCELLED' : 'FAILED',description:String(callback.ResultDesc || '').slice(0,160),...(receipt?{receipt}:{})};
+}
+
+// Shared compare-and-set payload for the HTTP route and deterministic callback
+// simulations. STK acceptance never changes a payment out of PENDING.
+export function buildDarajaPaymentTransition(payment, callback, now = new Date()) {
+  if (!canTransitionPayment(payment?.status, payment?.callbackProcessedAt)) {
+    return {duplicate: true};
+  }
+  const outcome = resolveCallbackOutcome(callback, payment);
+  // Keep the structured outcome available to the route as well as exposing a
+  // concise error field for callers that only need to branch on validity.
+  if (outcome.error) return {error: outcome.error, outcome};
+  return {
+    outcome,
+    update: {$set: {
+      status: outcome.status,
+      resultCode: outcome.resultCode,
+      resultDescription: outcome.description,
+      ...(outcome.receipt ? {providerReceipt: outcome.receipt} : {}),
+      completedAt: now,
+      callbackProcessedAt: now,
+      ...(payment.platformFee ? {platformFeeStatus: outcome.status === 'SUCCESS' ? 'PENDING_SETTLEMENT' : 'FAILED'} : {}),
+    }},
+  };
 }
 
 export const canTransitionPayment = (status, callbackProcessedAt) => status === 'PENDING' && !callbackProcessedAt;

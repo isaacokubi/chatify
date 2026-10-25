@@ -18,7 +18,7 @@ test('mock mode needs no Daraja credentials and clearly identifies itself', asyn
   assert.equal(provider.isMock, true);
   assert.match((await provider.initiate({paymentId:'payment-123'})).checkoutRequestId, /^MOCK-/);
   assert.throws(() => resolveMpesaProvider({NODE_ENV:'production'}), /explicit MPESA_ENV=mock for a demo or MPESA_ENV=production/);
-  assert.throws(() => resolveMpesaProvider({NODE_ENV:'production',MPESA_ENV:'production'}), /credentials and callback URL/);
+  assert.throws(() => resolveMpesaProvider({NODE_ENV:'production',MPESA_ENV:'production'}), /Invalid Daraja callback configuration.*MPESA_CALLBACK_TOKEN.*MPESA_CALLBACK_URL/);
 });
 
 test('Daraja rejects loopback, private IP literals and reserved callback hosts', () => {

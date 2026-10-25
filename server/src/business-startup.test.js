@@ -8,6 +8,9 @@ process.env.NODE_ENV = 'test';
 process.env.PORT = '0';
 process.env.MONGODB_URI = '';
 process.env.JWT_SECRET = 'business-startup-regression-test-secret';
+process.env.MPESA_ENV = 'mock';
+process.env.MPESA_CALLBACK_TOKEN = 'platform-callback-test-token-0123456789abcdef';
+process.env.SCHOOL_DARAJA_CALLBACK_TOKEN = 'school-callback-test-token-0123456789abcdef';
 
 const {server, shutdown} = await import('./index.js');
 
@@ -59,6 +62,23 @@ test('API boots and Business endpoints return JSON auth errors', {timeout: 30000
   assert.equal(enterpriseResponse.status, 401);
   assert.match(enterpriseResponse.headers.get('content-type') || '', /application\/json/i);
   assert.deepEqual(await enterpriseResponse.json(), {error: 'Authentication required'});
+
+  // Daraja callback request IDs and amounts are not source authentication.
+  // Both routes must reject a caller that does not know the configured URL token
+  // before touching transaction state or requiring a database connection.
+  const forgedCallback = {
+    Body: {stkCallback: {CheckoutRequestID: 'known-checkout', MerchantRequestID: 'known-merchant', ResultCode: 0}},
+  };
+  const paymentCallback = await fetch(`${base}/api/payments/daraja/callback/wrong-token`, {
+    method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(forgedCallback),
+  });
+  assert.equal(paymentCallback.status, 404);
+  assert.deepEqual(await paymentCallback.json(), {error: 'Not found'});
+  const schoolCallback = await fetch(`${base}/api/schools/daraja/callback/wrong-token`, {
+    method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(forgedCallback),
+  });
+  assert.equal(schoolCallback.status, 404);
+  assert.deepEqual(await schoolCallback.json(), {error: 'Not found'});
 
   // Exercise the same idempotent graceful-shutdown path used for SIGTERM.
   await shutdown();

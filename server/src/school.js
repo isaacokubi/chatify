@@ -2,7 +2,7 @@
 // All school records are scoped to the authenticated user's school membership.
 // A fee receipt is available only after an authorized staff member verifies payment.
 import { randomUUID, randomBytes, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
-import { createDarajaProvider, normalizeMpesaPhone, resolveCallbackOutcome } from './payments.js';
+import { createDarajaProvider, isValidDarajaCallbackToken, normalizeMpesaPhone, resolveCallbackOutcome, reconciliationRetryAt } from './payments.js';
 import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
 import {normalizeFeeStructureInput, calculateSchoolFeeBalance} from './school-fees.js';
 
@@ -41,7 +41,7 @@ export function schoolPaymentMethodLabel(method) {
 
 function renderSchoolReceipt(school, payment) {
   const esc = escapeReceipt;
-  const method = schoolPaymentMethodLabel(payment.paymentMethod || payment.method || school?.paymentProfile?.method) || 'Not recorded';
+  const method = schoolPaymentMethodLabel(payment.paymentMethod || payment.method) || 'Not recorded';
   const stamp = typeof school?.receiptStampDataUrl === 'string' &&
     /^data:image\/jpeg;base64,[A-Za-z0-9+/=\r\n]+$/.test(school.receiptStampDataUrl)
     ? '<img class="stamp" alt="School official stamp" src="' + school.receiptStampDataUrl + '">'
@@ -49,12 +49,16 @@ function renderSchoolReceipt(school, payment) {
   const amount = Number(payment.amount);
   const money = Number.isFinite(amount) ? amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
   const verified = payment.verifiedAt ? new Date(payment.verifiedAt).toLocaleString('en-KE') : 'Recorded by school';
-  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Official school fee receipt</title><style>*{box-sizing:border-box}body{font:15px/1.6 "Trebuchet MS",Arial,Helvetica,sans-serif;max-width:760px;margin:28px auto;padding:20px;color:#102b46;background:#eaf0f7}.receipt{background:#fff;border:3px solid #173b60;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px #102a4320}.brand{padding:28px 30px;background:linear-gradient(120deg,#102b46,#1d5274);color:#fff;border-bottom:8px solid #16a085}.brand h1{font-size:27px;font-weight:800;letter-spacing:.3px;margin:0 0 5px}.brand p{margin:0;color:#e1f3ff;font-size:12px;text-transform:uppercase;letter-spacing:1.6px;font-weight:700}.body{padding:26px 30px}.title{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.title h2{margin:0;font-size:20px}.status{background:#e5f7ef;color:#17684f;border-radius:20px;padding:5px 11px;font-size:11px;font-weight:bold;white-space:nowrap}.amount{background:#eaf5ff;border:2px solid #8dbce2;border-left:8px solid #167d9a;border-radius:8px;padding:17px 18px;margin:20px 0}.amount small{display:block;color:#58708d;text-transform:uppercase;font-size:11px;font-weight:bold;letter-spacing:1px}.amount strong{display:block;font-size:29px;color:#12345a;margin-top:4px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px;margin:20px 0}.field{border:0;border-bottom:2px solid #d9e4ee;padding:0 0 11px;min-width:0}.field:nth-child(5){background:#e7f7f2;border:2px solid #159a80;border-radius:7px;padding:10px}.field:nth-child(8){background:#fff5df;border:2px solid #d99b26;border-radius:7px;padding:10px}.field span{display:block;color:#6b7c93;font-size:11px;text-transform:uppercase;letter-spacing:.65px;font-weight:bold}.field strong{display:block;margin-top:5px;overflow-wrap:anywhere;font-size:15px;font-weight:800;color:#102b46}.footer{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;border-top:3px solid #173b60;padding-top:18px;margin-top:24px}.fine{font-size:11px;color:#6b7c93;max-width:60%}.stamp{display:block;max-width:150px;max-height:100px;object-fit:contain;opacity:.93}.actions{padding:0 30px 26px}button{background:#12345a;color:#fff;border:0;border-radius:8px;padding:11px 18px;font-weight:bold;cursor:pointer}@media(max-width:560px){body{padding:8px;margin:8px auto}.body,.brand{padding:20px}.grid{grid-template-columns:1fr}.title{align-items:flex-start;flex-direction:column}.footer{align-items:flex-start;flex-direction:column}.fine{max-width:100%}}@media print{body{margin:0;padding:0;background:#fff}.receipt{box-shadow:none;border-radius:0}.actions{display:none}}</style></head><body><main class="receipt"><header class="brand"><h1>' + esc(school?.name || 'School') + '</h1><p>Official school fee receipt</p></header><section class="body"><div class="title"><h2>Payment confirmation</h2><span class="status">PAYMENT CONFIRMED</span></div><p>This receipt confirms that the school has recorded the payment details below.</p><div class="amount"><small>Amount received</small><strong>KSh ' + esc(money) + '</strong></div><div class="grid"><div class="field"><span>Official receipt number</span><strong>' + esc(payment.mpesaReceipt || 'Not supplied') + '</strong></div><div class="field"><span>Chatify payment reference</span><strong>' + esc(payment.paymentReference || '—') + '</strong></div><div class="field"><span>Student name</span><strong>' + esc(payment.studentName || '—') + '</strong></div><div class="field"><span>Term / fee period</span><strong>' + esc(payment.term || '—') + '</strong></div><div class="field"><span>Payment method</span><strong>' + esc(method) + '</strong></div><div class="field"><span>Date verified</span><strong>' + esc(verified) + '</strong></div><div class="field"><span>Total term charge</span><strong>' + (Number.isSafeInteger(payment.chargeAmount) ? 'KSh ' + esc(Number(payment.chargeAmount).toLocaleString('en-KE')) : 'Refer to the school fee statement') + '</strong></div><div class="field"><span>Remaining balance</span><strong>' + (Number.isSafeInteger(payment.balance) ? 'KSh ' + esc(Number(payment.balance).toLocaleString('en-KE')) : 'Refer to the school fee statement') + '</strong></div></div><div class="footer"><div class="fine">Please retain this receipt for your records. For payment enquiries, quote the Chatify payment reference. Generated by Chatify; payment verification remains the responsibility of the school.</div>' + stamp + '</div></section><div class="actions"><button onclick="window.print()">Print / Save as PDF</button></div></main></body></html>';
+  const verificationLabel = payment.confirmationSource === 'manual_review' ? 'MANUALLY REVIEWED' : 'PROVIDER CALLBACK VERIFIED';
+  const verificationText = payment.confirmationSource === 'manual_review' ? 'The school manually reviewed the transaction evidence and recorded this payment. This is not a Safaricom callback confirmation.' : 'This payment was confirmed from a validated provider callback.';
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Official school fee receipt</title><style>*{box-sizing:border-box}body{font:15px/1.6 "Trebuchet MS",Arial,Helvetica,sans-serif;max-width:760px;margin:28px auto;padding:20px;color:#102b46;background:#eaf0f7}.receipt{background:#fff;border:3px solid #173b60;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px #102a4320}.brand{padding:28px 30px;background:linear-gradient(120deg,#102b46,#1d5274);color:#fff;border-bottom:8px solid #16a085}.brand h1{font-size:27px;font-weight:800;letter-spacing:.3px;margin:0 0 5px}.brand p{margin:0;color:#e1f3ff;font-size:12px;text-transform:uppercase;letter-spacing:1.6px;font-weight:700}.body{padding:26px 30px}.title{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.title h2{margin:0;font-size:20px}.status{background:#e5f7ef;color:#17684f;border-radius:20px;padding:5px 11px;font-size:11px;font-weight:bold;white-space:nowrap}.amount{background:#eaf5ff;border:2px solid #8dbce2;border-left:8px solid #167d9a;border-radius:8px;padding:17px 18px;margin:20px 0}.amount small{display:block;color:#58708d;text-transform:uppercase;font-size:11px;font-weight:bold;letter-spacing:1px}.amount strong{display:block;font-size:29px;color:#12345a;margin-top:4px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px;margin:20px 0}.field{border:0;border-bottom:2px solid #d9e4ee;padding:0 0 11px;min-width:0}.field:nth-child(5){background:#e7f7f2;border:2px solid #159a80;border-radius:7px;padding:10px}.field:nth-child(8){background:#fff5df;border:2px solid #d99b26;border-radius:7px;padding:10px}.field span{display:block;color:#6b7c93;font-size:11px;text-transform:uppercase;letter-spacing:.65px;font-weight:bold}.field strong{display:block;margin-top:5px;overflow-wrap:anywhere;font-size:15px;font-weight:800;color:#102b46}.footer{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;border-top:3px solid #173b60;padding-top:18px;margin-top:24px}.fine{font-size:11px;color:#6b7c93;max-width:60%}.stamp{display:block;max-width:150px;max-height:100px;object-fit:contain;opacity:.93}.actions{padding:0 30px 26px}button{background:#12345a;color:#fff;border:0;border-radius:8px;padding:11px 18px;font-weight:bold;cursor:pointer}@media(max-width:560px){body{padding:8px;margin:8px auto}.body,.brand{padding:20px}.grid{grid-template-columns:1fr}.title{align-items:flex-start;flex-direction:column}.footer{align-items:flex-start;flex-direction:column}.fine{max-width:100%}}@media print{body{margin:0;padding:0;background:#fff}.receipt{box-shadow:none;border-radius:0}.actions{display:none}}</style></head><body><main class="receipt"><header class="brand"><h1>' + esc(school?.name || 'School') + '</h1><p>Official school fee receipt</p></header><section class="body"><div class="title"><h2>Payment recorded</h2><span class="status">' + esc(verificationLabel) + '</span></div><p>' + esc(verificationText) + '</p><div class="amount"><small>Amount received</small><strong>KSh ' + esc(money) + '</strong></div><div class="grid"><div class="field"><span>Official receipt number</span><strong>' + esc(payment.mpesaReceipt || 'Not supplied') + '</strong></div><div class="field"><span>Chatify payment reference</span><strong>' + esc(payment.paymentReference || '—') + '</strong></div><div class="field"><span>Student name</span><strong>' + esc(payment.studentName || '—') + '</strong></div><div class="field"><span>Term / fee period</span><strong>' + esc(payment.term || '—') + '</strong></div><div class="field"><span>Payment method</span><strong>' + esc(method) + '</strong></div><div class="field"><span>Date verified</span><strong>' + esc(verified) + '</strong></div><div class="field"><span>Total term charge</span><strong>' + (Number.isSafeInteger(payment.chargeAmount) ? 'KSh ' + esc(Number(payment.chargeAmount).toLocaleString('en-KE')) : 'Refer to the school fee statement') + '</strong></div><div class="field"><span>Remaining balance</span><strong>' + (Number.isSafeInteger(payment.balance) ? 'KSh ' + esc(Number(payment.balance).toLocaleString('en-KE')) : 'Refer to the school fee statement') + '</strong></div></div><div class="footer"><div class="fine">Please retain this receipt for your records. For payment enquiries, quote the Chatify payment reference. Generated by Chatify; payment verification remains the responsibility of the school.</div>' + stamp + '</div></section><div class="actions"><button onclick="window.print()">Print / Save as PDF</button></div></main></body></html>';
 }
-function schoolCallbackUrl() {
+export function schoolCallbackUrl() {
   const base = String(process.env.PUBLIC_API_URL || process.env.API_URL || '').trim();
   if (!base) throw new Error('Set PUBLIC_API_URL or API_URL to the public HTTPS API URL before enabling school M-Pesa');
-  const url = new URL('/api/schools/daraja/callback', base.replace(/\/$/, ''));
+  const token = String(process.env.SCHOOL_DARAJA_CALLBACK_TOKEN || '').trim();
+  if (Buffer.byteLength(token, 'utf8') < 32) throw new Error('Set SCHOOL_DARAJA_CALLBACK_TOKEN to at least 32 random characters before enabling school M-Pesa');
+  const url = new URL('/api/schools/daraja/callback/' + encodeURIComponent(token), base.replace(/\/$/, ''));
   if (url.protocol !== 'https:') throw new Error('School M-Pesa callback URL must be public HTTPS');
   return url.toString();
 }
@@ -176,15 +180,23 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     paymentMethod: { type: String, enum: ['mpesa_paybill','mpesa_till','mpesa_send_money','bank'] },
     destinationNumber: { type: String, trim: true },
     payerPhone: { type: String, trim: true },
+    initiationUncertainAt: Date,
     checkoutRequestId: { type: String, sparse: true, index: true },
     merchantRequestId: { type: String },
     callbackProcessedAt: Date,
+    confirmationSource: { type: String, enum: ['provider_callback','manual_review'] },
+    manualVerificationDetails: { type: mongoose.Schema.Types.Mixed, select: false },
+    reconciliationAttempts: { type: Number, default: 0 },
+    reconciliationClaimedAt: Date,
+    nextReconciliationAt: Date,
+    reconciliationHistory: { type: [mongoose.Schema.Types.Mixed], default: [] },
     receiptHtml: { type: String, select: false },
     receiptEmailSentTo: { type: [String], default: [] },
     receiptEmailLastError: String,
     mpesaReceipt: { type: String, trim: true, uppercase: true, maxlength: 40 },
     verifiedBy: O,
     verifiedAt: Date,
+    receiptEmailClaimedAt: Date,
   }, { timestamps: true }));
   const SchoolDonation = model('SchoolDonation', new mongoose.Schema({
     paymentReference: { type: String, required: true, unique: true, index: true },
@@ -199,6 +211,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     merchantRequestId: String,
     mpesaReceipt: { type: String, trim: true, uppercase: true, maxlength: 40 },
     callbackProcessedAt: Date,
+    reconciliationHistory: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    initiationUncertainAt: Date,
   }, { timestamps: true }));
   SchoolDonation.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
   FeePayment.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
@@ -263,6 +277,59 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     transferredOutBy: { type: O, ref: 'User' },
   }, { timestamps: true }));
   SchoolStudent.schema.index({ schoolId: 1, admissionNumber: 1 }, { unique: true });
+
+  async function deliverSchoolReceipt(paymentId) {
+    const payment = await FeePayment.findById(paymentId).select('+receiptHtml');
+    if (!payment || payment.status !== 'CONFIRMED') {
+      return { sent: false, reason: 'payment_not_confirmed' };
+    }
+    const student = await SchoolStudent.findOne({
+      schoolId: payment.schoolId,
+      $expr: { $eq: [{ $toLower: '$fullName' }, String(payment.studentName || '').trim().toLowerCase()] },
+    }).select('guardianEmail').lean();
+    const parent = await User.findById(payment.parentId).select('email').lean();
+    const email = String(student?.guardianEmail || parent?.email || '').trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      return { sent: false, reason: 'recipient_unavailable' };
+    }
+    if ((payment.receiptEmailSentTo || []).includes(email)) return { sent: true, duplicate: true };
+    const claimedAt=new Date();
+    const claim=await FeePayment.updateOne({_id:payment._id,status:'CONFIRMED',receiptEmailSentTo:{$ne:email},$or:[{receiptEmailClaimedAt:{$exists:false}},{receiptEmailClaimedAt:{$lt:new Date(claimedAt.getTime()-120000)}}]},{$set:{receiptEmailClaimedAt:claimedAt}});
+    if(claim.modifiedCount!==1){
+      const latest=await FeePayment.findById(payment._id).select('receiptEmailSentTo').lean();
+      return (latest?.receiptEmailSentTo||[]).includes(email)?{sent:true,duplicate:true}:{sent:false,reason:'delivery_in_progress'};
+    }
+    const school = await School.findById(payment.schoolId)
+      .select('name code paymentProfile.method +receiptStampDataUrl').lean();
+    const receiptHtml = payment.receiptHtml || renderSchoolReceipt(school, payment);
+    try {
+      const result = await emailProvider.sendSchoolFeeReceipt({
+        email,
+        schoolName: school?.name || 'School',
+        studentName: payment.studentName,
+        term: payment.term,
+        amount: payment.amount,
+        receiptNumber: payment.mpesaReceipt || payment.paymentReference,
+        paymentReference: payment.paymentReference,
+        receiptHtml,
+      });
+      if (result?.sent !== true) {
+        await FeePayment.updateOne({_id:payment._id,status:'CONFIRMED',receiptEmailClaimedAt:claimedAt},{$unset:{receiptEmailClaimedAt:1}});
+        return result || { sent: false, reason: 'provider_unavailable' };
+      }
+      await FeePayment.updateOne(
+        { _id: payment._id, status: 'CONFIRMED', receiptEmailSentTo: { $ne: email }, receiptEmailClaimedAt: claimedAt },
+        { $addToSet: { receiptEmailSentTo: email }, $unset: { receiptEmailLastError: 1, receiptEmailClaimedAt: 1 } },
+      );
+      return { sent: true };
+    } catch (error) {
+      await FeePayment.updateOne({ _id: payment._id, status: 'CONFIRMED', receiptEmailClaimedAt: claimedAt }, {
+        $set: { receiptEmailLastError: String(error?.message || 'Receipt email delivery failed').slice(0, 240) },
+        $unset: { receiptEmailClaimedAt: 1 },
+      });
+      return { sent: false, reason: 'delivery_failed' };
+    }
+  }
 
   const SchoolAttendance = model('SchoolAttendance', new mongoose.Schema({
     schoolId: { type: O, required: true, index: true },
@@ -909,6 +976,47 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     }
   });
 
+  // Class changes are recorded per learner and guarded by a conditional update,
+  // so concurrent retries cannot append the same academic-year promotion twice.
+  app.post('/api/schools/:schoolId/students/promote-class', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      const fromClass = String(req.body?.fromClass || '').trim();
+      const toClass = String(req.body?.toClass || '').trim();
+      const academicYear = String(req.body?.academicYear || '').trim();
+      if (!fromClass || fromClass.length > 80 || !toClass || toClass.length > 80 ||
+          !academicYear || academicYear.length > 40 || fromClass.toLowerCase() === toClass.toLowerCase()) {
+        return res.status(400).json({ error: 'Enter distinct valid current/next classes and an academic year' });
+      }
+      const now = new Date();
+      const result = await SchoolStudent.updateMany({
+        schoolId: req.params.schoolId,
+        active: true,
+        className: fromClass,
+        promotionHistory: { $not: { $elemMatch: { fromClass, academicYear } } },
+      }, {
+        $set: { className: toClass },
+        $push: { promotionHistory: { fromClass, toClass, academicYear, promotedAt: now, promotedBy: req.user._id } },
+      });
+      if (!result.modifiedCount) {
+        return res.status(409).json({ error: 'No eligible learners found; this class/year may already have been promoted.' });
+      }
+      return res.json({ promoted: result.modifiedCount, message: `${result.modifiedCount} learner(s) promoted to ${toClass}.` });
+    } catch (error) { return next(error); }
+  });
+
+  // Transfer is a soft archive. Financial, attendance and assessment history
+  // remains linked to the student and the record can be reviewed by an admin.
+  app.post('/api/schools/:schoolId/students/:studentId/transfer', auth, requireRole('admin'), async (req, res, next) => {
+    try {
+      if (!mongoose.isValidObjectId(req.params.studentId)) return res.status(400).json({ error: 'Invalid student record' });
+      const student = await SchoolStudent.findOneAndUpdate({
+        _id: req.params.studentId, schoolId: req.params.schoolId, active: true,
+      }, { $set: { active: false, transferredOutAt: new Date(), transferredOutBy: req.user._id } }, { new: true });
+      if (!student) return res.status(404).json({ error: 'Active student not found in this school' });
+      return res.json({ transferred: true, archived: true, id: String(student._id) });
+    } catch (error) { return next(error); }
+  });
+
   app.patch('/api/schools/:schoolId/students/:studentId', auth, requireRole('admin'), async (req, res, next) => {
     try {
       if (!mongoose.isValidObjectId(req.params.studentId)) return res.status(400).json({ error: 'Invalid student record' });
@@ -1082,11 +1190,13 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const phone = normalizeMpesaPhone(String(req.body?.phone || req.user?.phone || ''));
       if (!studentName || studentName.length > 100 || !(req.schoolMembership.studentNames || []).some(name => String(name).trim().toLowerCase() === studentName.toLowerCase())) return res.status(403).json({ error: 'Choose a student linked to your parent account' });
       // A membership name alone is not proof of enrolment: fees can be requested only for a pupil in this school's active register.
-      const registeredStudent = await SchoolStudent.findOne({
+      const matchingStudents = await SchoolStudent.find({
         schoolId: req.params.schoolId, active: true,
         $expr: { $eq: [{ $toLower: '$fullName' }, studentName.toLowerCase()] },
-      }).select('_id fullName admissionNumber className').lean();
-      if (!registeredStudent) return res.status(404).json({ error: 'This student is not in the school register yet. Contact the school office to link the correct registered pupil.' });
+      }).select('_id fullName admissionNumber className').limit(2).lean();
+      if (matchingStudents.length===0) return res.status(404).json({ error: 'This student is not in the school register yet. Contact the school office to link the correct registered pupil.' });
+      if (matchingStudents.length>1) return res.status(409).json({error:'More than one active student has this name. Ask the school office to resolve the linked student record before paying.'});
+      const registeredStudent=matchingStudents[0];
       if (!Number.isSafeInteger(amount) || amount < 1 || amount > 150000 || !term || term.length > 80) return res.status(400).json({ error: 'Enter a valid whole-KSh amount and school term' });
       const requestedAcademicYear = String(req.body?.academicYear || '').trim().slice(0, 40);
       let feeContext = { studentId: registeredStudent._id, className: registeredStudent.className, academicYear: requestedAcademicYear || 'unspecified' };
@@ -1096,7 +1206,10 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           schoolId: req.params.schoolId, className: registeredStudent.className, term, status: 'ACTIVE',
           ...(requestedAcademicYear ? { academicYear: requestedAcademicYear } : {}),
         };
-        const structure = await SchoolFeeStructure.findOne(structureFilter).sort({ version: -1 }).lean();
+        const matchingStructures=await SchoolFeeStructure.find(structureFilter).sort({academicYear:-1,version:-1}).lean();
+        const applicableYears=[...new Set(matchingStructures.map(item=>String(item.academicYear||'')))];
+        if(!requestedAcademicYear&&applicableYears.length>1)return res.status(409).json({error:'Choose the academic year for this fee payment.',academicYears:applicableYears});
+        const structure=matchingStructures[0];
         if (!structure) return res.status(409).json({ error: 'No active fee structure is configured for this student’s class and term. Ask the school administrator to configure it first.' });
         const charge = await SchoolStudentCharge.findOne({
           schoolId: req.params.schoolId, studentId: registeredStudent._id,
@@ -1124,16 +1237,20 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         }
         if (!officialPhone) return res.status(409).json({ error: 'The school has not configured a verified M-Pesa phone number for Send Money.' });
         const paymentReference = 'SCH-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
-        const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, ...feeContext, paymentMethod: requestedMethod, destinationNumber: officialPhone, status: 'PENDING_VERIFICATION' });
+        const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, ...feeContext, paymentMethod: requestedMethod, destinationNumber: officialPhone, payerPhone: phone, status: 'PENDING_VERIFICATION' });
         return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status }, paymentDestination: { method: requestedMethod, officialPhone }, note: 'Send the amount to the school’s configured M-Pesa phone using Send Money. This record remains pending until school staff verify the M-Pesa receipt.' });
       }
       if (requestedMethod !== school.paymentProfile.method) return res.status(409).json({ error: 'The selected Till, Paybill or bank destination is not configured for this school.' });
       const isMpesa = ['mpesa_paybill','mpesa_till'].includes(requestedMethod);
       if (isMpesa && !phone) return res.status(400).json({ error: 'Enter a valid Kenyan M-Pesa phone number to receive the school fee STK prompt.' });
       if (isMpesa && (!school.paymentProfile.darajaConsumerKeyEnc || !school.paymentProfile.darajaConsumerSecretEnc || !school.paymentProfile.darajaPasskeyEnc)) return res.status(409).json({ error: 'This school has configured a Paybill/Till destination but has not completed its own Daraja STK Push setup. Contact the school administrator; no payment prompt has been sent.' });
+      if(isMpesa){
+        const existingPending=await FeePayment.findOne({schoolId:school._id,parentId:req.user._id,status:'PENDING_STK',term,academicYear:feeContext.academicYear,...(feeContext.chargeId?{chargeId:feeContext.chargeId}:{}),$and:[{$or:[{studentId:registeredStudent._id},{studentId:{$exists:false},studentName:registeredStudent.fullName}]}]}).sort({createdAt:-1}).lean();
+        if(existingPending)return res.status(200).json({payment:{paymentReference:existingPending.paymentReference,schoolName:school.name,studentName:existingPending.studentName,amount:existingPending.amount,term:existingPending.term,status:existingPending.status,checkoutRequestId:existingPending.checkoutRequestId||null},paymentDestination:{method:existingPending.paymentMethod,destinationNumber:existingPending.destinationNumber},note:'An unresolved school fee prompt already exists for this student and term. Do not start another prompt; wait for its callback or ask the school office to reconcile the actual transaction.'});
+      }
       const paymentReference = 'SCH-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
       const destinationNumber = requestedMethod === 'mpesa_paybill' ? school.paymentProfile.paybillNumber : requestedMethod === 'mpesa_till' ? school.paymentProfile.tillNumber : undefined;
-      const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, ...feeContext, paymentMethod: requestedMethod, destinationNumber, ...(isMpesa ? { payerPhone: phone, status: 'PENDING_STK' } : { status: 'PENDING_VERIFICATION' }) });
+      const payment = await FeePayment.create({ paymentReference, schoolId: school._id, parentId: req.user._id, studentName, amount, term, ...feeContext, paymentMethod: requestedMethod, destinationNumber, payerPhone: phone||undefined, ...(isMpesa ? { status: 'PENDING_STK' } : { status: 'PENDING_VERIFICATION' }) });
       if (isMpesa) {
         try {
           const provider = providerForSchool(school);
@@ -1143,9 +1260,13 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           await payment.save();
           return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status, checkoutRequestId: payment.checkoutRequestId }, paymentDestination: { method: requestedMethod, paybillNumber: school.paymentProfile.paybillNumber, tillNumber: school.paymentProfile.tillNumber }, note: 'A school-specific M-Pesa STK Push was submitted to Safaricom. The fee is not confirmed until the Daraja callback verifies the amount, payer phone and receipt number.' });
         } catch (error) {
-          await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
-          console.error('School STK Push initiation failed', { schoolId: String(school._id), paymentReference, stage: error?.stage || 'configuration_or_unknown' });
-          return res.status(503).json({ error: 'Safaricom could not start the school fee STK prompt. No receipt was issued. Check the school Daraja configuration and try again.' });
+          const outcomeUnknown=['stk_transport','stk_response'].includes(error?.stage);
+          if(outcomeUnknown){
+            const at=new Date();
+            await FeePayment.updateOne({_id:payment._id,status:'PENDING_STK'},{$set:{initiationUncertainAt:at},$push:{reconciliationHistory:{$each:[{at,outcome:'STK_INITIATION_UNKNOWN',stage:error?.stage||'unknown'}],$slice:-10}}});
+          }else await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          console.error('School STK Push initiation failed', { stage: error?.stage || 'configuration_or_unknown' });
+          return res.status(503).json({ error: outcomeUnknown?'Safaricom did not establish the STK outcome. The fee remains pending; do not retry until the school checks Daraja or verifies the actual receipt.':'Safaricom rejected the school fee STK request. No receipt was issued. Check the school Daraja configuration and try again.',paymentReference,status:outcomeUnknown?'PENDING_STK':'FAILED',outcomeUnknown });
         }
       }
       return res.status(201).json({ payment: { paymentReference, schoolName: school.name, studentName, amount, term, status: payment.status }, paymentDestination: { method: requestedMethod, bankName: school.paymentProfile.bankName, accountNumber: school.paymentProfile.accountNumber }, note: 'Bank payment details provided. This record remains pending until school staff verify the bank transaction.' });
@@ -1165,6 +1286,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       if (!profile.darajaConsumerKeyEnc || !profile.darajaConsumerSecretEnc || !profile.darajaPasskeyEnc || !profile.darajaConfiguredAt) return res.status(409).json({ error: 'The school has not completed its Daraja STK Push setup. No payment prompt was sent.' });
       const paymentReference = 'DON-' + randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
       const destinationNumber = profile.method === 'mpesa_paybill' ? profile.paybillNumber : profile.tillNumber;
+      const existingPending=await SchoolDonation.findOne({schoolId:school._id,donorId:req.user._id,payerPhone:phone,destinationNumber,status:'PENDING_STK'}).sort({createdAt:-1}).lean();
+      if(existingPending)return res.status(200).json({donation:{paymentReference:existingPending.paymentReference,schoolName:school.name,amount:existingPending.amount,status:existingPending.status},paymentDestination:{method:existingPending.paymentMethod,destinationNumber},note:'An unresolved donation prompt already exists. Do not start another prompt until the school confirms its outcome.'});
       const donation = await SchoolDonation.create({ paymentReference, schoolId: school._id, donorId: req.user._id, amount, payerPhone: phone, destinationNumber, paymentMethod: profile.method, status: 'PENDING_STK' });
       try {
         const provider = providerForSchool(school);
@@ -1174,9 +1297,11 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         await donation.save();
         return res.status(201).json({ donation: { paymentReference, schoolName: school.name, amount, status: donation.status }, paymentDestination: { method: profile.method, destinationNumber }, note: 'M-Pesa STK Push requested. Check your phone and enter your M-Pesa PIN. The donation is recorded as paid only after Safaricom confirms it.' });
       } catch (error) {
-        await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
-        console.error('School donation STK initiation failed', { schoolId: String(school._id), paymentReference, stage: error?.stage || 'configuration_or_unknown' });
-        return res.status(503).json({ error: 'Safaricom could not start the donation prompt. Check the school Daraja configuration and try again.' });
+        const outcomeUnknown=['stk_transport','stk_response'].includes(error?.stage);
+        if(outcomeUnknown){const at=new Date();await SchoolDonation.updateOne({_id:donation._id,status:'PENDING_STK'},{$set:{initiationUncertainAt:at},$push:{reconciliationHistory:{$each:[{at,outcome:'STK_INITIATION_UNKNOWN',stage:error?.stage||'unknown'}],$slice:-10}}});}
+        else await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+        console.error('School donation STK initiation failed', { stage: error?.stage || 'configuration_or_unknown' });
+        return res.status(503).json({ error: outcomeUnknown?'Safaricom did not establish the donation STK outcome. It remains pending; do not retry until the school checks Daraja.':'Safaricom rejected the donation STK request. Check the school Daraja configuration and try again.',paymentReference,status:outcomeUnknown?'PENDING_STK':'FAILED',outcomeUnknown });
       }
     } catch (error) { return next(error); }
   });
@@ -1194,12 +1319,11 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       }
       const page = pageOptions(req);
       const [payments, total] = await Promise.all([
-        FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
+        FeePayment.find(filter).select('-receiptHtml -receiptEmailSentTo -receiptEmailLastError -payerPhone +manualVerificationDetails').sort({ createdAt: -1 }).skip(page.skip).limit(page.limit).lean(),
         FeePayment.countDocuments(filter),
       ]);
-      // Resolve the school's current payment configuration before shaping records.
-      // New payments persist their method; legacy records without it are inferred
-      // from their destination first, then the school's configured default.
+      // Legacy methods may be inferred from their stored destination or provider
+      // checkout references, never from the school's current default configuration.
       const school = await School.findById(req.params.schoolId)
         .select('name code officialPhone paymentProfile.method paymentProfile.paybillNumber paymentProfile.tillNumber paymentProfile.bankName paymentProfile.accountNumber paymentProfile.darajaConfiguredAt +receiptStampDataUrl')
         .lean();
@@ -1215,8 +1339,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         // Legacy STK Push payments may have no destination number or saved method.
         // Their Daraja request identifiers are the reliable signal for this channel.
         if (payment.checkoutRequestId || payment.merchantRequestId || payment.status === 'PENDING_STK') return 'mpesa_stk';
-        const configuredMethod = profile.method || null;
-        return schoolPaymentMethodLabel(configuredMethod) ? configuredMethod : null;
+        return null;
       };
       // Guardian fields come from the authoritative student register; they are
       // included only after the fee query has already been school/role scoped.
@@ -1245,7 +1368,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           credits: charge.credits || 0,
           payments: chargePayments.get(String(charge._id)) || [],
         }) : null;
-        const { checkoutRequestId: _checkoutRequestId, merchantRequestId: _merchantRequestId, ...publicPayment } = payment;
+        const { checkoutRequestId: _checkoutRequestId, merchantRequestId: _merchantRequestId, manualVerificationDetails: privateManualEvidence, ...publicPayment } = payment;
         const balanceFields = balance ? { totalFeeDue: balance.chargeAmount, outstandingBalance: balance.balance, confirmedPaidForTerm: balance.confirmedPaid, feeBalanceStatus: balance.status } : { totalFeeDue: null, outstandingBalance: null, feeBalanceStatus: 'NOT_CONFIGURED' };
         if (req.schoolMembership.role === 'staff') return {
           _id: payment._id, studentName: payment.studentName, term: payment.term, amount: payment.amount,
@@ -1253,7 +1376,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           paymentMethod: method, paymentMethodLabel: schoolPaymentMethodLabel(method) || 'Not recorded',
           createdAt: payment.createdAt, verifiedAt: payment.verifiedAt, ...balanceFields,
         };
-        return { ...publicPayment, paymentMethod: method, paymentMethodLabel: schoolPaymentMethodLabel(method) || 'Not recorded',
+        return { ...publicPayment, ...(req.schoolMembership.role === 'admin' ? { payerPhone: payment.payerPhone, ...(privateManualEvidence ? { manualVerificationDetails: privateManualEvidence } : {}) } : {}), paymentMethod: method, paymentMethodLabel: schoolPaymentMethodLabel(method) || 'Not recorded',
           guardianName: guardian?.guardianName || '', guardianPhone: guardian?.guardianPhone || '', ...balanceFields };
       });
       let officialPhone = school?.officialPhone || '';
@@ -1277,12 +1400,44 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     } catch (error) { return next(error); }
   });
 
+  app.post('/api/schools/:schoolId/fees/:paymentReference/reconcile', auth, requireRole('admin','staff'), async (req, res, next) => {
+    try {
+      const payment=await FeePayment.findOne({schoolId:req.params.schoolId,paymentReference:req.params.paymentReference,status:'PENDING_STK'});
+      if(!payment||!payment.checkoutRequestId||!payment.destinationNumber||!['mpesa_paybill','mpesa_till'].includes(payment.paymentMethod))return res.status(404).json({error:'Pending M-Pesa fee payment not found'});
+      const school=await School.findById(req.params.schoolId).select('+paymentProfile.darajaConsumerKeyEnc +paymentProfile.darajaConsumerSecretEnc +paymentProfile.darajaPasskeyEnc').lean();
+      if(!school||String(payment.destinationNumber)!==String(school.paymentProfile?.[payment.paymentMethod==='mpesa_paybill'?'paybillNumber':'tillNumber']||''))return res.status(409).json({error:'The payment shortcode no longer matches the school configuration. Use manual reconciliation.'});
+      const now=new Date();
+      const claimed=await FeePayment.findOneAndUpdate({_id:payment._id,schoolId:req.params.schoolId,status:'PENDING_STK',$and:[{$or:[{reconciliationAttempts:{$lt:5}},{reconciliationAttempts:{$exists:false}}]},{$or:[{nextReconciliationAt:{$exists:false}},{nextReconciliationAt:{$lte:now}}]},{$or:[{reconciliationClaimedAt:{$exists:false}},{reconciliationClaimedAt:{$lt:new Date(now.getTime()-30000)}}]}]},{$inc:{reconciliationAttempts:1},$set:{reconciliationClaimedAt:now}},{new:true});
+      if(!claimed)return res.status(409).json({error:payment.reconciliationAttempts>=5?'Automatic status-query limit reached. Verify the actual M-Pesa receipt through the school office.':'A query is already running or the next bounded retry is not yet due.'});
+      let result;
+      try { result=await providerForSchool(school).queryStatus({checkoutRequestId:claimed.checkoutRequestId}); }
+      catch(error) {
+        const retryAt=reconciliationRetryAt(claimed.reconciliationAttempts,now);
+        await FeePayment.updateOne({_id:claimed._id,schoolId:req.params.schoolId,status:'PENDING_STK',reconciliationClaimedAt:now},{$unset:{reconciliationClaimedAt:1},$set:{nextReconciliationAt:retryAt},$push:{reconciliationHistory:{$each:[{at:now,outcome:'QUERY_UNAVAILABLE',stage:String(error?.stage||'query_error').slice(0,40),nextAttemptAt:retryAt}],$slice:-10}}});
+        return res.status(503).json({error:'Daraja status is unavailable. The fee remains pending; retry after the indicated backoff.',retryAt});
+      }
+      const update={$unset:{reconciliationClaimedAt:1},$set:{nextReconciliationAt:reconciliationRetryAt(claimed.reconciliationAttempts,now)},$push:{reconciliationHistory:{$each:[{at:now,outcome:result.state,resultCode:result.resultCode,description:result.description}],$slice:-10}}};
+      if(result.state==='FAILED'||result.state==='CANCELLED')Object.assign(update.$set,{status:result.state,callbackProcessedAt:now,verifiedAt:now});
+      const saved=await FeePayment.findOneAndUpdate({_id:claimed._id,schoolId:req.params.schoolId,status:'PENDING_STK',reconciliationClaimedAt:now},update,{new:true});
+      if(!saved)return res.status(409).json({error:'The payment changed during reconciliation; refresh its status.'});
+      return res.json({payment:{paymentReference:saved.paymentReference,status:saved.status,reconciliationAttempts:saved.reconciliationAttempts},reconciliation:result.state==='SUCCESS_EVIDENCE_INCOMPLETE'?'provider reports success but callback receipt evidence is still required':result.state.toLowerCase()});
+    } catch(error) { return next(error); }
+  });
+
   app.post('/api/schools/:schoolId/fees/:paymentReference/verify', auth, requireRole('admin'), async (req, res, next) => {
     try {
       const receipt = String(req.body?.mpesaReceipt || '').trim().toUpperCase();
       if (!/^[A-Z0-9/-]{4,40}$/.test(receipt)) return res.status(400).json({ error: 'Enter the actual payment receipt/reference from the confirmed transaction' });
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+      const evidenceReference = typeof req.body?.evidenceReference === 'string' ? req.body.evidenceReference.trim() : '';
+      const evidenceType = String(req.body?.evidenceType || '');
+      const verifiedAmount = Number(req.body?.amount);
+      const submittedPhone = normalizeMpesaPhone(req.body?.payerPhone);
+      if (reason.length < 20 || reason.length > 500 || !/^[A-Z0-9._/-]{6,120}$/i.test(evidenceReference) || verifiedAmount < 1 || !Number.isSafeInteger(verifiedAmount) || req.body?.currency !== 'KES') return res.status(400).json({ error: 'Provide a 20–500 character reason, evidence reference, matching KSh amount and KES currency' });
       const payment = await FeePayment.findOne({ schoolId: req.params.schoolId, paymentReference: req.params.paymentReference });
       if (!payment) return res.status(404).json({ error: 'Fee record not found' });
+      const allowedEvidenceTypes = payment.paymentMethod === 'bank' ? ['bank_statement','provider_support_case'] : ['mpesa_statement','daraja_portal','provider_support_case'];
+      if (!allowedEvidenceTypes.includes(evidenceType) || verifiedAmount !== payment.amount || (payment.destinationNumber && String(req.body?.destinationNumber || '').trim() !== String(payment.destinationNumber).trim()) || (payment.payerPhone && submittedPhone !== normalizeMpesaPhone(payment.payerPhone))) return res.status(400).json({ error: 'Evidence must match the recorded payment amount, payer and school destination' });
       if (payment.status === 'CONFIRMED') {
         if (payment.mpesaReceipt === receipt) return res.json({ payment, receiptUrl: '/api/schools/' + req.params.schoolId + '/fees/' + payment.paymentReference + '/receipt' });
         return res.status(409).json({ error: 'This fee record is already confirmed with a different receipt' });
@@ -1292,8 +1447,8 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         // Atomic compare-and-set prevents two administrators confirming the same
         // pending record with different receipt numbers at the same time.
         confirmed = await FeePayment.findOneAndUpdate(
-          { _id: payment._id, status: 'PENDING_VERIFICATION' },
-          { $set: { status: 'CONFIRMED', mpesaReceipt: receipt, verifiedBy: req.user._id, verifiedAt: new Date() } },
+          { _id: payment._id, status: { $in: ['PENDING_VERIFICATION','PENDING_STK'] } },
+          { $set: { status: 'CONFIRMED', confirmationSource: 'manual_review', mpesaReceipt: receipt, verifiedBy: req.user._id, verifiedAt: new Date(), manualVerificationDetails: { reason, evidenceType, evidenceReference, amount: verifiedAmount, currency: 'KES', payerPhone: submittedPhone, destinationNumber: payment.destinationNumber || null, schoolId: payment.schoolId, paymentReference: payment.paymentReference, reviewerId: req.user._id, reviewedAt: new Date() } } },
           { new: true, runValidators: true }
         );
       } catch (error) { if (error?.code === 11000) return res.status(409).json({ error: 'This M-Pesa receipt has already been used for another fee payment at this school' }); throw error; }
@@ -1311,7 +1466,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         if (destination && destination === String(school?.paymentProfile?.paybillNumber || '').trim()) resolvedMethod = 'mpesa_paybill';
         else if (destination && destination === String(school?.paymentProfile?.tillNumber || '').trim()) resolvedMethod = 'mpesa_till';
         else if (destination && destination === String(school?.officialPhone || '').trim()) resolvedMethod = 'mpesa_send_money';
-        else resolvedMethod = school?.paymentProfile?.method || null;
+        else resolvedMethod = null;
       }
       if (resolvedMethod && resolvedMethod !== confirmed.paymentMethod) {
         confirmed = await FeePayment.findByIdAndUpdate(
@@ -1346,8 +1501,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
 
   // Safaricom callback: require both request IDs and verify result, amount, payer phone,
   // and receipt before atomically confirming a school fee. Duplicate callbacks are harmless.
-  app.post('/api/schools/daraja/callback', async (req, res, next) => {
+  app.post('/api/schools/daraja/callback/:token', async (req, res, next) => {
     try {
+      if (!isValidDarajaCallbackToken(req.params.token, process.env.SCHOOL_DARAJA_CALLBACK_TOKEN || '')) return res.status(404).json({ error: 'Not found' });
       const cb = req.body?.Body?.stkCallback;
       if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string') return res.status(400).json({ error: 'Malformed Daraja callback' });
       // Donations are deliberately stored separately from student fee ledger entries.
@@ -1356,7 +1512,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         if (donation.callbackProcessedAt || ['CONFIRMED','FAILED','CANCELLED'].includes(donation.status)) return res.json({ ok: true, duplicate: true });
         const outcome = resolveCallbackOutcome(cb, { amount: donation.amount, totalAmount: donation.amount, phone: donation.payerPhone });
         if (outcome.error) {
-          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $push: {reconciliationHistory:{$each:[{at:new Date(),outcome:'CALLBACK_REJECTED',reason:outcome.error}],$slice:-10}} });
           return res.json({ ok: true, rejected: true });
         }
         if (outcome.status !== 'SUCCESS') {
@@ -1366,7 +1522,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         const donationItems = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
         const donationReceipt = String(donationItems.find(item => item?.Name === 'MpesaReceiptNumber')?.Value || '').trim().toUpperCase();
         if (!/^[A-Z0-9]{6,40}$/.test(donationReceipt)) {
-          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+          await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $push: {reconciliationHistory:{$each:[{at:new Date(),outcome:'CALLBACK_REJECTED',reason:'missing_or_invalid_receipt'}],$slice:-10}} });
           return res.json({ ok: true, rejected: true });
         }
         try {
@@ -1378,7 +1534,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           if (!confirmedDonation) return res.json({ ok: true, duplicate: true });
         } catch (error) {
           if (error?.code === 11000) {
-            await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date() } });
+            await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $push: {reconciliationHistory:{$each:[{at:new Date(),outcome:'CALLBACK_REJECTED',reason:'receipt_already_used'}],$slice:-10}} });
             return res.json({ ok: true, rejected: true });
           }
           throw error;
@@ -1387,10 +1543,16 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       }
       const payment = await FeePayment.findOne({ checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID });
       if (!payment) return res.json({ ok: true, ignored: true });
+      if (payment.status === 'CONFIRMED' && payment.confirmationSource === 'manual_review') {
+        const manualCallbackOutcome = resolveCallbackOutcome(cb, { amount: payment.amount, phone: payment.payerPhone });
+        if (manualCallbackOutcome.error || manualCallbackOutcome.status !== 'SUCCESS' || manualCallbackOutcome.receipt !== payment.mpesaReceipt) return res.status(409).json({ error: 'Provider callback conflicts with the manually reviewed fee payment; retain both records for investigation' });
+        await FeePayment.updateOne({ _id: payment._id, status: 'CONFIRMED', confirmationSource: 'manual_review', mpesaReceipt: manualCallbackOutcome.receipt }, { $set: { confirmationSource: 'provider_callback' }, $push: { reconciliationHistory: { $each: [{ at: new Date(), outcome: 'LATER_PROVIDER_CALLBACK_MATCHED', receipt: manualCallbackOutcome.receipt }], $slice: -10 } } });
+        return res.json({ ok: true, duplicate: true, providerEvidenceMatched: true });
+      }
       if (payment.callbackProcessedAt || ['CONFIRMED','FAILED','CANCELLED'].includes(payment.status)) return res.json({ ok: true, duplicate: true });
       const outcome = resolveCallbackOutcome(cb, { amount: payment.amount, totalAmount: payment.amount, phone: payment.payerPhone });
       if (outcome.error) {
-        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'Daraja callback did not match the original amount or payer phone' } });
+        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $push: {reconciliationHistory:{$each:[{at:new Date(),outcome:'CALLBACK_REJECTED',reason:outcome.error}],$slice:-10}} });
         return res.json({ ok: true, rejected: true });
       }
       if (outcome.status !== 'SUCCESS') {
@@ -1400,7 +1562,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const items = Array.isArray(cb.CallbackMetadata?.Item) ? cb.CallbackMetadata.Item : [];
       const receipt = String(items.find(item => item?.Name === 'MpesaReceiptNumber')?.Value || '').trim().toUpperCase();
       if (!/^[A-Z0-9]{6,40}$/.test(receipt)) {
-        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'Successful callback had no valid M-Pesa receipt number' } });
+        await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $push: {reconciliationHistory:{$each:[{at:new Date(),outcome:'CALLBACK_REJECTED',reason:'missing_or_invalid_receipt'}],$slice:-10}} });
         return res.json({ ok: true, rejected: true });
       }
       const school = await School.findById(payment.schoolId).select('name code paymentProfile.method +receiptStampDataUrl').lean();
@@ -1410,12 +1572,12 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       try {
         confirmed = await FeePayment.findOneAndUpdate(
           { _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } },
-          { $set: { status: 'CONFIRMED', mpesaReceipt: receipt, verifiedAt, callbackProcessedAt: verifiedAt, receiptHtml } },
+          { $set: { status: 'CONFIRMED', confirmationSource: 'provider_callback', mpesaReceipt: receipt, verifiedAt, callbackProcessedAt: verifiedAt, receiptHtml } },
           { new: true, runValidators: true },
         );
       } catch (error) {
         if (error?.code === 11000) {
-          await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK' }, { $set: { status: 'FAILED', callbackProcessedAt: new Date(), receiptEmailLastError: 'M-Pesa receipt already used for another school fee record' } });
+          await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $push: {reconciliationHistory:{$each:[{at:new Date(),outcome:'CALLBACK_REJECTED',reason:'receipt_already_used'}],$slice:-10}} });
           return res.json({ ok: true, rejected: true });
         }
         throw error;
@@ -1424,7 +1586,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       // Chatify monetizes school workspaces through setup and subscription fees.
       // Do not initiate a percentage-based second STK prompt for school-fee payments.
       res.json({ ok: true });
-      deliverSchoolReceipt(confirmed._id).catch(error => console.error('School receipt delivery processing failed', { paymentReference: confirmed.paymentReference, message: String(error?.message || 'unknown').slice(0, 160) }));
+      deliverSchoolReceipt(confirmed._id).catch(() => console.error('School receipt delivery processing failed'));
       return;
     } catch (error) { return next(error); }
   });
@@ -1466,7 +1628,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         if (destination && destination === String(school?.paymentProfile?.paybillNumber || '').trim()) resolvedMethod = 'mpesa_paybill';
         else if (destination && destination === String(school?.paymentProfile?.tillNumber || '').trim()) resolvedMethod = 'mpesa_till';
         else if (destination && destination === String(school?.officialPhone || '').trim()) resolvedMethod = 'mpesa_send_money';
-        else resolvedMethod = school?.paymentProfile?.method || null;
+        else resolvedMethod = null;
       }
       let balanceDetails = {};
       if (payment.chargeId) {

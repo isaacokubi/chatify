@@ -45,8 +45,7 @@ class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   }
 
   @override
-  Stream<VideoEvent> videoEventsFor(int playerId) =>
-      _events[playerId]!.stream;
+  Stream<VideoEvent> videoEventsFor(int playerId) => _events[playerId]!.stream;
 
   @override
   Future<void> play(int playerId) async {
@@ -323,13 +322,33 @@ void main() {
         'clientMutationId': mutationId,
       },
     });
+    // Retrying the same pending mutation after an app/API instance restart
+    // must not create a second durable queue entry.
+    await api.enqueueOutgoingMessage('conversation-1', {
+      'clientMutationId': mutationId,
+      'createdAt': '2026-10-22T04:00:00.000Z',
+      'body': {
+        'encryptionVersion': 1,
+        'encryptedPayload': 'encrypted-envelope-not-plaintext',
+        'clientMutationId': mutationId,
+      },
+    });
     final queued = await api.readOutgoingMessageOutbox('conversation-1');
+    expect(queued, hasLength(1));
     expect(queued.single['clientMutationId'], mutationId);
     final restoredApi = Api()..token = 'outbox-account-token';
+    await restoredApi.enqueueOutgoingMessage('conversation-1', {
+      'clientMutationId': mutationId,
+      'body': {
+        'encryptionVersion': 1,
+        'encryptedPayload': 'encrypted-envelope-not-plaintext',
+        'clientMutationId': mutationId,
+      },
+    });
     expect(
         (await restoredApi.readOutgoingMessageOutbox('conversation-1'))
-            .single['clientMutationId'],
-        mutationId,
+            .map((item) => item['clientMutationId']),
+        [mutationId],
         reason:
             'A new API instance for the same account must recover the durable outbox.');
     final preferences = await SharedPreferences.getInstance();
@@ -417,6 +436,22 @@ void main() {
     expect(app.api.token, 'existing-token');
     expect(app.user, isNull);
     expect(app.restoreError, contains('Temporarily unavailable'));
+    client.close();
+    app.dispose();
+  });
+
+  test('logout clears the account and stored token locally', () async {
+    final client = MockClient((_) async =>
+        fail('logout without a registered push token must not require the API'));
+    final api = Api(client: client);
+    await api.saveToken('account-session-token');
+    final app = AppState(api: api, autoInit: false)..user = {'id': 'user-1'};
+
+    await app.logout();
+
+    expect(api.token, isNull);
+    expect(app.user, isNull);
+    expect((await SharedPreferences.getInstance()).getString('token'), isNull);
     client.close();
     app.dispose();
   });
@@ -540,10 +575,128 @@ void main() {
     state.dispose();
   });
 
+  testWidgets('Business records can be removed or archived with confirmation',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var catalogActive = true;
+    var customerActive = true;
+    final deletedRequests = <String>[];
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      if (request.method == 'GET' && path == '/api/business/organizations') {
+        return http.Response(
+            '{"organizations":[{"_id":"org-1","name":"Demo Shop"}]}', 200);
+      }
+      if (request.method == 'GET' && path.endsWith('/dashboard')) {
+        return http.Response('{"metrics":{}}', 200);
+      }
+      if (request.method == 'GET' && path.endsWith('/catalog')) {
+        return http.Response(
+            jsonEncode({
+              'items': catalogActive
+                  ? [
+                      {'_id': 'catalog-1', 'name': 'Test Product'}
+                    ]
+                  : []
+            }),
+            200);
+      }
+      if (request.method == 'GET' && path.endsWith('/customers')) {
+        return http.Response(
+            jsonEncode({
+              'customers': customerActive
+                  ? [
+                      {'_id': 'customer-1', 'name': 'Amina Customer'}
+                    ]
+                  : []
+            }),
+            200);
+      }
+      if (request.method == 'GET' &&
+          (path.endsWith('/documents') || path.endsWith('/tasks'))) {
+        return http.Response('{"documents":[],"tasks":[]}', 200);
+      }
+      if (request.method == 'DELETE') {
+        deletedRequests.add('${request.method} $path');
+        if (path.endsWith('/catalog/catalog-1')) catalogActive = false;
+        if (path.endsWith('/customers/customer-1')) customerActive = false;
+        return http.Response(
+            path.contains('/customers/') ? '{"archived":true}' : '{"item":{}}',
+            200);
+      }
+      return http.Response('{"error":"Unexpected request"}', 404);
+    });
+    final state = AppState(api: Api(client: client), autoInit: false)
+      ..api.token = 'business-delete-account'
+      ..user = {'id': 'business-owner'};
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: state,
+      child: MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.android),
+        home: const MediaQuery(
+          data: MediaQueryData(size: Size(390, 844)),
+          child: Scaffold(body: BusinessHub()),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Test Product'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('business-products or services-catalog-1')),
+        findsOneWidget);
+    await tester.drag(
+        find.byKey(const ValueKey('business-products or services-catalog-1')),
+        const Offset(240, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove catalogue item?'), findsOneWidget);
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(deletedRequests,
+        contains('DELETE /api/business/organizations/org-1/catalog/catalog-1'));
+    expect(find.text('Test Product'), findsNothing);
+
+    final customersTab = find.text('Customers').first;
+    await tester.ensureVisible(customersTab);
+    await tester.tap(customersTab);
+    await tester.pumpAndSettle();
+    expect(find.text('Amina Customer'), findsOneWidget);
+    await tester.tap(find.byTooltip('Archive customer'));
+    await tester.pumpAndSettle();
+    expect(find.text('Archive customer?'), findsOneWidget);
+    await tester.tap(find.text('Archive'));
+    await tester.pumpAndSettle();
+    expect(
+        deletedRequests,
+        contains(
+            'DELETE /api/business/organizations/org-1/customers/customer-1'));
+    expect(find.text('Amina Customer'), findsNothing);
+    client.close();
+    state.dispose();
+  });
+
   testWidgets('profile picture keeps its full frame and opens an enlarged view',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final client = MockClient((_) async => http.Response('', 404));
+    var profileImageRemovalSaved = false;
+    final client = MockClient((request) async {
+      if (request.method == 'PATCH' && request.url.path == '/api/users/me') {
+        profileImageRemovalSaved =
+            jsonDecode(request.body)['profileImage'] == null;
+        return http.Response(
+          jsonEncode({
+            'user': {
+              'id': 'profile-owner',
+              'name': 'Profile Owner',
+              'profileImage': null
+            }
+          }),
+          200,
+        );
+      }
+      return http.Response('{"error":"Not found"}', 404);
+    });
     final state = AppState(api: Api(client: client), autoInit: false)
       ..user = {
         'id': 'profile-owner',
@@ -566,6 +719,13 @@ void main() {
     await tester.tap(find.byTooltip('Close enlarged profile picture'));
     await tester.pumpAndSettle();
     expect(find.byType(InteractiveViewer), findsNothing);
+    await tester.tap(find.text('Remove profile picture'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove profile picture?'), findsOneWidget);
+    await tester.tap(find.text('Remove'));
+    await tester.pumpAndSettle();
+    expect(profileImageRemovalSaved, isTrue);
+    expect(find.text('Remove profile picture'), findsNothing);
     client.close();
     state.dispose();
   });
@@ -700,8 +860,14 @@ void main() {
       child: const MaterialApp(home: SchoolWorkspacePage()),
     ));
     await tester.pumpAndSettle();
-    final studentsTab = find.widgetWithText(ChoiceChip, 'Students');
-    await tester.ensureVisible(studentsTab);
+    expect(find.text('Demo School'), findsOneWidget,
+        reason: 'Requested API paths: ${requestedPaths.join(', ')}');
+    await tester.scrollUntilVisible(
+      find.text('Students'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final studentsTab = find.text('Students');
     await tester.tap(studentsTab);
     await tester.pumpAndSettle();
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -900));
@@ -779,7 +945,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('People and access'), findsOneWidget);
     expect(find.text('Amina'), findsOneWidget);
-    await tester.tap(find.text('Payments').first);
+    final paymentsTab = find.text('Payments').first;
+    await tester.ensureVisible(paymentsTab);
+    await tester.tap(paymentsTab);
     await tester.pumpAndSettle();
     expect(find.text('Payment operations'), findsOneWidget);
     expect(find.text('Order payment'), findsOneWidget);
@@ -801,6 +969,8 @@ void main() {
       'authorName': 'Ari Contact',
     };
     final deletedMemories = <String>{};
+    final deletionCalls = <String>[];
+    var deletedContact = false;
     var viewCalls = 0;
     final requestedPaths = <String>[];
     final client = MockClient((request) async {
@@ -812,15 +982,16 @@ void main() {
         return http.Response(
             jsonEncode({
               'contacts': [
-                {
-                  'id': 'contact-1',
-                  'userId': 'contact-user-1',
-                  'name': 'Ari Contact',
-                  'phone': '254712345678',
-                  'email': 'ari@example.test'
-                }
+                if (!deletedContact)
+                  {
+                    'id': 'contact-1',
+                    'userId': 'contact-user-1',
+                    'name': 'Ari Contact',
+                    'phone': '254712345678',
+                    'email': 'ari@example.test'
+                  }
               ],
-              'total': 1
+              'total': deletedContact ? 0 : 1
             }),
             200);
       if (request.method == 'GET' && path == '/api/sparks')
@@ -868,6 +1039,16 @@ void main() {
         otherSpark['hasViewed'] = true;
         return http.Response('{"ok":true}', 200);
       }
+      if (request.method == 'DELETE' && path == '/api/sparks/spark-1') {
+        deletionCalls.add('${request.method} $path');
+        activeSpark = {};
+        return http.Response('{"success":true}', 200);
+      }
+      if (request.method == 'DELETE' && path == '/api/contacts/contact-1') {
+        deletionCalls.add('${request.method} $path');
+        deletedContact = true;
+        return http.Response('', 204);
+      }
       if (request.method == 'GET' && path == '/api/memories')
         return http.Response(
             jsonEncode({
@@ -899,6 +1080,7 @@ void main() {
             200);
       if (request.method == 'DELETE' && path.startsWith('/api/memories/')) {
         deletedMemories.add(path.split('/').last);
+        deletionCalls.add('${request.method} $path');
         return http.Response('', 204);
       }
       if (request.method == 'PATCH' && path.startsWith('/api/memories/')) {
@@ -913,6 +1095,11 @@ void main() {
         value: state,
         child: MaterialApp(
             theme: ThemeData(platform: TargetPlatform.android),
+            builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(size: const Size(390, 1600)),
+                  child: child!,
+                ),
             home: const Home())));
     await tester.pumpAndSettle();
     await tester.tapAt(
@@ -952,6 +1139,18 @@ void main() {
     expect(find.text('Your Spark'), findsOneWidget);
     expect(find.text('A shared moment'), findsOneWidget,
         reason: 'The own Spark content belongs inside the Your Spark circle.');
+    await tester.tapAt(
+        tester.getCenter(find.text('Your Spark')) + const Offset(0, -30));
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(find.byTooltip('Delete Spark'), findsOneWidget);
+    await tester.tap(find.byTooltip('Delete Spark'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Delete this Spark?'), findsOneWidget);
+    await tester.tap(find.text('Delete').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(deletionCalls, contains('DELETE /api/sparks/spark-1'));
+    expect(find.text('A shared moment'), findsNothing);
     await tester.tap(find.widgetWithText(SegmentedButton<bool>, 'Memories'));
     await tester.pumpAndSettle();
     expect(find.textContaining('With Ari Contact'), findsOneWidget,
@@ -967,6 +1166,39 @@ void main() {
       greaterThan(tester.getTopLeft(find.text('Tomorrow')).dy),
       reason: 'Memory actions should sit below the content on a narrow screen.',
     );
+    await tester.tap(find.byTooltip('Delete saved memory').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Delete saved memory?'), findsOneWidget);
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+    expect(deletionCalls, contains('DELETE /api/memories/memory-1'));
+    expect(find.text('Project meeting'), findsNothing);
+    final contactsDestination = find.text('Contacts').last;
+    await tester.tap(contactsDestination);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Saved contacts'), findsOneWidget);
+    expect(find.text('Ari Contact'), findsOneWidget);
+    final savedContactTile = find.byKey(
+      const ValueKey('saved-contact-contact-1'),
+    );
+    expect(savedContactTile, findsOneWidget);
+    await tester.ensureVisible(savedContactTile);
+    expect(tester.widget<Dismissible>(savedContactTile).direction,
+        DismissDirection.startToEnd,
+        reason:
+            'platform=${Theme.of(tester.element(savedContactTile)).platform}, '
+            'size=${MediaQuery.sizeOf(tester.element(savedContactTile))}');
+    await tester.dragFrom(
+      tester.getCenter(savedContactTile),
+      const Offset(420, 0),
+      touchSlopY: 0,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Remove saved contact?'), findsOneWidget);
+    await tester.tap(find.text('Remove').last);
+    await tester.pumpAndSettle();
+    expect(deletionCalls, contains('DELETE /api/contacts/contact-1'));
     await tester.pumpWidget(const SizedBox.shrink());
     client.close();
     state.dispose();

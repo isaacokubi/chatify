@@ -40,7 +40,9 @@ Set these as private Render environment variables. Never put real values in Git,
 | `MPESA_ENV` | Explicitly set `production` before real production Daraja calls; sandbox uses `sandbox`, local demos use `mock` |
 | `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET` | Credentials from the Daraja app; store as private values |
 | `MPESA_SHORTCODE`, `MPESA_PASSKEY` | Lipa na M-Pesa Online shortcode/passkey for the selected environment |
-| `MPESA_CALLBACK_URL` | Public HTTPS URL ending in `/api/payments/daraja/callback` |
+| `MPESA_CALLBACK_TOKEN` | At least 32 random characters. The Daraja callback route rejects requests without the matching token. |
+| `MPESA_CALLBACK_URL` | Public HTTPS URL ending in `/api/payments/daraja/callback/<MPESA_CALLBACK_TOKEN>` |
+| `SCHOOL_DARAJA_CALLBACK_TOKEN` | Distinct 32+ character callback token for school STK/donation callbacks. |
 | `MPESA_TRANSACTION_TYPE` | `CustomerPayBillOnline` or `CustomerBuyGoodsOnline`, matching the configured shortcode |
 
 The Flutter Web hosting origin is not defined in this repository. Set `CLIENT_ORIGIN` only after choosing or identifying that frontend host. Until then, production browser origins are denied; native API clients are unaffected. The API Render URL is not the Flutter Web origin.
@@ -53,4 +55,4 @@ The demo seed command is guarded: it requires `NODE_ENV=development`, `CHATIFY_S
 
 ## Payments and test commands
 
-The default payment provider is a clearly labeled local mock (`MPESA_ENV=mock`); it makes no outbound payment call and works without credentials. Daraja sandbox needs an app's consumer key/secret, sandbox shortcode/passkey, transaction type and a public HTTPS callback URL. See [DEMO.md](DEMO.md) for the full setup and tunnel requirements. Backend payment/provider unit tests use mocked HTTP and never initiate a real payment. Run `npm test` and `npm run lint` in `server/`; run `flutter pub get`, `flutter analyze`, and `flutter test` in `mobile/`.
+The default payment provider is a clearly labeled local mock (`MPESA_ENV=mock`); it makes no outbound payment call and works without credentials. Daraja sandbox needs an app's consumer key/secret, sandbox shortcode/passkey, transaction type, public HTTPS callback URL and callback token. The school integration needs its separate callback token. See [DEMO.md](DEMO.md) for the full setup and tunnel requirements. Backend payment/provider unit tests use mocked HTTP and never initiate a real payment. Run `npm test` and `npm run lint` in `server/`; run `flutter pub get`, `flutter analyze`, and `flutter test` in `mobile/`.

@@ -263,7 +263,7 @@ class _SparkStatusViewer extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final int initialIndex;
   final ValueChanged<Map<String, dynamic>> onViewed;
-  final ValueChanged<Map<String, dynamic>> onDelete;
+  final Future<void> Function(Map<String, dynamic>) onDelete;
 
   const _SparkStatusViewer({
     required this.items,
@@ -293,11 +293,40 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
   bool _longPressStarted = false;
   bool _longPressPausedVideo = false;
   bool _closing = false;
+  bool _deletePending = false;
   final Map<VideoPlayerController, Future<void>> _controllerDisposals = {};
 
   Map<String, dynamic> get _item => widget.items[_index];
 
-
+  Future<void> _confirmDeleteSpark() async {
+    if (_deletePending) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete this Spark?'),
+        content: const Text(
+          'This removes your Spark for everyone who could view it. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _deletePending) return;
+    setState(() => _deletePending = true);
+    try {
+      await widget.onDelete(_item);
+    } finally {
+      if (mounted) setState(() => _deletePending = false);
+    }
+  }
 
   @override
   void initState() {
@@ -744,8 +773,17 @@ class _SparkStatusViewerState extends State<_SparkStatusViewer>
                       IconButton(
                         tooltip: 'Delete Spark',
                         color: Colors.white,
-                        onPressed: () => widget.onDelete(_item),
-                        icon: const Icon(Icons.delete_outline),
+                        onPressed: _deletePending ? null : _confirmDeleteSpark,
+                        icon: _deletePending
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.delete_outline),
                       ),
                     IconButton(
                       tooltip: 'Close Spark viewer',
@@ -989,46 +1027,88 @@ class _OfflineCachedImageState extends State<OfflineCachedImage> {
 // Builds a portable PDF receipt from a confirmed school-fee record.
 // The authenticated receipt endpoint is checked before this function is called.
 String schoolPaymentMethodLabel(dynamic value) {
-  final raw = value?.toString().trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+  final raw = value
+      ?.toString()
+      .trim()
+      .toLowerCase()
+      .replaceAll('-', '_')
+      .replaceAll(' ', '_');
   return switch (raw) {
-    'mpesa_paybill' || 'paybill' || 'mpesa' || 'm_pesa_paybill' => 'M-Pesa Paybill',
+    'mpesa_paybill' ||
+    'paybill' ||
+    'mpesa' ||
+    'm_pesa_paybill' =>
+      'M-Pesa Paybill',
     'mpesa_till' || 'till' || 'buy_goods' || 'm_pesa_till' => 'M-Pesa Till',
-    'mpesa_send_money' || 'send_money' || 'm_pesa_send_money' => 'M-Pesa Send Money',
+    'mpesa_send_money' ||
+    'send_money' ||
+    'm_pesa_send_money' =>
+      'M-Pesa Send Money',
     'bank' || 'bank_transfer' || 'banktransfer' => 'Bank transfer',
-    'stk' || 'stk_push' || 'mpesa_stk' || 'mpesa_stk_push' || 'm_pesa_(stk_push)' || 'daraja' => 'M-Pesa (STK Push)',
+    'stk' ||
+    'stk_push' ||
+    'mpesa_stk' ||
+    'mpesa_stk_push' ||
+    'm_pesa_(stk_push)' ||
+    'daraja' =>
+      'M-Pesa (STK Push)',
     _ => '—',
   };
 }
 
-String schoolPaymentMethodForRecord(Map<String, dynamic> payment, {dynamic configuredFallback}) {
+String schoolPaymentMethodForRecord(Map<String, dynamic> payment) {
   for (final candidate in [
-    payment['paymentMethod'], payment['method'], payment['paymentMethodLabel'],
-    payment['paymentDestination'] is Map ? payment['paymentDestination']['method'] : null,
+    payment['paymentMethod'],
+    payment['method'],
+    payment['paymentMethodLabel'],
+    payment['paymentDestination'] is Map
+        ? payment['paymentDestination']['method']
+        : null,
   ]) {
     if (candidate == null || candidate.toString().trim().isEmpty) continue;
     final label = schoolPaymentMethodLabel(candidate);
     if (label != '—') return label;
   }
-  final fallback = schoolPaymentMethodLabel(configuredFallback);
-  return fallback == '—' ? 'Not recorded' : fallback;
+  return 'Not recorded';
 }
 
 Size? _schoolReceiptJpegDimensions(Uint8List bytes) {
   if (bytes.length < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8) return null;
   var offset = 2;
-  const sof = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF};
+  const sof = {
+    0xC0,
+    0xC1,
+    0xC2,
+    0xC3,
+    0xC5,
+    0xC6,
+    0xC7,
+    0xC9,
+    0xCA,
+    0xCB,
+    0xCD,
+    0xCE,
+    0xCF
+  };
   while (offset + 8 < bytes.length) {
-    if (bytes[offset] != 0xFF) { offset++; continue; }
+    if (bytes[offset] != 0xFF) {
+      offset++;
+      continue;
+    }
     final marker = bytes[offset + 1];
     offset += 2;
-    if (marker == 0xD8 || marker == 0xD9 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+    if (marker == 0xD8 ||
+        marker == 0xD9 ||
+        marker == 0x01 ||
+        (marker >= 0xD0 && marker <= 0xD7)) continue;
     if (offset + 4 > bytes.length) return null;
     final length = (bytes[offset] << 8) | bytes[offset + 1];
     if (length < 2 || offset + length > bytes.length) return null;
     if (sof.contains(marker) && length >= 7) {
       final height = (bytes[offset + 3] << 8) | bytes[offset + 4];
       final width = (bytes[offset + 5] << 8) | bytes[offset + 6];
-      if (width > 0 && height > 0) return Size(width.toDouble(), height.toDouble());
+      if (width > 0 && height > 0)
+        return Size(width.toDouble(), height.toDouble());
       return null;
     }
     offset += length;
@@ -1051,21 +1131,28 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     payment['schoolName'],
     payment['school'] is Map ? payment['school']['name'] : null,
     payment['schoolDisplayName'],
-  ].map((value) => (value ?? '').toString().trim())
-      .firstWhere((value) => value.isNotEmpty, orElse: () => 'School name unavailable');
+  ].map((value) => (value ?? '').toString().trim()).firstWhere(
+      (value) => value.isNotEmpty,
+      orElse: () => 'School name unavailable');
   final paidAt = payment['paidAt'] ??
       payment['confirmedAt'] ??
       payment['updatedAt'] ??
       payment['createdAt'] ??
       DateTime.now().toIso8601String();
-  final method = schoolPaymentMethodForRecord(payment, configuredFallback: payment['configuredPaymentMethod']);
-  final formattedAmount = double.tryParse(amount.toString())?.toStringAsFixed(2) ?? amount.toString();
+  final method = schoolPaymentMethodForRecord(payment);
+  final formattedAmount =
+      double.tryParse(amount.toString())?.toStringAsFixed(2) ??
+          amount.toString();
   final stampDataUrl = payment['receiptStampDataUrl']?.toString() ?? '';
   Uint8List? stampBytes;
   if (stampDataUrl.startsWith('data:image/jpeg;base64,')) {
-    try { stampBytes = base64Decode(stampDataUrl.substring(stampDataUrl.indexOf(',') + 1)); } catch (_) {}
+    try {
+      stampBytes =
+          base64Decode(stampDataUrl.substring(stampDataUrl.indexOf(',') + 1));
+    } catch (_) {}
   }
-  final stampSize = stampBytes == null ? null : _schoolReceiptJpegDimensions(stampBytes);
+  final stampSize =
+      stampBytes == null ? null : _schoolReceiptJpegDimensions(stampBytes);
   final lines = <String>[
     'School: ' + safe(school),
     'Receipt number: ' + safe(payment['mpesaReceipt'] ?? reference),
@@ -1074,10 +1161,22 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     'Term / fee period: ' + safe(payment['term'] ?? 'Not provided'),
     'Amount received: KES ' + safe(formattedAmount),
     'Payment status: ' + safe(payment['status'] ?? 'CONFIRMED'),
+    'Verification source: ' +
+        safe(payment['confirmationSource'] == 'manual_review'
+            ? 'Manually reviewed by school; not a provider callback confirmation'
+            : payment['confirmationSource'] == 'provider_callback'
+                ? 'Validated provider callback'
+                : 'Not recorded'),
     'Date confirmed: ' + safe(paidAt),
     'Payment method: ' + safe(method),
-    'Total term charge: KES ' + safe(payment['totalFeeDue'] ?? payment['chargeAmount'] ?? 'Refer to fee statement'),
-    'Remaining balance: KES ' + safe(payment['outstandingBalance'] ?? payment['balance'] ?? 'Refer to fee statement'),
+    'Total term charge: KES ' +
+        safe(payment['totalFeeDue'] ??
+            payment['chargeAmount'] ??
+            'Refer to fee statement'),
+    'Remaining balance: KES ' +
+        safe(payment['outstandingBalance'] ??
+            payment['balance'] ??
+            'Refer to fee statement'),
   ];
 
   final wrapped = <String>[];
@@ -1101,13 +1200,21 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     ..write('0.07 0.19 0.34 RG\n3 w\n28 28 539 786 re S\n')
     ..write('0.07 0.19 0.34 rg\n30 750 535 92 re f\n')
     ..write('0.10 0.63 0.55 rg\n30 742 535 8 re f\n')
-    ..write('BT\n/F2 18 Tf\n1 1 1 rg\n50 805 Td\n(' + safe('OFFICIAL SCHOOL FEE RECEIPT') + ') Tj\nET\n')
-    ..write('BT\n/F2 11 Tf\n0.88 0.95 1 rg\n50 781 Td\n(' + safe(school) + ') Tj\nET\n')
+    ..write('BT\n/F2 18 Tf\n1 1 1 rg\n50 805 Td\n(' +
+        safe('OFFICIAL SCHOOL FEE RECEIPT') +
+        ') Tj\nET\n')
+    ..write('BT\n/F2 11 Tf\n0.88 0.95 1 rg\n50 781 Td\n(' +
+        safe(school) +
+        ') Tj\nET\n')
     // Amount card with a thick teal rule.
     ..write('0.91 0.96 1 rg\n40 670 515 55 re f\n')
     ..write('0.10 0.63 0.55 RG\n3 w\n40 670 515 55 re S\n')
-    ..write('BT\n/F2 9 Tf\n0.20 0.34 0.47 rg\n55 706 Td\n(' + safe('AMOUNT RECEIVED') + ') Tj\nET\n')
-    ..write('BT\n/F2 21 Tf\n0.07 0.19 0.34 rg\n55 682 Td\n(' + safe('KES ' + formattedAmount) + ') Tj\nET\n')
+    ..write('BT\n/F2 9 Tf\n0.20 0.34 0.47 rg\n55 706 Td\n(' +
+        safe('AMOUNT RECEIVED') +
+        ') Tj\nET\n')
+    ..write('BT\n/F2 21 Tf\n0.07 0.19 0.34 rg\n55 682 Td\n(' +
+        safe('KES ' + formattedAmount) +
+        ') Tj\nET\n')
     ..write('0.07 0.19 0.34 RG\n2 w\n40 655 m\n555 655 l\nS\n');
   var detailY = 632.0;
   var detailIndex = 0;
@@ -1116,41 +1223,86 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
     final isBalance = line.toLowerCase().startsWith('remaining balance:');
     final rowY = detailY - 7;
     if (isMethod) {
-      content.write('0.87 0.97 0.93 rg\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re f\n');
-      content.write('0.10 0.63 0.55 RG\n1.5 w\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re S\n');
+      content.write('0.87 0.97 0.93 rg\n40 ' +
+          (rowY - 5).toStringAsFixed(2) +
+          ' 515 21 re f\n');
+      content.write('0.10 0.63 0.55 RG\n1.5 w\n40 ' +
+          (rowY - 5).toStringAsFixed(2) +
+          ' 515 21 re S\n');
     } else if (isBalance) {
-      content.write('1 0.96 0.86 rg\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re f\n');
-      content.write('0.80 0.48 0.06 RG\n1.5 w\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re S\n');
+      content.write('1 0.96 0.86 rg\n40 ' +
+          (rowY - 5).toStringAsFixed(2) +
+          ' 515 21 re f\n');
+      content.write('0.80 0.48 0.06 RG\n1.5 w\n40 ' +
+          (rowY - 5).toStringAsFixed(2) +
+          ' 515 21 re S\n');
     } else if (detailIndex.isEven) {
-      content.write('0.95 0.97 0.99 rg\n40 ' + (rowY - 5).toStringAsFixed(2) + ' 515 21 re f\n');
+      content.write('0.95 0.97 0.99 rg\n40 ' +
+          (rowY - 5).toStringAsFixed(2) +
+          ' 515 21 re f\n');
     }
-    content.write('BT\n' + (isMethod || isBalance ? '/F2 10 Tf\n' : '/F1 10 Tf\n') +
-      (isMethod ? '0.04 0.40 0.31 rg\n' : isBalance ? '0.55 0.31 0.02 rg\n' : '0.10 0.17 0.25 rg\n') +
-      '50 ' + detailY.toStringAsFixed(2) + ' Td\n(' + safe(line) + ') Tj\nET\n');
+    content.write('BT\n' +
+        (isMethod || isBalance ? '/F2 10 Tf\n' : '/F1 10 Tf\n') +
+        (isMethod
+            ? '0.04 0.40 0.31 rg\n'
+            : isBalance
+                ? '0.55 0.31 0.02 rg\n'
+                : '0.10 0.17 0.25 rg\n') +
+        '50 ' +
+        detailY.toStringAsFixed(2) +
+        ' Td\n(' +
+        safe(line) +
+        ') Tj\nET\n');
     detailY -= 22;
     detailIndex++;
   }
   content
     ..write('0.07 0.19 0.34 RG\n2 w\n40 88 m\n555 88 l\nS\n')
-    ..write('BT\n/F1 8 Tf\n0.25 0.34 0.43 rg\n50 68 Td\n(' + safe('Please retain this receipt. Quote the Chatify reference for any enquiry.') + ') Tj\nET\n');
+    ..write('BT\n/F1 8 Tf\n0.25 0.34 0.43 rg\n50 68 Td\n(' +
+        safe(
+            'Please retain this receipt. Quote the Chatify reference for any enquiry.') +
+        ') Tj\nET\n');
   if (stampBytes != null && stampSize != null) {
     final scale = math.min(120 / stampSize.width, 66 / stampSize.height);
     final width = stampSize.width * scale;
     final height = stampSize.height * scale;
-    content.write('q\n' + width.toStringAsFixed(2) + ' 0 0 ' + height.toStringAsFixed(2) + ' 425 100 cm\n/Stamp Do\nQ\n');
+    content.write('q\n' +
+        width.toStringAsFixed(2) +
+        ' 0 0 ' +
+        height.toStringAsFixed(2) +
+        ' 425 100 cm\n/Stamp Do\nQ\n');
   }
   final stream = content.toString();
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 6 0 R >>' + (stampBytes != null && stampSize != null ? ' /XObject << /Stamp 7 0 R >>' : '') + ' >> /Contents 5 0 R >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 6 0 R >>' +
+        (stampBytes != null && stampSize != null
+            ? ' /XObject << /Stamp 7 0 R >>'
+            : '') +
+        ' >> /Contents 5 0 R >>',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
-    '<< /Length ' + utf8.encode(stream).length.toString() + ' >>\nstream\n' + stream + 'endstream',
+    '<< /Length ' +
+        utf8.encode(stream).length.toString() +
+        ' >>\nstream\n' +
+        stream +
+        'endstream',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>',
   ];
   if (stampBytes != null && stampSize != null) {
-    final hex = stampBytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
-    objects.add('<< /Type /XObject /Subtype /Image /Width ' + stampSize.width.toInt().toString() + ' /Height ' + stampSize.height.toInt().toString() + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ' + (hex.length + 1).toString() + ' >>\nstream\n' + hex + '>\nendstream');
+    final hex = stampBytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join()
+        .toUpperCase();
+    objects.add('<< /Type /XObject /Subtype /Image /Width ' +
+        stampSize.width.toInt().toString() +
+        ' /Height ' +
+        stampSize.height.toInt().toString() +
+        ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ' +
+        (hex.length + 1).toString() +
+        ' >>\nstream\n' +
+        hex +
+        '>\nendstream');
   }
   final output = StringBuffer('%PDF-1.4\n');
   final offsets = <int>[0];
@@ -2053,7 +2205,8 @@ class AppState extends ChangeNotifier {
   void _playIncomingMessageBell() {
     final now = DateTime.now();
     final last = _lastIncomingBellAt;
-    if (last != null && now.difference(last) < const Duration(milliseconds: 900)) {
+    if (last != null &&
+        now.difference(last) < const Duration(milliseconds: 900)) {
       return;
     }
     _lastIncomingBellAt = now;
@@ -2064,6 +2217,7 @@ class AppState extends ChangeNotifier {
       unawaited(SystemSound.play(SystemSoundType.alert).catchError((_) {}));
     }
   }
+
   AppState({Api? api, bool autoInit = true}) : api = api ?? Api() {
     if (autoInit) init();
   }
@@ -3665,7 +3819,10 @@ enum _AdminSection { overview, approvals, people, payments, billing }
 class _AdminDashboardState extends State<AdminDashboard> {
   Map<String, dynamic> overview = {};
   Map<String, dynamic> platformStatus = {};
-  List<dynamic> users = [], payments = [], schoolApprovals = [], businessApprovals = [];
+  List<dynamic> users = [],
+      payments = [],
+      schoolApprovals = [],
+      businessApprovals = [];
   bool approvalsLoading = false;
   String? approvalsError;
   List<dynamic> workspaceBillingRows = [];
@@ -3674,7 +3831,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
   List<dynamic> backupRows = [];
   bool backupsLoading = false, backupActionRunning = false;
   String? backupsError;
-  bool backupDirectoryConfigured = false, restoreConfigured = false, backupToolConfigured = false;
+  bool backupDirectoryConfigured = false,
+      restoreConfigured = false,
+      backupToolConfigured = false;
   bool loading = true,
       usersLoading = false,
       paymentsLoading = false,
@@ -3805,16 +3964,82 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
+  Future<void> reviewUncertainPayment(Map<String, dynamic> payment) async {
+    final receipt = TextEditingController();
+    final evidence = TextEditingController();
+    final reason = TextEditingController();
+    final transactionAt = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Review uncertain M-Pesa attempt'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('Payment ${payment['paymentId']} · KES ${payment['amount']}'),
+            const SizedBox(height: 8),
+            const Text('Check the Daraja portal or Safaricom statement. Screenshots or client claims alone are not evidence. Confirmation will be recorded as manual review, not provider callback confirmation.'),
+            TextField(controller: receipt, decoration: const InputDecoration(labelText: 'Actual provider receipt')),
+            TextField(controller: evidence, decoration: const InputDecoration(labelText: 'Statement / support reference')),
+            TextField(controller: transactionAt, decoration: const InputDecoration(labelText: 'Provider transaction time (ISO 8601)')),
+            TextField(controller: reason, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'Review reason (20–500 characters)')),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Record review')),
+        ],
+      ),
+    );
+    if (accepted == true && mounted) {
+      try {
+        final paymentReference = payment['paymentId'].toString().replaceAll('-', '');
+        final accountReference = paymentReference.length <= 12
+            ? paymentReference
+            : paymentReference.substring(paymentReference.length - 12);
+        await api.call('POST', '/api/admin/payments/${payment['paymentId']}/review', {
+          'decision': 'confirm',
+          'providerReceipt': receipt.text.trim(),
+          'evidenceType': 'safaricom_statement',
+          'evidenceReference': evidence.text.trim(),
+          'providerTransactionAt': transactionAt.text.trim(),
+          'reason': reason.text.trim(),
+          'amount': payment['amount'],
+          'currency': payment['currency'] ?? 'KES',
+          'payerPhone': payment['payerPhone'],
+          'shortcode': payment['providerShortcode'],
+          'accountReference': accountReference,
+        });
+        await loadPayments();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Manual review recorded. This is not provider callback confirmation.')));
+      } catch (error) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment review was not applied: $error')));
+      }
+    }
+    receipt.dispose();
+    evidence.dispose();
+    reason.dispose();
+    transactionAt.dispose();
+  }
+
   Future<void> loadApprovals() async {
-    if (mounted) setState(() { approvalsLoading = true; approvalsError = null; });
+    if (mounted)
+      setState(() {
+        approvalsLoading = true;
+        approvalsError = null;
+      });
     try {
-      final schoolsResult = await api.call('GET', '/api/schools/verification-requests');
-      if (schoolsResult['reviewer'] != true) throw Exception('This account is not authorized to review school applications.');
-      final businessesResult = await api.call('GET', '/api/admin/business-approvals');
+      final schoolsResult =
+          await api.call('GET', '/api/schools/verification-requests');
+      if (schoolsResult['reviewer'] != true)
+        throw Exception(
+            'This account is not authorized to review school applications.');
+      final businessesResult =
+          await api.call('GET', '/api/admin/business-approvals');
       if (!mounted) return;
       setState(() {
         schoolApprovals = List<dynamic>.from(schoolsResult['requests'] ?? []);
-        businessApprovals = List<dynamic>.from(businessesResult['businesses'] ?? []);
+        businessApprovals =
+            List<dynamic>.from(businessesResult['businesses'] ?? []);
       });
     } catch (e) {
       if (mounted) setState(() => approvalsError = e.toString());
@@ -3823,7 +4048,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
-  Future<void> reviewApproval(String type, Map<String, dynamic> item, String decision) async {
+  Future<void> reviewApproval(
+      String type, Map<String, dynamic> item, String decision) async {
     final isSchool = type == 'school';
     final label = (item[isSchool ? 'schoolName' : 'name'] ?? type).toString();
     final approved = decision == 'APPROVE';
@@ -3835,9 +4061,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ? 'This verifies the ${isSchool ? 'school' : 'business'} for Chatify. Workspace subscription payment remains a separate requirement.'
             : 'This marks the ${isSchool ? 'school' : 'business'} application as rejected.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
           FilledButton(
-            style: approved ? null : FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: approved
+                ? null
+                : FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: Text(approved ? 'Approve' : 'Reject'),
           ),
@@ -3849,21 +4080,30 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final id = (item['id'] ?? item['_id'] ?? '').toString();
       if (id.isEmpty) throw Exception('The application is missing its ID.');
       if (isSchool) {
-        await api.call('POST', '/api/schools/verification-requests/$id/review', {
+        await api
+            .call('POST', '/api/schools/verification-requests/$id/review', {
           'decision': decision,
-          'reviewNote': approved ? 'Approved from Chatify Control Center.' : 'Rejected from Chatify Control Center.',
+          'reviewNote': approved
+              ? 'Approved from Chatify Control Center.'
+              : 'Rejected from Chatify Control Center.',
         });
       } else {
         await api.call('POST', '/api/admin/business-approvals/$id/review', {
           'decision': decision,
-          'reviewNote': approved ? 'Approved from Chatify Control Center.' : 'Rejected from Chatify Control Center.',
+          'reviewNote': approved
+              ? 'Approved from Chatify Control Center.'
+              : 'Rejected from Chatify Control Center.',
         });
       }
       await loadApprovals();
       await loadOverview();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label ${approved ? 'approved' : 'rejected'}.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('$label ${approved ? 'approved' : 'rejected'}.')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not review $label: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not review $label: $e')));
     }
   }
 
@@ -3881,20 +4121,37 @@ class _AdminDashboardState extends State<AdminDashboard> {
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            CircleAvatar(backgroundColor: theme.colorScheme.primaryContainer, child: Icon(Icons.verified_user_outlined, color: theme.colorScheme.onPrimaryContainer)),
+            CircleAvatar(
+                backgroundColor: theme.colorScheme.primaryContainer,
+                child: Icon(Icons.verified_user_outlined,
+                    color: theme.colorScheme.onPrimaryContainer)),
             const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(name, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 4),
-              Text(detail, style: theme.textTheme.bodySmall),
-              if (location.isNotEmpty) ...[const SizedBox(height: 3), Text(location, style: theme.textTheme.bodySmall)],
-            ])),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(name,
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Text(detail, style: theme.textTheme.bodySmall),
+                  if (location.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(location, style: theme.textTheme.bodySmall)
+                  ],
+                ])),
             _statusChip('PENDING', Colors.orange.shade800),
           ]),
           const SizedBox(height: 12),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            FilledButton.icon(onPressed: onApprove, icon: const Icon(Icons.check_circle_outline), label: const Text('Approve')),
-            OutlinedButton.icon(onPressed: onReject, icon: const Icon(Icons.close), label: const Text('Reject')),
+            FilledButton.icon(
+                onPressed: onApprove,
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text('Approve')),
+            OutlinedButton.icon(
+                onPressed: onReject,
+                icon: const Icon(Icons.close),
+                label: const Text('Reject')),
           ]),
         ]),
       ),
@@ -3903,43 +4160,81 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   Widget _approvalsSection(ThemeData theme) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Applications and verification', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      Text('Applications and verification',
+          style: theme.textTheme.headlineSmall
+              ?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 4),
-      const Text('Review school identity requests and business workspace applications. Approval is separate from subscription payment.'),
+      const Text(
+          'Review school identity requests and business workspace applications. Approval is separate from subscription payment.'),
       const SizedBox(height: 12),
       Row(children: [
-        Expanded(child: _metric('Schools awaiting review', schoolApprovals.length, Icons.school_outlined)),
+        Expanded(
+            child: _metric('Schools awaiting review', schoolApprovals.length,
+                Icons.school_outlined)),
         const SizedBox(width: 10),
-        Expanded(child: _metric('Businesses awaiting review', businessApprovals.length, Icons.business_outlined)),
+        Expanded(
+            child: _metric('Businesses awaiting review',
+                businessApprovals.length, Icons.business_outlined)),
       ]),
       const SizedBox(height: 12),
-      Align(alignment: Alignment.centerRight, child: OutlinedButton.icon(onPressed: approvalsLoading ? null : loadApprovals, icon: const Icon(Icons.refresh), label: const Text('Refresh applications'))),
+      Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton.icon(
+              onPressed: approvalsLoading ? null : loadApprovals,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh applications'))),
       if (approvalsLoading) const LinearProgressIndicator(),
-      if (approvalsError != null) Card(child: ListTile(leading: const Icon(Icons.error_outline), title: const Text('Applications could not be loaded'), subtitle: Text(approvalsError!), trailing: IconButton(onPressed: loadApprovals, icon: const Icon(Icons.refresh)))),
-      Text('School applications', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      if (approvalsError != null)
+        Card(
+            child: ListTile(
+                leading: const Icon(Icons.error_outline),
+                title: const Text('Applications could not be loaded'),
+                subtitle: Text(approvalsError!),
+                trailing: IconButton(
+                    onPressed: loadApprovals,
+                    icon: const Icon(Icons.refresh)))),
+      Text('School applications',
+          style: theme.textTheme.titleLarge
+              ?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 8),
-      if (!approvalsLoading && schoolApprovals.isEmpty) const Card(child: ListTile(leading: Icon(Icons.school_outlined), title: Text('No pending school applications'))),
+      if (!approvalsLoading && schoolApprovals.isEmpty)
+        const Card(
+            child: ListTile(
+                leading: Icon(Icons.school_outlined),
+                title: Text('No pending school applications'))),
       ...schoolApprovals.map((raw) {
         final item = Map<String, dynamic>.from(raw as Map);
         return _approvalCard(
           name: (item['schoolName'] ?? 'Unnamed school').toString(),
-          detail: 'Code: ${item['proposedCode'] ?? '—'} · County: ${item['county'] ?? '—'}',
-          location: '${item['officialEmail'] ?? ''} · ${item['officialPhone'] ?? ''}',
+          detail:
+              'Code: ${item['proposedCode'] ?? '—'} · County: ${item['county'] ?? '—'}',
+          location:
+              '${item['officialEmail'] ?? ''} · ${item['officialPhone'] ?? ''}',
           onApprove: () => reviewApproval('school', item, 'APPROVE'),
           onReject: () => reviewApproval('school', item, 'REJECT'),
         );
       }),
       const SizedBox(height: 12),
-      Text('Business applications', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      Text('Business applications',
+          style: theme.textTheme.titleLarge
+              ?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 8),
-      if (!approvalsLoading && businessApprovals.isEmpty) const Card(child: ListTile(leading: Icon(Icons.business_outlined), title: Text('No pending business applications'))),
+      if (!approvalsLoading && businessApprovals.isEmpty)
+        const Card(
+            child: ListTile(
+                leading: Icon(Icons.business_outlined),
+                title: Text('No pending business applications'))),
       ...businessApprovals.map((raw) {
         final item = Map<String, dynamic>.from(raw as Map);
-        final owner = item['owner'] is Map ? Map<String, dynamic>.from(item['owner'] as Map) : <String, dynamic>{};
+        final owner = item['owner'] is Map
+            ? Map<String, dynamic>.from(item['owner'] as Map)
+            : <String, dynamic>{};
         return _approvalCard(
           name: (item['name'] ?? 'Unnamed business').toString(),
-          detail: '${item['industry'] ?? 'Business'} · Owner: ${owner['name'] ?? 'Unknown'}',
-          location: '${owner['email'] ?? item['email'] ?? ''} · ${item['phone'] ?? owner['phone'] ?? ''}',
+          detail:
+              '${item['industry'] ?? 'Business'} · Owner: ${owner['name'] ?? 'Unknown'}',
+          location:
+              '${owner['email'] ?? item['email'] ?? ''} · ${item['phone'] ?? owner['phone'] ?? ''}',
           onApprove: () => reviewApproval('business', item, 'APPROVE'),
           onReject: () => reviewApproval('business', item, 'REJECT'),
         );
@@ -3948,10 +4243,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Future<void> loadWorkspaceBillingRows() async {
-    if (mounted) setState(() { workspaceBillingRowsLoading = true; workspaceBillingRowsError = null; });
+    if (mounted)
+      setState(() {
+        workspaceBillingRowsLoading = true;
+        workspaceBillingRowsError = null;
+      });
     try {
-      final result = await api.call('GET', '/api/admin/workspace-billing-status');
-      if (mounted) setState(() => workspaceBillingRows = List<dynamic>.from(result['workspaces'] ?? []));
+      final result =
+          await api.call('GET', '/api/admin/workspace-billing-status');
+      if (mounted)
+        setState(() => workspaceBillingRows =
+            List<dynamic>.from(result['workspaces'] ?? []));
     } catch (e) {
       if (mounted) setState(() => workspaceBillingRowsError = e.toString());
     } finally {
@@ -3960,7 +4262,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Future<void> loadBackups() async {
-    if (mounted) setState(() { backupsLoading = true; backupsError = null; });
+    if (mounted)
+      setState(() {
+        backupsLoading = true;
+        backupsError = null;
+      });
     try {
       final result = await api.call('GET', '/api/admin/backups');
       if (!mounted) return;
@@ -3982,21 +4288,31 @@ class _AdminDashboardState extends State<AdminDashboard> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Create system backup?'),
-        content: const Text('Chatify will create a compressed MongoDB archive and checksum in the configured backup directory. This does not replace encrypted off-site storage or a tested recovery drill.'),
+        content: const Text(
+            'Chatify will create a compressed MongoDB archive and checksum in the configured backup directory. This does not replace encrypted off-site storage or a tested recovery drill.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create backup')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Create backup')),
         ],
       ),
     );
     if (confirmed != true || !mounted) return;
-    setState(() { backupActionRunning = true; backupsError = null; });
+    setState(() {
+      backupActionRunning = true;
+      backupsError = null;
+    });
     try {
       final result = await api.call('POST', '/api/admin/backups');
       await loadBackups();
       if (mounted) {
-        final message = (result['message'] ?? 'Backup command completed.').toString();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+        final message =
+            (result['message'] ?? 'Backup command completed.').toString();
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (e) {
       if (mounted) setState(() => backupsError = e.toString());
@@ -4012,11 +4328,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Restore backup to recovery database?'),
-        content: Text('This restores "$filename" only to the separately configured NON-PRODUCTION recovery database. It does not switch production traffic. You must validate the restored data and application before planning a cutover. Continue?'),
+        content: Text(
+            'This restores "$filename" only to the separately configured NON-PRODUCTION recovery database. It does not switch production traffic. You must validate the restored data and application before planning a cutover. Continue?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Restore to recovery database'),
           ),
@@ -4024,7 +4344,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    setState(() { backupActionRunning = true; backupsError = null; });
+    setState(() {
+      backupActionRunning = true;
+      backupsError = null;
+    });
     try {
       final result = await api.call(
         'POST',
@@ -4036,8 +4359,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Recovery command finished'),
-            content: Text((result['message'] ?? 'Restore completed.').toString()),
-            actions: [FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+            content:
+                Text((result['message'] ?? 'Restore completed.').toString()),
+            actions: [
+              FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Close'))
+            ],
           ),
         );
       }
@@ -4051,50 +4379,99 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget _backupRecoverySection(ThemeData theme) {
     String formatBytes(dynamic value) {
       final bytes = (value as num?)?.toDouble() ?? 0;
-      if (bytes >= 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-      if (bytes >= 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+      if (bytes >= 1024 * 1024 * 1024)
+        return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+      if (bytes >= 1024 * 1024)
+        return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
       if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
       return '${bytes.toInt()} bytes';
     }
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Backup & recovery', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      Text('Backup & recovery',
+          style: theme.textTheme.headlineSmall
+              ?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 6),
-      const Text('Create point-in-time database archives, verify their checksum availability, and restore into a separately configured recovery database after an incident. Production restore is intentionally blocked from this screen.'),
+      const Text(
+          'Create point-in-time database archives, verify their checksum availability, and restore into a separately configured recovery database after an incident. Production restore is intentionally blocked from this screen.'),
       const SizedBox(height: 12),
-      Card(child: Padding(
+      Card(
+          child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             const Icon(Icons.security_outlined),
             const SizedBox(width: 10),
-            Expanded(child: Text('Recovery readiness', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
-            IconButton(tooltip: 'Refresh backups', onPressed: backupsLoading || backupActionRunning ? null : loadBackups, icon: const Icon(Icons.refresh)),
+            Expanded(
+                child: Text('Recovery readiness',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800))),
+            IconButton(
+                tooltip: 'Refresh backups',
+                onPressed:
+                    backupsLoading || backupActionRunning ? null : loadBackups,
+                icon: const Icon(Icons.refresh)),
           ]),
           const SizedBox(height: 8),
-          _backupStatusLine('Database backup configuration', backupToolConfigured, 'Database URI configured', 'Missing database URI'),
-          _backupStatusLine('Persistent backup directory', backupDirectoryConfigured, 'Custom backup directory configured', 'Using default path; verify it persists across redeploys'),
-          _backupStatusLine('Non-production recovery target', restoreConfigured, 'Recovery target configured', 'Restore disabled until a separate recovery database is configured'),
+          _backupStatusLine(
+              'Database backup configuration',
+              backupToolConfigured,
+              'Database URI configured',
+              'Missing database URI'),
+          _backupStatusLine(
+              'Persistent backup directory',
+              backupDirectoryConfigured,
+              'Custom backup directory configured',
+              'Using default path; verify it persists across redeploys'),
+          _backupStatusLine(
+              'Non-production recovery target',
+              restoreConfigured,
+              'Recovery target configured',
+              'Restore disabled until a separate recovery database is configured'),
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 8, children: [
             FilledButton.icon(
-              onPressed: backupsLoading || backupActionRunning ? null : createSystemBackup,
-              icon: backupActionRunning ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.backup_outlined),
-              label: Text(backupActionRunning ? 'Working…' : 'Create backup now'),
+              onPressed: backupsLoading || backupActionRunning
+                  ? null
+                  : createSystemBackup,
+              icon: backupActionRunning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.backup_outlined),
+              label:
+                  Text(backupActionRunning ? 'Working…' : 'Create backup now'),
             ),
             OutlinedButton.icon(
-              onPressed: backupsLoading || backupActionRunning ? null : loadBackups,
+              onPressed:
+                  backupsLoading || backupActionRunning ? null : loadBackups,
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh backup list'),
             ),
           ]),
         ]),
       )),
-      if (backupsError != null) Card(child: ListTile(leading: Icon(Icons.error_outline, color: theme.colorScheme.error), title: const Text('Backup operation needs attention'), subtitle: Text(backupsError!))),
+      if (backupsError != null)
+        Card(
+            child: ListTile(
+                leading:
+                    Icon(Icons.error_outline, color: theme.colorScheme.error),
+                title: const Text('Backup operation needs attention'),
+                subtitle: Text(backupsError!))),
       const SizedBox(height: 8),
-      Text('Available backup archives', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      Text('Available backup archives',
+          style: theme.textTheme.titleLarge
+              ?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 6),
       if (backupsLoading) const LinearProgressIndicator(),
-      if (!backupsLoading && backupRows.isEmpty) const Card(child: ListTile(leading: Icon(Icons.backup_outlined), title: Text('No backup archives found'), subtitle: Text('Create a backup after configuring MongoDB Database Tools and persistent private storage.'))),
+      if (!backupsLoading && backupRows.isEmpty)
+        const Card(
+            child: ListTile(
+                leading: Icon(Icons.backup_outlined),
+                title: Text('No backup archives found'),
+                subtitle: Text(
+                    'Create a backup after configuring MongoDB Database Tools and persistent private storage.'))),
       ...backupRows.map((raw) {
         final backup = Map<String, dynamic>.from(raw as Map);
         final filename = backup['filename']?.toString() ?? 'Backup archive';
@@ -4104,13 +4481,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
-            leading: Icon(hasChecksum ? Icons.verified_outlined : Icons.warning_amber_outlined, color: hasChecksum ? Colors.green : Colors.orange),
+            leading: Icon(
+                hasChecksum
+                    ? Icons.verified_outlined
+                    : Icons.warning_amber_outlined,
+                color: hasChecksum ? Colors.green : Colors.orange),
             title: Text(filename, maxLines: 2, overflow: TextOverflow.ellipsis),
-            subtitle: Text('$size · ${created.isEmpty ? 'Date unavailable' : created} · ${hasChecksum ? 'Checksum available' : 'Checksum missing — restore blocked'}'),
+            subtitle: Text(
+                '$size · ${created.isEmpty ? 'Date unavailable' : created} · ${hasChecksum ? 'Checksum available' : 'Checksum missing — restore blocked'}'),
             trailing: restoreConfigured && hasChecksum
                 ? IconButton(
                     tooltip: 'Restore to non-production recovery database',
-                    onPressed: backupActionRunning ? null : () => restoreSystemBackup(backup),
+                    onPressed: backupActionRunning
+                        ? null
+                        : () => restoreSystemBackup(backup),
                     icon: const Icon(Icons.settings_backup_restore_outlined),
                   )
                 : null,
@@ -4118,18 +4502,22 @@ class _AdminDashboardState extends State<AdminDashboard> {
         );
       }),
       const SizedBox(height: 8),
-      const Card(child: Padding(
+      const Card(
+          child: Padding(
         padding: EdgeInsets.all(14),
-        child: Text('Before relying on recovery: configure encrypted off-site replication and retention, restrict backup access, and periodically test a restore in isolated staging. A successful archive alone does not prove recovery readiness.'),
+        child: Text(
+            'Before relying on recovery: configure encrypted off-site replication and retention, restrict backup access, and periodically test a restore in isolated staging. A successful archive alone does not prove recovery readiness.'),
       )),
     ]);
   }
 
-  Widget _backupStatusLine(String label, bool ready, String success, String warning) {
+  Widget _backupStatusLine(
+      String label, bool ready, String success, String warning) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(ready ? Icons.check_circle_outline : Icons.warning_amber_outlined, size: 19, color: ready ? Colors.green : Colors.orange),
+        Icon(ready ? Icons.check_circle_outline : Icons.warning_amber_outlined,
+            size: 19, color: ready ? Colors.green : Colors.orange),
         const SizedBox(width: 8),
         Expanded(child: Text('$label: ${ready ? success : warning}')),
       ]),
@@ -4139,7 +4527,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget _workspaceBillingStatusSection(ThemeData theme) {
     final active = workspaceBillingRows.where((raw) {
       final row = raw is Map ? raw : <String, dynamic>{};
-      final billing = row['billing'] is Map ? row['billing'] as Map : <String, dynamic>{};
+      final billing =
+          row['billing'] is Map ? row['billing'] as Map : <String, dynamic>{};
       return billing['locked'] != true;
     }).length;
     return Card(
@@ -4147,30 +4536,59 @@ class _AdminDashboardState extends State<AdminDashboard> {
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Expanded(child: Text('Workspace subscription monitor', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
-            IconButton(tooltip: 'Refresh workspace billing', onPressed: workspaceBillingRowsLoading ? null : loadWorkspaceBillingRows, icon: const Icon(Icons.refresh)),
+            Expanded(
+                child: Text('Workspace subscription monitor',
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w800))),
+            IconButton(
+                tooltip: 'Refresh workspace billing',
+                onPressed: workspaceBillingRowsLoading
+                    ? null
+                    : loadWorkspaceBillingRows,
+                icon: const Icon(Icons.refresh)),
           ]),
           const SizedBox(height: 4),
-          Text('${workspaceBillingRows.length} workspaces tracked · $active currently within their billing access window'),
+          Text(
+              '${workspaceBillingRows.length} workspaces tracked · $active currently within their billing access window'),
           const SizedBox(height: 10),
           if (workspaceBillingRowsLoading) const LinearProgressIndicator(),
-          if (workspaceBillingRowsError != null) ListTile(leading: const Icon(Icons.error_outline), title: const Text('Could not load workspace billing'), subtitle: Text(workspaceBillingRowsError!)),
-          if (!workspaceBillingRowsLoading && workspaceBillingRows.isEmpty) const ListTile(leading: Icon(Icons.info_outline), title: Text('No school or business workspaces found')),
+          if (workspaceBillingRowsError != null)
+            ListTile(
+                leading: const Icon(Icons.error_outline),
+                title: const Text('Could not load workspace billing'),
+                subtitle: Text(workspaceBillingRowsError!)),
+          if (!workspaceBillingRowsLoading && workspaceBillingRows.isEmpty)
+            const ListTile(
+                leading: Icon(Icons.info_outline),
+                title: Text('No school or business workspaces found')),
           ...workspaceBillingRows.map((raw) {
             final row = Map<String, dynamic>.from(raw as Map);
-            final billing = row['billing'] is Map ? Map<String, dynamic>.from(row['billing'] as Map) : <String, dynamic>{};
-            final owner = row['owner'] is Map ? Map<String, dynamic>.from(row['owner'] as Map) : <String, dynamic>{};
+            final billing = row['billing'] is Map
+                ? Map<String, dynamic>.from(row['billing'] as Map)
+                : <String, dynamic>{};
+            final owner = row['owner'] is Map
+                ? Map<String, dynamic>.from(row['owner'] as Map)
+                : <String, dynamic>{};
             final locked = billing['locked'] == true;
-            final status = (billing['status'] ?? (locked ? 'PAYMENT REQUIRED' : 'ACTIVE')).toString().toUpperCase();
+            final status =
+                (billing['status'] ?? (locked ? 'PAYMENT REQUIRED' : 'ACTIVE'))
+                    .toString()
+                    .toUpperCase();
             final expiry = row['subscriptionExpiresAt']?.toString();
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
-                leading: CircleAvatar(child: Icon(row['type'] == 'school' ? Icons.school_outlined : Icons.business_outlined)),
-                title: Text((row['name'] ?? 'Unnamed workspace').toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text('${(row['type'] ?? 'workspace').toString().toUpperCase()} · ${owner['name'] ?? owner['email'] ?? 'Owner unavailable'}\nSetup: ${row['setupFeePaid'] == true ? 'Paid' : 'Unpaid'} · Subscription expiry: ${expiry == null ? 'Not active' : expiry.split('T').first}\nApproval: ${row['approvalStatus'] ?? '—'}'),
+                leading: CircleAvatar(
+                    child: Icon(row['type'] == 'school'
+                        ? Icons.school_outlined
+                        : Icons.business_outlined)),
+                title: Text((row['name'] ?? 'Unnamed workspace').toString(),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(
+                    '${(row['type'] ?? 'workspace').toString().toUpperCase()} · ${owner['name'] ?? owner['email'] ?? 'Owner unavailable'}\nSetup: ${row['setupFeePaid'] == true ? 'Paid' : 'Unpaid'} · Subscription expiry: ${expiry == null ? 'Not active' : expiry.split('T').first}\nApproval: ${row['approvalStatus'] ?? '—'}'),
                 isThreeLine: true,
-                trailing: _statusChip(status, locked ? theme.colorScheme.error : Colors.green),
+                trailing: _statusChip(
+                    status, locked ? theme.colorScheme.error : Colors.green),
               ),
             );
           }),
@@ -4788,6 +5206,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
         final totalAmount = (payment['totalAmount'] as num?)?.toDouble() ??
             amount + platformFee;
         final status = payment['status']?.toString() ?? 'Unknown';
+        final confirmationSource = payment['confirmationSource']?.toString();
+        final initiationState = payment['initiationState']?.toString();
+        final resolutionLabel = confirmationSource == 'manual_review'
+            ? ' · MANUALLY REVIEWED (not provider confirmed)'
+            : confirmationSource == 'provider_callback'
+                ? ' · Provider callback confirmed'
+                : initiationState == 'REQUIRES_REVIEW'
+                    ? ' · REQUIRES ADMIN REVIEW — do not retry STK'
+                    : '';
         final color = status == 'SUCCESS'
             ? Colors.green
             : status == 'FAILED'
@@ -4808,11 +5235,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
               payment['paymentId']?.toString() ??
               'Payment'),
           subtitle: Text(
-              '${payment['provider'] ?? 'Provider'} · $status\n${payment['paymentId'] ?? ''}${platformFee > 0 ? '\nHistorical platform fee KSh ${platformFee.toStringAsFixed(0)} · ${payment['platformFeeStatus'] ?? 'PENDING_SETTLEMENT'}' : ''}'),
+              '${payment['provider'] ?? 'Provider'} · $status$resolutionLabel\n${payment['paymentId'] ?? ''}${platformFee > 0 ? '\nHistorical platform fee KSh ${platformFee.toStringAsFixed(0)} · ${payment['platformFeeStatus'] ?? 'PENDING_SETTLEMENT'}' : ''}'),
           isThreeLine: true,
-          trailing: Text('KES ${totalAmount.toStringAsFixed(2)}',
-              style: theme.textTheme.titleSmall
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+          trailing: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text('KES ${totalAmount.toStringAsFixed(2)}',
+                style: theme.textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            if (initiationState == 'REQUIRES_REVIEW' && status == 'PENDING')
+              TextButton.icon(
+                onPressed: () => reviewUncertainPayment(payment),
+                icon: const Icon(Icons.fact_check_outlined, size: 16),
+                label: const Text('Review'),
+              ),
+          ]),
         ));
       }),
       _pager(
@@ -4911,43 +5346,42 @@ class _AdminDashboardState extends State<AdminDashboard> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SegmentedButton<_AdminSection>(
-            segments: const [
-              ButtonSegment(
-                  value: _AdminSection.overview,
-                  label: Text('Overview'),
-                  icon: Icon(Icons.dashboard_outlined)),
-              ButtonSegment(
-                  value: _AdminSection.approvals,
-                  label: Text('Approvals'),
-                  icon: Icon(Icons.fact_check_outlined)),
-              ButtonSegment(
-                  value: _AdminSection.people,
-                  label: Text('People'),
-                  icon: Icon(Icons.people_outline)),
-              ButtonSegment(
-                  value: _AdminSection.payments,
-                  label: Text('Payments'),
-                  icon: Icon(Icons.payments_outlined)),
-              ButtonSegment(
-                  value: _AdminSection.billing,
-                  label: Text('Workspace billing'),
-                  icon: Icon(Icons.workspace_premium_outlined)),
-
-            ],
-            selected: {section},
-            onSelectionChanged: (value) {
-              setState(() => section = value.first);
-              if (section == _AdminSection.approvals) loadApprovals();
-              if (section == _AdminSection.people && users.isEmpty) loadUsers();
-              if (section == _AdminSection.payments && payments.isEmpty)
-                loadPayments();
-              if (section == _AdminSection.billing) {
-                loadWorkspaceBillingSettings();
-                loadWorkspaceBillingRows();
-                loadBackups();
-              }
-
-            },
+              segments: const [
+                ButtonSegment(
+                    value: _AdminSection.overview,
+                    label: Text('Overview'),
+                    icon: Icon(Icons.dashboard_outlined)),
+                ButtonSegment(
+                    value: _AdminSection.approvals,
+                    label: Text('Approvals'),
+                    icon: Icon(Icons.fact_check_outlined)),
+                ButtonSegment(
+                    value: _AdminSection.people,
+                    label: Text('People'),
+                    icon: Icon(Icons.people_outline)),
+                ButtonSegment(
+                    value: _AdminSection.payments,
+                    label: Text('Payments'),
+                    icon: Icon(Icons.payments_outlined)),
+                ButtonSegment(
+                    value: _AdminSection.billing,
+                    label: Text('Workspace billing'),
+                    icon: Icon(Icons.workspace_premium_outlined)),
+              ],
+              selected: {section},
+              onSelectionChanged: (value) {
+                setState(() => section = value.first);
+                if (section == _AdminSection.approvals) loadApprovals();
+                if (section == _AdminSection.people && users.isEmpty)
+                  loadUsers();
+                if (section == _AdminSection.payments && payments.isEmpty)
+                  loadPayments();
+                if (section == _AdminSection.billing) {
+                  loadWorkspaceBillingSettings();
+                  loadWorkspaceBillingRows();
+                  loadBackups();
+                }
+              },
             ),
           ),
           const SizedBox(height: 18),
@@ -5049,25 +5483,47 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       ?.copyWith(fontWeight: FontWeight.w800)),
             )),
             const SizedBox(height: 12),
-            Card(child: Padding(
+            Card(
+                child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Chatify income', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 6),
-                const Text('Confirmed school and business workspace setup fees and subscriptions only. School fees paid directly to schools and ordinary business sales are not counted as Chatify income.'),
-                const SizedBox(height: 12),
-                Row(children: [
-                  Expanded(child: _metric('Total earned', 'KSh ${((overview['chatifyTotalIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}', Icons.account_balance_wallet_outlined)),
-                  const SizedBox(width: 10),
-                  Expanded(child: _metric('This month', 'KSh ${((overview['currentMonthChatifyIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}', Icons.calendar_month_outlined)),
-                ]),
-                const SizedBox(height: 10),
-                Row(children: [
-                  Expanded(child: _metric('Setup fees', 'KSh ${((overview['workspaceSetupIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}', Icons.receipt_long_outlined)),
-                  const SizedBox(width: 10),
-                  Expanded(child: _metric('Subscriptions', 'KSh ${((overview['workspaceSubscriptionIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}', Icons.autorenew_outlined)),
-                ]),
-              ]),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Chatify income',
+                        style: theme.textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 6),
+                    const Text(
+                        'Confirmed school and business workspace setup fees and subscriptions only. School fees paid directly to schools and ordinary business sales are not counted as Chatify income.'),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(
+                          child: _metric(
+                              'Total earned',
+                              'KSh ${((overview['chatifyTotalIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                              Icons.account_balance_wallet_outlined)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: _metric(
+                              'This month',
+                              'KSh ${((overview['currentMonthChatifyIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                              Icons.calendar_month_outlined)),
+                    ]),
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      Expanded(
+                          child: _metric(
+                              'Setup fees',
+                              'KSh ${((overview['workspaceSetupIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                              Icons.receipt_long_outlined)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: _metric(
+                              'Subscriptions',
+                              'KSh ${((overview['workspaceSubscriptionIncome'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                              Icons.autorenew_outlined)),
+                    ]),
+                  ]),
             )),
             const SizedBox(height: 12),
             Card(
@@ -5135,6 +5591,7 @@ class SchoolWorkspacePage extends StatefulWidget {
 
 class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   AppState get app => context.read<AppState>();
+  final Set<String> _pendingSchoolDeletions = <String>{};
   List<dynamic> schools = [],
       messages = [],
       fees = [],
@@ -5185,7 +5642,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       payerPhone = TextEditingController();
   final newSchoolClass = TextEditingController();
   final feeStructureClass = TextEditingController(),
-      feeStructureYear = TextEditingController(text: DateTime.now().year.toString()),
+      feeStructureYear =
+          TextEditingController(text: DateTime.now().year.toString()),
       feeStructureTerm = TextEditingController(text: 'Term 1'),
       feeStructureItems = TextEditingController();
   final paybill = TextEditingController(),
@@ -5213,7 +5671,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       guardianEmail = TextEditingController();
   final promotionFromClass = TextEditingController(),
       promotionToClass = TextEditingController(),
-      promotionYear = TextEditingController(text: DateTime.now().year.toString());
+      promotionYear =
+          TextEditingController(text: DateTime.now().year.toString());
   final attendanceDate = TextEditingController(
           text: DateTime.now().toIso8601String().substring(0, 10)),
       attendanceNote = TextEditingController();
@@ -5222,7 +5681,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       assessmentTerm = TextEditingController(),
       assessmentStrand = TextEditingController(),
       assessmentSubStrand = TextEditingController(),
-      assessmentYear = TextEditingController(text: DateTime.now().year.toString()),
+      assessmentYear =
+          TextEditingController(text: DateTime.now().year.toString()),
       assessmentScore = TextEditingController(),
       assessmentOutOf = TextEditingController(text: '100'),
       teacherNote = TextEditingController();
@@ -5368,8 +5828,11 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       return;
     }
     try {
-      final result = await app.api.call('GET', '/api/schools/$id/receipt-settings');
-      if (mounted && schoolId == id) setState(() => receiptStampDataUrl = (result['receiptStampDataUrl'] ?? '').toString());
+      final result =
+          await app.api.call('GET', '/api/schools/$id/receipt-settings');
+      if (mounted && schoolId == id)
+        setState(() => receiptStampDataUrl =
+            (result['receiptStampDataUrl'] ?? '').toString());
     } catch (_) {}
   }
 
@@ -5377,22 +5840,36 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final id = schoolId;
     if (id == null || role != 'admin') return;
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: const ['jpg', 'jpeg'], withData: true);
+      final result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: const ['jpg', 'jpeg'],
+          withData: true);
       if (result == null || result.files.isEmpty) return;
       final file = result.files.single;
       final bytes = file.bytes;
-      if (bytes == null || bytes.isEmpty) throw const FormatException('The selected image could not be read.');
-      if (bytes.length > 700 * 1024) throw const FormatException('Choose a JPEG stamp image smaller than 700 KB.');
-      if (_schoolReceiptJpegDimensions(bytes) == null) throw const FormatException('Choose a valid JPEG image of the school stamp.');
+      if (bytes == null || bytes.isEmpty)
+        throw const FormatException('The selected image could not be read.');
+      if (bytes.length > 700 * 1024)
+        throw const FormatException(
+            'Choose a JPEG stamp image smaller than 700 KB.');
+      if (_schoolReceiptJpegDimensions(bytes) == null)
+        throw const FormatException(
+            'Choose a valid JPEG image of the school stamp.');
       final dataUrl = 'data:image/jpeg;base64,${base64Encode(bytes)}';
-      await app.api.call('PUT', '/api/schools/$id/receipt-settings', {'receiptStampDataUrl': dataUrl});
-      if (mounted) setState(() {
-        receiptStampDataUrl = dataUrl;
-        feePaymentOptions['receiptStampDataUrl'] = dataUrl;
-      });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('School stamp saved and will appear on receipts.')));
+      await app.api.call('PUT', '/api/schools/$id/receipt-settings',
+          {'receiptStampDataUrl': dataUrl});
+      if (mounted)
+        setState(() {
+          receiptStampDataUrl = dataUrl;
+          feePaymentOptions['receiptStampDataUrl'] = dataUrl;
+        });
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('School stamp saved and will appear on receipts.')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save school stamp: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not save school stamp: $e')));
     }
   }
 
@@ -5400,11 +5877,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final id = schoolId;
     if (id == null || role != 'admin') return;
     await _action(() async {
-      await app.api.call('PUT', '/api/schools/$id/receipt-settings', {'receiptStampDataUrl': ''});
-      if (mounted) setState(() {
-        receiptStampDataUrl = '';
-        feePaymentOptions['receiptStampDataUrl'] = '';
-      });
+      await app.api.call('PUT', '/api/schools/$id/receipt-settings',
+          {'receiptStampDataUrl': ''});
+      if (mounted)
+        setState(() {
+          receiptStampDataUrl = '';
+          feePaymentOptions['receiptStampDataUrl'] = '';
+        });
     });
   }
 
@@ -5536,53 +6015,82 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           ]),
           content: Form(
             key: formKey,
-            child: SingleChildScrollView(child: Column(
+            child: SingleChildScrollView(
+                child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Enter your donation amount and M-Pesa number. Safaricom will send an STK prompt to your phone. Payment goes to the school’s configured Paybill or Till.'),
+                const Text(
+                    'Enter your donation amount and M-Pesa number. Safaricom will send an STK prompt to your phone. Payment goes to the school’s configured Paybill or Till.'),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: donationAmount,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Donation amount (KSh)', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                      labelText: 'Donation amount (KSh)',
+                      border: OutlineInputBorder()),
                   validator: (value) {
                     final n = int.tryParse((value ?? '').trim());
-                    return n == null || n < 1 || n > 150000 ? 'Enter KSh 1–150,000' : null;
+                    return n == null || n < 1 || n > 150000
+                        ? 'Enter KSh 1–150,000'
+                        : null;
                   },
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: donationPhone,
                   keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(labelText: 'M-Pesa phone number', hintText: '07XXXXXXXX or 2547XXXXXXXX', border: OutlineInputBorder()),
-                  validator: (value) => normalizeKenyanPhone((value ?? '').trim()) == null ? 'Enter a valid Kenyan mobile number' : null,
+                  decoration: const InputDecoration(
+                      labelText: 'M-Pesa phone number',
+                      hintText: '07XXXXXXXX or 2547XXXXXXXX',
+                      border: OutlineInputBorder()),
+                  validator: (value) =>
+                      normalizeKenyanPhone((value ?? '').trim()) == null
+                          ? 'Enter a valid Kenyan mobile number'
+                          : null,
                 ),
               ],
             )),
           ),
           actions: [
-            TextButton(onPressed: busy ? null : () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            TextButton(
+                onPressed:
+                    busy ? null : () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel')),
             FilledButton.icon(
-              onPressed: busy ? null : () async {
-                if (!(formKey.currentState?.validate() ?? false)) return;
-                setDialogState(() => busy = true);
-                try {
-                  final result = await app.api.call('POST', '/api/schools/$id/donations', {
-                    'amount': int.parse(donationAmount.text.trim()),
-                    'phone': donationPhone.text.trim(),
-                  });
-                  if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-                  if (mounted) {
-                    final reference = result['donation']?['paymentReference'] ?? '';
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${result['note'] ?? 'M-Pesa prompt requested.'} Reference: $reference')));
-                  }
-                } catch (error) {
-                  setDialogState(() => busy = false);
-                  if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(error.toString())));
-                }
-              },
-              icon: busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.lock_outline),
+              onPressed: busy
+                  ? null
+                  : () async {
+                      if (!(formKey.currentState?.validate() ?? false)) return;
+                      setDialogState(() => busy = true);
+                      try {
+                        final result = await app.api
+                            .call('POST', '/api/schools/$id/donations', {
+                          'amount': int.parse(donationAmount.text.trim()),
+                          'phone': donationPhone.text.trim(),
+                        });
+                        if (dialogContext.mounted)
+                          Navigator.pop(dialogContext, true);
+                        if (mounted) {
+                          final reference =
+                              result['donation']?['paymentReference'] ?? '';
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(
+                                  '${result['note'] ?? 'M-Pesa prompt requested.'} Reference: $reference')));
+                        }
+                      } catch (error) {
+                        setDialogState(() => busy = false);
+                        if (dialogContext.mounted)
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              SnackBar(content: Text(error.toString())));
+                      }
+                    },
+              icon: busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.lock_outline),
               label: Text(busy ? 'Requesting prompt…' : 'Send M-Pesa prompt'),
             ),
           ],
@@ -5604,26 +6112,31 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final pageQuery = '?page=$recordPage&limit=$_recordPageSize';
     try {
       if (section == 0) {
-        final r =
-            await app.api.call('GET', '/api/schools/$id/messages$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}${messageAudienceFilter == 'all' ? '' : '&audience=$messageAudienceFilter'}${messagePeriodFilter == 'all' ? '' : '&period=$messagePeriodFilter'}');
+        final r = await app.api.call('GET',
+            '/api/schools/$id/messages$pageQuery${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}${messageAudienceFilter == 'all' ? '' : '&audience=$messageAudienceFilter'}${messagePeriodFilter == 'all' ? '' : '&period=$messagePeriodFilter'}');
         recordTotal = (r['total'] as num?)?.toInt() ?? 0;
         messages = List<dynamic>.from(r['messages'] ?? []);
-        final directory = await app.api
-            .call('GET', '/api/schools/$id/members?page=1&limit=50${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}');
+        final directory = await app.api.call('GET',
+            '/api/schools/$id/members?page=1&limit=50${schoolSearchQuery.trim().isEmpty ? '' : '&q=${Uri.encodeQueryComponent(schoolSearchQuery.trim())}'}');
         members = List<dynamic>.from(directory['members'] ?? []);
       } else if (section == 9) {
         final results = await Future.wait([
-          app.api.call('GET', '/api/schools/$id/fee-structures?page=$recordPage&limit=$_recordPageSize&includeArchived=true'),
+          app.api.call('GET',
+              '/api/schools/$id/fee-structures?page=$recordPage&limit=$_recordPageSize&includeArchived=true'),
           app.api.call('GET', '/api/schools/$id/fee-balances'),
           app.api.call('GET', '/api/schools/$id/classes'),
         ]);
         feeStructures = List<dynamic>.from(results[0]['structures'] ?? []);
         feeBalances = List<dynamic>.from(results[1]['balances'] ?? []);
         schoolClasses = List<dynamic>.from(results[2]['classes'] ?? []);
-        if (feeStructureClass.text.trim().isNotEmpty && !schoolClasses.map((v) => v.toString()).contains(feeStructureClass.text.trim())) {
+        if (feeStructureClass.text.trim().isNotEmpty &&
+            !schoolClasses
+                .map((v) => v.toString())
+                .contains(feeStructureClass.text.trim())) {
           schoolClasses = [...schoolClasses, feeStructureClass.text.trim()];
         }
-        recordTotal = (results[0]['total'] as num?)?.toInt() ?? feeStructures.length;
+        recordTotal =
+            (results[0]['total'] as num?)?.toInt() ?? feeStructures.length;
       } else if (section == 2 || section == 8) {
         final feesResult =
             await app.api.call('GET', '/api/schools/$id/fees$pageQuery');
@@ -5631,8 +6144,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         try {
           // The roster is useful for fee filters and parent student selection,
           // but a roster failure must not hide the fee payment form.
-          studentResult = await app.api.call(
-              'GET', '/api/schools/$id/students?page=1&limit=100');
+          studentResult = await app.api
+              .call('GET', '/api/schools/$id/students?page=1&limit=100');
           students = List<dynamic>.from(studentResult['students'] ?? []);
         } catch (_) {
           students = [];
@@ -5646,9 +6159,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         // Older or partially migrated API responses may omit paymentOptions.
         // Fall back to the selected school's saved profile rather than hiding
         // valid payment choices from parents.
-        if (section == 2 &&
-            role == 'parent' &&
-            feePaymentOptions.isEmpty) {
+        if (section == 2 && role == 'parent' && feePaymentOptions.isEmpty) {
           final selectedSchool = schools.cast<Map>().firstWhere(
                 (school) => school['id']?.toString() == id,
                 orElse: () => <String, dynamic>{},
@@ -5660,7 +6171,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
               'configured': method == 'mpesa_till'
                   ? (profile['tillNumber']?.toString().isNotEmpty ?? false)
                   : method == 'mpesa_paybill'
-                      ? (profile['paybillNumber']?.toString().isNotEmpty ?? false)
+                      ? (profile['paybillNumber']?.toString().isNotEmpty ??
+                          false)
                       : method == 'bank',
               'method': method,
               'tillNumber': profile['tillNumber'],
@@ -5906,6 +6418,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   Future<void> _removeSchoolRecord(
       {required String label, required String endpoint}) async {
+    final key = '$schoolId/$endpoint';
+    if (_pendingSchoolDeletions.contains(key)) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -5924,6 +6438,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    await _deleteSchoolRecord(label: label, endpoint: endpoint, key: key);
+  }
+
+  Future<void> _deleteSchoolRecord(
+      {required String label,
+      required String endpoint,
+      required String key}) async {
+    if (_pendingSchoolDeletions.contains(key)) return;
+    _pendingSchoolDeletions.add(key);
     try {
       await app.api.call('DELETE', '/api/schools/$schoolId/$endpoint');
       await loadSection();
@@ -5936,6 +6459,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Could not delete $label: $error')));
+    } finally {
+      _pendingSchoolDeletions.remove(key);
     }
   }
 
@@ -5959,6 +6484,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             color: Theme.of(context).colorScheme.onErrorContainer),
       ),
       confirmDismiss: (_) async {
+        if (_pendingSchoolDeletions.contains('$schoolId/$endpoint')) {
+          return false;
+        }
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (dialog) => AlertDialog(
@@ -5979,15 +6507,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         return confirmed == true;
       },
       onDismissed: (_) async {
-        try {
-          await app.api.call('DELETE', '/api/schools/$schoolId/$endpoint');
-          await loadSection();
-        } catch (error) {
-          await loadSection();
-          if (context.mounted)
-            ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Could not delete $label: $error')));
-        }
+        await _deleteSchoolRecord(
+            label: label, endpoint: endpoint, key: '$schoolId/$endpoint');
       },
       child: child,
     );
@@ -6076,11 +6597,14 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final startText = conferenceStartTime.text.trim();
       final endText = conferenceEndTime.text.trim();
       if (role != 'admin' ||
-          conferenceTitle.text.trim().isEmpty || conferenceAgenda.text.trim().isEmpty ||
+          conferenceTitle.text.trim().isEmpty ||
+          conferenceAgenda.text.trim().isEmpty ||
           !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dateText) ||
           !RegExp(r'^\d{2}:\d{2}$').hasMatch(startText) ||
           !RegExp(r'^\d{2}:\d{2}$').hasMatch(endText)) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter an event title, agenda, date and valid start/end times.')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Enter an event title, agenda, date and valid start/end times.')));
         return;
       }
       final d = dateText.split('-').map(int.parse).toList();
@@ -6088,10 +6612,18 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final et = endText.split(':').map(int.parse).toList();
       startsAt = DateTime(d[0], d[1], d[2], st[0], st[1]);
       endsAt = DateTime(d[0], d[1], d[2], et[0], et[1]);
-      if (startsAt.year != d[0] || startsAt.month != d[1] || startsAt.day != d[2] ||
-          st[0] > 23 || et[0] > 23 || st[1] > 59 || et[1] > 59 ||
-          !startsAt.isAfter(DateTime.now()) || !endsAt.isAfter(startsAt)) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose a valid future date and an end time after the start time.')));
+      if (startsAt.year != d[0] ||
+          startsAt.month != d[1] ||
+          startsAt.day != d[2] ||
+          st[0] > 23 ||
+          et[0] > 23 ||
+          st[1] > 59 ||
+          et[1] > 59 ||
+          !startsAt.isAfter(DateTime.now()) ||
+          !endsAt.isAfter(startsAt)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Choose a valid future date and an end time after the start time.')));
         return;
       }
     } else if (messageBody.text.trim().isEmpty) {
@@ -6099,8 +6631,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     }
     await _action(() async {
       await app.api.call('POST', '/api/schools/$id/messages', {
-        'body': scheduleSchoolEvent ? conferenceAgenda.text.trim() : messageBody.text.trim(),
-        'subject': scheduleSchoolEvent ? conferenceTitle.text.trim() : messageSubject.text.trim(),
+        'body': scheduleSchoolEvent
+            ? conferenceAgenda.text.trim()
+            : messageBody.text.trim(),
+        'subject': scheduleSchoolEvent
+            ? conferenceTitle.text.trim()
+            : messageSubject.text.trim(),
         'audience': schoolInboxOnly ? 'school_inbox' : audience,
         if (!schoolInboxOnly && audience == 'direct' && !scheduleSchoolEvent)
           'recipientId': recipientIdController.text.trim(),
@@ -6310,7 +6846,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       }
       Map<String, dynamic> receiptSettings = {};
       try {
-        receiptSettings = await app.api.call('GET', '/api/schools/$id/receipt-settings');
+        receiptSettings =
+            await app.api.call('GET', '/api/schools/$id/receipt-settings');
       } catch (_) {
         // Receipts remain downloadable even if optional stamp settings are unavailable.
       }
@@ -6321,9 +6858,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           'schoolName': (payment['schoolName'] ??
               feePaymentOptions['schoolName'] ??
               (payment['school'] is Map ? payment['school']['name'] : null)),
-          'paymentMethod': schoolPaymentMethodForRecord(payment, configuredFallback: feePaymentOptions['method']),
-          'configuredPaymentMethod': feePaymentOptions['method'],
-          'receiptStampDataUrl': receiptSettings['receiptStampDataUrl'] ?? feePaymentOptions['receiptStampDataUrl'] ?? '',
+          'paymentMethod': schoolPaymentMethodForRecord(payment),
+          'receiptStampDataUrl': receiptSettings['receiptStampDataUrl'] ??
+              feePaymentOptions['receiptStampDataUrl'] ??
+              '',
         }),
         fileExtension: 'pdf',
       );
@@ -6343,47 +6881,69 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final id = schoolId;
     if (id == null) return;
     final receiptController = TextEditingController();
-    final receipt = await showDialog<String>(
+    final evidenceController = TextEditingController();
+    final reasonController = TextEditingController();
+    final approved = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
               title: const Text('Verify school fee payment'),
               content: Column(mainAxisSize: MainAxisSize.min, children: [
                 Text(
-                    'Confirm the real transaction in the school statement before entering its receipt/reference number. Ref: ${payment['paymentReference'] ?? ''}'),
+                    'Verify the transaction in the school statement before recording it. This creates a school manual-review record; it is not a Safaricom callback confirmation. Reference: ${payment['paymentReference'] ?? ''}'),
                 const SizedBox(height: 12),
                 TextField(
                     controller: receiptController,
                     decoration: const InputDecoration(
                         labelText:
                             'Actual payment receipt / transaction reference')),
+                TextField(
+                    controller: evidenceController,
+                    decoration: const InputDecoration(
+                        labelText: 'Statement line / provider case reference')),
+                TextField(
+                    controller: reasonController,
+                    minLines: 2,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                        labelText: 'Review reason (at least 20 characters)')),
               ]),
               actions: [
                 TextButton(
-                    onPressed: () => Navigator.pop(ctx),
+                    onPressed: () => Navigator.pop(ctx, false),
                     child: const Text('Cancel')),
                 FilledButton(
-                    onPressed: () =>
-                        Navigator.pop(ctx, receiptController.text.trim()),
-                    child: const Text('Confirm payment'))
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Record manual review'))
               ],
             ));
-    final value = receipt?.trim() ?? '';
-    if (value.isEmpty) {
-      receiptController.dispose();
-      return;
+    if (approved == true && mounted) {
+      final method = payment['paymentMethod']?.toString() ?? '';
+      await _action(() async {
+        await app.api.call(
+            'POST',
+            '/api/schools/$id/fees/${payment['paymentReference']}/verify', {
+          'mpesaReceipt': receiptController.text.trim(),
+          'amount': payment['amount'],
+          'currency': 'KES',
+          'payerPhone': payment['payerPhone'],
+          'destinationNumber': payment['destinationNumber'],
+          'evidenceType': method == 'bank' ? 'bank_statement' : 'mpesa_statement',
+          'evidenceReference': evidenceController.text.trim(),
+          'reason': reasonController.text.trim(),
+        });
+        await loadSection();
+      });
     }
-    await _action(() async {
-      await app.api.call(
-          'POST',
-          '/api/schools/$id/fees/${payment['paymentReference']}/verify',
-          {'mpesaReceipt': value});
-      await loadSection();
-    });
     receiptController.dispose();
+    evidenceController.dispose();
+    reasonController.dispose();
   }
 
   Future<void> showFeePaymentStatus(Map<String, dynamic> payment) async {
-    final method = schoolPaymentMethodForRecord(payment, configuredFallback: feePaymentOptions['method']);
+    final method = schoolPaymentMethodForRecord(payment);
+    final manualReview = payment['manualVerificationDetails'] is Map
+        ? Map<String, dynamic>.from(payment['manualVerificationDetails'] as Map)
+        : null;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -6394,9 +6954,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           children: [
             Text('Student: ${payment['studentName'] ?? 'Student'}'),
             Text('Status: ${payment['status'] ?? 'Unknown'}'),
+            Text('Verification: ${payment['confirmationSource'] == 'manual_review' ? 'Manually reviewed by school; not provider callback confirmed' : payment['confirmationSource'] == 'provider_callback' ? 'Validated provider callback' : 'Not recorded'}'),
             Text('Amount: KSh ${payment['amount'] ?? '—'}'),
             Text('Method: $method'),
             Text('Reference: ${payment['paymentReference'] ?? '—'}'),
+            if (role == 'admin' && manualReview != null) ...[
+              Text('Reviewer: ${manualReview['reviewerId'] ?? '—'}'),
+              Text('Evidence: ${manualReview['evidenceType'] ?? '—'} · ${manualReview['evidenceReference'] ?? '—'}'),
+              Text('Review reason: ${manualReview['reason'] ?? '—'}'),
+              Text('Reviewed at: ${manualReview['reviewedAt'] ?? '—'}'),
+            ],
           ],
         ),
         actions: [
@@ -6432,17 +6999,23 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final id = schoolId;
     final name = newSchoolClass.text.trim();
     if (id == null || name.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a class or grade name first.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Enter a class or grade name first.')));
       return;
     }
     await _action(() async {
-      final result = await app.api.call('POST', '/api/schools/$id/classes', {'className': name});
+      final result = await app.api
+          .call('POST', '/api/schools/$id/classes', {'className': name});
       schoolClasses = List<dynamic>.from(result['classes'] ?? schoolClasses);
       final savedName = (result['className'] ?? name).toString();
       feeStructureClass.text = savedName;
       newSchoolClass.clear();
       if (mounted) setState(() {});
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Class/grade "$savedName" is configured and available in fee setup.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Class/grade "$savedName" is configured and available in fee setup.')));
     });
   }
 
@@ -6458,28 +7031,46 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final value = line.trim();
       if (value.isEmpty) continue;
       final separator = value.lastIndexOf(':');
-      final description = separator > 0 ? value.substring(0, separator).trim() : '';
-      final itemAmount = separator > 0 ? int.tryParse(value.substring(separator + 1).trim()) : null;
+      final description =
+          separator > 0 ? value.substring(0, separator).trim() : '';
+      final itemAmount = separator > 0
+          ? int.tryParse(value.substring(separator + 1).trim())
+          : null;
       if (description.isEmpty || itemAmount == null || itemAmount <= 0) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Enter each fee as Description:Amount, for example Tuition:12000.')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Enter each fee as Description:Amount, for example Tuition:12000.')));
         return;
       }
       items.add({'description': description, 'amount': itemAmount});
     }
-    if (id == null || className.isEmpty || academicYear.isEmpty || term.isEmpty || items.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Complete the class, academic year, term and at least one fee item.')));
+    if (id == null ||
+        className.isEmpty ||
+        academicYear.isEmpty ||
+        term.isEmpty ||
+        items.isEmpty) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Complete the class, academic year, term and at least one fee item.')));
       return;
     }
     await _action(() async {
-      final result = await app.api.call('POST', '/api/schools/$id/fee-structures', {
-        'className': className, 'academicYear': academicYear, 'term': term, 'items': items,
+      final result =
+          await app.api.call('POST', '/api/schools/$id/fee-structures', {
+        'className': className,
+        'academicYear': academicYear,
+        'term': term,
+        'items': items,
       });
       feeStructureItems.clear();
       await loadSection();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text((result['note'] ?? 'Fee structure saved as a new version.').toString())));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                (result['note'] ?? 'Fee structure saved as a new version.')
+                    .toString())));
     });
   }
 
@@ -6488,20 +7079,26 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final structureId = structure['_id']?.toString() ?? '';
     if (id == null || structureId.isEmpty) return;
     await _action(() async {
-      final result = await app.api.call('POST', '/api/schools/$id/fee-structures/$structureId/issue', {});
+      final result = await app.api.call(
+          'POST', '/api/schools/$id/fee-structures/$structureId/issue', {});
       await loadSection();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Charges created: ${result['chargesCreated'] ?? 0}; existing charges preserved: ${result['existingChargesPreserved'] ?? 0}.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Charges created: ${result['chargesCreated'] ?? 0}; existing charges preserved: ${result['existingChargesPreserved'] ?? 0}.')));
     });
   }
 
   Future<void> startFeePayment() async {
     final id = schoolId;
     if (id == null) return;
-    if (_parentFeePaymentOptions().isEmpty || _selectedParentFeePaymentMethod().isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('The school has not configured a supported payment destination. Please contact the school office.'),
-      ));
+    if (_parentFeePaymentOptions().isEmpty ||
+        _selectedParentFeePaymentMethod().isEmpty) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'The school has not configured a supported payment destination. Please contact the school office.'),
+        ));
       return;
     }
     final n = int.tryParse(amount.text.trim());
@@ -6577,17 +7174,22 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final fromClass = promotionFromClass.text.trim();
     final toClass = promotionToClass.text.trim();
     final academicYear = promotionYear.text.trim();
-    if (id == null || fromClass.isEmpty || toClass.isEmpty || academicYear.isEmpty) {
+    if (id == null ||
+        fromClass.isEmpty ||
+        toClass.isEmpty ||
+        academicYear.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Enter the current class, next class and academic year first.'),
+          content: Text(
+              'Enter the current class, next class and academic year first.'),
         ));
       }
       return;
     }
     if (fromClass.toLowerCase() == toClass.toLowerCase()) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('The next class must be different from the current class.'),
+        content:
+            Text('The next class must be different from the current class.'),
       ));
       return;
     }
@@ -6595,16 +7197,22 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('Promote the whole class?'),
-        content: Text('Move every active pupil in "$fromClass" to "$toClass" for academic year $academicYear? This operation is recorded in each pupil’s promotion history and cannot be repeated for the same class and year.'),
+        content: Text(
+            'Move every active pupil in "$fromClass" to "$toClass" for academic year $academicYear? This operation is recorded in each pupil’s promotion history and cannot be repeated for the same class and year.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Promote class')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Promote class')),
         ],
       ),
     );
     if (confirmed != true || !mounted) return;
     await _action(() async {
-      final result = await app.api.call('POST', '/api/schools/$id/students/promote-class', {
+      final result = await app.api
+          .call('POST', '/api/schools/$id/students/promote-class', {
         'fromClass': fromClass,
         'toClass': toClass,
         'academicYear': academicYear,
@@ -6612,32 +7220,41 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       await loadSection();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(result['message']?.toString() ?? 'Class promotion completed.'),
+        content:
+            Text(result['message']?.toString() ?? 'Class promotion completed.'),
       ));
       promotionFromClass.clear();
       promotionToClass.clear();
     });
   }
 
-  Future<void> _transferSchoolStudent(String studentId, String studentName) async {
+  Future<void> _transferSchoolStudent(
+      String studentId, String studentName) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
         title: const Text('Remove transferred pupil?'),
-        content: Text('Mark $studentName as transferred and remove them from this school’s active register? Historical fees, receipts, attendance and academic records will be preserved.'),
+        content: Text(
+            'Mark $studentName as transferred and remove them from this school’s active register? Historical fees, receipts, attendance and academic records will be preserved.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Mark transferred')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Mark transferred')),
         ],
       ),
     );
     if (confirmed != true || !mounted || schoolId == null) return;
     try {
-      await app.api.call('POST', '/api/schools/$schoolId/students/$studentId/transfer', {});
+      await app.api.call(
+          'POST', '/api/schools/$schoolId/students/$studentId/transfer', {});
       await loadSection();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('$studentName was removed from the active register. Historical records were preserved.'),
+        content: Text(
+            '$studentName was removed from the active register. Historical records were preserved.'),
       ));
     } catch (error) {
       if (!mounted) return;
@@ -6664,7 +7281,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
   Future<void> saveAssessment() async {
     final id = schoolId;
-    if (id == null || assessmentStudentId.isEmpty ||
+    if (id == null ||
+        assessmentStudentId.isEmpty ||
         subjectName.text.trim().isEmpty ||
         assessmentName.text.trim().isEmpty ||
         assessmentTerm.text.trim().isEmpty) return;
@@ -6696,7 +7314,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     if (id == null) return;
     final dateController = TextEditingController(
         text: record['date']?.toString().split('T').first ?? '');
-    final noteController = TextEditingController(text: (record['note'] ?? '').toString());
+    final noteController =
+        TextEditingController(text: (record['note'] ?? '').toString());
     var status = (record['status'] ?? 'present').toString();
     final confirmed = await showDialog<bool>(
       context: context,
@@ -6705,32 +7324,46 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           title: const Text('Edit attendance'),
           content: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(controller: dateController, decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)')),
+              TextField(
+                  controller: dateController,
+                  decoration:
+                      const InputDecoration(labelText: 'Date (YYYY-MM-DD)')),
               DropdownButtonFormField<String>(
                 value: status,
-                decoration: const InputDecoration(labelText: 'Attendance status'),
+                decoration:
+                    const InputDecoration(labelText: 'Attendance status'),
                 items: const [
                   DropdownMenuItem(value: 'present', child: Text('Present')),
                   DropdownMenuItem(value: 'absent', child: Text('Absent')),
                   DropdownMenuItem(value: 'late', child: Text('Late')),
                   DropdownMenuItem(value: 'excused', child: Text('Excused')),
                 ],
-                onChanged: (value) => setDialogState(() => status = value ?? 'present'),
+                onChanged: (value) =>
+                    setDialogState(() => status = value ?? 'present'),
               ),
-              TextField(controller: noteController, decoration: const InputDecoration(labelText: 'Note')),
+              TextField(
+                  controller: noteController,
+                  decoration: const InputDecoration(labelText: 'Note')),
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save changes')),
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Save changes')),
           ],
         ),
       ),
     );
     if (confirmed == true && mounted) {
       await _action(() async {
-        await app.api.call('PATCH', '/api/schools/$id/attendance/${record['_id']}', {
-          'date': dateController.text.trim(), 'status': status, 'note': noteController.text.trim(),
+        await app.api
+            .call('PATCH', '/api/schools/$id/attendance/${record['_id']}', {
+          'date': dateController.text.trim(),
+          'status': status,
+          'note': noteController.text.trim(),
         });
         await loadSection();
       });
@@ -6742,15 +7375,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   Future<void> _editAcademicRecord(Map<String, dynamic> record) async {
     final id = schoolId;
     if (id == null) return;
-    final subject = TextEditingController(text: (record['subject'] ?? '').toString());
-    final assessment = TextEditingController(text: (record['assessment'] ?? '').toString());
+    final subject =
+        TextEditingController(text: (record['subject'] ?? '').toString());
+    final assessment =
+        TextEditingController(text: (record['assessment'] ?? '').toString());
     final term = TextEditingController(text: (record['term'] ?? '').toString());
-    final year = TextEditingController(text: (record['academicYear'] ?? DateTime.now().year).toString());
-    final strand = TextEditingController(text: (record['strand'] ?? '').toString());
-    final subStrand = TextEditingController(text: (record['subStrand'] ?? '').toString());
-    final note = TextEditingController(text: (record['teacherNote'] ?? '').toString());
+    final year = TextEditingController(
+        text: (record['academicYear'] ?? DateTime.now().year).toString());
+    final strand =
+        TextEditingController(text: (record['strand'] ?? '').toString());
+    final subStrand =
+        TextEditingController(text: (record['subStrand'] ?? '').toString());
+    final note =
+        TextEditingController(text: (record['teacherNote'] ?? '').toString());
     var level = (record['competencyLevel'] ?? 'ME').toString();
-    if (!['EE','ME','AE','BE','NE'].contains(level)) level = 'ME';
+    if (!['EE', 'ME', 'AE', 'BE', 'NE'].contains(level)) level = 'ME';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -6758,46 +7397,91 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
           title: const Text('Edit CBC assessment'),
           content: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(controller: subject, decoration: const InputDecoration(labelText: 'Learning area / subject')),
-              TextField(controller: assessment, decoration: const InputDecoration(labelText: 'Assessment / activity')),
-              TextField(controller: term, decoration: const InputDecoration(labelText: 'Term')),
-              TextField(controller: year, decoration: const InputDecoration(labelText: 'Academic year')),
-              TextField(controller: strand, decoration: const InputDecoration(labelText: 'Strand')),
-              TextField(controller: subStrand, decoration: const InputDecoration(labelText: 'Sub-strand')),
+              TextField(
+                  controller: subject,
+                  decoration: const InputDecoration(
+                      labelText: 'Learning area / subject')),
+              TextField(
+                  controller: assessment,
+                  decoration: const InputDecoration(
+                      labelText: 'Assessment / activity')),
+              TextField(
+                  controller: term,
+                  decoration: const InputDecoration(labelText: 'Term')),
+              TextField(
+                  controller: year,
+                  decoration:
+                      const InputDecoration(labelText: 'Academic year')),
+              TextField(
+                  controller: strand,
+                  decoration: const InputDecoration(labelText: 'Strand')),
+              TextField(
+                  controller: subStrand,
+                  decoration: const InputDecoration(labelText: 'Sub-strand')),
               DropdownButtonFormField<String>(
                 value: level,
-                decoration: const InputDecoration(labelText: 'CBC achievement level'),
+                decoration:
+                    const InputDecoration(labelText: 'CBC achievement level'),
                 items: const [
-                  DropdownMenuItem(value: 'EE', child: Text('EE — Exceeding Expectations')),
-                  DropdownMenuItem(value: 'ME', child: Text('ME — Meeting Expectations')),
-                  DropdownMenuItem(value: 'AE', child: Text('AE — Approaching Expectations')),
-                  DropdownMenuItem(value: 'BE', child: Text('BE — Below Expectations')),
-                  DropdownMenuItem(value: 'NE', child: Text('NE — Not Evaluated')),
+                  DropdownMenuItem(
+                      value: 'EE', child: Text('EE — Exceeding Expectations')),
+                  DropdownMenuItem(
+                      value: 'ME', child: Text('ME — Meeting Expectations')),
+                  DropdownMenuItem(
+                      value: 'AE',
+                      child: Text('AE — Approaching Expectations')),
+                  DropdownMenuItem(
+                      value: 'BE', child: Text('BE — Below Expectations')),
+                  DropdownMenuItem(
+                      value: 'NE', child: Text('NE — Not Evaluated')),
                 ],
-                onChanged: (value) => setDialogState(() => level = value ?? 'ME'),
+                onChanged: (value) =>
+                    setDialogState(() => level = value ?? 'ME'),
               ),
-              TextField(controller: note, decoration: const InputDecoration(labelText: 'Teacher observation')),
+              TextField(
+                  controller: note,
+                  decoration:
+                      const InputDecoration(labelText: 'Teacher observation')),
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save changes')),
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Save changes')),
           ],
         ),
       ),
     );
     if (confirmed == true && mounted) {
       await _action(() async {
-        await app.api.call('PATCH', '/api/schools/$id/academics/${record['_id']}', {
-          'gradingMode': 'CBC', 'subject': subject.text.trim(), 'learningArea': subject.text.trim(),
-          'assessment': assessment.text.trim(), 'term': term.text.trim(), 'academicYear': year.text.trim(),
-          'strand': strand.text.trim(), 'subStrand': subStrand.text.trim(),
-          'competencyLevel': level, 'teacherNote': note.text.trim(),
+        await app.api
+            .call('PATCH', '/api/schools/$id/academics/${record['_id']}', {
+          'gradingMode': 'CBC',
+          'subject': subject.text.trim(),
+          'learningArea': subject.text.trim(),
+          'assessment': assessment.text.trim(),
+          'term': term.text.trim(),
+          'academicYear': year.text.trim(),
+          'strand': strand.text.trim(),
+          'subStrand': subStrand.text.trim(),
+          'competencyLevel': level,
+          'teacherNote': note.text.trim(),
         });
         await loadSection();
       });
     }
-    for (final controller in [subject, assessment, term, year, strand, subStrand, note]) {
+    for (final controller in [
+      subject,
+      assessment,
+      term,
+      year,
+      strand,
+      subStrand,
+      note
+    ]) {
       controller.dispose();
     }
   }
@@ -6814,17 +7498,22 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             member['userId']?.toString() == userId &&
             ['admin', 'staff'].contains(member['role']?.toString()))) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Choose an administrator or staff member from this school.')));
+          content: Text(
+              'Choose an administrator or staff member from this school.')));
       return;
     }
     try {
-      final result = await app.api.call('POST', '/api/conversations/direct', {'userId': userId});
+      final result = await app.api
+          .call('POST', '/api/conversations/direct', {'userId': userId});
       if (!mounted) return;
       final conversation = Map<String, dynamic>.from(result['conversation']);
-      await Navigator.push(context, MaterialPageRoute(builder: (_) => Chat(conversation: conversation)));
+      await Navigator.push(context,
+          MaterialPageRoute(builder: (_) => Chat(conversation: conversation)));
       if (mounted) loadSection();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not open private chat: $error')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not open private chat: $error')));
     }
   }
 
@@ -6833,7 +7522,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
 
     // Parents should contact the school office or staff linked to their own
     // children, rather than unrelated staff such as cooks or cleaners.
-    final parentStudentNames = students.whereType<Map>()
+    final parentStudentNames = students
+        .whereType<Map>()
         .map((student) => (student['fullName'] ?? '').toString().trim())
         .where((name) => name.isNotEmpty)
         .toSet();
@@ -6852,8 +7542,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       final designation = (member['staffDesignation'] ?? '').toString().trim();
       final linkedNames = (member['studentNames'] as List? ?? [])
           .map((name) => name.toString().trim())
-          .where((name) => name.isNotEmpty && parentStudentNames.any(
-              (parentName) => parentName.toLowerCase() == name.toLowerCase()))
+          .where((name) =>
+              name.isNotEmpty &&
+              parentStudentNames.any((parentName) =>
+                  parentName.toLowerCase() == name.toLowerCase()))
           .toList();
       final classes = linkedNames
           .map((name) => linkedClassByStudent[name.toLowerCase()] ?? '')
@@ -6870,29 +7562,37 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     final contacts = members.whereType<Map>().where((member) {
       final contactRole = member['role']?.toString();
       final userId = member['userId']?.toString() ?? '';
-      if (userId.isEmpty || !['admin', 'staff'].contains(contactRole)) return false;
+      if (userId.isEmpty || !['admin', 'staff'].contains(contactRole))
+        return false;
       if (contactRole == 'admin') return true;
-      final designation = (member['staffDesignation'] ?? '').toString().trim().toLowerCase();
-      if (!['teacher', 'class teacher', 'subject teacher', 'head teacher'].contains(designation)) return false;
+      final designation =
+          (member['staffDesignation'] ?? '').toString().trim().toLowerCase();
+      if (!['teacher', 'class teacher', 'subject teacher', 'head teacher']
+          .contains(designation)) return false;
       final linkedNames = (member['studentNames'] as List? ?? [])
           .map((name) => name.toString().trim().toLowerCase())
           .where((name) => name.isNotEmpty)
           .toSet();
       // Teachers are selectable even when the school has not linked individual pupils to them.
-      return linkedNames.isEmpty || linkedNames.any((name) => parentStudentNames.any(
-          (parentName) => parentName.toLowerCase() == name));
+      return linkedNames.isEmpty ||
+          linkedNames.any((name) => parentStudentNames
+              .any((parentName) => parentName.toLowerCase() == name));
     }).toList()
       ..sort((a, b) {
         final roleOrder = (a['role'] == 'admin' ? 0 : 1)
             .compareTo(b['role'] == 'admin' ? 0 : 1);
         if (roleOrder != 0) return roleOrder;
-        return (a['name'] ?? a['email'] ?? '').toString().toLowerCase()
-            .compareTo((b['name'] ?? b['email'] ?? '').toString().toLowerCase());
+        return (a['name'] ?? a['email'] ?? '')
+            .toString()
+            .toLowerCase()
+            .compareTo(
+                (b['name'] ?? b['email'] ?? '').toString().toLowerCase());
       });
 
     if (contacts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('No school administrator or teaching staff contact is available yet.')));
+          content: Text(
+              'No school administrator or teaching staff contact is available yet.')));
       return;
     }
     String? selectedUserId = contacts.first['userId'].toString();
@@ -6905,7 +7605,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Choose the school administrator or a teacher (class teacher, subject teacher, or head teacher). Non-teaching staff such as cooks and cleaners are not listed. Only you and the selected contact will see this private conversation.'),
+              const Text(
+                  'Choose the school administrator or a teacher (class teacher, subject teacher, or head teacher). Non-teaching staff such as cooks and cleaners are not listed. Only you and the selected contact will see this private conversation.'),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
                 value: selectedUserId,
@@ -6914,14 +7615,17 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   labelText: 'School contact',
                   border: OutlineInputBorder(),
                 ),
-                items: contacts.map((member) => DropdownMenuItem<String>(
-                  value: member['userId'].toString(),
-                  child: Text(
-                    '${member['name'] ?? member['email'] ?? 'School contact'} • ${contactDescription(member)}',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                )).toList(),
-                onChanged: (value) => setDialogState(() => selectedUserId = value),
+                items: contacts
+                    .map((member) => DropdownMenuItem<String>(
+                          value: member['userId'].toString(),
+                          child: Text(
+                            '${member['name'] ?? member['email'] ?? 'School contact'} • ${contactDescription(member)}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
+                    .toList(),
+                onChanged: (value) =>
+                    setDialogState(() => selectedUserId = value),
               ),
             ],
           ),
@@ -6943,6 +7647,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     );
     if (recipient != null && mounted) await _openPrivateParentChat(recipient);
   }
+
   Widget field(TextEditingController c, String label,
           {String? hint, TextInputType? keyboard}) =>
       Padding(
@@ -6987,8 +7692,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       if (value == null) return '';
       if (value is Map) {
         return value.entries
-            .map((entry) =>
-                '${entry.key} ${searchableSchoolText(entry.value)}')
+            .map((entry) => '${entry.key} ${searchableSchoolText(entry.value)}')
             .join(' ')
             .toLowerCase();
       }
@@ -7004,13 +7708,20 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         final rawClass = (raw['className'] ?? '').toString().trim();
         if (rawClass != schoolClassFilter) {
           final studentId = (raw['studentId'] ?? '').toString();
-          final studentName = (raw['studentName'] ?? '').toString().trim().toLowerCase();
-          final linked = students.whereType<Map>().where((student) =>
-              (studentId.isNotEmpty &&
-                  (student['_id'] ?? '').toString() == studentId) ||
-              (studentName.isNotEmpty &&
-                  (student['fullName'] ?? '').toString().trim().toLowerCase() ==
-                      studentName)).toList();
+          final studentName =
+              (raw['studentName'] ?? '').toString().trim().toLowerCase();
+          final linked = students
+              .whereType<Map>()
+              .where((student) =>
+                  (studentId.isNotEmpty &&
+                      (student['_id'] ?? '').toString() == studentId) ||
+                  (studentName.isNotEmpty &&
+                      (student['fullName'] ?? '')
+                              .toString()
+                              .trim()
+                              .toLowerCase() ==
+                          studentName))
+              .toList();
           if (linked.isEmpty ||
               (linked.first['className'] ?? '').toString().trim() !=
                   schoolClassFilter) {
@@ -7042,15 +7753,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         .toList();
     final visibleFeeBalances = filterSchoolRecords(feeBalances);
     final visibleAttendance = filterSchoolRecords(
-      role == 'parent' && attendanceStudentId.isNotEmpty
-          ? attendance.where((item) => item is Map &&
-              item['studentId']?.toString() == attendanceStudentId).toList()
-          : attendance);
+        role == 'parent' && attendanceStudentId.isNotEmpty
+            ? attendance
+                .where((item) =>
+                    item is Map &&
+                    item['studentId']?.toString() == attendanceStudentId)
+                .toList()
+            : attendance);
     final visibleAssessments = filterSchoolRecords(
-      role == 'parent' && assessmentStudentId.isNotEmpty
-          ? assessments.where((item) => item is Map &&
-              item['studentId']?.toString() == assessmentStudentId).toList()
-          : assessments);
+        role == 'parent' && assessmentStudentId.isNotEmpty
+            ? assessments
+                .where((item) =>
+                    item is Map &&
+                    item['studentId']?.toString() == assessmentStudentId)
+                .toList()
+            : assessments);
     return Scaffold(
       body: RefreshIndicator(
           onRefresh: loadSchools,
@@ -7091,17 +7808,31 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                           if (memberRole == 'staff') ...[
                             DropdownButtonFormField<String>(
                               value: staffDesignation,
-                              decoration: const InputDecoration(labelText: 'Staff role / designation', border: OutlineInputBorder()),
+                              decoration: const InputDecoration(
+                                  labelText: 'Staff role / designation',
+                                  border: OutlineInputBorder()),
                               items: const [
-                                DropdownMenuItem(value: 'Teacher', child: Text('Teacher')),
-                                DropdownMenuItem(value: 'Class teacher', child: Text('Class teacher')),
-                                DropdownMenuItem(value: 'Subject teacher', child: Text('Subject teacher')),
-                                DropdownMenuItem(value: 'Head teacher', child: Text('Head teacher')),
-                                DropdownMenuItem(value: 'Cook', child: Text('Cook')),
-                                DropdownMenuItem(value: 'Cleaner', child: Text('Cleaner')),
-                                DropdownMenuItem(value: 'Other staff', child: Text('Other staff')),
+                                DropdownMenuItem(
+                                    value: 'Teacher', child: Text('Teacher')),
+                                DropdownMenuItem(
+                                    value: 'Class teacher',
+                                    child: Text('Class teacher')),
+                                DropdownMenuItem(
+                                    value: 'Subject teacher',
+                                    child: Text('Subject teacher')),
+                                DropdownMenuItem(
+                                    value: 'Head teacher',
+                                    child: Text('Head teacher')),
+                                DropdownMenuItem(
+                                    value: 'Cook', child: Text('Cook')),
+                                DropdownMenuItem(
+                                    value: 'Cleaner', child: Text('Cleaner')),
+                                DropdownMenuItem(
+                                    value: 'Other staff',
+                                    child: Text('Other staff')),
                               ],
-                              onChanged: (value) => setState(() => staffDesignation = value ?? 'Teacher'),
+                              onChanged: (value) => setState(
+                                  () => staffDesignation = value ?? 'Teacher'),
                             ),
                             field(joinStaffCode, 'Staff invitation code',
                                 hint:
@@ -7272,7 +8003,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       label: const Text('Fee setup'),
                       selected: section == 9,
                       onSelected: (_) {
-                        setState(() { section = 9; recordPage = 1; });
+                        setState(() {
+                          section = 9;
+                          recordPage = 1;
+                        });
                         loadSection();
                       }),
                 if (isAdmin)
@@ -7314,18 +8048,24 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     }),
               ]),
               const SizedBox(height: 12),
-              if (schoolId != null && [0, 2, 3, 5, 6, 7, 8].contains(section)) ...[
+              if (schoolId != null &&
+                  [0, 2, 3, 5, 6, 7, 8].contains(section)) ...[
                 TextField(
                   key: ValueKey('school-record-search-$schoolId-$section'),
                   controller: schoolSearchController,
-                  onChanged: (value) => setState(() => schoolSearchQuery = value),
+                  onChanged: (value) =>
+                      setState(() => schoolSearchQuery = value),
                   onSubmitted: (_) {
                     setState(() => recordPage = 1);
                     loadSection();
                   },
                   decoration: InputDecoration(
-                    labelText: section == 0 ? 'Search messages and parent/staff names' : 'Search school records',
-                    hintText: section == 0 ? 'Type a parent/staff name or message text, then submit' : 'Student, admission number, subject, status or receipt',
+                    labelText: section == 0
+                        ? 'Search messages and parent/staff names'
+                        : 'Search school records',
+                    hintText: section == 0
+                        ? 'Type a parent/staff name or message text, then submit'
+                        : 'Student, admission number, subject, status or receipt',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: schoolSearchQuery.isEmpty
                         ? null
@@ -7352,10 +8092,13 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       border: OutlineInputBorder(),
                     ),
                     items: [
-                      const DropdownMenuItem(value: 'all', child: Text('All classes / grades')),
-                      ...schoolClasses.map((name) => DropdownMenuItem(value: name, child: Text(name))),
+                      const DropdownMenuItem(
+                          value: 'all', child: Text('All classes / grades')),
+                      ...schoolClasses.map((name) =>
+                          DropdownMenuItem(value: name, child: Text(name))),
                     ],
-                    onChanged: (value) => setState(() => schoolClassFilter = value ?? 'all'),
+                    onChanged: (value) =>
+                        setState(() => schoolClassFilter = value ?? 'all'),
                   ),
                 ],
                 const SizedBox(height: 8),
@@ -7380,18 +8123,23 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.lock_outline, color: Colors.indigo),
+                              const Icon(Icons.lock_outline,
+                                  color: Colors.indigo),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   'Private conversation with school',
-                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 6),
-                          const Text('Send a confidential message directly to a school administrator or staff member. Other parents cannot see this chat.'),
+                          const Text(
+                              'Send a confidential message directly to a school administrator or staff member. Other parents cannot see this chat.'),
                           const SizedBox(height: 10),
                           SizedBox(
                             width: double.infinity,
@@ -7452,22 +8200,38 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     ],
                   ),
                 ),
-                if (isAdmin) DropdownButtonFormField<String>(
-                  initialValue: messageAudienceFilter,
-                  decoration: const InputDecoration(labelText: 'Filter messages by audience', border: OutlineInputBorder()),
-                  items: const [
-                    DropdownMenuItem(value: 'all', child: Text('All message types')),
-                    DropdownMenuItem(value: 'school_inbox', child: Text('Parent/staff inbox replies')),
-                    DropdownMenuItem(value: 'direct', child: Text('Direct messages')),
-                    DropdownMenuItem(value: 'all_parents', child: Text('Parents announcements')),
-                    DropdownMenuItem(value: 'all_staff', child: Text('Staff announcements')),
-                    DropdownMenuItem(value: 'all_school', child: Text('Whole school announcements')),
-                  ],
-                  onChanged: (value) {
-                    setState(() { messageAudienceFilter = value ?? 'all'; recordPage = 1; });
-                    loadSection();
-                  },
-                ),
+                if (isAdmin)
+                  DropdownButtonFormField<String>(
+                    initialValue: messageAudienceFilter,
+                    decoration: const InputDecoration(
+                        labelText: 'Filter messages by audience',
+                        border: OutlineInputBorder()),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'all', child: Text('All message types')),
+                      DropdownMenuItem(
+                          value: 'school_inbox',
+                          child: Text('Parent/staff inbox replies')),
+                      DropdownMenuItem(
+                          value: 'direct', child: Text('Direct messages')),
+                      DropdownMenuItem(
+                          value: 'all_parents',
+                          child: Text('Parents announcements')),
+                      DropdownMenuItem(
+                          value: 'all_staff',
+                          child: Text('Staff announcements')),
+                      DropdownMenuItem(
+                          value: 'all_school',
+                          child: Text('Whole school announcements')),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        messageAudienceFilter = value ?? 'all';
+                        recordPage = 1;
+                      });
+                      loadSection();
+                    },
+                  ),
                 if (role == 'parent' || role == 'staff')
                   const Padding(
                       padding: EdgeInsets.only(bottom: 10),
@@ -7518,22 +8282,31 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Schedule a school conference/event'),
-                    subtitle: const Text('Publish it inside Messages with date, time and location.'),
+                    subtitle: const Text(
+                        'Publish it inside Messages with date, time and location.'),
                     value: scheduleSchoolEvent,
                     onChanged: (value) => setState(() {
                       scheduleSchoolEvent = value;
-                      if (value && audience == 'direct') audience = 'all_parents';
+                      if (value && audience == 'direct')
+                        audience = 'all_parents';
                     }),
                   ),
                 if (scheduleSchoolEvent && role == 'admin') ...[
                   field(conferenceTitle, 'Event / conference title'),
                   field(conferenceAgenda, 'Agenda / details'),
-                  field(conferenceDate, 'Event date (YYYY-MM-DD)', hint: '2026-10-25'),
-                  field(conferenceStartTime, 'Start time (24-hour HH:MM)', hint: '10:00'),
-                  field(conferenceEndTime, 'End time (24-hour HH:MM)', hint: '11:00'),
+                  field(conferenceDate, 'Event date (YYYY-MM-DD)',
+                      hint: '2026-10-25'),
+                  field(conferenceStartTime, 'Start time (24-hour HH:MM)',
+                      hint: '10:00'),
+                  field(conferenceEndTime, 'End time (24-hour HH:MM)',
+                      hint: '11:00'),
                   field(conferenceLocation, 'Location (optional)'),
                 ],
-                actionButton(scheduleSchoolEvent ? 'Publish event in messages' : 'Send message / announcement', sendMessage,
+                actionButton(
+                    scheduleSchoolEvent
+                        ? 'Publish event in messages'
+                        : 'Send message / announcement',
+                    sendMessage,
                     icon: scheduleSchoolEvent ? Icons.event : Icons.send),
                 ...messages.map((m) => _swipeSchoolRecord(
                     id: m['_id'].toString(),
@@ -7547,12 +8320,23 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                 (m['subject'] ?? 'School message').toString()),
                             subtitle: Text([
                               '${m['sender'] is Map ? (m['sender']['name'] ?? 'School member') : 'School member'}',
-                              if (m['messageType'] == 'conference') 'EVENT • ${m['startsAt'] ?? ''} – ${m['endsAt'] ?? ''}',
-                              if ((m['location'] ?? '').toString().isNotEmpty) m['location'].toString(),
+                              if (m['messageType'] == 'conference')
+                                'EVENT • ${m['startsAt'] ?? ''} – ${m['endsAt'] ?? ''}',
+                              if ((m['location'] ?? '').toString().isNotEmpty)
+                                m['location'].toString(),
                               (m['body'] ?? '').toString(),
                             ].where((line) => line.isNotEmpty).join(' • ')),
                             isThreeLine: true,
-                            trailing: (role == 'admin' || role == 'staff') && m['senderId'] != null && m['senderId'].toString() != app.user?['id']?.toString() ? IconButton(tooltip: 'Reply privately to sender', icon: const Icon(Icons.lock_outline), onPressed: () => _openPrivateParentChat(m['senderId'].toString())) : null)))),
+                            trailing: (role == 'admin' || role == 'staff') &&
+                                    m['senderId'] != null &&
+                                    m['senderId'].toString() !=
+                                        app.user?['id']?.toString()
+                                ? IconButton(
+                                    tooltip: 'Reply privately to sender',
+                                    icon: const Icon(Icons.lock_outline),
+                                    onPressed: () => _openPrivateParentChat(
+                                        m['senderId'].toString()))
+                                : null)))),
                 _schoolPager(),
               ],
               if (section == 2) ...[
@@ -7567,7 +8351,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                   alignment: Alignment.centerLeft,
                                   child: FilledButton.icon(
                                     onPressed: showSchoolSupportOptions,
-                                    icon: const Icon(Icons.volunteer_activism_outlined),
+                                    icon: const Icon(
+                                        Icons.volunteer_activism_outlined),
                                     label: const Text('Donate / Support Us'),
                                   ),
                                 ),
@@ -7717,10 +8502,12 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             Text((payment['guardianPhone'] ?? '—').toString())),
                         DataCell(Text((payment['term'] ?? '').toString())),
                         DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
-                        DataCell(Text(schoolPaymentMethodForRecord(payment, configuredFallback: feePaymentOptions['method']))),
+                        DataCell(Text(schoolPaymentMethodForRecord(payment))),
                         DataCell(Text(
                             (payment['paymentReference'] ?? '—').toString())),
-                        DataCell(Text(status)),
+                        DataCell(Text(payment['confirmationSource'] == 'manual_review'
+                            ? '$status · MANUALLY REVIEWED'
+                            : status)),
                         DataCell(PopupMenuButton<String>(
                           tooltip: 'Payment actions',
                           onSelected: (action) {
@@ -7745,7 +8532,9 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                 title: Text('View payment status'),
                               ),
                             ),
-                            if (isAdmin && status == 'PENDING_VERIFICATION')
+                            if (isAdmin &&
+                                (status == 'PENDING_VERIFICATION' ||
+                                    status == 'PENDING_STK'))
                               const PopupMenuItem(
                                 value: 'verify',
                                 child: ListTile(
@@ -7771,7 +8560,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                                   child: ListTile(
                                     dense: true,
                                     contentPadding: EdgeInsets.zero,
-                                    leading: Icon(Icons.forward_to_inbox_outlined),
+                                    leading:
+                                        Icon(Icons.forward_to_inbox_outlined),
                                     title: Text('Retry receipt email'),
                                   ),
                                 ),
@@ -7782,19 +8572,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     }).toList(),
                   ),
                 if (isAdmin)
-                  ...visibleReceipts.map((p) =>
-                      actionButton(
-                          'Retry receipt email • ${p['paymentReference']}',
-                          () =>
-                              resendSchoolReceipt(Map<String, dynamic>.from(p)),
-                          icon: Icons.forward_to_inbox)),
+                  ...visibleReceipts.map((p) => actionButton(
+                      'Retry receipt email • ${p['paymentReference']}',
+                      () => resendSchoolReceipt(Map<String, dynamic>.from(p)),
+                      icon: Icons.forward_to_inbox)),
               ],
               if (section == 2) ...[
                 const SizedBox(height: 18),
-                const Text('Issued student fee balances', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                if (visibleFeeBalances.isEmpty) Text(schoolSearchQuery.isNotEmpty || schoolClassFilter != 'all'
-                    ? 'No fee balances match the current search / class filter.'
-                    : 'No student charges have been issued yet. An administrator can configure fees in Fee setup and issue them to enrolled students.'),
+                const Text('Issued student fee balances',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                if (visibleFeeBalances.isEmpty)
+                  Text(schoolSearchQuery.isNotEmpty ||
+                          schoolClassFilter != 'all'
+                      ? 'No fee balances match the current search / class filter.'
+                      : 'No student charges have been issued yet. An administrator can configure fees in Fee setup and issue them to enrolled students.'),
                 if (visibleFeeBalances.isNotEmpty)
                   _responsiveSchoolTable(
                     columns: const [
@@ -7811,15 +8603,21 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     rows: visibleFeeBalances.map((raw) {
                       final balance = Map<String, dynamic>.from(raw as Map);
                       return DataRow(cells: [
-                        DataCell(Text((balance['studentName'] ?? 'Student').toString())),
-                        DataCell(Text((balance['admissionNumber'] ?? '—').toString())),
-                        DataCell(Text((balance['className'] ?? '—').toString())),
-                        DataCell(Text((balance['academicYear'] ?? '—').toString())),
+                        DataCell(Text(
+                            (balance['studentName'] ?? 'Student').toString())),
+                        DataCell(Text(
+                            (balance['admissionNumber'] ?? '—').toString())),
+                        DataCell(
+                            Text((balance['className'] ?? '—').toString())),
+                        DataCell(
+                            Text((balance['academicYear'] ?? '—').toString())),
                         DataCell(Text((balance['term'] ?? '—').toString())),
-                        DataCell(Text('KSh ${balance['chargeAmount'] ?? balance['totalAmount'] ?? 0}')),
+                        DataCell(Text(
+                            'KSh ${balance['chargeAmount'] ?? balance['totalAmount'] ?? 0}')),
                         DataCell(Text('KSh ${balance['confirmedPaid'] ?? 0}')),
                         DataCell(Text('KSh ${balance['balance'] ?? 0}')),
-                        DataCell(Text((balance['status'] ?? 'UNPAID').toString())),
+                        DataCell(
+                            Text((balance['status'] ?? 'UNPAID').toString())),
                       ]);
                     }).toList(),
                   ),
@@ -7870,7 +8668,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         DataCell(Text(
                             confirmedAt?.toString().split('T').first ?? '—')),
                         DataCell(Text('KSh ${payment['amount'] ?? '—'}')),
-                        DataCell(Text(schoolPaymentMethodForRecord(payment, configuredFallback: feePaymentOptions['method']))),
+                        DataCell(Text(schoolPaymentMethodForRecord(payment))),
                         DataCell(Text((payment['status'] ?? '').toString())),
                         DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
                           IconButton(
@@ -7891,31 +8689,60 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 _schoolPager(),
               ],
               if (section == 9) ...[
-                const Text('Configure class fees', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const Text('Enter one fee item per line as Description:Amount. Saving creates a new version; previously issued student charges are not overwritten.'),
-                const Text('School classes / grades', style: TextStyle(fontWeight: FontWeight.w600)),
-                const Text('Add the classes or grades used by your school. They will appear in this fee setup dropdown. Existing classes already used by students or fee records are also included.'),
+                const Text('Configure class fees',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text(
+                    'Enter one fee item per line as Description:Amount. Saving creates a new version; previously issued student charges are not overwritten.'),
+                const Text('School classes / grades',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const Text(
+                    'Add the classes or grades used by your school. They will appear in this fee setup dropdown. Existing classes already used by students or fee records are also included.'),
                 Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Expanded(child: field(newSchoolClass, 'New class / grade', hint: 'e.g. PP1, Grade 4, Form 2')),
+                  Expanded(
+                      child: field(newSchoolClass, 'New class / grade',
+                          hint: 'e.g. PP1, Grade 4, Form 2')),
                   const SizedBox(width: 8),
-                  Padding(padding: const EdgeInsets.only(top: 8), child: IconButton.filled(tooltip: 'Add class or grade', onPressed: saveSchoolClass, icon: const Icon(Icons.add))),
+                  Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: IconButton.filled(
+                          tooltip: 'Add class or grade',
+                          onPressed: saveSchoolClass,
+                          icon: const Icon(Icons.add))),
                 ]),
                 DropdownButtonFormField<String>(
-                  value: schoolClasses.map((v) => v.toString()).contains(feeStructureClass.text.trim()) && feeStructureClass.text.trim().isNotEmpty ? feeStructureClass.text.trim() : null,
-                  decoration: const InputDecoration(labelText: 'Class / grade for this fee structure'),
+                  value: schoolClasses
+                              .map((v) => v.toString())
+                              .contains(feeStructureClass.text.trim()) &&
+                          feeStructureClass.text.trim().isNotEmpty
+                      ? feeStructureClass.text.trim()
+                      : null,
+                  decoration: const InputDecoration(
+                      labelText: 'Class / grade for this fee structure'),
                   hint: const Text('Choose a configured class / grade'),
-                  items: schoolClasses.map((raw) => DropdownMenuItem<String>(value: raw.toString(), child: Text(raw.toString()))).toList(),
-                  onChanged: (value) => setState(() => feeStructureClass.text = value ?? ''),
+                  items: schoolClasses
+                      .map((raw) => DropdownMenuItem<String>(
+                          value: raw.toString(), child: Text(raw.toString())))
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => feeStructureClass.text = value ?? ''),
                 ),
                 field(feeStructureYear, 'Academic year (for example 2027)'),
-                field(feeStructureTerm, 'Term / fee period (for example Term 1)'),
-                field(feeStructureItems, 'Fee items', hint: 'Tuition:12000\\nTransport:2500\\nActivities:1000'),
-                actionButton('Save fee structure version', saveFeeStructure, icon: Icons.save_outlined),
+                field(
+                    feeStructureTerm, 'Term / fee period (for example Term 1)'),
+                field(feeStructureItems, 'Fee items',
+                    hint: 'Tuition:12000\\nTransport:2500\\nActivities:1000'),
+                actionButton('Save fee structure version', saveFeeStructure,
+                    icon: Icons.save_outlined),
                 const SizedBox(height: 12),
-                const Text('Existing fee structure versions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Existing fee structure versions',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
-                Text('Review each class fee plan, its academic period, total and status. Swipe a row to delete an unused structure, or use the delete action. Structures already issued to students are protected to preserve charges and payment history.',
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                Text(
+                    'Review each class fee plan, its academic period, total and status. Swipe a row to delete an unused structure, or use the delete action. Structures already issued to students are protected to preserve charges and payment history.',
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
                 const SizedBox(height: 10),
                 if (feeStructures.isEmpty)
                   Card(
@@ -7924,10 +8751,16 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                       child: Center(
                         child: Column(
                           children: [
-                            Icon(Icons.receipt_long_outlined, size: 36, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                            Icon(Icons.receipt_long_outlined,
+                                size: 36,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant),
                             const SizedBox(height: 8),
-                            const Text('No fee structures yet', style: TextStyle(fontWeight: FontWeight.bold)),
-                            const Text('Create a class fee plan above to get started.'),
+                            const Text('No fee structures yet',
+                                style: TextStyle(fontWeight: FontWeight.bold)),
+                            const Text(
+                                'Create a class fee plan above to get started.'),
                           ],
                         ),
                       ),
@@ -7936,21 +8769,48 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 else
                   LayoutBuilder(builder: (context, constraints) {
                     final compact = constraints.maxWidth < 680;
-                    Widget cell(String label, String value, {double? width, bool strong = false, bool showLabel = true}) =>
+                    Widget cell(String label, String value,
+                            {double? width,
+                            bool strong = false,
+                            bool showLabel = true}) =>
                         SizedBox(
-                          width: width ?? (compact ? constraints.maxWidth - 32 : 130),
+                          width: width ??
+                              (compact ? constraints.maxWidth - 32 : 130),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 9),
                             child: showLabel
                                 ? Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text(label.toUpperCase(), style: TextStyle(fontSize: 10, letterSpacing: .6, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                      Text(label.toUpperCase(),
+                                          style: TextStyle(
+                                              fontSize: 10,
+                                              letterSpacing: .6,
+                                              fontWeight: FontWeight.w700,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant)),
                                       const SizedBox(height: 3),
-                                      Text(value, style: TextStyle(fontSize: 13, fontWeight: strong ? FontWeight.w700 : FontWeight.w500), maxLines: compact ? 3 : 2, overflow: TextOverflow.ellipsis),
+                                      Text(value,
+                                          style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: strong
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w500),
+                                          maxLines: compact ? 3 : 2,
+                                          overflow: TextOverflow.ellipsis),
                                     ],
                                   )
-                                : Text(value, style: TextStyle(fontSize: 13, fontWeight: strong ? FontWeight.w700 : FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                : Text(value,
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: strong
+                                            ? FontWeight.w700
+                                            : FontWeight.w500),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis),
                           ),
                         );
                     return Column(
@@ -7958,26 +8818,40 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         if (!compact)
                           Container(
                             decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                              borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
-                              border: Border.all(color: Theme.of(context).dividerColor),
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                              borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(10)),
+                              border: Border.all(
+                                  color: Theme.of(context).dividerColor),
                             ),
                             child: Row(children: [
-                              cell('Class / grade', 'Class / grade', width: 150, strong: true, showLabel: false),
-                              cell('Academic year', 'Academic year', width: 110, strong: true, showLabel: false),
-                              cell('Term', 'Term', width: 100, strong: true, showLabel: false),
-                              cell('Total fees', 'Total fees', width: 120, strong: true, showLabel: false),
-                              cell('Version / status', 'Version / status', width: 140, strong: true, showLabel: false),
+                              cell('Class / grade', 'Class / grade',
+                                  width: 150, strong: true, showLabel: false),
+                              cell('Academic year', 'Academic year',
+                                  width: 110, strong: true, showLabel: false),
+                              cell('Term', 'Term',
+                                  width: 100, strong: true, showLabel: false),
+                              cell('Total fees', 'Total fees',
+                                  width: 120, strong: true, showLabel: false),
+                              cell('Version / status', 'Version / status',
+                                  width: 140, strong: true, showLabel: false),
                               const Spacer(),
-                              cell('Actions', 'Actions', width: 105, strong: true, showLabel: false),
+                              cell('Actions', 'Actions',
+                                  width: 105, strong: true, showLabel: false),
                             ]),
                           ),
                         ...feeStructures.map((raw) {
-                          final structure = Map<String, dynamic>.from(raw as Map);
-                          final structureId = (structure['_id'] ?? '').toString();
-                          final items = (structure['items'] as List? ?? const [])
+                          final structure =
+                              Map<String, dynamic>.from(raw as Map);
+                          final structureId =
+                              (structure['_id'] ?? '').toString();
+                          final items = (structure['items'] as List? ??
+                                  const [])
                               .whereType<Map>()
-                              .map((item) => '${item['description']}: KSh ${item['amount']}')
+                              .map((item) =>
+                                  '${item['description']}: KSh ${item['amount']}')
                               .join(' • ');
                           final active = structure['status'] == 'ACTIVE';
                           final row = Card(
@@ -7985,56 +8859,160 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             clipBehavior: Clip.antiAlias,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
-                              side: BorderSide(color: Theme.of(context).dividerColor),
+                              side: BorderSide(
+                                  color: Theme.of(context).dividerColor),
                             ),
                             child: compact
                                 ? Padding(
                                     padding: const EdgeInsets.all(8),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(children: [
-                                          Expanded(child: Text('${structure['className'] ?? 'Class'} • ${structure['academicYear'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+                                          Expanded(
+                                              child: Text(
+                                                  '${structure['className'] ?? 'Class'} • ${structure['academicYear'] ?? ''}',
+                                                  style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 14))),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                                            decoration: BoxDecoration(color: active ? Colors.green.withValues(alpha: .12) : Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(20)),
-                                            child: Text((structure['status'] ?? 'UNKNOWN').toString(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: active ? Colors.green.shade800 : Theme.of(context).colorScheme.onSurfaceVariant)),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 9, vertical: 4),
+                                            decoration: BoxDecoration(
+                                                color: active
+                                                    ? Colors.green
+                                                        .withValues(alpha: .12)
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .surfaceContainerHighest,
+                                                borderRadius:
+                                                    BorderRadius.circular(20)),
+                                            child: Text(
+                                                (structure['status'] ??
+                                                        'UNKNOWN')
+                                                    .toString(),
+                                                style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: active
+                                                        ? Colors.green.shade800
+                                                        : Theme.of(context)
+                                                            .colorScheme
+                                                            .onSurfaceVariant)),
                                           ),
                                         ]),
                                         const SizedBox(height: 6),
-                                        Wrap(spacing: 8, runSpacing: 2, children: [
-                                          Text('Term: ${structure['term'] ?? '—'}'),
-                                          Text('Version: ${structure['version'] ?? '—'}'),
-                                          Text('Total: KSh ${structure['totalAmount'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                                        ]),
-                                        if (items.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(items, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant))),
-                                        Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                                          if (active) TextButton.icon(
-                                            onPressed: () => issueFeeStructure(structure),
-                                            icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
-                                            label: const Text('Issue charges'),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Delete fee structure',
-                                            icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                            onPressed: () => _removeSchoolRecord(label: 'fee structure', endpoint: 'fee-structures/$structureId'),
-                                          ),
-                                        ]),
+                                        Wrap(
+                                            spacing: 8,
+                                            runSpacing: 2,
+                                            children: [
+                                              Text(
+                                                  'Term: ${structure['term'] ?? '—'}'),
+                                              Text(
+                                                  'Version: ${structure['version'] ?? '—'}'),
+                                              Text(
+                                                  'Total: KSh ${structure['totalAmount'] ?? 0}',
+                                                  style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w700)),
+                                            ]),
+                                        if (items.isNotEmpty)
+                                          Padding(
+                                              padding:
+                                                  const EdgeInsets.only(top: 6),
+                                              child: Text(items,
+                                                  style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurfaceVariant))),
+                                        Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.end,
+                                            children: [
+                                              if (active)
+                                                TextButton.icon(
+                                                  onPressed: () =>
+                                                      issueFeeStructure(
+                                                          structure),
+                                                  icon: const Icon(
+                                                      Icons
+                                                          .assignment_turned_in_outlined,
+                                                      size: 18),
+                                                  label: const Text(
+                                                      'Issue charges'),
+                                                ),
+                                              IconButton(
+                                                tooltip: 'Delete fee structure',
+                                                icon: const Icon(
+                                                    Icons.delete_outline,
+                                                    color: Colors.red),
+                                                onPressed: () =>
+                                                    _removeSchoolRecord(
+                                                        label: 'fee structure',
+                                                        endpoint:
+                                                            'fee-structures/$structureId'),
+                                              ),
+                                            ]),
                                       ],
                                     ),
                                   )
                                 : SingleChildScrollView(
                                     scrollDirection: Axis.horizontal,
                                     child: Row(children: [
-                                      cell('Class / grade', (structure['className'] ?? '—').toString(), width: 150, strong: true, showLabel: false),
-                                      cell('Year', (structure['academicYear'] ?? '—').toString(), width: 110, showLabel: false),
-                                      cell('Term', (structure['term'] ?? '—').toString(), width: 100, showLabel: false),
-                                      cell('KSh', 'KSh ${structure['totalAmount'] ?? 0}', width: 120, strong: true, showLabel: false),
-                                      cell('Version', 'v${structure['version'] ?? 1} • ${structure['status'] ?? 'UNKNOWN'}', width: 140, showLabel: false),
-                                      SizedBox(width: 105, child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                        if (active) IconButton(tooltip: 'Issue charges to students', icon: const Icon(Icons.assignment_turned_in_outlined), onPressed: () => issueFeeStructure(structure)),
-                                        IconButton(tooltip: 'Delete fee structure', icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _removeSchoolRecord(label: 'fee structure', endpoint: 'fee-structures/$structureId')),
-                                      ])),
+                                      cell(
+                                          'Class / grade',
+                                          (structure['className'] ?? '—')
+                                              .toString(),
+                                          width: 150,
+                                          strong: true,
+                                          showLabel: false),
+                                      cell(
+                                          'Year',
+                                          (structure['academicYear'] ?? '—')
+                                              .toString(),
+                                          width: 110,
+                                          showLabel: false),
+                                      cell('Term',
+                                          (structure['term'] ?? '—').toString(),
+                                          width: 100, showLabel: false),
+                                      cell('KSh',
+                                          'KSh ${structure['totalAmount'] ?? 0}',
+                                          width: 120,
+                                          strong: true,
+                                          showLabel: false),
+                                      cell('Version',
+                                          'v${structure['version'] ?? 1} • ${structure['status'] ?? 'UNKNOWN'}',
+                                          width: 140, showLabel: false),
+                                      SizedBox(
+                                          width: 105,
+                                          child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (active)
+                                                  IconButton(
+                                                      tooltip:
+                                                          'Issue charges to students',
+                                                      icon: const Icon(Icons
+                                                          .assignment_turned_in_outlined),
+                                                      onPressed: () =>
+                                                          issueFeeStructure(
+                                                              structure)),
+                                                IconButton(
+                                                    tooltip:
+                                                        'Delete fee structure',
+                                                    icon: const Icon(
+                                                        Icons.delete_outline,
+                                                        color: Colors.red),
+                                                    onPressed: () =>
+                                                        _removeSchoolRecord(
+                                                            label:
+                                                                'fee structure',
+                                                            endpoint:
+                                                                'fee-structures/$structureId')),
+                                              ])),
                                     ]),
                                   ),
                           );
@@ -8107,14 +9085,18 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     }).toList(),
                   ),
                 if (schoolSearchQuery.isNotEmpty && visibleMembers.isEmpty)
-                  const Padding(padding: EdgeInsets.all(12), child: Text('No members match your search.')),
+                  const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text('No members match your search.')),
                 _schoolPager()
               ],
               if (section == 5) ...[
                 if (role == 'admin') ...[
                   const Text('Year-end class promotion',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const Text('Promote every active pupil in a class at once. Use the exact current class name shown in the register; promotion is recorded by academic year and cannot be repeated for the same class/year.'),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                      'Promote every active pupil in a class at once. Use the exact current class name shown in the register; promotion is recorded by academic year and cannot be repeated for the same class/year.'),
                   field(promotionFromClass, 'Current class / grade to promote'),
                   field(promotionToClass, 'Next class / grade'),
                   field(promotionYear, 'Academic year being completed'),
@@ -8139,14 +9121,17 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                 ] else if (role == 'staff')
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Text('Only the school administrator can register or remove learners. Teachers can update attendance and CBC assessments.'),
+                    child: Text(
+                        'Only the school administrator can register or remove learners. Teachers can update attendance and CBC assessments.'),
                   ),
-                Text('Enrolled students: ${visibleStudents.length} of ${students.length} loaded',
+                Text(
+                    'Enrolled students: ${visibleStudents.length} of ${students.length} loaded',
                     style: const TextStyle(fontWeight: FontWeight.bold)),
                 if (visibleStudents.isEmpty)
                   Padding(
                       padding: EdgeInsets.all(16),
-                      child: Text(schoolSearchQuery.isNotEmpty || schoolClassFilter != 'all'
+                      child: Text(schoolSearchQuery.isNotEmpty ||
+                              schoolClassFilter != 'all'
                           ? 'No students match the current search / class filter.'
                           : 'No student records yet. Ask the school administrator to register learners.')),
                 if (visibleStudents.isNotEmpty)
@@ -8178,8 +9163,10 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             Text((student['guardianEmail'] ?? '').toString())),
                         if (role == 'admin')
                           DataCell(IconButton(
-                            tooltip: 'Mark transferred and remove from active register',
-                            icon: const Icon(Icons.person_remove_alt_1_outlined),
+                            tooltip:
+                                'Mark transferred and remove from active register',
+                            icon:
+                                const Icon(Icons.person_remove_alt_1_outlined),
                             onPressed: () => _transferSchoolStudent(
                               student['_id'].toString(),
                               (student['fullName'] ?? 'Pupil').toString(),
@@ -8270,14 +9257,15 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                             (record['studentName'] ?? 'Student').toString())),
                         DataCell(Text(
                             (record['admissionNumber'] ?? '—').toString())),
-                        DataCell(
-                            Text((record['className'] ?? '—').toString())),
+                        DataCell(Text((record['className'] ?? '—').toString())),
                         DataCell(Text(date)),
-                        DataCell(Text(
-                            (record['status'] ?? '—').toString().toUpperCase())),
+                        DataCell(Text((record['status'] ?? '—')
+                            .toString()
+                            .toUpperCase())),
                         DataCell(Text((record['note'] ?? '').toString())),
                         if (role != 'parent')
-                          DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                          DataCell(
+                              Row(mainAxisSize: MainAxisSize.min, children: [
                             IconButton(
                               tooltip: 'Edit attendance',
                               icon: const Icon(Icons.edit_outlined),
@@ -8334,18 +9322,29 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     initialValue: competencyLevel,
                     decoration: const InputDecoration(
                       labelText: 'CBC achievement level',
-                      helperText: 'EE: Exceeding • ME: Meeting • AE: Approaching • BE: Below • NE: Not Evaluated',
+                      helperText:
+                          'EE: Exceeding • ME: Meeting • AE: Approaching • BE: Below • NE: Not Evaluated',
                     ),
                     items: const [
-                      DropdownMenuItem(value: 'EE', child: Text('EE — Exceeding Expectations')),
-                      DropdownMenuItem(value: 'ME', child: Text('ME — Meeting Expectations')),
-                      DropdownMenuItem(value: 'AE', child: Text('AE — Approaching Expectations')),
-                      DropdownMenuItem(value: 'BE', child: Text('BE — Below Expectations')),
-                      DropdownMenuItem(value: 'NE', child: Text('NE — Not Evaluated')),
+                      DropdownMenuItem(
+                          value: 'EE',
+                          child: Text('EE — Exceeding Expectations')),
+                      DropdownMenuItem(
+                          value: 'ME',
+                          child: Text('ME — Meeting Expectations')),
+                      DropdownMenuItem(
+                          value: 'AE',
+                          child: Text('AE — Approaching Expectations')),
+                      DropdownMenuItem(
+                          value: 'BE', child: Text('BE — Below Expectations')),
+                      DropdownMenuItem(
+                          value: 'NE', child: Text('NE — Not Evaluated')),
                     ],
-                    onChanged: (value) => setState(() => competencyLevel = value ?? 'ME'),
+                    onChanged: (value) =>
+                        setState(() => competencyLevel = value ?? 'ME'),
                   ),
-                  field(teacherNote, 'Teacher observation / next steps (optional)'),
+                  field(teacherNote,
+                      'Teacher observation / next steps (optional)'),
                   actionButton('Save assessment result', saveAssessment,
                       icon: Icons.grading_outlined),
                 ],
@@ -8394,7 +9393,8 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         DataCell(
                             Text((record['teacherNote'] ?? '').toString())),
                         if (role != 'parent')
-                          DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                          DataCell(
+                              Row(mainAxisSize: MainAxisSize.min, children: [
                             IconButton(
                               tooltip: 'Edit CBC assessment',
                               icon: const Icon(Icons.edit_outlined),
@@ -8465,28 +9465,52 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                     icon: Icons.save),
                 const SizedBox(height: 18),
                 const Divider(),
-                const Text('Official school stamp', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const Text('Official school stamp',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                const Text('Upload the school’s authorised rubber-stamp image. Use a clear JPEG image; the stamp is added to the official receipt and PDF. Maximum size: 700 KB.', style: TextStyle(fontSize: 12)),
+                const Text(
+                    'Upload the school’s authorised rubber-stamp image. Use a clear JPEG image; the stamp is added to the official receipt and PDF. Maximum size: 700 KB.',
+                    style: TextStyle(fontSize: 12)),
                 const SizedBox(height: 10),
                 if (receiptStampDataUrl.isNotEmpty)
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: const Color(0xFFF4F7FB), border: Border.all(color: const Color(0xFFD7E1ED)), borderRadius: BorderRadius.circular(12)),
+                    decoration: BoxDecoration(
+                        color: const Color(0xFFF4F7FB),
+                        border: Border.all(color: const Color(0xFFD7E1ED)),
+                        borderRadius: BorderRadius.circular(12)),
                     child: Column(children: [
-                      Image.memory(base64Decode(receiptStampDataUrl.substring(receiptStampDataUrl.indexOf(',') + 1)), height: 90, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Text('Saved stamp preview unavailable')),
+                      Image.memory(
+                          base64Decode(receiptStampDataUrl
+                              .substring(receiptStampDataUrl.indexOf(',') + 1)),
+                          height: 90,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) =>
+                              const Text('Saved stamp preview unavailable')),
                       const SizedBox(height: 6),
-                      const Text('Saved school stamp', style: TextStyle(fontSize: 12, color: Color(0xFF53657D))),
+                      const Text('Saved school stamp',
+                          style: TextStyle(
+                              fontSize: 12, color: Color(0xFF53657D))),
                     ]),
                   )
                 else
-                  const Text('No official stamp uploaded yet.', style: TextStyle(color: Color(0xFF6B7C93))),
+                  const Text('No official stamp uploaded yet.',
+                      style: TextStyle(color: Color(0xFF6B7C93))),
                 const SizedBox(height: 8),
                 Wrap(spacing: 8, runSpacing: 8, children: [
-                  OutlinedButton.icon(onPressed: pickReceiptStamp, icon: const Icon(Icons.upload_file), label: Text(receiptStampDataUrl.isEmpty ? 'Upload school stamp' : 'Replace stamp')),
+                  OutlinedButton.icon(
+                      onPressed: pickReceiptStamp,
+                      icon: const Icon(Icons.upload_file),
+                      label: Text(receiptStampDataUrl.isEmpty
+                          ? 'Upload school stamp'
+                          : 'Replace stamp')),
                   if (receiptStampDataUrl.isNotEmpty)
-                    TextButton.icon(onPressed: removeReceiptStamp, icon: const Icon(Icons.delete_outline), label: const Text('Remove stamp')),
+                    TextButton.icon(
+                        onPressed: removeReceiptStamp,
+                        icon: const Icon(Icons.delete_outline),
+                        label: const Text('Remove stamp')),
                 ]),
                 const Text(
                     'Live STK Push requires the API server to have SCHOOL_PAYMENT_ENCRYPTION_KEY and PUBLIC_API_URL (or API_URL) configured, plus SMTP_URL and SMTP_FROM for automatic receipt emails. Never paste Daraja secrets into chat or GitHub.',
@@ -8518,6 +9542,8 @@ class _HomeState extends State<Home> {
       contactsTotal = 0;
   final Map<int, String> chatCursors = {}, memoryCursors = {};
   List<dynamic> chats = [], users = [], memories = [];
+  final Set<String> _deletingMemoryIds = {};
+  final Set<String> _deletingContactIds = {};
   // Sparks are short-lived status updates that expire after 24 hours.
   List<dynamic> sparks = [];
   bool sparksLoading = false;
@@ -9130,6 +10156,8 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> _deleteMemoryCard(Map<String, dynamic> memory) async {
+    final id = memory['_id']?.toString() ?? '';
+    if (id.isEmpty || _deletingMemoryIds.contains(id)) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -9148,20 +10176,30 @@ class _HomeState extends State<Home> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted || _deletingMemoryIds.contains(id))
+      return;
+    await _deleteMemory(id, alreadyRemoved: false);
+  }
+
+  Future<void> _deleteMemory(String id, {required bool alreadyRemoved}) async {
+    if (id.isEmpty || _deletingMemoryIds.contains(id)) return;
+    _deletingMemoryIds.add(id);
     try {
-      await app.api.call('DELETE', '/api/memories/${memory['_id']}');
+      await app.api.call('DELETE', '/api/memories/$id');
       if (!mounted) return;
       setState(() {
-        memories.removeWhere((item) =>
-            item is Map &&
-            item['_id']?.toString() == memory['_id']?.toString());
+        memories.removeWhere(
+            (item) => item is Map && item['_id']?.toString() == id);
       });
     } catch (error) {
+      if (!mounted) return;
+      if (alreadyRemoved) await loadMemories();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not delete memory: $error')),
       );
+    } finally {
+      _deletingMemoryIds.remove(id);
     }
   }
 
@@ -9598,17 +10636,27 @@ class _HomeState extends State<Home> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    await _deleteSavedContact(contact);
+  }
+
+  Future<void> _deleteSavedContact(Map<String, dynamic> contact) async {
+    final id = contact['id']?.toString() ?? '';
+    if (id.isEmpty || _deletingContactIds.contains(id)) return;
+    _deletingContactIds.add(id);
+    if (mounted) {
+      setState(() => savedContacts
+          .removeWhere((item) => item is Map && item['id']?.toString() == id));
+    }
     try {
-      await app.api.call('DELETE', '/api/contacts/${contact['id']}');
-      if (mounted)
-        setState(() => savedContacts.removeWhere((item) =>
-            item is Map &&
-            item['id']?.toString() == contact['id']?.toString()));
+      await app.api.call('DELETE', '/api/contacts/$id');
       await loadSavedContacts();
     } catch (error) {
+      await loadSavedContacts();
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Could not remove contact: $error')));
+    } finally {
+      _deletingContactIds.remove(id);
     }
   }
 
@@ -9975,22 +11023,7 @@ class _HomeState extends State<Home> {
                             ) ??
                             false,
                         onDismissed: (_) async {
-                          setState(() => savedContacts.removeWhere((item) =>
-                              item is Map &&
-                              item['id']?.toString() ==
-                                  contact['id']?.toString()));
-                          try {
-                            await app.api.call(
-                                'DELETE', '/api/contacts/${contact['id']}');
-                            await loadSavedContacts();
-                          } catch (error) {
-                            await loadSavedContacts();
-                            if (context.mounted)
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                      content: Text(
-                                          'Could not remove contact: $error')));
-                          }
+                          await _deleteSavedContact(contact);
                         },
                         child: ListTile(
                           leading: CircleAvatar(
@@ -10134,15 +11167,8 @@ class _HomeState extends State<Home> {
                       item['_id']?.toString() == memory['_id']?.toString());
                 });
               }
-              try {
-                await app.api.call('DELETE', '/api/memories/${memory['_id']}');
-              } catch (error) {
-                if (!mounted) return;
-                await loadMemories();
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Could not delete memory: $error')));
-              }
+              await _deleteMemory(memory['_id']?.toString() ?? '',
+                  alreadyRemoved: true);
             },
             child: Card(
               child: Padding(
@@ -10577,6 +11603,17 @@ class PaymentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = (payment['status'] ?? 'PENDING').toString();
+    final initiationState = (payment['initiationState'] ?? '').toString();
+    final confirmationSource = (payment['confirmationSource'] ?? '').toString();
+    final reviewLabel = confirmationSource == 'manual_review'
+        ? ' · Manually reviewed (not provider callback confirmed)'
+        : initiationState == 'REQUIRES_REVIEW'
+            ? ' · Needs administrator review; do not retry the STK prompt'
+            : confirmationSource == 'provider_callback'
+                ? ' · Provider callback confirmed'
+                : initiationState == 'ACCEPTED_PENDING'
+                    ? ' · Awaiting provider confirmation'
+                    : '';
     final isPayer = payment['payerId']?.toString() == currentUserId;
     final isMock = payment['provider']?.toString() == 'mock';
     final baseAmount = (payment['baseAmount'] as num?)?.toInt() ??
@@ -10603,8 +11640,8 @@ class PaymentCard extends StatelessWidget {
                   Text(payment['description']?.toString() ?? 'M-Pesa payment'),
               subtitle: Text(
                 platformFee > 0
-                    ? 'Base KSh $baseAmount + platform fee KSh $platformFee = total KSh $totalAmount · $status · Fee ${payment['platformFeeStatus'] ?? 'PENDING_PAYMENT'}${isMock ? ' · Local demo' : ''}'
-                    : 'KSh ${payment['amount'] ?? ''} · $status · To ${payment['recipientPhone'] ?? 'recipient'}${isMock ? ' · Local demo' : ''}',
+                    ? 'Base KSh $baseAmount + platform fee KSh $platformFee = total KSh $totalAmount · $status$reviewLabel · Fee ${payment['platformFeeStatus'] ?? 'PENDING_PAYMENT'}${isMock ? ' · Local demo' : ''}'
+                    : 'KSh ${payment['amount'] ?? ''} · $status$reviewLabel · To ${payment['recipientPhone'] ?? 'recipient'}${isMock ? ' · Local demo' : ''}',
               ),
             ),
             Wrap(
@@ -11371,20 +12408,19 @@ class _ChatState extends State<Chat> {
       builder: (sheetContext) => SafeArea(
         child: ListView(
           shrinkWrap: true,
-          children: participants
-              .map((person) {
-                final identifier = _mentionDisambiguator(
-                  person,
-                  List<dynamic>.from(
-                      widget.conversation['participants'] ?? const []),
-                );
-                return ListTile(
-                    leading: const Icon(Icons.alternate_email),
-                    title: Text(person['name']?.toString() ?? 'Chat member'),
-                    subtitle: identifier.isEmpty ? null : Text(identifier),
-                    onTap: () => Navigator.pop(sheetContext, person),
-                  );
-              }).toList(),
+          children: participants.map((person) {
+            final identifier = _mentionDisambiguator(
+              person,
+              List<dynamic>.from(
+                  widget.conversation['participants'] ?? const []),
+            );
+            return ListTile(
+              leading: const Icon(Icons.alternate_email),
+              title: Text(person['name']?.toString() ?? 'Chat member'),
+              subtitle: identifier.isEmpty ? null : Text(identifier),
+              onTap: () => Navigator.pop(sheetContext, person),
+            );
+          }).toList(),
         ),
       ),
     );
@@ -11919,7 +12955,8 @@ class _ChatState extends State<Chat> {
                 : 'Ask the merchant to configure a Till or Paybill.';
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('This merchant has $configuredMethod configured. $nextStep No STK prompt was sent.'),
+            content: Text(
+                'This merchant has $configuredMethod configured. $nextStep No STK prompt was sent.'),
             duration: const Duration(seconds: 6),
           ));
         }
@@ -14099,6 +15136,8 @@ class Profile extends StatefulWidget {
 // Loads profile data and submits profile/privacy/notification preference changes.
 class _ProfileState extends State<Profile> {
   late TextEditingController name, phone;
+  bool removingProfilePicture = false;
+  bool profilePictureRemovalInProgress = false;
   bool lastSeen = true,
       receipts = true,
       messages = true,
@@ -14192,6 +15231,58 @@ class _ProfileState extends State<Profile> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Could not update picture: $error')));
+      }
+    }
+  }
+
+  Future<void> removeProfilePicture() async {
+    if (removingProfilePicture) return;
+    final current = context.read<AppState>().user?['profileImage']?.toString();
+    if (current == null || !current.startsWith('https://')) return;
+    setState(() => removingProfilePicture = true);
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Remove profile picture?'),
+          content:
+              const Text('Your account and other profile details will remain.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Remove')),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      setState(() => profilePictureRemovalInProgress = true);
+      final saved = await context.read<AppState>().api.call(
+        'PATCH',
+        '/api/users/me',
+        {'profileImage': null},
+      );
+      if (!mounted) return;
+      context.read<AppState>().updateCurrentUser(
+            Map<String, dynamic>.from(saved['user']),
+          );
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile picture removed.')),
+      );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not remove profile picture: $error')),
+        );
+    } finally {
+      if (mounted) {
+        setState(() {
+          removingProfilePicture = false;
+          profilePictureRemovalInProgress = false;
+        });
       }
     }
   }
@@ -14369,6 +15460,19 @@ class _ProfileState extends State<Profile> {
             icon: const Icon(Icons.photo_camera_outlined),
             label: const Text('Change profile picture'),
           ),
+          if (profileImage != null && profileImage.startsWith('https://'))
+            TextButton.icon(
+              onPressed: removingProfilePicture ? null : removeProfilePicture,
+              icon: profilePictureRemovalInProgress
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.delete_outline),
+              label: Text(profilePictureRemovalInProgress
+                  ? 'Removing picture…'
+                  : 'Remove profile picture'),
+            ),
         ]),
       ),
       SwitchListTile(
@@ -14447,8 +15551,8 @@ class _ProfileState extends State<Profile> {
 }
 
 /// Opens a catalogue/product image in a dark, zoomable viewer.
-Future<void> _showExpandedCatalogueImage(
-    BuildContext context, String imageUrl, {String title = 'Product image'}) async {
+Future<void> _showExpandedCatalogueImage(BuildContext context, String imageUrl,
+    {String title = 'Product image'}) async {
   if (!imageUrl.startsWith('https://')) return;
   await showDialog<void>(
     context: context,
@@ -14769,8 +15873,9 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                                 _showExpandedCatalogueImage(
                                               context,
                                               image,
-                                              title: entry['name']?.toString() ??
-                                                  'Product image',
+                                              title:
+                                                  entry['name']?.toString() ??
+                                                      'Product image',
                                             ),
                                             child: ClipRRect(
                                               borderRadius:
@@ -14784,8 +15889,8 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                                     const SizedBox(
                                                   width: 64,
                                                   height: 64,
-                                                  child: Icon(
-                                                      Icons.broken_image_outlined),
+                                                  child: Icon(Icons
+                                                      .broken_image_outlined),
                                                 ),
                                               ),
                                             ),
@@ -14794,8 +15899,8 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
                                             radius: 28,
                                             backgroundColor: Color(0xFFDDF5F2),
                                             child: Icon(
-                                              Icons.inventory_2_outlined,
-                                              color: Color(0xFF087F8C)),
+                                                Icons.inventory_2_outlined,
+                                                color: Color(0xFF087F8C)),
                                           ),
                                     title: Text(
                                         entry['name']?.toString() ??
@@ -15333,9 +16438,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
                   child: Row(children: [
                     if (image.startsWith('https://'))
                       GestureDetector(
-                        onTap: () => _showExpandedCatalogueImage(
-                            context,
-                            image,
+                        onTap: () => _showExpandedCatalogueImage(context, image,
                             title: item['name']?.toString() ?? 'Product image'),
                         child: SizedBox(
                           width: 100,
@@ -15537,6 +16640,7 @@ class _BusinessHubState extends State<BusinessHub> {
   int pendingOfflineCount = 0;
   List<String> syncConflicts = [];
   final Map<String, Future<int>> _offlineSyncs = {};
+  final Set<String> _deletingBusinessRecords = <String>{};
   String? error;
   AppState get app => context.read<AppState>();
 
@@ -15701,200 +16805,213 @@ class _BusinessHubState extends State<BusinessHub> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-        title: Text(title),
-        content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(
-              controller: name,
-              autofocus: true,
-              decoration: InputDecoration(
-                  labelText: kind == 'catalog'
-                      ? 'Product / service name'
-                      : kind == 'customer'
-                          ? 'Customer name'
-                          : kind == 'document'
-                              ? 'Quotation title / item'
-                              : 'Task title')),
-          if (kind == 'catalog') ...[
+          title: Text(title),
+          content: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
             TextField(
-                controller: detail,
-                decoration: const InputDecoration(labelText: 'Description')),
-            TextField(
-                controller: amount,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Price')),
-            TextField(
-                controller: quantity,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Stock quantity')),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: uploadingCatalogImages
-                        ? null
-                        : () async {
-                            try {
-                              final selected = await ImagePicker().pickMultiImage(
-                                  imageQuality: 85);
-                              if (selected.isEmpty || !dialogContext.mounted) return;
-                              setDialogState(() => uploadingCatalogImages = true);
-                              for (final file in selected) {
-                                if (selectedImageUrls.length >= 8) break;
-                                final bytes = await file.readAsBytes();
-                                if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
-                                  throw const FormatException(
-                                      'Each image must be smaller than 10 MB.');
+                controller: name,
+                autofocus: true,
+                decoration: InputDecoration(
+                    labelText: kind == 'catalog'
+                        ? 'Product / service name'
+                        : kind == 'customer'
+                            ? 'Customer name'
+                            : kind == 'document'
+                                ? 'Quotation title / item'
+                                : 'Task title')),
+            if (kind == 'catalog') ...[
+              TextField(
+                  controller: detail,
+                  decoration: const InputDecoration(labelText: 'Description')),
+              TextField(
+                  controller: amount,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Price')),
+              TextField(
+                  controller: quantity,
+                  keyboardType: TextInputType.number,
+                  decoration:
+                      const InputDecoration(labelText: 'Stock quantity')),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: uploadingCatalogImages
+                          ? null
+                          : () async {
+                              try {
+                                final selected = await ImagePicker()
+                                    .pickMultiImage(imageQuality: 85);
+                                if (selected.isEmpty || !dialogContext.mounted)
+                                  return;
+                                setDialogState(
+                                    () => uploadingCatalogImages = true);
+                                for (final file in selected) {
+                                  if (selectedImageUrls.length >= 8) break;
+                                  final bytes = await file.readAsBytes();
+                                  if (bytes.isEmpty ||
+                                      bytes.length > 10 * 1024 * 1024) {
+                                    throw const FormatException(
+                                        'Each image must be smaller than 10 MB.');
+                                  }
+                                  final lower = file.name.toLowerCase();
+                                  final mimeType = lower.endsWith('.png')
+                                      ? 'image/png'
+                                      : lower.endsWith('.webp')
+                                          ? 'image/webp'
+                                          : 'image/jpeg';
+                                  final upload =
+                                      await app.api.call('POST', '/api/media', {
+                                    'data': base64Encode(bytes),
+                                    'mimeType': mimeType,
+                                  });
+                                  final url =
+                                      upload['mediaUrl']?.toString() ?? '';
+                                  if (!url.startsWith('https://')) {
+                                    throw Exception(
+                                        'Image upload did not return a secure URL.');
+                                  }
+                                  if (!selectedImageUrls.contains(url)) {
+                                    selectedImageUrls.add(url);
+                                  }
+                                  if (selectedImageUrls.length >= 8) break;
                                 }
-                                final lower = file.name.toLowerCase();
-                                final mimeType = lower.endsWith('.png')
-                                    ? 'image/png'
-                                    : lower.endsWith('.webp')
-                                        ? 'image/webp'
-                                        : 'image/jpeg';
-                                final upload = await app.api.call('POST', '/api/media', {
-                                  'data': base64Encode(bytes),
-                                  'mimeType': mimeType,
-                                });
-                                final url = upload['mediaUrl']?.toString() ?? '';
-                                if (!url.startsWith('https://')) {
-                                  throw Exception('Image upload did not return a secure URL.');
+                                if (dialogContext.mounted)
+                                  setDialogState(() {});
+                              } catch (error) {
+                                if (dialogContext.mounted) {
+                                  ScaffoldMessenger.of(dialogContext)
+                                      .showSnackBar(
+                                    SnackBar(
+                                        content: Text(
+                                            'Could not add image: $error')),
+                                  );
                                 }
-                                if (!selectedImageUrls.contains(url)) {
-                                  selectedImageUrls.add(url);
+                              } finally {
+                                if (dialogContext.mounted) {
+                                  setDialogState(
+                                      () => uploadingCatalogImages = false);
                                 }
-                                if (selectedImageUrls.length >= 8) break;
                               }
-                              if (dialogContext.mounted) setDialogState(() {});
-                            } catch (error) {
-                              if (dialogContext.mounted) {
-                                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                  SnackBar(content: Text('Could not add image: $error')),
-                                );
-                              }
-                            } finally {
-                              if (dialogContext.mounted) {
-                                setDialogState(() => uploadingCatalogImages = false);
-                              }
-                            }
-                          },
-                    icon: uploadingCatalogImages
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.add_photo_alternate_outlined),
-                    label: Text(uploadingCatalogImages
-                        ? 'Uploading…'
-                        : 'Add product images'),
-                  ),
-                  Text('${selectedImageUrls.length}/8 images',
-                      style: Theme.of(dialogContext).textTheme.bodySmall),
-                ],
+                            },
+                      icon: uploadingCatalogImages
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.add_photo_alternate_outlined),
+                      label: Text(uploadingCatalogImages
+                          ? 'Uploading…'
+                          : 'Add product images'),
+                    ),
+                    Text('${selectedImageUrls.length}/8 images',
+                        style: Theme.of(dialogContext).textTheme.bodySmall),
+                  ],
+                ),
               ),
-            ),
-            if (selectedImageUrls.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 76,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: selectedImageUrls.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, imageIndex) => Stack(
-                    children: [
-                      GestureDetector(
-                        onTap: () => _showExpandedCatalogueImage(
-                          dialogContext,
-                          selectedImageUrls[imageIndex],
-                          title: name.text.trim().isEmpty
-                              ? 'Product image'
-                              : name.text.trim(),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
+              if (selectedImageUrls.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 76,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: selectedImageUrls.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, imageIndex) => Stack(
+                      children: [
+                        GestureDetector(
+                          onTap: () => _showExpandedCatalogueImage(
+                            dialogContext,
                             selectedImageUrls[imageIndex],
-                            width: 76,
-                            height: 76,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const SizedBox(
+                            title: name.text.trim().isEmpty
+                                ? 'Product image'
+                                : name.text.trim(),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              selectedImageUrls[imageIndex],
                               width: 76,
                               height: 76,
-                              child: Icon(Icons.broken_image_outlined),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const SizedBox(
+                                width: 76,
+                                height: 76,
+                                child: Icon(Icons.broken_image_outlined),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: IconButton.filledTonal(
-                          visualDensity: VisualDensity.compact,
-                          tooltip: 'Remove image',
-                          onPressed: () => setDialogState(
-                              () => selectedImageUrls.removeAt(imageIndex)),
-                          icon: const Icon(Icons.close, size: 14),
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          child: IconButton.filledTonal(
+                            visualDensity: VisualDensity.compact,
+                            tooltip: 'Remove image',
+                            onPressed: () => setDialogState(
+                                () => selectedImageUrls.removeAt(imageIndex)),
+                            icon: const Icon(Icons.close, size: 14),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
+            ] else if (kind == 'customer') ...[
+              TextField(
+                  controller: detail,
+                  decoration:
+                      const InputDecoration(labelText: 'Email or phone')),
+            ] else if (kind == 'document') ...[
+              ValueListenableBuilder<String>(
+                  valueListenable: docType,
+                  builder: (_, value, __) => DropdownButtonFormField<String>(
+                      initialValue: value,
+                      decoration:
+                          const InputDecoration(labelText: 'Document type'),
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'quote', child: Text('Quotation')),
+                        DropdownMenuItem(
+                            value: 'invoice', child: Text('Invoice')),
+                        DropdownMenuItem(
+                            value: 'order', child: Text('Sales order'))
+                      ],
+                      onChanged: (next) {
+                        if (next != null) docType.value = next;
+                      })),
+              TextField(
+                  controller: amount,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Unit price')),
+              TextField(
+                  controller: quantity,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Quantity')),
+            ] else ...[
+              TextField(
+                  controller: detail,
+                  decoration:
+                      const InputDecoration(labelText: 'Notes / description')),
             ],
-          ] else if (kind == 'customer') ...[
-            TextField(
-                controller: detail,
-                decoration: const InputDecoration(labelText: 'Email or phone')),
-          ] else if (kind == 'document') ...[
-            ValueListenableBuilder<String>(
-                valueListenable: docType,
-                builder: (_, value, __) => DropdownButtonFormField<String>(
-                    initialValue: value,
-                    decoration:
-                        const InputDecoration(labelText: 'Document type'),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'quote', child: Text('Quotation')),
-                      DropdownMenuItem(
-                          value: 'invoice', child: Text('Invoice')),
-                      DropdownMenuItem(
-                          value: 'order', child: Text('Sales order'))
-                    ],
-                    onChanged: (next) {
-                      if (next != null) docType.value = next;
-                    })),
-            TextField(
-                controller: amount,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Unit price')),
-            TextField(
-                controller: quantity,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Quantity')),
-          ] else ...[
-            TextField(
-                controller: detail,
-                decoration:
-                    const InputDecoration(labelText: 'Notes / description')),
+          ])),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Save')),
           ],
-        ])),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Save')),
-        ],
-      ),
+        ),
       ),
     );
     if (accepted != true || name.text.trim().isEmpty) return;
@@ -17330,6 +18447,86 @@ class _BusinessHubState extends State<BusinessHub> {
         ),
       );
 
+  Future<void> _deleteBusinessRecord(Map item, String kind,
+      {bool confirmed = false, bool removeLocally = false}) async {
+    final id = item['_id']?.toString();
+    final orgId = organization?['_id']?.toString();
+    if (id == null || id.isEmpty || orgId == null || orgId.isEmpty) return;
+    final key = '$kind:$id';
+    if (_deletingBusinessRecords.contains(key)) return;
+    final title = item['name']?.toString() ?? item['title']?.toString() ?? kind;
+    if (!confirmed) {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(kind == 'customers'
+              ? 'Archive customer?'
+              : kind == 'products or services'
+                  ? 'Remove catalogue item?'
+                  : 'Delete task?'),
+          content: Text(kind == 'customers'
+              ? 'Archive “$title” from the active customer list? Existing sales documents and financial history will be preserved.'
+              : kind == 'products or services'
+                  ? 'Remove “$title” from the active catalogue? Existing sales documents retain their saved item details.'
+                  : 'Delete “$title” from this workspace?'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(kind == 'customers' ? 'Archive' : 'Delete')),
+          ],
+        ),
+      );
+      if (accepted != true || !mounted) return;
+    }
+    setState(() => _deletingBusinessRecords.add(key));
+    if (removeLocally) {
+      setState(() {
+        (kind == 'customers'
+                ? customers
+                : kind == 'products or services'
+                    ? catalog
+                    : tasks)
+            .removeWhere((row) => row is Map && row['_id']?.toString() == id);
+      });
+    }
+    try {
+      final base = '/api/business/organizations/${Uri.encodeComponent(orgId)}';
+      final endpoint = kind == 'customers'
+          ? '$base/customers/${Uri.encodeComponent(id)}'
+          : kind == 'products or services'
+              ? '$base/catalog/${Uri.encodeComponent(id)}'
+              : '$base/tasks/${Uri.encodeComponent(id)}';
+      await app.api.call('DELETE', endpoint);
+      await loadWorkspaceData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(kind == 'customers'
+              ? 'Customer archived; linked records were retained.'
+              : kind == 'products or services'
+                  ? 'Product removed from catalogue.'
+                  : 'Task deleted.'),
+        ));
+      }
+    } catch (error) {
+      await loadWorkspaceData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Could not ${kind == 'customers' ? 'archive' : 'delete'} $title: $error'),
+          action: SnackBarAction(
+              label: 'Retry',
+              onPressed: () =>
+                  _deleteBusinessRecord(item, kind, confirmed: true)),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _deletingBusinessRecords.remove(key));
+    }
+  }
+
   Widget recordList(List<dynamic> records, String kind, IconData icon) {
     if (records.isEmpty) {
       return Center(
@@ -17363,7 +18560,30 @@ class _BusinessHubState extends State<BusinessHub> {
             ? List<dynamic>.from(item['images'] as List)
             : <dynamic>[];
         final firstImage = images.isNotEmpty ? images.first.toString() : '';
-        return ListTile(
+        final recordId = item['_id']?.toString();
+        final deletable = recordId != null &&
+            ['customers', 'products or services', 'tasks'].contains(kind);
+        final deleteAction = deletable
+            ? IconButton(
+                tooltip: kind == 'customers'
+                    ? 'Archive customer'
+                    : kind == 'products or services'
+                        ? 'Remove catalogue product'
+                        : 'Delete saved task',
+                icon: _deletingBusinessRecords.contains('$kind:$recordId')
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(kind == 'customers'
+                        ? Icons.archive_outlined
+                        : Icons.delete_outline),
+                onPressed: _deletingBusinessRecords.contains('$kind:$recordId')
+                    ? null
+                    : () => _deleteBusinessRecord(item, kind),
+              )
+            : null;
+        final tile = ListTile(
           leading: firstImage.startsWith('https://')
               ? GestureDetector(
                   onTap: () => _showExpandedCatalogueImage(context, firstImage,
@@ -17375,7 +18595,8 @@ class _BusinessHubState extends State<BusinessHub> {
                       width: 58,
                       height: 58,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => CircleAvatar(child: Icon(icon)),
+                      errorBuilder: (_, __, ___) =>
+                          CircleAvatar(child: Icon(icon)),
                     ),
                   ),
                 )
@@ -17383,70 +18604,58 @@ class _BusinessHubState extends State<BusinessHub> {
           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle:
               Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-          trailing: (kind == 'products or services' || kind == 'tasks') && item['_id'] != null
-              ? IconButton(
-                  tooltip: kind == 'products or services'
-                      ? 'Delete catalogue product'
-                      : 'Delete saved task',
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () async {
-                    final recordId = item['_id'].toString();
-                    final isCatalog = kind == 'products or services';
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        title: Text(isCatalog ? 'Remove product from catalogue?' : 'Delete saved task?'),
-                        content: Text(isCatalog
-                            ? 'Remove “$title” from the active catalogue? Past sales documents will keep their saved item details.'
-                            : 'Delete “$title” from this workspace?'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(dialogContext, false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: Theme.of(context).colorScheme.error,
-                            ),
-                            onPressed: () => Navigator.pop(dialogContext, true),
-                            child: const Text('Delete'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirmed != true || !mounted) return;
-                    try {
-                      final orgId = organization?['_id']?.toString();
-                      if (orgId == null) return;
-                      final base = '/api/business/organizations/${Uri.encodeComponent(orgId)}';
-                      await app.api.call(
-                        'DELETE',
-                        isCatalog
-                            ? '$base/catalog/${Uri.encodeComponent(recordId)}'
-                            : '$base/tasks/${Uri.encodeComponent(recordId)}',
-                      );
-                      await loadWorkspaceData();
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text(isCatalog ? 'Product removed from catalogue.' : 'Task deleted.'),
-                        ));
-                      }
-                    } catch (error) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text('Could not delete ${isCatalog ? 'product' : 'task'}: $error'),
-                        ));
-                      }
-                    }
-                  },
-                )
-              : amount == null
+          trailing: deleteAction ??
+              (amount == null
                   ? null
-                  : Text('${item['currency'] ?? 'KES'} $amount'),
+                  : Text('${item['currency'] ?? 'KES'} $amount')),
           onTap: kind == 'sales documents'
               ? () => _showDocumentActions(Map<String, dynamic>.from(item))
               : null,
         );
+        if (deletable && _useSwipeToDelete(context)) {
+          return Dismissible(
+            key: ValueKey('business-$kind-$recordId'),
+            direction: DismissDirection.startToEnd,
+            background: Container(
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.only(left: 20),
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Icon(
+                  kind == 'customers'
+                      ? Icons.archive_outlined
+                      : Icons.delete_outline,
+                  color: Theme.of(context).colorScheme.onErrorContainer),
+            ),
+            confirmDismiss: (_) async =>
+                await showDialog<bool>(
+                  context: context,
+                  builder: (dialogContext) => AlertDialog(
+                    title: Text(kind == 'customers'
+                        ? 'Archive customer?'
+                        : kind == 'products or services'
+                            ? 'Remove catalogue item?'
+                            : 'Delete task?'),
+                    content: Text(kind == 'customers'
+                        ? 'Existing sales documents and financial history will be preserved.'
+                        : 'This action will remove the item from this workspace.'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel')),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child:
+                              Text(kind == 'customers' ? 'Archive' : 'Delete')),
+                    ],
+                  ),
+                ) ??
+                false,
+            onDismissed: (_) => _deleteBusinessRecord(item, kind,
+                confirmed: true, removeLocally: true),
+            child: tile,
+          );
+        }
+        return tile;
       },
     );
   }
@@ -17676,7 +18885,7 @@ class _BusinessHubState extends State<BusinessHub> {
         ),
         if (!compactLayout)
           SizedBox(
-            height: 76,
+            height: 132,
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 8),

@@ -31,6 +31,10 @@ It does not represent reconciled settlements, refunds, provider fees, or tax acc
 - mobile/ — Flutter/Dart client
 - server/ — Node.js/Express/Socket.IO API
 - docs/ — architecture, API, database, development, security and demo notes
+- [Production readiness audit and test inventory](docs/PRODUCTION_READINESS_AUDIT.md) — module map, prioritized test matrix and audit status.
+- [Current test results](docs/TEST_RESULTS.md) — commands, results, blocked checks and evidence boundaries for this audit.
+- [M-Pesa testing](docs/M-PESA_TESTING.md) — mock, sandbox, production-configured and live-payment evidence boundaries.
+- [Security and privacy audit notes](docs/SECURITY_AND_PRIVACY.md) and [release checklist](docs/RELEASE_CHECKLIST.md).
 - [Latest verification record (2026-10-22)](docs/VERIFICATION_2026-10-22_BILLING_BOUNDARY.md) — **quality checks and full CI passed** on current verification commit `448239c98a54bef49d9f05ec213a086aabde53b6`. GitHub Actions reports both workflows completed successfully: [Quality workflow](https://github.com/isaacokubi/chatify/actions/runs/39776344673) · [Full CI workflow](https://github.com/isaacokubi/chatify/actions/runs/39776344671). The earlier full CI run recorded 193 backend tests passed (0 failed), dependency audit and backend lint/syntax checks passed, Flutter analysis/tests passed, Flutter web build passed, and Android debug APK build passed. Live Daraja sandbox and deployed-production acceptance checks remain separate release gates.
 - [Demo setup and account register](docs/DEMO.md) — safe repeatable seed instructions, current sample data coverage and demo credentials configuration.
 - [Project walkthrough](docs/PROJECT_WALKTHROUGH.md) — plain-language guide to how the system works, how the main features connect, security concepts, code navigation, and tutor-defense preparation.
@@ -99,7 +103,8 @@ School administrators can configure a school-specific Daraja Paybill or Till, st
 
 Before enabling this in the API deployment, configure these private environment variables:
 
-- `PUBLIC_API_URL`: the public HTTPS base URL of this API, used to construct `/api/schools/daraja/callback`.
+- `PUBLIC_API_URL`: the public HTTPS base URL of this API, used to construct `/api/schools/daraja/callback/<SCHOOL_DARAJA_CALLBACK_TOKEN>`.
+- `SCHOOL_DARAJA_CALLBACK_TOKEN`: a separate random token of at least 32 characters; school callbacks use the tokenized callback path.
 - `SCHOOL_PAYMENT_ENCRYPTION_KEY`: a unique random secret of at least 32 characters. School-specific Daraja consumer keys, consumer secrets and passkeys are encrypted at rest with AES-256-GCM. Keep this key backed up securely; do not commit it or send it in chat.
 - `SMTP_URL` and `SMTP_FROM`: required for receipt email delivery. If SMTP is unavailable, the receipt remains stored and downloadable, and an administrator can retry delivery using `POST /api/schools/:schoolId/fees/:paymentReference/receipt/resend`.
 

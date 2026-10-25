@@ -1,6 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {slugifyBusinessName, offlineCreateId, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines, resolveSellerMpesaPhone, applyExplicitMessagingConsent} from './business.js';
+import {slugifyBusinessName, offlineCreateId, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines, resolveSellerMpesaPhone, applyExplicitMessagingConsent, archiveBusinessCustomer} from './business.js';
+
+test('business customer archive is tenant scoped, preserves record, and duplicate/concurrent retries are harmless', async () => {
+  const customer = {_id: 'customer-1', organizationId: 'org-1', name: 'Amina', salesHistory: ['invoice-1']};
+  const filters = [];
+  const Customer = {
+    async findOneAndUpdate(filter, update, options) {
+      filters.push(filter);
+      assert.deepEqual(options, {new: true});
+      if (String(filter._id) !== String(customer._id) ||
+          String(filter.organizationId) !== String(customer.organizationId) ||
+          customer.archivedAt) return null;
+      customer.archivedAt = update.$set.archivedAt;
+      return customer;
+    },
+  };
+  const archivedAt = new Date('2026-10-25T10:00:00.000Z');
+  const results = await Promise.all([
+    archiveBusinessCustomer(Customer, {organizationId:'org-1', customerId:'customer-1', archivedAt}),
+    archiveBusinessCustomer(Customer, {organizationId:'org-1', customerId:'customer-1', archivedAt}),
+  ]);
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal(await archiveBusinessCustomer(Customer, {organizationId:'org-2', customerId:'customer-1'}), null);
+  assert.equal(await archiveBusinessCustomer(Customer, {organizationId:'org-1', customerId:'missing'}), null);
+  assert.deepEqual(customer.salesHistory, ['invoice-1']);
+  assert.equal(customer.archivedAt, archivedAt);
+  assert.ok(filters.every(filter => filter.archivedAt.$exists === false));
+});
 
 test('explicit messaging opt-in is captured once and never inferred', () => {
   const capturedAt = new Date('2026-10-23T08:00:00.000Z');

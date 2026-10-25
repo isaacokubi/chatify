@@ -4,7 +4,7 @@ The school workspace supports learner admission, guardian contacts, attendance, 
 
 ## Learners and records
 
-Administrators and staff can register a pupil with an admission number, full name, class/grade and parent/guardian name, phone and email. They can edit these details or archive a pupil; archiving removes the learner from the active register while retaining historical fee, attendance and academic records. The learner table shows those fields in separate columns. Guardian contact details are used for school communication and receipt delivery; keep them current and restrict school membership appropriately.
+School owners/administrators can register a pupil with an admission number, full name, class/grade and parent/guardian name, phone and email. They can edit these details or mark a learner transferred; transfer archives the learner from the active register while retaining historical fee, attendance and academic records. Administrators can promote an active class by academic year; each learner's promotion is recorded, and the same class/year cannot be promoted twice. The learner table shows the recorded contact fields in separate columns. Guardian contact details are used for school communication and receipt delivery; keep them current and restrict school membership appropriately.
 
 Staff and administrators can record daily attendance (present, absent, late or excused) with an optional note, and academic results with subject, assessment, term/year, score, total marks and teacher comment. Parents can view records only for their linked learners. School IDs and membership are checked on the server for all reads and writes.
 
@@ -12,29 +12,32 @@ Staff and administrators can record daily attendance (present, absent, late or e
 
 Parents can select an enrolled learner, enter a term and amount, and use the payment method configured by the school. Supported paths include school-specific Daraja STK Push and manual M-Pesa Send Money or bank reconciliation. STK initiation remains pending until a callback validates the stored request IDs, amount, payer phone and M-Pesa receipt. Manual payment remains pending until an administrator verifies the actual receipt. A failed or pending payment never receives an official receipt.
 
+School administrators and staff can request a bounded status query for a pending STK fee using `POST /api/schools/:schoolId/fees/:paymentReference/reconcile`. The shortcode must still match the configured school destination. A query success that lacks callback receipt metadata remains pending and does not affect the balance or create a receipt; an administrator can use the verification route only with the actual M-Pesa receipt. Query attempts are claimed atomically, capped at five and delayed by 1, 2, 4, 8 and 16 minutes. No timeout alone expires a school payment and no background polling is enabled.
+
 After confirmation, the fee table and Receipts table provide a printable/downloadable PDF. The server retains the official HTML receipt. With SMTP configured, it sends the receipt to the paying parent and active school administrators; administrators can retry delivery. Only authorized school members can access a receipt, and parents are additionally checked against the payment's parent and linked pupil. Email delivery requires `SMTP_URL` and `SMTP_FROM`.
 
 ## API
 
 All endpoints except provider callbacks require a Chatify bearer token and a school membership role.
 
-- `POST /api/schools/:schoolId/students` — admin/staff register a learner.
+- `POST /api/schools/:schoolId/students` — owner/admin registers a learner.
 - `GET /api/schools/:schoolId/students` — list active learners visible to the caller.
-- `PATCH /api/schools/:schoolId/students/:studentId` — admin/staff update learner and guardian details.
-- `DELETE /api/schools/:schoolId/students/:studentId` — admin/staff archive a learner, preserving history.
+- `PATCH /api/schools/:schoolId/students/:studentId` — owner/admin updates learner and guardian details.
+- `POST /api/schools/:schoolId/students/:studentId/transfer` — owner/admin soft-archives an active learner while preserving history.
+- `POST /api/schools/:schoolId/students/promote-class` — owner/admin promotes every eligible active learner in a class and records each learner's academic-year promotion history; duplicate class/year retries return conflict.
 - `POST/GET /api/schools/:schoolId/attendance` — staff record attendance; parents read linked learners' records.
 - `POST/GET /api/schools/:schoolId/academics` — staff record academic results; parents read linked learners' records.
 - `POST/GET /api/schools/:schoolId/fees` — parents start or view fee payment records; school staff view school fees.
 - `POST /api/schools/:schoolId/fees/:paymentReference/verify` — admin manually reconcile a payment using the actual receipt.
 - `GET /api/schools/:schoolId/fees/:paymentReference/receipt` — authorized members download the confirmed official receipt.
 - `POST /api/schools/:schoolId/fees/:paymentReference/receipt/resend` — admin retries receipt email.
-- `POST /api/schools/daraja/callback` — provider callback, correlated and applied idempotently.
+- `POST /api/schools/daraja/callback/:token` — provider callback; requires the configured school callback token and is correlated/applied idempotently.
 
 The API paginates school records. The current Flutter learner selector fetches up to 100 active learners; schools with more than 100 active learners need a searchable/paginated selector before the UI can address the full register efficiently. The table itself adapts to narrow viewports by horizontal scrolling. Automated checks cover school/business service behavior and a widget regression for the learner table's parent/guardian name, phone and email; a full school HTTP/browser/device E2E run has not been completed.
 
 ## Configuration and production limits
 
-For automated Daraja fees configure `PUBLIC_API_URL`, `SCHOOL_PAYMENT_ENCRYPTION_KEY`, and each school's own approved credentials. Configure SMTP for automatic receipt emails. Keep real credentials out of source control and chat. A sandbox STK acceptance is initiation only, not successful payment. See [M-Pesa deployment notes](M-PESA-DEPLOYMENT.md), the [QA report](QA_REPORT_2026-10-23.md) and [database notes](DATABASE.md).
+For automated Daraja fees configure `PUBLIC_API_URL`, `SCHOOL_PAYMENT_ENCRYPTION_KEY`, `SCHOOL_DARAJA_CALLBACK_TOKEN`, and each school's own approved credentials. Configure SMTP for automatic receipt emails. Keep real credentials and tokenized callback paths out of source control, chat and access logs. A sandbox STK acceptance is initiation only, not successful payment. See [M-Pesa deployment notes](M-PESA-DEPLOYMENT.md), the [QA report](QA_REPORT_2026-10-23.md) and [database notes](DATABASE.md).
 
 
 ## School workspace usability and scale

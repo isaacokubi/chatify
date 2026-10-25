@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeSchoolPaymentProfile, encryptSchoolSecret, decryptSchoolSecret, resolveSchoolMessageDestination, schoolPaymentMethodLabel } from './school.js';
+import { normalizeSchoolPaymentProfile, encryptSchoolSecret, decryptSchoolSecret, resolveSchoolMessageDestination, schoolPaymentMethodLabel, schoolCallbackUrl } from './school.js';
 import { createEmailProvider } from './providers.js';
 
 test('accepts a valid school Paybill profile and removes spaces', () => {
@@ -43,6 +43,26 @@ test('encrypts school Daraja secrets and only decrypts with the correct key', ()
 
 test('refuses to encrypt school payment credentials without a strong configured key', () => {
   assert.throws(() => encryptSchoolSecret('secret', 'short'), /encryption/i);
+});
+
+test('school Daraja callback URL includes its configured authentication token', () => {
+  const previousBase = process.env.PUBLIC_API_URL;
+  const previousToken = process.env.SCHOOL_DARAJA_CALLBACK_TOKEN;
+  process.env.PUBLIC_API_URL = 'https://api.example.org';
+  process.env.SCHOOL_DARAJA_CALLBACK_TOKEN = 'school-callback-token-0123456789abcdef';
+  try {
+    assert.equal(
+      schoolCallbackUrl(),
+      'https://api.example.org/api/schools/daraja/callback/school-callback-token-0123456789abcdef',
+    );
+    process.env.SCHOOL_DARAJA_CALLBACK_TOKEN = 'short';
+    assert.throws(() => schoolCallbackUrl(), /at least 32 random characters/);
+  } finally {
+    if (previousBase === undefined) delete process.env.PUBLIC_API_URL;
+    else process.env.PUBLIC_API_URL = previousBase;
+    if (previousToken === undefined) delete process.env.SCHOOL_DARAJA_CALLBACK_TOKEN;
+    else process.env.SCHOOL_DARAJA_CALLBACK_TOKEN = previousToken;
+  }
 });
 
 

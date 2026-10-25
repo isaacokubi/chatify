@@ -13,7 +13,10 @@ Configure these values in the hosting provider for the **Node.js API service** (
 - `MPESA_SHORTCODE` — approved paybill/till shortcode
 - `MPESA_PASSKEY` — matching production STK passkey
 - `MPESA_TRANSACTION_TYPE=CustomerPayBillOnline` for a paybill, or `CustomerBuyGoodsOnline` for a supported till
-- `MPESA_CALLBACK_URL=https://YOUR-API-HOST/api/payments/daraja/callback` — publicly reachable HTTPS URL
+- `MPESA_CALLBACK_TOKEN` — at least 32 random characters (`openssl rand -hex 32`)
+- `MPESA_CALLBACK_URL=https://YOUR-API-HOST/api/payments/daraja/callback/<same-token>` — publicly reachable HTTPS URL; the route rejects missing or incorrect tokens before reading payment state
+- `MPESA_CALLBACK_TOKEN` — required even in sandbox mode; startup reports a configuration error unless it is at least 32 random characters and exactly matches the token in `MPESA_CALLBACK_URL`
+- `SCHOOL_DARAJA_CALLBACK_TOKEN` — a distinct token of at least 32 random characters for school fee/donation callbacks
 - `MONGODB_URI` — persistent MongoDB Atlas connection
 - `JWT_SECRET` — at least 32 characters
 - `CLIENT_ORIGIN` — exact HTTPS origin(s) of the deployed client
@@ -24,8 +27,8 @@ Use the Daraja **sandbox** credentials and `MPESA_ENV=sandbox` only on a non-pro
 
 1. Confirm the API `/health` endpoint returns HTTP 200 and `database: connected`.
 2. Verify the Daraja app is approved for STK Push and the shortcode, passkey and transaction type belong together.
-3. Confirm the callback URL is public HTTPS, reachable from Safaricom, and points to the same API service.
+3. Confirm the callback URL is public HTTPS, reachable from Safaricom, ends in the configured tokenized route, and points to the same API service. Redact callback paths from proxy/access logs.
 4. Initiate a small test payment using a registered Kenyan mobile number and check API-host logs for the safe stage labels `oauth_transport`, `oauth_auth`, `stk_transport` or `stk_rejected`.
-5. Treat an accepted STK request as **pending**, not paid. Only the verified Daraja callback confirms success. Do not repeatedly tap Pay while an earlier request may still be active.
+5. Treat an accepted STK request as **pending**, not paid. The participant or school administrator/staff may request a bounded status query. A successful status-query result lacking callback amount, payer phone and receipt data remains pending; use a verified callback or the school’s actual M-Pesa receipt/manual verification process to complete reconciliation. Retry limits and backoff are enforced by the API.
 
 The app must never collect or transmit the user's M-Pesa PIN. The PIN is entered only in Safaricom's official prompt.

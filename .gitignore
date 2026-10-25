@@ -9,5 +9,13 @@
 /mobile/android/.kotlin/
 *.jks
 *.keystore
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.ppk
+*.mobileprovision
+/mobile/android/local.properties
 google-services.json
 firebase-service-account*.json

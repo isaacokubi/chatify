@@ -1,6 +1,6 @@
 // Chatify in-person POS payment intents for shops, supermarkets, malls and hospitality.
 import {randomUUID, createCipheriv, createDecipheriv, randomBytes} from 'node:crypto';
-import {createDarajaProvider, normalizeMpesaPhone} from './payments.js';
+import {createDarajaProvider, isValidDarajaCallbackToken, normalizeMpesaPhone} from './payments.js';
 import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
 
 // Merchant Daraja secrets are encrypted at rest with a deployment-managed 32-byte key.
@@ -234,16 +234,17 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
           notice: 'Safaricom accepted the STK request. The payment remains pending until the authenticated callback confirms the result.',
         });
       } catch (error) {
-        if (error?.stage !== 'stk_transport') {
+        const outcomeUnknown=['stk_transport','stk_response'].includes(error?.stage);
+        if (!outcomeUnknown) {
           await Charge.updateOne({_id: saved._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}},
             {$set: {status: 'FAILED', stkResultDescription: 'STK initiation rejected', confirmationSource: null, stkPhone: null}});
           return res.status(502).json({error: error?.message || 'Safaricom rejected the STK request'});
         }
-        // A timeout is ambiguous. Keep the charge locked and pending; never automatically
-        // retry because Safaricom may already have received the request.
+        // A timeout or malformed/missing provider response is ambiguous. Keep the
+        // charge locked and pending; never automatically retry a possibly accepted prompt.
         await Charge.updateOne({_id: saved._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}},
-          {$set: {stkResultDescription: 'STK outcome unknown after network timeout; check Daraja before retrying'}});
-        return res.status(502).json({error: 'Safaricom response timed out. Payment outcome is unknown; do not retry until the merchant checks Daraja.', outcomeUnknown: true});
+          {$set: {stkResultDescription: 'STK outcome unknown; check Daraja before retrying'}});
+        return res.status(502).json({error: 'Safaricom did not establish the STK outcome. Payment remains pending; do not retry until the merchant checks Daraja.', outcomeUnknown: true});
       }
     } catch (error) {
       return res.status(400).json({error: error.message || 'Could not prepare the merchant STK payment'});
@@ -392,22 +393,23 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
         // our server never received its response. Keep the claim locked in that case so a
         // cashier cannot accidentally charge the customer twice. Explicit OAuth/provider
         // rejections are safe to release because no successful STK request was acknowledged.
-        if (error?.stage !== 'stk_transport') {
+        const outcomeUnknown=['stk_transport','stk_response'].includes(error?.stage);
+        if (!outcomeUnknown) {
           await Charge.updateOne(
             {_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}, confirmationSource: 'daraja_stk_pending'},
-            {$set: {stkResultDescription: 'STK initiation rejected; verify Daraja status before retrying', confirmationSource: null, stkPhone: null}}
+          {$set: {stkResultDescription: 'STK initiation rejected', confirmationSource: null, stkPhone: null}}
           );
         } else {
           await Charge.updateOne(
             {_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}, confirmationSource: 'daraja_stk_pending'},
-            {$set: {stkResultDescription: 'STK outcome unknown after network timeout; do not retry until Daraja status is checked'}}
+            {$set: {stkResultDescription: 'STK outcome unknown; do not retry until Daraja status is checked'}}
           );
         }
         return res.status(502).json({
-          error: error?.stage === 'stk_transport'
-            ? 'Daraja response timed out. The payment outcome is unknown; check Daraja status before retrying.'
+          error: outcomeUnknown
+            ? 'Daraja did not establish the STK outcome. It remains pending; check Daraja status before retrying.'
             : (error.message || 'Daraja could not initiate the STK prompt'),
-          outcomeUnknown: error?.stage === 'stk_transport',
+          outcomeUnknown,
         });
       }
       const saved = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: {$in: [null, '']}},
@@ -431,7 +433,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
   // Amount, payer phone and result code are checked; duplicate callbacks cannot replay a receipt.
   app.post('/api/business/pos/stk/callback/:token', async (req, res) => {
     const expected = String(process.env.POS_STK_CALLBACK_TOKEN || '');
-    if (expected.length < 32 || req.params.token !== expected) return res.status(404).json({error: 'Not found'});
+    if (!isValidDarajaCallbackToken(req.params.token, expected)) return res.status(404).json({error: 'Not found'});
     const cb = req.body?.Body?.stkCallback;
     if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string' || !/^-?\d+$/.test(String(cb.ResultCode))) return res.status(400).json({error: 'Malformed callback'});
     const charge = await Charge.findOne({checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, status: 'PENDING', confirmationSource: 'daraja_stk_pending'});
@@ -526,7 +528,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
   // until a merchant performs provider-side reconciliation rather than guessing by amount.
   app.post('/api/business/pos/c2b/confirmation/:token', async (req, res) => {
     const expected = process.env.POS_C2B_CALLBACK_TOKEN || '';
-    if (expected.length < 32 || req.params.token !== expected) return res.status(404).json({error: 'Not found'});
+    if (!isValidDarajaCallbackToken(req.params.token, expected)) return res.status(404).json({error: 'Not found'});
     const allowed = String(process.env.POS_C2B_ALLOWED_IPS || '').split(',').map(value => value.trim()).filter(Boolean);
     if (allowed.length && !allowed.includes(String(req.ip || '').replace(/^::ffff:/, ''))) {
       return res.status(403).json({error: 'Callback source is not allowed'});
