@@ -37,6 +37,8 @@ A real sandbox Dynamic QR request reached the Daraja endpoint but returned HTTP 
 
 The API root health check is not a payment acceptance test. Do not initiate a provider STK directly from a credential-bearing local shell: first restore authorized hosting access and a Chatify authenticated test session so the attempt is durably associated with a payment and its callback can be verified. Use the approved sandbox number order in the testing guide; do not send a prompt if a prior initiation outcome is uncertain.
 
+The later 2026-10-26 acceptance-gate rerun reconfirmed local sandbox configuration and public health/TLS, but `render services --output json` still failed with an expired CLI token. No valid hosted callback authentication, Daraja number eligibility, STK request, or phone prompt was verified. An authorized operator must run `render login`, inspect the correct sandbox service configuration with values masked, and check simulator test-number support in Daraja before requesting any prompt. The local settings must not be treated as proof of production or hosted settings.
+
 The API logs sanitized reconciliation stage/outcome fields and bounds the platform sweep to two payments per minute and five query attempts. No external payment alerting integration or deployed alert delivery was verifiable here. Operators must monitor application logs and provider statements for stale pending attempts until production alert routing is configured and exercised. Statement matching and manual review are operator procedures; automatic provider-statement import is not implemented.
 
 ## Safe verification
