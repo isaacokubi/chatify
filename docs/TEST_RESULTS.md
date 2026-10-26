@@ -1,5 +1,27 @@
 # Production readiness test results
 
+## Latest verification after payment-settlement guard — 2026-10-26
+
+Commit under test: `b4967e999454d7755abc3513a348c4a1b11e074e` (`fix(payments): block platform STK settlement for merchant orders`). This record reflects the test results reported by the repository work session; it does not claim that live M-Pesa or all production hosting paths were exercised.
+
+| Check | Result | Scope / limitation |
+|---|---|---|
+| Backend full suite | **246 passed, 0 failed, 1 skipped** | `cd server && npm test`; the skipped test is URI-gated database integration coverage, tested separately below. |
+| Backend lint | **Passed** | `cd server && npm run lint`. |
+| Focused payment/school/POS/workspace/provider tests | **7/7 test files passed** | Reported focused regression run; no failures. |
+| Disposable MongoDB regression | **1/1 passed** | Synthetic regression against a disposable database; not a real-provider transaction. |
+| Flutter analysis | **No issues reported** | `cd mobile && flutter analyze --no-fatal-infos`; the flag permits informational diagnostics. |
+| Flutter tests | **35 passed** | `cd mobile && flutter test --no-pub --concurrency=1`. |
+| Diff whitespace check | **Passed** | `git diff --check`. |
+| Android release APK | **Blocked** | Missing `CHATIFY_ANDROID_KEYSTORE_PATH`, `CHATIFY_ANDROID_KEYSTORE_PASSWORD`, `CHATIFY_ANDROID_KEY_ALIAS`, and `CHATIFY_ANDROID_KEY_PASSWORD`. No release keystore was generated. |
+| Live provider / hosted acceptance | **Not verified** | No live-money transaction or valid provider acceptance was performed in this run. |
+
+### Payment regression and release gates
+
+The payment guard prevents platform STK initiation/retry for merchant storefront orders/invoices where platform settlement would be incorrect, and protects against a delayed platform callback falsely marking those merchant documents paid. Merchant-scoped settlement remains unimplemented and must be completed before accepting real-provider online merchant orders or invoices.
+
+The Dynamic QR sandbox HTTP 401 remains unresolved. Current hosted runtime/provider settings, callback delivery for all tenants, production Daraja approval/credentials, C2B URL registration and delivery, and end-to-end school/POS provider acceptance are not established by the automated test results. Previously exposed Daraja credentials and callback tokens require rotation through the authorized provider/hosting controls. Do not enable live payment mode based solely on these tests.
+
 ## M-Pesa discrepancy regression run — 2026-10-26
 
 This is the latest source verification for the provider-mode and callback-correspondence changes. The hosted financial record was only inspected read-only; automated financial callbacks used synthetic data in a disposable loopback database. No Daraja request, phone prompt, wallet debit, production payment, or production configuration change occurred.
