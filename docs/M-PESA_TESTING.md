@@ -1,5 +1,7 @@
 # M-Pesa testing and evidence boundaries
 
+> **Latest status — 2026-10-26, payment guard commit `b4967e9`:** Automated regression suites reported 246 backend tests passed, 0 failed and 1 skipped; focused payment/school/POS/workspace/provider coverage passed 7/7 test files; a disposable MongoDB regression passed 1/1; Flutter tests passed 35/35; backend lint and Flutter analysis passed. These are source-level and synthetic-test results, **not live Daraja acceptance**. The Dynamic QR sandbox HTTP 401 remains unresolved, merchant-scoped storefront/invoice settlement is not implemented, and production credentials, callback delivery, C2B registration/delivery and school/POS provider acceptance remain unverified. See [current test results](TEST_RESULTS.md).
+
 The full implementation inventory and acceptance matrix is maintained in [MPESA_FLOW_MATRIX.md](MPESA_FLOW_MATRIX.md). The contact Send Money action is a user-controlled handset-menu handoff, not a Chatify-observed transfer. `/api/payments` creates a payment request and platform STK collects to the configured platform shortcode; it does not transfer funds to the request's personal recipient phone. Chatify has no B2C disbursement, automated refund/reversal, or C2B URL-registration flow.
 
 ## Expanded flow audit — 2026-10-26
