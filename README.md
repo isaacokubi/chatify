@@ -1,5 +1,7 @@
 # Chatify — Chat. Remember. Let Go.
 
+> **Latest verification status — 2026-10-26, commit `b4967e9`:** Backend tests **246 passed, 0 failed, 1 skipped**; backend lint passed; Flutter tests **35 passed**; Flutter analysis reported no issues with `--no-fatal-infos`; the disposable MongoDB regression passed **1/1**; and `git diff --check` passed. The Android release APK remains blocked until the four release-signing variables are configured. Live M-Pesa production acceptance and merchant-scoped settlement are **not verified**. See [current test results](docs/TEST_RESULTS.md) and [M-Pesa testing](docs/M-PESA_TESTING.md). These results are not a blanket production-readiness certification.
+
 > **Historical recovery verification (2026-10-23):** The `recovery/merge-school-improvements-20261023` snapshot recorded backend 211 tests and Flutter 30 tests. It is superseded by later verification; see the [reconciliation audit](docs/RECONCILIATION_AUDIT_2026-10-23.md) and [feature follow-up](docs/FEATURE_FOLLOWUP_2026-10-23.md) for that snapshot's scope.
 
 Chatify is a final-year-project mobile communication system built around real-time **Chat**, structured conversational **Memory**, and configurable message **Expiration**.
@@ -150,8 +152,6 @@ Passwords are bcrypt-hashed. JWTs protect REST and Socket.IO. Server-side member
 See docs/ for the defense-oriented architecture, API, database, development, security and demo notes.
 
 
-## Daraja sandbox end-to-end acceptance — 2026-10-25
+## Historical Daraja sandbox record — classification caveat
 
-A controlled **KSh 1 Daraja sandbox payment was completed manually**: the STK prompt reached the test phone, the payer completed the prompt, Daraja returned success (result code `0`), the authenticated provider callback was processed, and Chatify persisted the payment as `SUCCESS` with a provider receipt. The recorded confirmation source was `provider_callback`. This is evidence of one successful sandbox end-to-end payment, not proof of production-mode settlement or that every school/POS payment path has independently passed a live-provider test.
-
-Automated regression checks separately passed for callback handling, idempotency, fee receipt/balance persistence and scoped deletion against a disposable MongoDB database. A later test run also logged a separate `stk_transport` failure while exercising a failure scenario; that does not invalidate the earlier successful transaction, but transport failures must continue to leave uncertain payments pending/reviewable rather than falsely mark them paid. See [M-Pesa testing evidence](docs/M-PESA_TESTING.md) and [test results](docs/TEST_RESULTS.md) for scope and limitations.
+An earlier work-session report described a KSh 1 transaction as a successful Daraja sandbox test. The latest audit could not independently establish the exact endpoint used for that historical request; current source/configuration and payment metadata favor sandbox classification, but this is not network-level proof. The record was not repeated or altered. Do not treat it as evidence of production-mode settlement. Current provider acceptance remains unverified for production payments and for the separate school, merchant POS, C2B and Dynamic QR flows. See [M-Pesa testing evidence](docs/M-PESA_TESTING.md) and [current test results](docs/TEST_RESULTS.md).
