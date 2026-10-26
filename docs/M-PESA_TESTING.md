@@ -1,5 +1,39 @@
 # M-Pesa testing and evidence boundaries
 
+## Latest continuation — 2026-10-26 (Brian and hosted configuration)
+
+This section supersedes conflicting same-day availability statements below. It does not replace the historical sandbox transaction from 2026-10-25. No production settings were changed.
+
+- Git began clean on `main` at `37d7518c7c13ebc06d41e1bfd64139887ea4f270`, matching `origin/main`.
+- Render CLI authentication succeeded. The exact `chatify-api` service was selected from `render services --output json`; it points to this repository's `main` branch and `server/`. The earlier HTTP 404 was caused by constructing `/v1/v1/...` because the CLI API host already included `/v1`; using the service ID returned by the CLI and the correctly formed endpoint returned HTTP 200. Secret values were inspected only in memory and not displayed.
+- Hosted settings report `NODE_ENV=development` and `MPESA_ENV=sandbox`. Platform consumer credentials, shortcode, passkey, callback token and callback URL are present with no conflicting service/environment-group values. The callback is HTTPS on `chatify-api-c1eh.onrender.com` and its tokenized path matches the configured token. School callback token/encryption/public-base settings, merchant POS STK callback/base/encryption settings, and POS C2B callback token are absent. This is configuration inspection, not evidence of a valid provider-delivered callback. Public API health returned HTTP 200; a callback request with an invalid token returned HTTP 404. No valid token was exercised. The current hostname was reachable over verified TLS in an earlier check; this run did not test Safaricom delivery.
+- Both the hosted API and local configuration point to the user-confirmed test database name `chatify` on the same Atlas host. The Brian account was checked without exposing the database URI. Login succeeded; `/api/auth/me` and `/api/payments` both returned HTTP 200, role remained ordinary `user`, and the account had two own payment records and no pending self-STK. An incorrect password was rejected with HTTP 401. No role was changed. No destructive operation was run against this database.
+- An STK request was **not sent**. Daraja portal/simulator access was unavailable, so neither the primary simulator number's eligibility nor the conditional fallback's permission could be established. The fallback was not used. Therefore no phone prompt, user PIN entry/completion, new provider callback, receipt, or financial balance change is claimed. A prior sandbox OAuth HTTP 200 is historical evidence, not a current STK acceptance. Historical 2026-10-25 KSh 1 evidence remains separately documented below.
+- The Daraja sandbox documentation directs users to the authenticated simulator for supported test data and does not establish eligibility for an arbitrary supplied number ([M-Pesa Express Simulate](https://developer.safaricom.co.ke/apis/MpesaExpressSimulate)). The operator must access the Daraja portal, confirm M-Pesa Express sandbox entitlement and the primary number's eligibility, and only consider the fallback if the primary is explicitly rejected and the fallback is permitted.
+
+### Current flow status
+
+| Flow | Evidence from this continuation | Status |
+|---|---|---|
+| Platform STK | Brian authenticated; own payment route is authorized; hosted sandbox platform settings and tokenized HTTPS callback path are present/matching. No provider request because simulator-number eligibility is unverified. | Automated and config checks; sandbox acceptance blocked |
+| School fees/donations | No school callback/encryption/public-base settings in hosted service; no school-admin account/provider acceptance exercised. | Automated only; external setup required |
+| Merchant POS/storefront | No hosted POS callback/base/encryption settings or merchant provider acceptance. Invoice STK HTTP 409 safety guard remains. | Automated only; external setup required |
+| POS C2B | Receiver tests only; hosted callback token and Safaricom URL registration/provider delivery unverified. | Automated only; provider registration blocked |
+| Dynamic QR | Previously observed real sandbox HTTP 401 authorization/product rejection; not retried without portal entitlement confirmation. No QR payment. | Provider entitlement blocked |
+| Production | Hosted service is configured for sandbox; no production credential/product/callback/settlement/alert verification. | Unverified; no live transaction |
+
+### Test evidence — 2026-10-26
+
+- `cd server && npm test`: **239 passed, 0 failed, 1 skipped**, exit 0. The skip is the URI-guarded integration test.
+- `cd server && npm run lint`: exit 0.
+- Broad focused backend command (auth, business, POS, conversations, E2EE, groups, memories, mentions, idempotency, notification queue, payments, platform fees, school, fees, Sparks, and lifecycle suites): **153 passed, 0 failed, 0 skipped**, exit 0.
+- `node --test --test-reporter=spec src/auth.test.js src/payments.test.js src/school.test.js src/school-fees.test.js src/business-pos.test.js tests/auth.test.js tests/payments.test.js`: **7 passed, 0 failed, 0 skipped**, exit 0.
+- Disposable Mongo/API test `CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_20261026_fullacceptance node --test --test-reporter=spec src/database.integration.test.js`: **1 passed, 0 failed, 0 skipped**, exit 0. This used a uniquely named disposable database and synthetic provider/callback fixtures; it did not use the existing `chatify` database.
+- `cd mobile && flutter analyze --no-fatal-infos`: no issues, exit 0. `cd mobile && flutter test --no-pub --concurrency=1`: **35 passed**, exit 0.
+- The existing `chatify` database was used only for read-only identity/role/payment-count verification and authenticated API login/payment reads. No financial test record was created or changed there.
+
+The specific remaining provider action is Daraja portal access to inspect the sandbox application's M-Pesa Express product and simulator eligibility. Do not submit either phone number until that portal confirms the allowed test procedure. Once verified, use Brian's ordinary authenticated platform flow for exactly one minimum-value sandbox request, then wait for operator phone confirmation and reconcile the actual callback before claiming acceptance.
+
 ## Latest continuation — 2026-10-26
 
 This dated continuation supersedes earlier same-day availability statements where they conflict. It does not replace the historical 2026-10-25 sandbox transaction record below.

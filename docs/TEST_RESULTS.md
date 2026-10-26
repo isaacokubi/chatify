@@ -1,5 +1,24 @@
 # Production readiness test results
 
+## Latest verification — 2026-10-26 (full acceptance follow-up)
+
+This report adds a real signed-expired-JWT regression test and records the current backend, mobile, database and hosted configuration checks. No production payment configuration changed.
+
+| Check | Command / method | Result |
+|---|---|---|
+| Backend suite | `cd server && npm test` | **239 passed, 0 failed, 1 skipped**, exit 0; the skip is the guarded DB test without a configured suite URI. |
+| Backend lint | `cd server && npm run lint` | exit 0. |
+| Broad backend focus | `node --test src/auth.test.js src/business.test.js src/business-customer-portal.test.js src/business-enterprise.test.js src/business-pos.test.js src/business-startup.test.js src/conversation-visibility.test.js src/e2ee.test.js src/groups.test.js src/memory.test.js src/mentions.test.js src/message-idempotency.test.js src/notification-queue.test.js src/payments.test.js src/platform-fee-collection.test.js src/school.test.js src/school-fees.test.js src/sparks.test.js tests/auth.test.js tests/core.test.js tests/lifecycle.test.js tests/payments.test.js tests/providers.test.js` (from `server/`) | **153 passed, 0 failed, 0 skipped**, exit 0. |
+| Focused auth/payment regression | `node --test --test-reporter=spec src/auth.test.js src/payments.test.js src/school.test.js src/school-fees.test.js src/business-pos.test.js tests/auth.test.js tests/payments.test.js` (from `server/`) | **7 passed, 0 failed, 0 skipped**, exit 0. |
+| Disposable Mongo/API integration | `CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_20261026_fullacceptance node --test --test-reporter=spec src/database.integration.test.js` (from `server/`) | **1 passed, 0 failed, 0 skipped**, exit 0. Unique disposable DB; synthetic payment/callback fixtures, not Daraja delivery. |
+| Existing user-confirmed test DB | Authenticated API login and protected reads; read-only identity/payment count inspection | Brian login succeeded as ordinary `user`; `/api/auth/me` and `/api/payments` returned HTTP 200; wrong password returned HTTP 401. Two own payment records; no pending self-STK. No financial mutations or destructive test against this DB. |
+| Flutter analysis | `cd mobile && flutter analyze --no-fatal-infos` | No issues, exit 0. |
+| Flutter tests | `cd mobile && flutter test --no-pub --concurrency=1` | **35 passed**, exit 0. |
+| Render/deployment | Authorized CLI service metadata and masked environment inspection; public health/invalid-token route check | Exact `chatify-api` service on `main`, root `server/`; `MPESA_ENV=sandbox`, platform vars present, HTTPS callback path/token match, health HTTP 200, invalid token HTTP 404. Valid provider callback not tested. Prior 404 was duplicate `/v1` path construction. |
+| Daraja acceptance | Authenticated portal/simulator unavailable | No number eligibility confirmed; no STK request, prompt, provider callback, receipt or balance change. |
+
+The existing `chatify` test database was verified as the authorized test target but only read for account and payment access checks. Destructive integration teardown used the separate disposable database above.
+
 ## Latest verification — 2026-10-26
 
 This is a follow-up to the same-day report below. The source tree had no code changes during this verification; tests were rerun against commit `4bdd030e98a1910da94c7627a4e9972b3eb98047`.
