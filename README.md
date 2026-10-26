@@ -34,8 +34,9 @@ It does not represent reconciled settlements, refunds, provider fees, or tax acc
 - [Production readiness audit and test inventory](docs/PRODUCTION_READINESS_AUDIT.md) — module map, prioritized test matrix and audit status.
 - [Current test results](docs/TEST_RESULTS.md) — commands, results, blocked checks and evidence boundaries for this audit.
 - [M-Pesa testing](docs/M-PESA_TESTING.md) — mock, sandbox, production-configured and live-payment evidence boundaries.
+- [M-Pesa flow inventory and acceptance matrix](docs/MPESA_FLOW_MATRIX.md) — all discovered payment paths, supported states, acceptance evidence and blockers.
 - [M-Pesa deployment settings](docs/M-PESA-DEPLOYMENT.md) — provider-mode isolation, callback requirements, recovery and credential rotation.
-- [M-Pesa discrepancy review (2026-10-26)](docs/M-PESA_TESTING.md): the disputed hosted record and Render sandbox configuration were inspected read-only. Its real-money destination is not independently established. Regression changes bind attempts to the provider endpoint and corroborate callback outcomes with STK status queries. No payment was sent; obtain the M-Pesa statement and Safaricom/merchant transaction trace before closing the incident.
+- [M-Pesa discrepancy review (2026-10-26)](docs/M-PESA_TESTING.md): per the user's clarification, retain the record's likely-sandbox classification; no payment was repeated or record altered. Historical configuration/source support sandbox use, but the exact request endpoint was not durably recorded.
 - [Security and privacy audit notes](docs/SECURITY_AND_PRIVACY.md) and [release checklist](docs/RELEASE_CHECKLIST.md).
 - [Latest verification record (2026-10-22)](docs/VERIFICATION_2026-10-22_BILLING_BOUNDARY.md) — **quality checks and full CI passed** on current verification commit `448239c98a54bef49d9f05ec213a086aabde53b6`. GitHub Actions reports both workflows completed successfully: [Quality workflow](https://github.com/isaacokubi/chatify/actions/runs/39776344673) · [Full CI workflow](https://github.com/isaacokubi/chatify/actions/runs/39776344671). The earlier full CI run recorded 193 backend tests passed (0 failed), dependency audit and backend lint/syntax checks passed, Flutter analysis/tests passed, Flutter web build passed, and Android debug APK build passed. Live Daraja sandbox and deployed-production acceptance checks remain separate release gates.
 - [Demo setup and account register](docs/DEMO.md) — safe repeatable seed instructions, current sample data coverage and demo credentials configuration.
@@ -77,9 +78,9 @@ Register Alice and Brian. From Contacts search for the other account and start a
 
 ### Chatify Pay demo
 
-With the default MPESA_ENV=mock, request an amount from the other conversation member and tap **Pay with M-Pesa**. The UI labels the request **Local demo**; no Safaricom transaction is made and the app never collects an M-Pesa PIN. To use Daraja sandbox, follow [docs/DEMO.md](docs/DEMO.md). Never select production mode for a classroom demo.
+With the default MPESA_ENV=mock, request an amount from the other conversation member and tap **Pay with M-Pesa**. The UI labels the request **Local demo**; no Safaricom transaction is made and the app never collects an M-Pesa PIN. This payment request/STK flow settles to the configured platform shortcode; it is not a direct transfer to another Chatify user's personal number. The separate contact **Lipa to this contact** action validates and copies the contact number, then hands off to the handset M-Pesa menu; Chatify cannot verify or receipt that external transfer. To use Daraja sandbox for supported merchant STK, follow [docs/DEMO.md](docs/DEMO.md). Never select production mode for a classroom demo.
 
-Payment requests move from PENDING to SUCCESS, FAILED, or CANCELLED. A real request stays pending until Daraja's callback confirms its result; an accepted STK request is not proof that money was received.
+Payment requests move from PENDING to SUCCESS, FAILED, or CANCELLED. A real request stays pending until the callback matches the stored attempt and provider status query; an accepted STK request is not proof that money was received.
 
 ## Merchant POS STK Push (Till and Paybill)
 

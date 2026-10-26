@@ -172,3 +172,22 @@ A manually completed KSh 1 Daraja sandbox transaction is now recorded as end-to-
 This updates the earlier sandbox section above, which documented only OAuth and no STK attempt at the time of that earlier run. Preserve the historical notes as a dated snapshot, but use this addendum as the later acceptance result. The evidence confirms one successful **sandbox** payment; it does not certify live production settlement or independent end-to-end acceptance for every school fee, merchant POS, C2B or QR flow.
 
 The subsequent disposable-MongoDB backend acceptance test passed its synthetic callback, fee receipt/balance and scoped deletion assertions (234 passed, 0 failed, 0 skipped in that recorded run). A separate `stk_transport` error log appeared during an error-path scenario even though the suite passed; it is not the recorded successful transaction. Treat transport/ambiguous outcomes as pending/reviewable, and do not interpret an accepted STK initiation alone as payment success.
+
+# M-Pesa audit continuation — 2026-10-26
+
+Current checkout was `main` at `2c002329eaaadb015d6f8291499cca12c181c95c`, equal to `origin/main`; the only worktree item was the pre-existing untracked `json` file. No payment source changed. The detailed flow inventory is [MPESA_FLOW_MATRIX.md](MPESA_FLOW_MATRIX.md).
+
+| Command/check | Observed result | Scope/limit |
+|---|---|---|
+| `cd server && npm test` (restricted first attempt) | 1 startup test failed because sandbox blocked the test's loopback bind; 242 tests passed | Environmental socket restriction; rerun with permitted local loopback access below |
+| `cd server && npm test` (permitted rerun) | **242 passed, 0 failed, 1 skipped**; 243 tests total; exit 0 | Database integration skip is URI-guarded; no `CHATIFY_MONGO_TEST_URI` set |
+| `cd server && npm run lint` | Exit 0 | Node syntax checks across configured backend files |
+| `cd mobile && flutter analyze --no-fatal-infos` | **No issues found**, exit 0 | Existing mobile source; first sandbox invocation could not update SDK cache and approved rerun completed |
+| `cd mobile && flutter test --no-pub --concurrency=1` | **35 passed**, exit 0 | Widget/reply tests; no mobile changes were required |
+| `curl ... https://chatify-api-c1eh.onrender.com/api/health` | HTTP 200, TLS verify 0, `ok=true`, `database=connected`, release `a9435de77917818ab2e093f803eb3744b6bafacc` | Read-only hosted health evidence |
+| Invalid-token `POST /api/payments/daraja/callback/...` | HTTP 404, TLS verify 0 | Deliberately invalid token; does not prove valid provider delivery |
+| Unauthenticated `GET /api/payments` | HTTP 401, TLS verify 0 | Confirms protected-route rejection only |
+| `render services --output json` filtered to Chatify | Service `chatify-api`, GitHub `main`, root `server/`, auto-deploy on commit, PR previews off | Read-only deployment/service metadata |
+| `render deploys list srv-db09n2ugekts738p1470 --output json` | Latest live deployment `dep-dbfkr267bikc73cbo9b0`, commit `a9435de77917818ab2e093f803eb3744b6bafacc` | Current Git `main` contains a later docs-only commit; live app SHA is `a9435de` |
+
+No disposable Mongo/API test ran in this continuation, and no Safaricom sandbox request, callback delivery, C2B registration, Dynamic QR request, or production transaction was attempted. Do not conflate the skipped database test with a pass. Previously recorded isolated Mongo/API test results remain historical synthetic evidence. No Android build was run because no mobile source changed. No payment record was queried, altered, or replayed.
