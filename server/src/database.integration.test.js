@@ -45,11 +45,13 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   });
 
   let failNextStk=false;
+  let providerStkRequests=0;
   const nativeFetch=globalThis.fetch.bind(globalThis);
   globalThis.fetch=async(url,options={})=>{
     if(String(url).startsWith('http://127.0.0.1:'))return nativeFetch(url,options);
     if(String(url).includes('/oauth/'))return {ok:true,json:async()=>({access_token:'synthetic-access-token',expires_in:3600})};
     if(String(url).includes('/mpesa/stkpush/v1/processrequest')){
+      providerStkRequests+=1;
       if(failNextStk){failNextStk=false;throw Error('synthetic lost STK response');}
       return {ok:true,json:async()=>({ResponseCode:'0',CheckoutRequestID:'SYNTHETIC-CHECKOUT',MerchantRequestID:'SYNTHETIC-MERCHANT'})};
     }
@@ -87,6 +89,7 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   const otherAuth = 'Bearer ' + jwt.sign({sub: String(otherUserId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const schoolAdminAuth = 'Bearer ' + jwt.sign({sub: String(schoolAdminId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const platformAdminAuth = 'Bearer ' + jwt.sign({sub: String(platformAdminId), sv: 0}, jwtSecret, {expiresIn: '1h'});
+
   const base = `http://127.0.0.1:${server.address().port}`;
   const postJson = (path, body, token) => fetch(base + path, {
     method: 'POST', headers: {'content-type': 'application/json', ...(token ? {authorization: token} : {})},
@@ -95,6 +98,20 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   const getJson = (path, token) => fetch(base + path, {
     headers: {authorization: token}, signal: AbortSignal.timeout(30000),
   });
+
+  const invoiceOrganization=await mongoose.models.BusinessOrganization.create({
+    name:'Synthetic Invoice Merchant',slug:'synthetic-invoice-merchant',ownerId:parentId,
+    industry:'retail',plan:'business_pro',approvalStatus:'APPROVED',billing:{billingEnforced:false},
+  });
+  const invoiceDocument=await mongoose.models.BusinessDocument.create({
+    organizationId:invoiceOrganization._id,type:'invoice',number:'AUDIT-INVOICE-001',status:'sent',
+    currency:'KES',subtotal:300,total:300,paidAmount:0,items:[{name:'Synthetic item',quantity:1,unitPrice:300,lineTotal:300}],
+  });
+  const stkRequestsBeforeInvoice=providerStkRequests;
+  const invoiceStkResponse=await postJson(`/api/business/organizations/${invoiceOrganization._id}/documents/${invoiceDocument._id}/mpesa-stk`,{phone:'254712345678'},parentAuth);
+  assert.equal(invoiceStkResponse.status,409,'real invoice STK must not route merchant funds to the platform shortcode');
+  assert.equal(providerStkRequests,stkRequestsBeforeInvoice,'blocked invoice STK must not contact Daraja');
+  assert.equal(await db.collection('payments').countDocuments({businessDocumentId:invoiceDocument._id}),0,'blocked invoice STK must not create a charge attempt');
 
   const pendingPayment = {
     paymentId: 'AUDIT-PLATFORM-001', requesterId: parentId, payerId: parentId,

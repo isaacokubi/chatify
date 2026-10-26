@@ -4,12 +4,35 @@
 
 ### Current automated evidence
 
-- `cd server && npm test`: **236 passed, 0 failed, 1 skipped**, exit 0. The skipped test is the guarded MongoDB integration test when no test URI is provided.
+- Earlier run on 2026-10-26, before the invoice routing fix: **236 passed, 0 failed, 1 skipped**. Superseded by the final rerun below.
 - `cd server && npm run lint`: exit 0.
 - Focused payment/provider, school and POS test files passed before the complete suite.
 - `CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_20261026 node --test --test-reporter=spec src/database.integration.test.js`: **1 passed, 0 failed, 0 skipped**, exit 0. It used a newly named audit database and the test dropped that database in teardown. The integration exercises synthetic requests and callbacks against the actual API and Mongo persistence; it is not a Daraja transaction.
 
-The first full-suite attempt inside the restricted shell failed because the sandbox denied the API startup test's socket bind. Rerunning with local socket access passed. On this date, the shell had none of the platform, school, or POS Daraja environment variables set. This only establishes what was available to this local run; hosted environment values and deployed callback reachability were not inspected. No provider request was sent. Do not repeat the earlier 2026-10-25 OAuth check as current evidence.
+The first full-suite attempt inside the restricted shell failed because the sandbox denied the API startup test's socket bind. Rerunning with local socket access passed. At the time of that earlier same-day run, the shell process had no Daraja variables exported; a later dotenv-aware inspection found sandbox platform credentials and callback configuration in ignored `server/.env`. No secret values were displayed. Hosted environment values remain inaccessible. This corrected observation does not supersede the historical 2026-10-25 OAuth check.
+
+### Same-day continuation — 2026-10-26
+
+- The local `.env` selects `MPESA_ENV=sandbox`; required platform key, secret, shortcode, passkey, and callback token/URL are present. Code validation confirms the HTTPS URL uses `chatify-api-c1eh.onrender.com`, matches `/api/payments/daraja/callback/:token`, and embeds the configured token. The sandbox shortcode format is valid. Optional transaction type is unset and therefore defaults to Paybill. These are local ignored-file findings, not hosted-environment findings.
+- Read-only deployed check: `https://chatify-api-c1eh.onrender.com/api/health` returned HTTP 200, remote IP `216.24.57.18`, TLS verification result `0`. A POST with an intentionally invalid token to the deployed platform callback path returned HTTP 404. This verifies DNS/TLS/health and route rejection only; it does not verify the hosted token, a valid provider callback, or database payment persistence.
+- A real sandbox Dynamic QR generation request using the local sandbox app reached Daraja and returned HTTP 401. No QR image was accepted, no payment was initiated, and no payment/receipt was created. The current app therefore lacks usable Dynamic QR authorization in this environment; Daraja portal product access must be checked. Safaricom documents Dynamic QR as an app-enabled API with a sandbox endpoint and the `BG`/`PB` transaction codes ([official Dynamic QR API](https://developer.safaricom.co.ke/apis/DynamicQRCode)).
+- No approved test phone appears in local configuration and `adb devices` returned no attached device. Platform STK prompt acceptance, cancellation, callback receipt, and duplicate provider delivery could not be attempted. School and merchant-specific keys/tokens and C2B token/registration are absent from local configuration. The installed Render CLI reports its token is expired; no connected hosting integration or Daraja portal session is available. Deployed environment selection, approval status, C2B URL registration, and per-tenant configuration therefore remain unchecked.
+- Final reruns after the invoice changes: `cd server && npm test` **238 passed, 0 failed, 1 skipped**, exit 0; `cd server && npm run lint` exit 0; `cd mobile && flutter analyze --no-fatal-infos` reported no issues; `cd mobile && flutter test --no-pub --concurrency=1` passed **35 tests**; isolated Mongo API/payment integration passed **1/1**, 0 skipped. Focused payment/business tests passed (5 test files, 0 failed).
+
+### Additional payment paths found and changes
+
+The business invoice endpoint `/api/business/organizations/:orgId/documents/:documentId/mpesa-stk` previously used the global platform provider, which directs the STK request to Chatify's platform shortcode rather than the invoiced merchant's destination. Real-provider invoice STK is now rejected with HTTP 409; mock demonstrations remain available. Use merchant-scoped POS checkout for a merchant collection. This avoids routing an invoice payment to the wrong payee until merchant-scoped invoice checkout and callback settlement are implemented.
+
+Invoice STK initiation also previously converted every provider exception to `FAILED`, including timeouts where Safaricom may have accepted the request. It now keeps ambiguous results `PENDING` with `REQUIRES_REVIEW`, an uncertainty timestamp/history, and a retry lock. Definite OAuth/pre-submit or explicit provider rejection remains failed and retryable. Regression tests cover both classes.
+
+The legacy platform-fee callback `/api/payments/platform-fee/callback` remains only for investigating older records: the collector's current `collect()` is a no-op and platform fees are disabled by pricing policy. It is not a supported new charge flow. No B2C transfer flow exists.
+
+### External gates still open
+
+1. An authorized operator must refresh Render access or use the hosting dashboard to inspect the **production** and sandbox service variable names/presence, confirm the selected `MPESA_ENV`, shortcode/merchant app approval and callback URL, and ensure sandbox and production secrets are separate. Values must remain masked.
+2. In Daraja, verify the sandbox app's Dynamic QR product entitlement (the live sandbox attempt returned HTTP 401) and register the C2B validation/confirmation URLs for the authorized merchant app. Record registration separately from a provider-delivered callback.
+3. Supply the approved sandbox test phone/device, then complete STK tests independently for platform, school, and merchant credentials. Confirm callback delivery and stored status/receipt/balance/order in the corresponding isolated records. Run provider-generated cancellation/failure and duplicate callback scenarios where the simulator supports them.
+4. Production app approval, merchant/school shortcode ownership, live callback delivery, statement reconciliation, and alert delivery remain unverified. Do not send live funds until the authorized operator separately approves the exact test payment and amount.
 
 ### Implemented flows and evidence boundary
 
@@ -19,7 +42,9 @@ The first full-suite attempt inside the restricted shell failed because the sand
 | School fees and donations | School-scoped fee/donation records; per-school encrypted credentials; callback at `/api/schools/daraja/callback/:token`; receipt and fee balance update on confirmed or audited manual review. | Automated unit and isolated Mongo/API synthetic callback, receipt and balance tests. No school-specific Daraja transaction is documented. |
 | Merchant POS/storefront STK | Merchant-specific encrypted credentials and shortcode; callback at `/api/business/pos/stk/callback/:token`; orders/charges remain pending until matching callback. | Automated route/database callback tests and POS unit tests. No merchant Daraja transaction is documented. |
 | POS C2B | Token-protected `/api/business/pos/c2b/confirmation/:token`; matches destination, amount, receipt and sale reference. Safaricom callback registration is external configuration. | Synthetic API/database confirmation and duplicate tests only; no provider registration or delivery check. |
-| Safaricom Dynamic QR | Daraja generates an M-Pesa-readable QR for the merchant shortcode; the sale remains pending until a matching C2B callback or authorized manual reconciliation. | Deterministic provider request/validation tests; no QR payment or provider confirmation end to end. |
+| Safaricom Dynamic QR | Daraja generates an M-Pesa-readable QR for the merchant shortcode; the sale remains pending until a matching C2B callback or authorized manual reconciliation. | Deterministic provider tests passed; a real sandbox generation call returned HTTP 401. No QR or payment was confirmed end to end. |
+| Business invoice STK | `/api/business/organizations/:orgId/documents/:documentId/mpesa-stk` links confirmed platform callbacks to invoice balances. | Real-provider use now returns 409 because this route uses Chatify's platform shortcode, not the invoiced merchant's. Mock mode is available; merchant-scoped invoice checkout is not implemented. DB/API test confirms no request or Payment record is created. |
+| Legacy platform-fee callback | `/api/payments/platform-fee/callback`; legacy records only. Current collector `collect()` is a no-op. | Not an active collection flow. No new fee STK requests are made. |
 | Bank transfer / other M-Pesa | Bank transfer remains a manual school workflow. No B2C transfer API is present. | No B2C capability claimed. |
 
 ### Configuration and callback requirements

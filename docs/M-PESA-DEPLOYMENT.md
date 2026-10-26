@@ -13,15 +13,29 @@ Configure these values in the hosting provider for the **Node.js API service** (
 - `MPESA_SHORTCODE` — approved paybill/till shortcode
 - `MPESA_PASSKEY` — matching production STK passkey
 - `MPESA_TRANSACTION_TYPE=CustomerPayBillOnline` for a paybill, or `CustomerBuyGoodsOnline` for a supported till
-- `MPESA_CALLBACK_TOKEN` — at least 32 random characters (`openssl rand -hex 32`)
+- `MPESA_CALLBACK_TOKEN` — at least 32 random characters (`openssl rand -hex 32`); it must match the token in the callback URL path.
 - `MPESA_CALLBACK_URL=https://YOUR-API-HOST/api/payments/daraja/callback/<same-token>` — publicly reachable HTTPS URL; the route rejects missing or incorrect tokens before reading payment state
-- `MPESA_CALLBACK_TOKEN` — required even in sandbox mode; startup reports a configuration error unless it is at least 32 random characters and exactly matches the token in `MPESA_CALLBACK_URL`
+- Startup validates that platform callback token and URL agree in sandbox and production modes.
 - `SCHOOL_DARAJA_CALLBACK_TOKEN` — a distinct token of at least 32 random characters for school fee/donation callbacks
 - `MONGODB_URI` — persistent MongoDB Atlas connection
 - `JWT_SECRET` — at least 32 characters
 - `CLIENT_ORIGIN` — exact HTTPS origin(s) of the deployed client
 
 Use the Daraja **sandbox** credentials and `MPESA_ENV=sandbox` only on a non-production API environment. Production deliberately refuses sandbox mode.
+
+## Other payment-flow settings
+
+School fee/donation callbacks use `PUBLIC_API_URL` (or `API_URL`) and `SCHOOL_DARAJA_CALLBACK_TOKEN`; school-specific Daraja credentials are encrypted in the school payment profile and require `SCHOOL_PAYMENT_ENCRYPTION_KEY` in the API environment. Merchant POS/storefront STK uses `POS_STK_PUBLIC_BASE_URL`, `POS_STK_CALLBACK_TOKEN`, and `POS_DARAJA_ENCRYPTION_KEY`; each merchant's own authorized shortcode credentials are encrypted in its organization settings. POS C2B confirmation uses `POS_C2B_CALLBACK_TOKEN` and optional `POS_C2B_ALLOWED_IPS`.
+
+This API implements the POS C2B confirmation receiver; it does not register C2B URLs with Safaricom. An operator must register the exact HTTPS validation/confirmation URLs in the authorized Daraja app/portal and perform its simulator or sandbox transaction. Safaricom's portal requires URL registration before C2B simulation ([Daraja testing guide](https://developer.safaricom.co.ke/apis/IotSimManagement)). Registration alone is not delivery evidence. Platform-fee collection is disabled/no-op, and the legacy callback is not a new charge capability. Real-provider business invoice STK is disabled because its existing platform provider would send proceeds to the platform shortcode.
+
+## Verification record — 2026-10-26
+
+The local ignored `server/.env` selected sandbox and contained platform Daraja settings; the matching HTTPS callback path/token passed code validation. The API at the recorded callback host returned HTTP 200 from `/api/health` with TLS verification success. A synthetic callback with an invalid token returned HTTP 404. These checks establish current public reachability and fail-closed route behavior, not the deployed secret value or acceptance of a valid Safaricom callback.
+
+A real sandbox Dynamic QR request reached the Daraja endpoint but returned HTTP 401; no QR or payment was confirmed. The Daraja app's product authorization requires review in the provider portal. No approved sandbox phone was configured and no Android test device was attached, so no STK prompt or provider-delivered payment callback was tested in this run. The Render CLI's stored token is expired and no Daraja portal session is connected, so production settings/approval and C2B callback registration remain unchecked. See [M-Pesa test evidence](M-PESA_TESTING.md#verification-update-2026-10-26).
+
+The API logs sanitized reconciliation stage/outcome fields and bounds the platform sweep to two payments per minute and five query attempts. No external payment alerting integration or deployed alert delivery was verifiable here. Operators must monitor application logs and provider statements for stale pending attempts until production alert routing is configured and exercised. Statement matching and manual review are operator procedures; automatic provider-statement import is not implemented.
 
 ## Safe verification
 

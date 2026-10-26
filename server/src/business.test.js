@@ -1,6 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {slugifyBusinessName, offlineCreateId, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines, resolveSellerMpesaPhone, applyExplicitMessagingConsent, archiveBusinessCustomer} from './business.js';
+import {slugifyBusinessName, offlineCreateId, calculateDocumentTotals, canTransitionBusinessDocument, buildBusinessBriefing, buildStorefrontOrderLines, resolveSellerMpesaPhone, applyExplicitMessagingConsent, archiveBusinessCustomer, invoiceStkInitiationFailureFields, businessInvoiceStkProviderAllowed} from './business.js';
+
+test('invoice STK cannot send a merchant invoice to the platform Daraja shortcode', () => {
+  assert.equal(businessInvoiceStkProviderAllowed({name:'mock',isMock:true}), true);
+  assert.equal(businessInvoiceStkProviderAllowed({name:'daraja-sandbox',isMock:false}), false);
+  assert.equal(businessInvoiceStkProviderAllowed({name:'daraja-production',isMock:false}), false);
+});
+
+test('invoice STK uncertainty stays pending and blocks retries while definite pre-STK failure can retry', () => {
+  const now = new Date('2026-10-26T12:00:00.000Z');
+  const uncertain = invoiceStkInitiationFailureFields(Object.assign(new Error('network failure'), {stage:'stk_transport'}), now);
+  assert.equal(uncertain.status, 'PENDING');
+  assert.equal(uncertain.initiating, false);
+  assert.equal(uncertain.initiationState, 'REQUIRES_REVIEW');
+  assert.equal(uncertain.initiatedAt, now);
+  assert.equal(uncertain.initiationUncertainAt, now);
+  assert.equal(uncertain.callbackProcessedAt, undefined);
+  assert.equal(uncertain.initiationHistory[0].stage, 'stk_transport');
+
+  const rejected = invoiceStkInitiationFailureFields(Object.assign(new Error('auth failed'), {stage:'oauth_auth'}), now);
+  assert.equal(rejected.status, 'FAILED');
+  assert.equal(rejected.initiationState, 'DEFINITIVE_FAILURE');
+  assert.equal(rejected.callbackProcessedAt, now);
+  assert.equal(rejected.initiatedAt, undefined);
+
+  for (const stage of ['stk_transport','stk_response','unknown']) {
+    const uncertainOutcome = invoiceStkInitiationFailureFields(Object.assign(new Error('inconclusive'), {stage}), now);
+    assert.equal(uncertainOutcome.status, 'PENDING', `${stage} must keep the invoice payment locked`);
+    assert.equal(uncertainOutcome.initiationState, 'REQUIRES_REVIEW');
+  }
+});
 
 test('business customer archive is tenant scoped, preserves record, and duplicate/concurrent retries are harmless', async () => {
   const customer = {_id: 'customer-1', organizationId: 'org-1', name: 'Amina', salesHistory: ['invoice-1']};

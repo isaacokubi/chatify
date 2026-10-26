@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {createWorkflowTickRunner, workflowErrorDetails} from './workflow-scheduler.js';
-import {normalizeMpesaPhone, validPaymentAmount, newPaymentId} from './payments.js';
+import {normalizeMpesaPhone, validPaymentAmount, newPaymentId, classifyStkInitiationFailure} from './payments.js';
 import {planQuotaStatus} from './business-entitlements.js';
 import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
 import {calculateInternationalTotals, extractBusinessMemoryCandidates, createMessagingProviders, createLanguageProvider, createEtimsProvider, createStripeProvider, createPayPalProvider, createIdempotencyKey, detectOfflineConflict, newIntegrationRequestId} from './business-integrations.js';
@@ -23,6 +23,31 @@ export function sanitizeBusinessOrganization(org) {
     delete safe.billing.appliedPaymentIds;
   }
   return safe;
+}
+
+export function invoiceStkInitiationFailureFields(error, now = new Date()) {
+  const stage = String(error?.stage || 'unknown').slice(0, 40);
+  const initiationState = classifyStkInitiationFailure(stage);
+  const requiresReview = initiationState === 'REQUIRES_REVIEW';
+  return {
+    status: requiresReview ? 'PENDING' : 'FAILED',
+    initiating: false,
+    initiationState,
+    resultDescription: requiresReview
+      ? 'STK initiation outcome unknown; invoice payment remains pending for review.'
+      : 'STK initiation failed before payment confirmation.',
+    initiationHistory: [{state: initiationState, at: now, stage}],
+    ...(requiresReview
+      ? {initiatedAt: now, initiationUncertainAt: now}
+      : {completedAt: now, callbackProcessedAt: now}),
+  };
+}
+
+export function businessInvoiceStkProviderAllowed(provider) {
+  // Invoice amounts belong to a merchant. The platform provider settles to Chatify's
+  // shortcode, so it is safe for local mock mode only until merchant-scoped invoice
+  // credentials and callback handling are available.
+  return provider?.isMock === true;
 }
 
 const ROLES = Object.freeze(['owner', 'admin', 'manager', 'sales', 'finance', 'support', 'fulfilment', 'viewer']);
@@ -758,6 +783,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
   app.post('/api/business/organizations/:orgId/documents/:documentId/mpesa-stk', auth, async (req,res)=>{
     const org=await requireOrg(req,res);if(!org||!requireFinance(org,req,res))return;
     if(!mpesaProvider)return res.status(503).json({error:'M-Pesa provider is unavailable'});
+    if(!businessInvoiceStkProviderAllowed(mpesaProvider))return res.status(409).json({error:'Invoice M-Pesa STK is unavailable for real provider mode because this route uses the platform shortcode. Use merchant-scoped POS checkout until invoice collection is configured for the business recipient.'});
     const document=await BusinessDocument.findOne({_id:req.params.documentId,organizationId:org._id});
     if(!document)return res.status(404).json({error:'Invoice not found'});
     if(document.type!=='invoice'||['draft','rejected','cancelled','fulfilled'].includes(document.status))return res.status(409).json({error:'Only a sent or accepted invoice can request payment'});
@@ -769,9 +795,10 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
     const phone=normalizeMpesaPhone(req.body?.phone);if(!phone)return res.status(400).json({error:'Enter a valid Kenyan customer M-Pesa phone number'});
     const pending=await Payment.findOne({businessDocumentId:document._id,status:'PENDING',initiatedAt:{$exists:true}});
     if(pending)return res.status(409).json({error:'An M-Pesa request is already pending for this invoice',paymentId:pending.paymentId});
-    const payment=await Payment.create({paymentId:newPaymentId(),requesterId:req.user._id,payerId:req.user._id,businessOrganizationId:org._id,businessDocumentId:document._id,amount:outstanding,...fee,feeCollectionMode:'separate',recipientPhone:normalizeMpesaPhone(org.phone)||phone,payerPhone:phone,phone,description:('Invoice '+document.number).slice(0,80),provider:mpesaProvider.name,requestedAt:new Date(),initiating:true});
-    try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.baseAmount ?? payment.amount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
-    catch(error){payment.status='FAILED';payment.initiating=false;payment.completedAt=new Date();payment.callbackProcessedAt=new Date();payment.resultDescription='Provider initiation failed';await payment.save();console.error('Invoice M-Pesa initiation failed',{stage:error?.stage||'unknown'});res.status(503).json({error:'M-Pesa request could not be initiated. Check provider configuration and retry.'});}
+    const requestedAt=new Date();
+    const payment=await Payment.create({paymentId:newPaymentId(),requesterId:req.user._id,payerId:req.user._id,businessOrganizationId:org._id,businessDocumentId:document._id,amount:outstanding,...fee,feeCollectionMode:'separate',recipientPhone:normalizeMpesaPhone(org.phone)||phone,payerPhone:phone,phone,description:('Invoice '+document.number).slice(0,80),provider:mpesaProvider.name,requestedAt,initiatingAt:requestedAt,initiatedBy:req.user._id,initiationState:'IN_PROGRESS',initiationHistory:[{state:'IN_PROGRESS',at:requestedAt}],initiating:true});
+    try{const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.baseAmount ?? payment.amount,phone,description:payment.description});payment.checkoutRequestId=refs.checkoutRequestId;payment.merchantRequestId=refs.merchantRequestId;payment.initiatedAt=new Date();payment.initiating=false;payment.initiationState='ACCEPTED_PENDING';payment.initiationHistory.push({state:'ACCEPTED_PENDING',at:payment.initiatedAt,checkoutRequestId:String(refs.checkoutRequestId),merchantRequestId:String(refs.merchantRequestId)});await payment.save();await recordAudit(org,req.user._id,'invoice.mpesa_stk_initiated','document',document._id,'Started payment request for '+document.number);res.status(201).json({payment,mock:Boolean(mpesaProvider.isMock),notice:mpesaProvider.isMock?'Simulation only; no real Safaricom prompt was sent.':'M-Pesa prompt requested. Invoice updates only after a verified provider callback.'});}
+    catch(error){const failure=invoiceStkInitiationFailureFields(error);Object.assign(payment,failure);await payment.save();console.error('Invoice M-Pesa initiation failed',{stage:failure.initiationHistory[0].stage,outcome:failure.initiationState});const uncertain=failure.initiationState==='REQUIRES_REVIEW';res.status(503).json({error:uncertain?'Safaricom did not establish the STK outcome. This invoice payment remains pending; do not retry until the merchant checks Daraja.':'M-Pesa request could not be initiated. Check provider configuration and retry.',paymentId:payment.paymentId,status:payment.status,initiationState:failure.initiationState,...(uncertain?{outcomeUnknown:true}:{})});}
   });
 
   // International card/wallet checkout. A browser redirect is not proof of payment; only the
