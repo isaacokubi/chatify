@@ -2,9 +2,10 @@
 // All school records are scoped to the authenticated user's school membership.
 // A fee receipt is available only after an authorized staff member verifies payment.
 import { randomUUID, randomBytes, createCipheriv, createDecipheriv, createHash } from 'node:crypto';
-import { createDarajaProvider, isValidDarajaCallbackToken, normalizeMpesaPhone, resolveCallbackOutcome, reconciliationRetryAt } from './payments.js';
+import { createDarajaProvider, isValidDarajaCallbackToken, normalizeMpesaPhone, resolveCallbackOutcome, callbackMatchesDarajaStatus, reconciliationRetryAt, isSandboxAllowedInProduction } from './payments.js';
 import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
 import {normalizeFeeStructureInput, calculateSchoolFeeBalance} from './school-fees.js';
+import rateLimit from 'express-rate-limit';
 
 export function encryptSchoolSecret(value, secret = process.env.SCHOOL_PAYMENT_ENCRYPTION_KEY) {
   if (typeof secret !== 'string' || secret.trim().length < 32) throw new Error('School payment encryption is not configured');
@@ -67,7 +68,8 @@ function providerForSchool(school) {
   const profile = school?.paymentProfile;
   if (!profile?.darajaConsumerKeyEnc || !profile?.darajaConsumerSecretEnc || !profile?.darajaPasskeyEnc) throw new Error('This school has not configured its own Daraja credentials.');
   const mode = profile.darajaMode || 'production';
-  if (process.env.NODE_ENV === 'production' && mode !== 'production') throw new Error('Production school payments require live Daraja credentials; sandbox STK Push is blocked.');
+  if (process.env.NODE_ENV === 'production' && mode === 'sandbox' && !isSandboxAllowedInProduction()) throw new Error('Production school sandbox payments require MPESA_ALLOW_SANDBOX_IN_PRODUCTION=true.');
+  if (process.env.NODE_ENV === 'production' && mode !== 'production' && mode !== 'sandbox') throw new Error('Production school payments require explicit sandbox or production Daraja mode.');
   return createDarajaProvider({
     mode,
     consumerKey: decryptSchoolSecret(profile.darajaConsumerKeyEnc),
@@ -109,6 +111,7 @@ export function resolveSchoolMessageDestination(role, requestedAudience, recipie
 export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider, platformFeeCollector }) {
   const O = mongoose.Schema.Types.ObjectId;
   const model = (name, schema) => mongoose.models[name] || mongoose.model(name, schema);
+  const schoolDarajaCallbackRateLimit=rateLimit({windowMs:60000,max:60,standardHeaders:true,legacyHeaders:false,handler:(_req,res)=>res.status(429).json({error:'Too many provider callbacks. Retry later.'})});
   const School = model('SchoolWorkspace', new mongoose.Schema({
     name: { type: String, required: true, trim: true, maxlength: 160 },
     code: { type: String, required: true, trim: true, uppercase: true, maxlength: 24 },
@@ -183,6 +186,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     initiationUncertainAt: Date,
     checkoutRequestId: { type: String, sparse: true, index: true },
     merchantRequestId: { type: String },
+    providerName: { type: String, enum: ['daraja-sandbox','daraja-production'] },
+    providerShortcode: { type: String },
+    providerEndpoint: { type: String, enum: ['https://sandbox.safaricom.co.ke','https://api.safaricom.co.ke'] },
     callbackProcessedAt: Date,
     confirmationSource: { type: String, enum: ['provider_callback','manual_review'] },
     manualVerificationDetails: { type: mongoose.Schema.Types.Mixed, select: false },
@@ -209,6 +215,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     status: { type: String, enum: ['PENDING_STK','CONFIRMED','FAILED','CANCELLED'], default: 'PENDING_STK', index: true },
     checkoutRequestId: { type: String, sparse: true, index: true },
     merchantRequestId: String,
+    providerName: { type: String, enum: ['daraja-sandbox','daraja-production'] },
+    providerShortcode: { type: String },
+    providerEndpoint: { type: String, enum: ['https://sandbox.safaricom.co.ke','https://api.safaricom.co.ke'] },
     mpesaReceipt: { type: String, trim: true, uppercase: true, maxlength: 40 },
     callbackProcessedAt: Date,
     reconciliationHistory: { type: [mongoose.Schema.Types.Mixed], default: [] },
@@ -663,7 +672,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       if (profile.method !== 'bank') {
         const mode = String(req.body?.darajaMode || (process.env.NODE_ENV === 'production' ? 'production' : 'sandbox'));
         if (!['sandbox','production'].includes(mode)) return res.status(400).json({ error: 'Choose sandbox or production Daraja environment' });
-        if (process.env.NODE_ENV === 'production' && mode !== 'production') return res.status(400).json({ error: 'Sandbox is disabled for production school payments' });
+        if (process.env.NODE_ENV === 'production' && mode === 'sandbox' && !isSandboxAllowedInProduction()) return res.status(400).json({ error: 'Production school sandbox payments require MPESA_ALLOW_SANDBOX_IN_PRODUCTION=true' });
         const consumerKey = String(req.body?.darajaConsumerKey || '').trim();
         const consumerSecret = String(req.body?.darajaConsumerSecret || '').trim();
         const passkey = String(req.body?.darajaPasskey || '').trim();
@@ -1254,6 +1263,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       if (isMpesa) {
         try {
           const provider = providerForSchool(school);
+          payment.providerName = provider.name;
+          payment.providerShortcode = provider.shortcode;
+          payment.providerEndpoint = provider.endpointBaseUrl;
           const refs = await provider.initiate({ paymentId: paymentReference, amount, phone, description: 'School fees', now: new Date() });
           payment.checkoutRequestId = refs.checkoutRequestId;
           payment.merchantRequestId = refs.merchantRequestId;
@@ -1291,6 +1303,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const donation = await SchoolDonation.create({ paymentReference, schoolId: school._id, donorId: req.user._id, amount, payerPhone: phone, destinationNumber, paymentMethod: profile.method, status: 'PENDING_STK' });
       try {
         const provider = providerForSchool(school);
+        donation.providerName = provider.name;
+        donation.providerShortcode = provider.shortcode;
+        donation.providerEndpoint = provider.endpointBaseUrl;
         const refs = await provider.initiate({ paymentId: paymentReference, amount, phone, description: 'School donation', now: new Date() });
         donation.checkoutRequestId = refs.checkoutRequestId;
         donation.merchantRequestId = refs.merchantRequestId;
@@ -1501,11 +1516,26 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
 
   // Safaricom callback: require both request IDs and verify result, amount, payer phone,
   // and receipt before atomically confirming a school fee. Duplicate callbacks are harmless.
-  app.post('/api/schools/daraja/callback/:token', async (req, res, next) => {
+  const verifySchoolCallbackStatus = async (payment, outcome) => {
+    const school = await School.findById(payment.schoolId)
+      .select('+paymentProfile.darajaConsumerKeyEnc +paymentProfile.darajaConsumerSecretEnc +paymentProfile.darajaPasskeyEnc')
+      .lean();
+    if (!school) return {matches: false, state: 'SCHOOL_NOT_FOUND'};
+    const provider = providerForSchool(school);
+    if (String(payment.destinationNumber || '') !== String(provider.shortcode || '') ||
+        (payment.providerName && payment.providerName !== provider.name) ||
+        (payment.providerShortcode && payment.providerShortcode !== provider.shortcode) ||
+        (payment.providerEndpoint && payment.providerEndpoint !== provider.endpointBaseUrl)) {
+      return {matches: false, state: 'PROVIDER_CONFIGURATION_MISMATCH'};
+    }
+    const status = await provider.queryStatus({checkoutRequestId: payment.checkoutRequestId});
+    return {matches: callbackMatchesDarajaStatus(outcome, status), state: status?.state || 'UNKNOWN'};
+  };
+  app.post('/api/schools/daraja/callback/:token', schoolDarajaCallbackRateLimit, async (req, res, next) => {
     try {
       if (!isValidDarajaCallbackToken(req.params.token, process.env.SCHOOL_DARAJA_CALLBACK_TOKEN || '')) return res.status(404).json({ error: 'Not found' });
       const cb = req.body?.Body?.stkCallback;
-      if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string') return res.status(400).json({ error: 'Malformed Daraja callback' });
+      if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string' || !cb.CheckoutRequestID.trim() || !cb.MerchantRequestID.trim() || cb.CheckoutRequestID.length > 100 || cb.MerchantRequestID.length > 100) return res.status(400).json({ error: 'Malformed Daraja callback' });
       // Donations are deliberately stored separately from student fee ledger entries.
       const donation = await SchoolDonation.findOne({ checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID });
       if (donation) {
@@ -1515,6 +1545,15 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
           await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $push: {reconciliationHistory:{$each:[{at:new Date(),outcome:'CALLBACK_REJECTED',reason:outcome.error}],$slice:-10}} });
           return res.json({ ok: true, rejected: true });
         }
+        let providerCheck;
+        try { providerCheck = await verifySchoolCallbackStatus(donation, outcome); }
+        catch (error) {
+          console.warn('School Daraja callback status verification deferred', {stage: String(error?.stage || 'query_error').slice(0, 40), errorType: String(error?.name || 'Error').slice(0, 40)});
+          return res.status(503).json({error: 'Provider status is temporarily unavailable; donation remains pending.'});
+        }
+        if (!providerCheck.matches) return providerCheck.state === 'PENDING'
+          ? res.status(503).json({error: 'Provider has not confirmed this callback yet; donation remains pending.'})
+          : res.status(409).json({error: 'Provider status conflicts with this callback; donation remains pending for review.'});
         if (outcome.status !== 'SUCCESS') {
           await SchoolDonation.updateOne({ _id: donation._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: outcome.status, callbackProcessedAt: new Date() } });
           return res.json({ ok: true });
@@ -1546,6 +1585,13 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       if (payment.status === 'CONFIRMED' && payment.confirmationSource === 'manual_review') {
         const manualCallbackOutcome = resolveCallbackOutcome(cb, { amount: payment.amount, phone: payment.payerPhone });
         if (manualCallbackOutcome.error || manualCallbackOutcome.status !== 'SUCCESS' || manualCallbackOutcome.receipt !== payment.mpesaReceipt) return res.status(409).json({ error: 'Provider callback conflicts with the manually reviewed fee payment; retain both records for investigation' });
+        let providerCheck;
+        try { providerCheck = await verifySchoolCallbackStatus(payment, manualCallbackOutcome); }
+        catch (error) {
+          console.warn('School Daraja callback status verification deferred', {stage: String(error?.stage || 'query_error').slice(0, 40), errorType: String(error?.name || 'Error').slice(0, 40)});
+          return res.status(503).json({error: 'Provider status is temporarily unavailable; fee payment remains under review.'});
+        }
+        if (!providerCheck.matches) return res.status(409).json({error: 'Provider status does not confirm the manually reviewed payment; retain it for review.'});
         await FeePayment.updateOne({ _id: payment._id, status: 'CONFIRMED', confirmationSource: 'manual_review', mpesaReceipt: manualCallbackOutcome.receipt }, { $set: { confirmationSource: 'provider_callback' }, $push: { reconciliationHistory: { $each: [{ at: new Date(), outcome: 'LATER_PROVIDER_CALLBACK_MATCHED', receipt: manualCallbackOutcome.receipt }], $slice: -10 } } });
         return res.json({ ok: true, duplicate: true, providerEvidenceMatched: true });
       }
@@ -1555,6 +1601,15 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
         await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $push: {reconciliationHistory:{$each:[{at:new Date(),outcome:'CALLBACK_REJECTED',reason:outcome.error}],$slice:-10}} });
         return res.json({ ok: true, rejected: true });
       }
+      let providerCheck;
+      try { providerCheck = await verifySchoolCallbackStatus(payment, outcome); }
+      catch (error) {
+        console.warn('School Daraja callback status verification deferred', {stage: String(error?.stage || 'query_error').slice(0, 40), errorType: String(error?.name || 'Error').slice(0, 40)});
+        return res.status(503).json({error: 'Provider status is temporarily unavailable; fee payment remains pending.'});
+      }
+      if (!providerCheck.matches) return providerCheck.state === 'PENDING'
+        ? res.status(503).json({error: 'Provider has not confirmed this callback yet; fee payment remains pending.'})
+        : res.status(409).json({error: 'Provider status conflicts with this callback; fee payment remains pending for review.'});
       if (outcome.status !== 'SUCCESS') {
         await FeePayment.updateOne({ _id: payment._id, status: 'PENDING_STK', callbackProcessedAt: { $exists: false } }, { $set: { status: outcome.status, callbackProcessedAt: new Date() } });
         return res.json({ ok: true });

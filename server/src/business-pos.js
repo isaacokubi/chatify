@@ -1,7 +1,8 @@
 // Chatify in-person POS payment intents for shops, supermarkets, malls and hospitality.
 import {randomUUID, createCipheriv, createDecipheriv, randomBytes} from 'node:crypto';
-import {createDarajaProvider, isValidDarajaCallbackToken, normalizeMpesaPhone} from './payments.js';
+import {createDarajaProvider, isValidDarajaCallbackToken, normalizeMpesaPhone, callbackMatchesDarajaStatus, isSandboxAllowedInProduction} from './payments.js';
 import {getWorkspaceBillingStatus} from './workspace-billing-access.js';
+import rateLimit from 'express-rate-limit';
 
 // Merchant Daraja secrets are encrypted at rest with a deployment-managed 32-byte key.
 function posEncryptionKey() {
@@ -117,6 +118,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
   const O = mongoose.Schema.Types.ObjectId;
   const Organization = mongoose.models.BusinessOrganization;
   if (!Organization) throw new Error('BusinessOrganization model must be registered before POS routes');
+  const posStkCallbackRateLimit=rateLimit({windowMs:60000,max:60,standardHeaders:true,legacyHeaders:false,handler:(_req,res)=>res.status(429).json({error:'Too many provider callbacks. Retry later.'})});
   const Charge = mongoose.models.BusinessPosCharge || mongoose.model('BusinessPosCharge', new mongoose.Schema({
     paymentId: {type: String, required: true, unique: true, index: true},
     organizationId: {type: O, required: true, index: true},
@@ -140,6 +142,9 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
     stkPhone: {type: String, default: null},
     checkoutRequestId: {type: String, default: null, index: true},
     merchantRequestId: {type: String, default: null},
+    providerName: {type: String, enum: ['daraja-sandbox','daraja-production']},
+    providerShortcode: {type: String},
+    providerEndpoint: {type: String, enum: ['https://sandbox.safaricom.co.ke','https://api.safaricom.co.ke']},
     stkResultCode: {type: Number, default: null},
     stkResultDescription: {type: String, default: null},
     status: {type: String, enum: ['PENDING', 'SUCCESS', 'FAILED', 'CANCELLED'], default: 'PENDING', index: true},
@@ -200,6 +205,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
       const charge = buildPosCharge({organization, amount: req.body?.amount, description, reference: req.body?.reference, profile});
       charge.createdBy = req.user._id;
       const credentials = decryptMerchantCredentials(encrypted);
+      if (process.env.NODE_ENV === 'production' && credentials.mode === 'sandbox' && !isSandboxAllowedInProduction()) return res.status(409).json({error: 'Merchant sandbox payments require MPESA_ALLOW_SANDBOX_IN_PRODUCTION=true on production runtime.'});
       const expectedShortcode = profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber;
       if (credentials.shortcode !== expectedShortcode) {
         return res.status(409).json({error: 'Merchant Daraja credentials do not match the configured Till or Paybill'});
@@ -217,6 +223,9 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
       });
       charge.stkPhone = phone;
       charge.confirmationSource = 'daraja_stk_pending';
+      charge.providerName = provider.name;
+      charge.providerShortcode = credentials.shortcode;
+      charge.providerEndpoint = provider.endpointBaseUrl;
       const saved = await Charge.create(charge);
       try {
         const result = await provider.initiate({
@@ -368,6 +377,7 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
       const callbackToken = String(process.env.POS_STK_CALLBACK_TOKEN || '').trim();
       if (callbackToken.length < 32) return res.status(503).json({error: 'POS_STK_CALLBACK_TOKEN must be configured with at least 32 random characters'});
       const credentials = decryptMerchantCredentials(encrypted);
+      if (process.env.NODE_ENV === 'production' && credentials.mode === 'sandbox' && !isSandboxAllowedInProduction()) return res.status(409).json({error: 'Merchant sandbox callbacks are disabled on this production runtime.'});
       const expectedShortcode = charge.method === 'mpesa_till' ? charge.destination.tillNumber : charge.destination.paybillNumber;
       if (credentials.shortcode !== expectedShortcode) return res.status(409).json({error: 'Merchant credentials no longer match this payment destination'});
       const phone = normalizeMpesaPhone(String(req.body?.phone || ''));
@@ -431,11 +441,11 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
 
   // Only the merchant's own callback URL/token and exact provider request IDs can confirm a charge.
   // Amount, payer phone and result code are checked; duplicate callbacks cannot replay a receipt.
-  app.post('/api/business/pos/stk/callback/:token', async (req, res) => {
+  app.post('/api/business/pos/stk/callback/:token', posStkCallbackRateLimit, async (req, res) => {
     const expected = String(process.env.POS_STK_CALLBACK_TOKEN || '');
     if (!isValidDarajaCallbackToken(req.params.token, expected)) return res.status(404).json({error: 'Not found'});
     const cb = req.body?.Body?.stkCallback;
-    if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string' || !/^-?\d+$/.test(String(cb.ResultCode))) return res.status(400).json({error: 'Malformed callback'});
+    if (!cb || typeof cb.CheckoutRequestID !== 'string' || typeof cb.MerchantRequestID !== 'string' || !cb.CheckoutRequestID.trim() || !cb.MerchantRequestID.trim() || cb.CheckoutRequestID.length > 100 || cb.MerchantRequestID.length > 100 || !/^-?\d+$/.test(String(cb.ResultCode))) return res.status(400).json({error: 'Malformed callback'});
     const charge = await Charge.findOne({checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, status: 'PENDING', confirmationSource: 'daraja_stk_pending'});
     if (!charge) {
       // A previous callback may have marked the charge successful before a ledger write
@@ -447,6 +457,35 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
     const outcome = resolvePosStkCallbackOutcome(cb, charge);
     if (outcome.error === 'malformed') return res.status(400).json({error: 'Malformed result code'});
     if (outcome.error === 'mismatch') return res.status(400).json({error: 'Callback amount, phone or receipt did not match the initiated merchant payment'});
+    let providerCheck;
+    try {
+      const organization = await Organization.findById(charge.organizationId).lean();
+      const encrypted = organization?.settings?.posDarajaCredentialsEncrypted;
+      if (!organization || !encrypted) return res.status(503).json({error: 'Merchant provider configuration is unavailable; payment remains pending.'});
+      const credentials = decryptMerchantCredentials(encrypted);
+      const expectedShortcode = charge.method === 'mpesa_till' ? charge.destination?.tillNumber : charge.destination?.paybillNumber;
+      if (credentials.shortcode !== expectedShortcode ||
+          (charge.providerName && charge.providerName !== `daraja-${credentials.mode}`) ||
+          (charge.providerShortcode && charge.providerShortcode !== credentials.shortcode)) {
+        return res.status(409).json({error: 'Merchant provider configuration does not match this pending payment.'});
+      }
+      const token = String(process.env.POS_STK_CALLBACK_TOKEN || '').trim();
+      const baseUrl = new URL(process.env.POS_STK_PUBLIC_BASE_URL || '');
+      if (token.length < 32 || baseUrl.protocol !== 'https:' || !baseUrl.hostname.includes('.')) return res.status(503).json({error: 'Merchant callback configuration is unavailable; payment remains pending.'});
+      const provider = getMerchantStkProvider({
+        organizationId: organization._id, encryptedCredentials: encrypted, credentials,
+        callbackUrl: `https://${baseUrl.host}/api/business/pos/stk/callback/${token}`, method: charge.method,
+      });
+      if (charge.providerEndpoint && charge.providerEndpoint !== provider.endpointBaseUrl) return res.status(409).json({error: 'Provider environment does not match this pending payment.'});
+      const status = await provider.queryStatus({checkoutRequestId: charge.checkoutRequestId});
+      providerCheck = {matches: callbackMatchesDarajaStatus(outcome, status), state: status?.state || 'UNKNOWN'};
+    } catch (error) {
+      console.warn('Merchant POS callback status verification deferred', {stage: String(error?.stage || 'query_error').slice(0, 40)});
+      return res.status(503).json({error: 'Provider status is temporarily unavailable; payment remains pending.'});
+    }
+    if (!providerCheck.matches) return providerCheck.state === 'PENDING'
+      ? res.status(503).json({error: 'Provider has not confirmed this callback yet; payment remains pending.'})
+      : res.status(409).json({error: 'Provider status conflicts with this callback; payment remains pending for review.'});
     if (outcome.status === 'SUCCESS') {
       try {
         const updated = await Charge.findOneAndUpdate({_id: charge._id, status: 'PENDING', checkoutRequestId: cb.CheckoutRequestID, merchantRequestId: cb.MerchantRequestID, providerReceipt: {$in: [null, '']}},

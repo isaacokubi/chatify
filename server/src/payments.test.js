@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveMpesaProvider, canCancelPayment, resolveCallbackOutcome, canTransitionPayment, buildDarajaPaymentTransition, calculatePaymentTotal, buildPaymentRetryFields, isValidDarajaCallbackToken, validateDarajaCallbackConfiguration, classifyStkInitiationFailure} from './payments.js';
+import {resolveMpesaProvider, canCancelPayment, resolveCallbackOutcome, callbackMatchesDarajaStatus, canTransitionPayment, buildDarajaPaymentTransition, calculatePaymentTotal, buildPaymentRetryFields, isValidDarajaCallbackToken, validateDarajaCallbackConfiguration, classifyStkInitiationFailure} from './payments.js';
 
 test('only pre-STK failures and explicit Daraja rejection permit another initiation attempt', () => {
   for (const stage of ['oauth_transport','oauth_auth','stk_rejected','stk_validation']) {
@@ -64,11 +64,59 @@ test('production fails clearly when MPESA_ENV is not explicitly configured', () 
   );
 });
 
-test('production refuses to use the Daraja sandbox', () => {
+test('production refuses sandbox unless a strict explicit opt-in is enabled', () => {
   assert.throws(
     () => resolveMpesaProvider({NODE_ENV: 'production', MPESA_ENV: 'sandbox'}),
-    /MPESA_ENV=sandbox is not allowed in production/,
+    /MPESA_ALLOW_SANDBOX_IN_PRODUCTION=true/,
   );
+  for (const invalid of ['TRUE', '1', 'yes', '']) {
+    assert.throws(() => resolveMpesaProvider({NODE_ENV: 'production', MPESA_ENV: 'sandbox', MPESA_ALLOW_SANDBOX_IN_PRODUCTION: invalid}), /exactly true or false/);
+  }
+  const token = 'production-sandbox-callback-token-0123456789abcdef';
+  const provider = resolveMpesaProvider({
+    NODE_ENV: 'production', MPESA_ENV: 'sandbox', MPESA_ALLOW_SANDBOX_IN_PRODUCTION: 'true',
+    MPESA_SANDBOX_CONSUMER_KEY: 'sandbox-key', MPESA_SANDBOX_CONSUMER_SECRET: 'sandbox-secret',
+    MPESA_SANDBOX_SHORTCODE: '174379', MPESA_SANDBOX_PASSKEY: 'sandbox-passkey', MPESA_CALLBACK_TOKEN: token,
+    MPESA_CALLBACK_URL: `https://api.example.org/api/payments/daraja/callback/${token}`,
+  });
+  assert.equal(provider.name, 'daraja-sandbox');
+  assert.equal(provider.endpointBaseUrl, 'https://sandbox.safaricom.co.ke');
+});
+
+test('production never reuses generic or opposite-mode credentials', () => {
+  const token = 'production-mode-isolation-token-0123456789';
+  const callback = `https://api.example.org/api/payments/daraja/callback/${token}`;
+  assert.throws(() => resolveMpesaProvider({
+    NODE_ENV:'production', MPESA_ENV:'production', MPESA_CALLBACK_TOKEN:token, MPESA_CALLBACK_URL:callback,
+    MPESA_CONSUMER_KEY:'generic-key', MPESA_CONSUMER_SECRET:'generic-secret', MPESA_SHORTCODE:'174379', MPESA_PASSKEY:'generic-passkey',
+  }), /MPESA_PRODUCTION_CONSUMER_KEY/);
+  assert.throws(() => resolveMpesaProvider({
+    NODE_ENV:'production', MPESA_ENV:'production', MPESA_CALLBACK_TOKEN:token, MPESA_CALLBACK_URL:callback,
+    MPESA_SANDBOX_CONSUMER_KEY:'sandbox-key', MPESA_SANDBOX_CONSUMER_SECRET:'sandbox-secret', MPESA_SANDBOX_SHORTCODE:'174379', MPESA_SANDBOX_PASSKEY:'sandbox-passkey',
+  }), /MPESA_PRODUCTION_CONSUMER_KEY/);
+});
+
+test('Daraja production mode always selects the live endpoint and never the sandbox endpoint', async () => {
+  const token = 'production-callback-token-0123456789abcdef';
+  const requests = [];
+  const provider = resolveMpesaProvider({
+    NODE_ENV: 'production', MPESA_ENV: 'production',
+    MPESA_PRODUCTION_CONSUMER_KEY: 'production-key', MPESA_PRODUCTION_CONSUMER_SECRET: 'production-secret',
+    MPESA_PRODUCTION_SHORTCODE: '123456', MPESA_PRODUCTION_PASSKEY: 'production-passkey', MPESA_CALLBACK_TOKEN: token,
+    MPESA_CALLBACK_URL: `https://api.example.org/api/payments/daraja/callback/${token}`,
+  }, async url => {
+    requests.push(url);
+    return {ok: true, json: async () => url.includes('/oauth/')
+      ? ({access_token: 'test-only-token', expires_in: 3600})
+      : ({ResponseCode: '0', CheckoutRequestID: 'LIVE-CHECKOUT', MerchantRequestID: 'LIVE-MERCHANT'})};
+  });
+  assert.equal(provider.endpointBaseUrl, 'https://api.safaricom.co.ke');
+  assert.equal(provider.name, 'daraja-production');
+  await provider.initiate({paymentId: 'payment-1', amount: 1, phone: '254700000001', description: 'test'});
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0], 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
+  assert.equal(requests[1], 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest');
+  assert.equal(requests.some(url => url.includes('sandbox.safaricom.co.ke')), false);
 });
 
 test('Daraja provider resolution requires a secret token on its configured callback URL', () => {
@@ -154,11 +202,13 @@ test('Daraja OAuth token is reused until its safety window expires, then refresh
   let now = 1000;
   let oauthCalls = 0;
   let stkCalls = 0;
+  const requestUrls=[];
   const provider = createDarajaProvider({
     mode:'sandbox', consumerKey:'test-key', consumerSecret:'test-secret',
     shortcode:'123456', passkey:'test-passkey',
     callbackUrl:'https://api.example.org/api/payments/daraja/callback',
   }, async url => {
+    requestUrls.push(url);
     if (url.includes('/oauth/')) {
       oauthCalls += 1;
       return {ok:true, json:async()=>({access_token:`token-${oauthCalls}`, expires_in:60})};
@@ -181,6 +231,7 @@ test('Daraja OAuth token is reused until its safety window expires, then refresh
   await request();
   assert.equal(oauthCalls, 2, 'expired-with-safety-window token is refreshed');
   assert.equal(stkCalls, 3);
+  assert.ok(requestUrls.every(url=>url.startsWith('https://sandbox.safaricom.co.ke/')),'sandbox credentials are used only at the sandbox host');
 });
 
 test('Daraja STK status query uses matching environment, shortcode fields and never confirms without callback metadata', async () => {
@@ -334,6 +385,16 @@ test('successful payment callback requires a provider receipt', () => {
     {Name:'Amount',Value:450}, {Name:'PhoneNumber',Value:254712345678},
   ]}};
   assert.equal(resolveCallbackOutcome(callback,payment).error,'malformed');
+});
+
+test('callback result must agree with an authenticated Daraja status query', () => {
+  const success = {status: 'SUCCESS', resultCode: 0};
+  assert.equal(callbackMatchesDarajaStatus(success, {state: 'SUCCESS_EVIDENCE_INCOMPLETE', resultCode: 0}), true);
+  assert.equal(callbackMatchesDarajaStatus(success, {state: 'FAILED', resultCode: 1}), false);
+  assert.equal(callbackMatchesDarajaStatus(success, {state: 'SUCCESS_EVIDENCE_INCOMPLETE', resultCode: 1}), false);
+  assert.equal(callbackMatchesDarajaStatus({status: 'CANCELLED', resultCode: 1032}, {state: 'CANCELLED', resultCode: 1032}), true);
+  assert.equal(callbackMatchesDarajaStatus({status: 'FAILED', resultCode: 1}, {state: 'PENDING'}), false);
+  assert.equal(callbackMatchesDarajaStatus({error: 'mismatch'}, {state: 'SUCCESS_EVIDENCE_INCOMPLETE', resultCode: 0}), false);
 });
 
 test('M-Pesa callbacks reject malformed results and classify cancellation/failure', () => {

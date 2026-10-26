@@ -6,12 +6,9 @@ Chatify defaults to `MPESA_ENV=mock` for safe demos. Mock mode intentionally doe
 
 Configure these values in the hosting provider for the **Node.js API service** (never commit real values):
 
-- `NODE_ENV=production`
-- `MPESA_ENV=production`
-- `MPESA_CONSUMER_KEY` — production Daraja consumer key
-- `MPESA_CONSUMER_SECRET` — production Daraja consumer secret
-- `MPESA_SHORTCODE` — approved paybill/till shortcode
-- `MPESA_PASSKEY` — matching production STK passkey
+- `NODE_ENV=production` (application runtime; retains production JWT/database/CORS checks)
+- `MPESA_ENV=production` (Daraja provider; fixed live API host)
+- `MPESA_PRODUCTION_CONSUMER_KEY`, `MPESA_PRODUCTION_CONSUMER_SECRET`, `MPESA_PRODUCTION_SHORTCODE`, `MPESA_PRODUCTION_PASSKEY` — production-only Daraja credentials, shortcode and matching passkey. Production refuses generic or sandbox-scoped credentials.
 - `MPESA_TRANSACTION_TYPE=CustomerPayBillOnline` for a paybill, or `CustomerBuyGoodsOnline` for a supported till
 - `MPESA_CALLBACK_TOKEN` — at least 32 random characters (`openssl rand -hex 32`); it must match the token in the callback URL path.
 - `MPESA_CALLBACK_URL=https://YOUR-API-HOST/api/payments/daraja/callback/<same-token>` — publicly reachable HTTPS URL; the route rejects missing or incorrect tokens before reading payment state
@@ -21,7 +18,7 @@ Configure these values in the hosting provider for the **Node.js API service** (
 - `JWT_SECRET` — at least 32 characters
 - `CLIENT_ORIGIN` — exact HTTPS origin(s) of the deployed client
 
-Use the Daraja **sandbox** credentials and `MPESA_ENV=sandbox` only on a non-production API environment. Production deliberately refuses sandbox mode.
+`NODE_ENV` and `MPESA_ENV` are separate settings. Production runtime requires explicit `MPESA_ENV`; it never defaults to mock or sandbox. In development/test, generic `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET`, `MPESA_SHORTCODE` and `MPESA_PASSKEY` are used with the selected provider mode. Production selects only the matching scoped set: `MPESA_PRODUCTION_*` for live or `MPESA_SANDBOX_*` for sandbox. Generic or opposite-mode credentials cannot satisfy production startup. `MPESA_ENV=sandbox` always uses `https://sandbox.safaricom.co.ke`; `MPESA_ENV=production` always uses `https://api.safaricom.co.ke`. Sandbox on a production runtime is disabled unless `MPESA_ALLOW_SANDBOX_IN_PRODUCTION=true` is set literally. It defaults to false and accepts only `true` or `false`; the opt-in does not switch endpoints or credentials. Use this only for a deliberately isolated sandbox service after verifying its database, account, callback and access controls. Do not set the Render service's `NODE_ENV=production` until the complete production runtime configuration is ready.
 
 ## Other payment-flow settings
 
@@ -48,6 +45,12 @@ The later 2026-10-26 acceptance-gate rerun reconfirmed local sandbox configurati
 The subsequent Brian demo-account test pass repeated public health/TLS and invalid-token callback checks, but did not attempt account login or STK: the prompt did not include the demo-account password, and the Daraja simulator was unavailable to confirm number eligibility. `render login` later completed, and the CLI identified the Chatify API service on `main` with root directory `server/`; the CLI does not expose environment-variable settings. Use its authenticated Dashboard Environment page to verify isolated sandbox settings and callback token/path match without displaying values. Do not connect to an unverified production database to check the account. Authenticate using an approved secure password input and use only the normal chat user's authorized platform flow. School and merchant flows require their own authorized tenant accounts/configuration.
 
 The API logs sanitized reconciliation stage/outcome fields and bounds the platform sweep to two payments per minute and five query attempts. No external payment alerting integration or deployed alert delivery was verifiable here. Operators must monitor application logs and provider statements for stale pending attempts until production alert routing is configured and exercised. Statement matching and manual review are operator procedures; automatic provider-statement import is not implemented.
+
+### Callback settlement safeguards
+
+New platform, school and merchant STK attempts persist provider name, shortcode and endpoint. Callbacks are bounded to 64 KiB, rate-limited, matched by the stored request IDs and checked against the original provider mode/configuration. Before a callback changes financial state, Chatify queries the same Daraja provider for the exact CheckoutRequestID and requires result code/state agreement. Query success alone lacks receipt and payer metadata and does not issue a receipt. The callback route token is a high-entropy routing secret; it is not a cryptographic signature from Safaricom. The implementation uses the provider query, correlation, amount/phone/receipt checks and idempotent compare-and-set transitions as additional controls. Safaricom describes STK as an asynchronous flow with a callback, sandbox test app and separate go-live workflow ([M-Pesa Express Simulate](https://developer.safaricom.co.ke/apis/MpesaExpressSimulate)).
+
+Previously exposed Daraja consumer key/secret, STK passkey and callback token must be rotated. Use the Daraja portal to issue/revoke the application credentials and update the matching Render environment values. Update the callback token and URL together through Render Dashboard after pending checkouts have been reconciled; the last read-only inspection found unresolved pending Daraja attempts. Verify presence/structure with values masked, then verify deployment and callback behavior. No rotation or live setting change was performed during the incident investigation.
 
 ## Safe verification
 

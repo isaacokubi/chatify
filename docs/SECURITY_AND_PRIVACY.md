@@ -1,5 +1,11 @@
 # Security and privacy audit notes
 
+## M-Pesa incident controls — 2026-10-26
+
+Render's tokenized callback path is a high-entropy routing secret and not proof of provider identity. Daraja STK result callbacks are not cryptographically signed by this integration; do not describe the token as a Safaricom signature or complete callback authentication. Chatify now combines token matching, bounded payload/rate controls, exact checkout/merchant ID association, stored provider/shortcode/endpoint matching, callback amount/phone/receipt validation, a Daraja query for the same checkout, and atomic idempotent persistence. Provider query success without callback receipt metadata remains pending. Residual risk remains because the provider callback itself lacks an independently verified signature and the record still depends on correct app/provider configuration.
+
+Credential hygiene: previously exposed Daraja consumer key/secret, STK passkey and callback token are considered compromised. The account owner must rotate/revoke the application credentials in the Safaricom portal, update Render's matching variables, and coordinate callback-token plus URL rotation in the Render Dashboard. Reconcile pending attempts before changing callback paths; the inspection had pending Daraja records. Rotation was not performed because portal access and a safe pending-attempt migration were unavailable. Never paste replacement values into chat, repository files, command output or documentation.
+
 ## Recovery and verification continuation (2026-10-25)
 
 Uncertain platform STK requests are durably recorded before provider initiation. Transport failures after a request may have reached Daraja and stale interrupted `IN_PROGRESS` records are kept pending in `REQUIRES_REVIEW`; they are not resubmitted automatically or failed by elapsed time. Status query is only possible when the original `CheckoutRequestID` exists. The authenticated status query and background sweep remain bounded and compare-and-set claimed; query success without validated payment evidence does not apply money.

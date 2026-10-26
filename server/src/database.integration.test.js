@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import {encryptSchoolSecret} from './school.js';
+import {encryptMerchantCredentials} from './business-pos.js';
 
 const testMongoUri = String(process.env.CHATIFY_MONGO_TEST_URI || '').trim();
 
@@ -40,12 +41,16 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     MPESA_CALLBACK_TOKEN: platformToken,
     SCHOOL_DARAJA_CALLBACK_TOKEN: schoolToken,
     POS_STK_CALLBACK_TOKEN: posStkToken,
+    POS_STK_PUBLIC_BASE_URL: 'https://api.example.org',
+    POS_DARAJA_ENCRYPTION_KEY: 'ab'.repeat(32),
     POS_C2B_CALLBACK_TOKEN: posC2bToken,
     SMTP_URL: '', SMTP_FROM: '',
   });
 
   let failNextStk=false;
   let providerStkRequests=0;
+  let providerStatusRequests=0;
+  let nextProviderQueryCode='0';
   const nativeFetch=globalThis.fetch.bind(globalThis);
   globalThis.fetch=async(url,options={})=>{
     if(String(url).startsWith('http://127.0.0.1:'))return nativeFetch(url,options);
@@ -55,7 +60,10 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
       if(failNextStk){failNextStk=false;throw Error('synthetic lost STK response');}
       return {ok:true,json:async()=>({ResponseCode:'0',CheckoutRequestID:'SYNTHETIC-CHECKOUT',MerchantRequestID:'SYNTHETIC-MERCHANT'})};
     }
-    return {ok:true,json:async()=>({ResponseCode:'0',ResultCode:'0',ResultDesc:'Synthetic query success',CheckoutRequestID:JSON.parse(options.body).CheckoutRequestID})};
+    providerStatusRequests+=1;
+    const queryCode=nextProviderQueryCode;
+    nextProviderQueryCode='0';
+    return {ok:true,json:async()=>({ResponseCode:'0',ResultCode:queryCode,ResultDesc:'Synthetic query result',CheckoutRequestID:JSON.parse(options.body).CheckoutRequestID})};
   };
 
   const { server, shutdown } = await import('./index.js');
@@ -135,6 +143,19 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
       ]},
     }}},
   );
+  const wrongModePayment={...pendingPayment,_id:new O(),paymentId:'AUDIT-WRONG-MODE',provider:'daraja-production',checkoutRequestId:'AUDIT-WRONG-MODE-CHECKOUT',merchantRequestId:'AUDIT-WRONG-MODE-MERCHANT'};
+  await db.collection('payments').insertOne(wrongModePayment);
+  assert.equal((await postJson(`/api/payments/daraja/callback/${platformToken}`,{Body:{stkCallback:{CheckoutRequestID:wrongModePayment.checkoutRequestId,MerchantRequestID:wrongModePayment.merchantRequestId,ResultCode:0}}})).status,200,'callback from a different provider mode is unassociated and acknowledged');
+  assert.equal((await db.collection('payments').findOne({paymentId:wrongModePayment.paymentId})).status,'PENDING');
+  const callbackMismatchPayment={...pendingPayment,_id:new O(),paymentId:'AUDIT-CALLBACK-QUERY-MISMATCH',purpose:'REQUEST',checkoutRequestId:'AUDIT-CALLBACK-QUERY-MISMATCH-CHECKOUT',merchantRequestId:'AUDIT-CALLBACK-QUERY-MISMATCH-MERCHANT'};
+  await db.collection('payments').insertOne(callbackMismatchPayment);
+  nextProviderQueryCode='1';
+  const callbackWithConflictingQuery=await postJson(`/api/payments/daraja/callback/${platformToken}`,{Body:{stkCallback:{CheckoutRequestID:callbackMismatchPayment.checkoutRequestId,MerchantRequestID:callbackMismatchPayment.merchantRequestId,ResultCode:0,ResultDesc:'Synthetic success callback',CallbackMetadata:{Item:[{Name:'Amount',Value:250},{Name:'PhoneNumber',Value:254712345678},{Name:'MpesaReceiptNumber',Value:'AUDITMISMATCH1'}]}}}});
+  assert.equal(callbackWithConflictingQuery.status,409,'callback cannot settle when authenticated provider status disagrees');
+  const callbackMismatchStored=await db.collection('payments').findOne({paymentId:callbackMismatchPayment.paymentId});
+  assert.equal(callbackMismatchStored.status,'PENDING');
+  assert.equal(callbackMismatchStored.providerReceipt,undefined);
+  assert.equal((await postJson(`/api/payments/daraja/callback/${platformToken}`,{Body:{data:'x'.repeat(70000)}})).status,413,'oversized callback bodies are rejected');
   assert.equal((await platformCallback('wrong-test-token')).status, 404,
     'wrong callback token must be rejected before touching payment state');
   assert.equal((await platformCallback(platformToken, 249)).status, 400,
@@ -148,6 +169,10 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   assert.equal(settledPayment.status, 'SUCCESS');
   assert.equal(settledPayment.providerReceipt, 'AUDITPLAT123');
   assert.ok(settledPayment.callbackProcessedAt);
+  const statusQueryCountBeforeTerminalReconcile=providerStatusRequests;
+  assert.equal((await getJson(`/api/payments/${pendingPayment.paymentId}`,parentAuth)).status,200,'participant can read the completed payment safely');
+  assert.equal((await postJson(`/api/payments/${pendingPayment.paymentId}/reconcile`,{},parentAuth)).status,409,'completed payment cannot be reconciled');
+  assert.equal(providerStatusRequests,statusQueryCountBeforeTerminalReconcile,'terminal reconciliation does not query Daraja or initiate a charge');
   await platformCallback(platformToken);
   assert.equal(await db.collection('payments').countDocuments({paymentId: pendingPayment.paymentId}), 1);
   assert.equal((await postJson(`/api/payments/daraja/callback/${platformToken}`,{Body:{stkCallback:{CheckoutRequestID:'UNKNOWN-CHECKOUT',MerchantRequestID:'UNKNOWN-MERCHANT',ResultCode:0}}})).status,200,'unknown callback identifiers are acknowledged without financial mutation');
@@ -178,7 +203,9 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   assert.equal(uncertainPayment.initiatedBy.toString(),parentId.toString());
   assert.equal(uncertainPayment.amount,55);
   assert.equal(uncertainPayment.currency,'KES');
+  assert.equal(uncertainPayment.providerEndpoint,'https://sandbox.safaricom.co.ke','the durable attempt records the selected Daraja host');
   assert.ok(uncertainPayment.initiationHistory.some(event=>event.state==='IN_PROGRESS'));
+  assert.ok(uncertainPayment.initiationHistory.some(event=>event.providerEndpoint==='https://sandbox.safaricom.co.ke'));
   assert.ok(uncertainPayment.initiationHistory.some(event=>event.state==='REQUIRES_REVIEW'));
   assert.equal((await postJson('/api/payments/send-stk',{amount:55,phone:'254712345678',description:'Do not duplicate'},parentAuth)).status,409,'uncertain STK cannot be automatically resubmitted');
   assert.equal((await postJson(`/api/payments/${uncertainPayment.paymentId}/reconcile`,{},parentAuth)).status,409,'missing CheckoutRequestID requires review and is not queried');
@@ -235,6 +262,7 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     status: 'PENDING',
   };
   await db.collection('payments').insertOne(cancelledPlatformPayment);
+  nextProviderQueryCode='1032';
   const cancelledResponse = await postJson(`/api/payments/daraja/callback/${platformToken}`, {
     Body: {stkCallback: {
       CheckoutRequestID: cancelledPlatformPayment.checkoutRequestId,
@@ -310,6 +338,11 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     checkoutRequestId: 'AUDIT-SCHOOL-CANCEL-CHECKOUT', merchantRequestId: 'AUDIT-SCHOOL-CANCEL-MERCHANT',
   };
   await db.collection('schoolfeepayments').insertOne(cancelledSchoolFee);
+  const wrongDestinationSchoolFee = {
+    ...schoolFee, _id: new O(), paymentReference: 'AUDIT-FEE-WRONG-DESTINATION', destinationNumber: '999999',
+    checkoutRequestId: 'AUDIT-SCHOOL-WRONG-DESTINATION-CHECKOUT', merchantRequestId: 'AUDIT-SCHOOL-WRONG-DESTINATION-MERCHANT',
+  };
+  await db.collection('schoolfeepayments').insertOne(wrongDestinationSchoolFee);
   const feesPath = `/api/schools/${schoolId}/fees`;
   const feesBefore = await getJson(feesPath, parentAuth);
   assert.equal(feesBefore.status, 200);
@@ -344,6 +377,10 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   assert.equal((await db.collection('schoolfeepayments').findOne({paymentReference:schoolFee.paymentReference})).status,'PENDING_STK','mismatched callback amount remains pending');
   assert.equal((await makeSchoolCallback(schoolFee,schoolToken,0,schoolFee.amount,false)).status,200);
   assert.equal((await db.collection('schoolfeepayments').findOne({paymentReference:schoolFee.paymentReference})).status,'PENDING_STK','missing provider receipt remains pending');
+  assert.equal((await postJson(`/api/schools/daraja/callback/${schoolToken}`,{Body:{data:'x'.repeat(70000)}})).status,413,'oversized school callback bodies are rejected');
+  assert.equal((await makeSchoolCallback(wrongDestinationSchoolFee)).status,409,'a callback cannot settle a fee after its provider shortcode differs from the original destination');
+  assert.equal((await db.collection('schoolfeepayments').findOne({paymentReference:wrongDestinationSchoolFee.paymentReference})).status,'PENDING_STK');
+  nextProviderQueryCode='1032';
   assert.equal((await makeSchoolCallback(cancelledSchoolFee, schoolToken, 1032)).status, 200);
   assert.equal((await db.collection('schoolfeepayments').findOne({paymentReference: cancelledSchoolFee.paymentReference})).status, 'CANCELLED');
   const schoolCallback = () => makeSchoolCallback(schoolFee);
@@ -396,7 +433,8 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   const organizationId = new O();
   await db.collection('businessorganizations').insertOne({
     _id: organizationId, name: 'Synthetic Audit Merchant', slug: 'synthetic-audit-merchant',
-    ownerId: parentId, country: 'KE', currency: 'KES', members: [], settings: {}, billing: {},
+    ownerId: parentId, country: 'KE', currency: 'KES', members: [],
+    settings: {posDarajaCredentialsEncrypted: encryptMerchantCredentials({mode:'sandbox',consumerKey:'synthetic-key',consumerSecret:'synthetic-secret',passkey:'synthetic-passkey',shortcode:'654321'})}, billing: {},
   });
   const stkCharge = {
     _id: new O(), paymentId: 'AUDIT-MERCHANT-STK', organizationId, createdBy: parentId,
@@ -422,6 +460,7 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   });
   assert.equal((await posStkCallback('incorrect-pos-token')).status, 404);
   assert.equal((await posStkCallback(posStkToken, 849)).status, 400);
+  assert.equal((await postJson(`/api/business/pos/stk/callback/${posStkToken}`,{Body:{data:'x'.repeat(70000)}})).status,413,'oversized merchant callback bodies are rejected');
   assert.equal((await db.collection('businessposcharges').findOne({paymentId: stkCharge.paymentId})).status, 'PENDING');
   const posStkResponses = await Promise.all([posStkCallback(), posStkCallback()]);
   assert.deepEqual(posStkResponses.map(response => response.status), [200, 200]);

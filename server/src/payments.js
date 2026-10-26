@@ -96,6 +96,7 @@ export function createMockMpesaProvider() {
   return {
     name: 'mock',
     isMock: true,
+    endpointBaseUrl: 'mock',
     async initiate({paymentId}) {
       return {checkoutRequestId: `MOCK-${paymentId}`, merchantRequestId: `MOCK-MERCHANT-${paymentId}`};
     },
@@ -144,6 +145,7 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch, 
     name: `daraja-${mode}`,
     isMock: false,
     shortcode: config.shortcode,
+    endpointBaseUrl: host,
     // Dynamic QR creates a Safaricom-readable Buy Goods/Paybill QR for the actual
     // merchant shortcode. Merchant numbers are data, never platform credentials.
     async generateDynamicQr({merchantName, reference, amount, shortcode, transactionCode}) {
@@ -253,23 +255,40 @@ export function createDarajaProvider(config = {}, transport = globalThis.fetch, 
 export function resolveMpesaProvider(env = process.env, transport) {
   const configuredMode = env.MPESA_ENV?.trim();
   const mode = configuredMode || 'mock';
+  const allowSandboxInProduction = isSandboxAllowedInProduction(env);
   if (env.NODE_ENV === 'production' && !configuredMode) {
     throw new Error('Production requires explicit MPESA_ENV=mock for a demo or MPESA_ENV=production for live Daraja payments');
   }
-  if (env.NODE_ENV === 'production' && mode === 'sandbox') {
-    throw new Error('MPESA_ENV=sandbox is not allowed in production; use mock for a demo or production for live Daraja payments');
+  if (env.NODE_ENV === 'production' && mode === 'sandbox' && !allowSandboxInProduction) {
+    throw new Error('MPESA_ENV=sandbox in production requires MPESA_ALLOW_SANDBOX_IN_PRODUCTION=true');
   }
   if (mode === 'mock') return createMockMpesaProvider();
   if (mode !== 'sandbox' && mode !== 'production') throw new Error('MPESA_ENV must be mock, sandbox, or production');
   const callbackUrl = env.MPESA_CALLBACK_URL;
   try { validateDarajaCallbackConfiguration(callbackUrl, env.MPESA_CALLBACK_TOKEN); }
   catch (error) { throw new Error(`Invalid Daraja callback configuration: ${error.message}. Set MPESA_CALLBACK_TOKEN (at least 32 random characters) and MPESA_CALLBACK_URL to the matching /api/payments/daraja/callback/<token> HTTPS route.`); }
+  const credentialPrefix = env.NODE_ENV === 'production'
+    ? mode === 'sandbox' ? 'MPESA_SANDBOX' : 'MPESA_PRODUCTION'
+    : 'MPESA';
+  const credential = name => env[`${credentialPrefix}_${name}`];
+  if (env.NODE_ENV === 'production' && (!credential('CONSUMER_KEY') || !credential('CONSUMER_SECRET') || !credential('SHORTCODE') || !credential('PASSKEY'))) {
+    throw new Error(`Production ${mode} mode requires ${credentialPrefix}_CONSUMER_KEY, ${credentialPrefix}_CONSUMER_SECRET, ${credentialPrefix}_SHORTCODE and ${credentialPrefix}_PASSKEY`);
+  }
   const provider = createDarajaProvider({
-    mode, consumerKey:env.MPESA_CONSUMER_KEY, consumerSecret:env.MPESA_CONSUMER_SECRET,
-    shortcode:env.MPESA_SHORTCODE, passkey:env.MPESA_PASSKEY, callbackUrl,
+    mode, consumerKey:credential('CONSUMER_KEY'), consumerSecret:credential('CONSUMER_SECRET'),
+    shortcode:env.NODE_ENV === 'production' ? credential('SHORTCODE') : env.MPESA_SHORTCODE,
+    passkey:credential('PASSKEY'), callbackUrl,
     transactionType:env.MPESA_TRANSACTION_TYPE,
   }, transport);
   return provider;
+}
+
+export function isSandboxAllowedInProduction(env = process.env) {
+  const value = env.MPESA_ALLOW_SANDBOX_IN_PRODUCTION;
+  if (value !== undefined && value !== 'true' && value !== 'false') {
+    throw new Error('MPESA_ALLOW_SANDBOX_IN_PRODUCTION must be exactly true or false');
+  }
+  return value === 'true';
 }
 
 export function reconciliationRetryAt(attempt, now = new Date()) {
@@ -311,6 +330,16 @@ export function resolveCallbackOutcome(callback, payment) {
     if (!/^[A-Z0-9]{6,40}$/.test(receipt)) return {error:'malformed'};
   }
   return {resultCode:code,status:code === 0 ? 'SUCCESS' : code === 1032 ? 'CANCELLED' : 'FAILED',description:String(callback.ResultDesc || '').slice(0,160),...(receipt?{receipt}:{})};
+}
+
+export function callbackMatchesDarajaStatus(outcome, providerStatus) {
+  if (!outcome || outcome.error || !providerStatus || !Number.isSafeInteger(Number(outcome.resultCode)) ||
+      !Number.isSafeInteger(Number(providerStatus.resultCode))) return false;
+  const requiredState = outcome.status === 'SUCCESS'
+    ? 'SUCCESS_EVIDENCE_INCOMPLETE'
+    : outcome.status;
+  return providerStatus.state === requiredState &&
+    Number(providerStatus.resultCode) === Number(outcome.resultCode);
 }
 
 // Shared compare-and-set payload for the HTTP route and deterministic callback

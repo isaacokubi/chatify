@@ -10,7 +10,7 @@ import {validateClientMutationId} from './message-idempotency.js';
 import {isMentionNotification,normalizeMentionIds} from './mentions.js';
 import {createPresenceTracker} from './presence.js';
 import {canViewSpark,markSparkViewed,sparkAudienceOwnerIds} from './sparks.js';
-import {resolveMpesaProvider,normalizeMpesaPhone,validPaymentAmount,newPaymentId,PAYMENT_STATUSES,buildDarajaPaymentTransition,resolveCallbackOutcome,calculatePaymentTotal,buildPaymentRetryFields,canAccessPayment,canRetryPayment,canCancelPayment,isValidDarajaCallbackToken,reconciliationRetryAt,classifyStkInitiationFailure} from './payments.js';
+import {resolveMpesaProvider,normalizeMpesaPhone,validPaymentAmount,newPaymentId,PAYMENT_STATUSES,buildDarajaPaymentTransition,resolveCallbackOutcome,callbackMatchesDarajaStatus,calculatePaymentTotal,buildPaymentRetryFields,canAccessPayment,canRetryPayment,canCancelPayment,isValidDarajaCallbackToken,reconciliationRetryAt,classifyStkInitiationFailure} from './payments.js';
 import {createAuthMiddleware,createAdminMiddleware} from './auth.js';
 import {isValidEncryptedPayload} from './e2ee.js';
 import {randomBytes} from 'node:crypto';
@@ -61,8 +61,18 @@ app.get('/api/health',(_req,res)=>{
   });
   res.status(health.statusCode).set('Cache-Control','no-store').json(health.body);
 });
-app.set('trust proxy', 1); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true})); app.use(express.json({limit:'15mb',verify:(req,res,buffer)=>{if(req.originalUrl?.startsWith('/api/business/payments/stripe/webhook')||req.originalUrl?.startsWith('/api/business/billing/webhook'))req.rawBody=Buffer.from(buffer);}})); app.use(rateLimit({windowMs:900000,max:300,standardHeaders:true,legacyHeaders:false}));
+app.set('trust proxy', 1); app.use(helmet()); app.use(cors({origin:corsOrigin,credentials:true}));
+app.use((req,res,next)=>{
+  const isDarajaCallback=req.originalUrl?.startsWith('/api/payments/daraja/callback/')||
+    req.originalUrl?.startsWith('/api/schools/daraja/callback/')||
+    req.originalUrl?.startsWith('/api/business/pos/stk/callback/');
+  express.json({limit:isDarajaCallback?'64kb':'15mb',verify:(request,_response,buffer)=>{
+    if(request.originalUrl?.startsWith('/api/business/payments/stripe/webhook')||request.originalUrl?.startsWith('/api/business/billing/webhook'))request.rawBody=Buffer.from(buffer);
+  }})(req,res,next);
+});
+app.use(rateLimit({windowMs:900000,max:300,standardHeaders:true,legacyHeaders:false}));
 const authRateLimitHandler=(_req,res)=>res.status(429).json({error:'Too many authentication attempts. Please wait before trying again.'});
+const darajaCallbackRateLimit=rateLimit({windowMs:60000,max:60,standardHeaders:true,legacyHeaders:false,handler:(_req,res)=>res.status(429).json({error:'Too many provider callbacks. Retry later.'})});
 const loginRateLimit=rateLimit({windowMs:15*60*1000,max:10,standardHeaders:true,legacyHeaders:false,handler:authRateLimitHandler});
 const registrationRateLimit=rateLimit({windowMs:60*60*1000,max:5,standardHeaders:true,legacyHeaders:false,handler:authRateLimitHandler});
 const recoveryRateLimit=rateLimit({windowMs:15*60*1000,max:5,standardHeaders:true,legacyHeaders:false,handler:authRateLimitHandler});
@@ -111,6 +121,7 @@ NotificationJob.schema.index({expireAt:1},{expireAfterSeconds:0,name:'notificati
 const PasswordReset=mongoose.model('PasswordReset',new mongoose.Schema({userId:{type:O,required:true,index:true},tokenHash:{type:String,required:true,unique:true},expiresAt:{type:Date,required:true,expires:0}},{timestamps:true}));
 // Payment records track requester/payer, amount, provider references and lifecycle status.
 const Payment=mongoose.model('Payment',new mongoose.Schema({paymentId:{type:String,required:true,unique:true,index:true},requesterId:{type:O,required:true,index:true},payerId:{type:O,required:true,index:true},conversationId:{type:O,index:true},amount:{type:Number,required:true,min:1,max:150000},currency:{type:String,enum:['KES'],default:'KES'},baseAmount:{type:Number,min:1,max:150000},platformFee:{type:Number,min:0,max:750,default:0},totalAmount:{type:Number,min:1,max:150000},platformFeeRate:{type:Number,default:0},platformFeeStatus:{type:String,enum:['NOT_APPLICABLE','PENDING_PAYMENT','PENDING_SETTLEMENT','SETTLED','FAILED'],default:'NOT_APPLICABLE'},feeCollectionMode:{type:String,enum:['combined','separate'],default:'separate'},billingType:{type:String,enum:['workspace_setup','workspace_subscription']},billingWorkspaceType:{type:String,enum:['business','school']},billingWorkspaceId:{type:O,index:true},billingAppliedAt:Date,recipientPhone:{type:String},payerPhone:{type:String},phone:{type:String},businessOrganizationId:{type:O,index:true},businessDocumentId:{type:O,index:true},description:{type:String,required:true,maxlength:80},purpose:{type:String,enum:['REQUEST','SELF_STK'],default:'REQUEST'},status:{type:String,enum:PAYMENT_STATUSES,default:'PENDING',index:true},provider:{type:String,required:true},providerShortcode:String,checkoutRequestId:{type:String,sparse:true,index:true},merchantRequestId:String,providerReceipt:{type:String,default:undefined},resultCode:Number,resultDescription:String,initiationState:{type:String,enum:['NOT_STARTED','IN_PROGRESS','ACCEPTED_PENDING','RETRYABLE_FAILURE','REQUIRES_REVIEW','RESOLVED_PROVIDER','RESOLVED_MANUAL'],default:'NOT_STARTED'},initiatedBy:O,initiatingAt:Date,initiationHistory:{type:[mongoose.Schema.Types.Mixed],default:[]},initiationUncertainAt:Date,confirmationSource:{type:String,enum:['provider_callback','manual_review']},manuallyReviewedBy:O,manuallyReviewedAt:Date,manualReviewEvidenceId:{type:String,select:false},manualReviewReason:{type:String,select:false},reviewHistory:{type:[mongoose.Schema.Types.Mixed],default:[],select:false},reconciliationAttempts:{type:Number,default:0},reconciliationClaimedAt:Date,nextReconciliationAt:Date,reconciliationHistory:{type:[mongoose.Schema.Types.Mixed],default:[]},requestedAt:{type:Date,required:true},initiating:{type:Boolean,default:false},initiatedAt:Date,completedAt:Date,callbackProcessedAt:Date,dismissedBy:{type:[O],default:[]}},{timestamps:true}));
+Payment.schema.add({providerEndpoint:{type:String,enum:['mock','https://sandbox.safaricom.co.ke','https://api.safaricom.co.ke']}});
 Payment.schema.index({checkoutRequestId:1,merchantRequestId:1},{unique:true,sparse:true});
 Payment.schema.index({providerReceipt:1},{unique:true,sparse:true,name:'payment_provider_receipt_unique_v1'});
 // At most one unfinished workspace billing checkout may exist for a workspace/type at a time.
@@ -340,7 +351,7 @@ app.post('/api/admin/payments/:id/review',auth,requireAdmin,async(q,r)=>{
   if(body.decision!=='confirm')return r.status(400).json({error:'Choose confirm or keep_pending'});
   if(payment.status==='SUCCESS'&&payment.confirmationSource==='manual_review'&&payment.providerReceipt===String(body.providerReceipt||'').trim().toUpperCase()&&payment.manualReviewEvidenceId===String(body.evidenceReference||'').trim())return r.json({paymentId:payment.paymentId,status:payment.status,confirmationSource:payment.confirmationSource,reviewedAt:payment.manuallyReviewedAt,duplicate:true});
   const reviewableState=payment.initiationState==='REQUIRES_REVIEW'||(payment.initiationState==='ACCEPTED_PENDING'&&Number(payment.reconciliationAttempts||0)>=5);
-  if(payment.status!=='PENDING'||!reviewableState||payment.purpose!=='SELF_STK'||!['daraja-sandbox','daraja-production'].includes(payment.provider)||payment.billingType||payment.businessDocumentId)return r.status(409).json({error:'This payment is not eligible for manual review'});
+  if(payment.status!=='PENDING'||!reviewableState||payment.purpose!=='SELF_STK'||payment.provider!==mpesaProvider.name||payment.billingType||payment.businessDocumentId)return r.status(409).json({error:'This payment is not eligible for manual review'});
   const receipt=String(body.providerReceipt||'').trim().toUpperCase();
   const evidenceReference=String(body.evidenceReference||'').trim();
   const evidenceType=String(body.evidenceType||'');
@@ -606,9 +617,9 @@ app.post('/api/payments/send-stk',auth,async(q,r)=>{
     paymentId,requesterId:q.user._id,payerId:q.user._id,conversationId,
     amount:b.amount,...fee,recipientPhone:process.env.MPESA_SHORTCODE||'BUSINESS_SHORTCODE',
     payerPhone:phone,phone,description:b.description.trim(),purpose:'SELF_STK',
-    provider:mpesaProvider.name,providerShortcode:mpesaProvider.shortcode,requestedAt,initiating:true,
+    provider:mpesaProvider.name,providerShortcode:mpesaProvider.shortcode,providerEndpoint:mpesaProvider.endpointBaseUrl,requestedAt,initiating:true,
     currency:'KES',initiatedBy:q.user._id,initiatingAt:requestedAt,initiationState:'IN_PROGRESS',
-    initiationHistory:[{attemptId,state:'IN_PROGRESS',at:requestedAt,initiatedBy:q.user._id,provider:mpesaProvider.name,amount:b.amount,currency:'KES',paymentReference:paymentId,accountReference:paymentId.replace(/-/g,'').slice(-12),phone,shortcode:mpesaProvider.shortcode}]
+    initiationHistory:[{attemptId,state:'IN_PROGRESS',at:requestedAt,initiatedBy:q.user._id,provider:mpesaProvider.name,providerEndpoint:mpesaProvider.endpointBaseUrl,amount:b.amount,currency:'KES',paymentReference:paymentId,accountReference:paymentId.replace(/-/g,'').slice(-12),phone,shortcode:mpesaProvider.shortcode}]
   });
   try{
     const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:payment.amount,phone,description:payment.description});
@@ -640,7 +651,7 @@ app.post('/api/payments/:id/initiate',auth,async(q,r)=>{
   const retryable=['NOT_STARTED','RETRYABLE_FAILURE'];
   const attemptId=newPaymentId();
   const now=new Date();
-  const payment=await Payment.findOneAndUpdate({_id:current._id,status:'PENDING',initiatedAt:{$exists:false},initiating:{$ne:true},$or:[{initiationState:{$in:retryable}},{initiationState:{$exists:false}}]},{$set:{initiating:true,initiatingAt:now,initiatedBy:q.user._id,initiationState:'IN_PROGRESS',phone:payerPhone,payerPhone,currency:'KES',providerShortcode:mpesaProvider.shortcode},$push:{initiationHistory:{$each:[{attemptId,state:'IN_PROGRESS',at:now,initiatedBy:q.user._id,provider:mpesaProvider.name,amount:current.baseAmount??current.amount,currency:'KES',paymentReference:current.paymentId}],$slice:-20}}},{new:true});
+  const payment=await Payment.findOneAndUpdate({_id:current._id,status:'PENDING',initiatedAt:{$exists:false},initiating:{$ne:true},$or:[{initiationState:{$in:retryable}},{initiationState:{$exists:false}}]},{$set:{initiating:true,initiatingAt:now,initiatedBy:q.user._id,initiationState:'IN_PROGRESS',phone:payerPhone,payerPhone,currency:'KES',providerShortcode:mpesaProvider.shortcode,providerEndpoint:mpesaProvider.endpointBaseUrl},$push:{initiationHistory:{$each:[{attemptId,state:'IN_PROGRESS',at:now,initiatedBy:q.user._id,provider:mpesaProvider.name,providerEndpoint:mpesaProvider.endpointBaseUrl,amount:current.baseAmount??current.amount,currency:'KES',paymentReference:current.paymentId}],$slice:-20}}},{new:true});
   if(!payment)return r.status(409).json({error:'This payment is already being initiated or requires reconciliation; another prompt will not be started'});
   try{
     const refs=await mpesaProvider.initiate({paymentId:payment.paymentId,amount:(payment.baseAmount??payment.amount),phone:payerPhone,description:payment.description});
@@ -666,7 +677,7 @@ app.post('/api/payments/:id/reconcile',auth,async(q,r)=>{
   const payment=await Payment.findOne({paymentId:q.params.id});
   if(!payment||!await paymentAllowed(payment,q.user._id)||![String(payment.payerId),String(payment.requesterId)].includes(String(q.user._id)))return r.status(404).json({error:'Payment not found'});
   if(payment.initiationState==='REQUIRES_REVIEW'&&!payment.checkoutRequestId)return r.status(409).json({error:'No provider checkout identifier was durably received. Do not retry STK. An administrator must review the provider statement and use the audited payment review workflow.',initiationState:'REQUIRES_REVIEW'});
-  if(!['daraja-sandbox','daraja-production'].includes(payment.provider)||!payment.checkoutRequestId||!payment.providerShortcode||payment.providerShortcode!==mpesaProvider.shortcode||typeof mpesaProvider.queryStatus!=='function')return r.status(409).json({error:'This payment cannot be safely queried with the currently configured Daraja account; contact an administrator for manual review.'});
+  if(payment.provider!==mpesaProvider.name||!payment.checkoutRequestId||!payment.providerShortcode||payment.providerShortcode!==mpesaProvider.shortcode||(payment.providerEndpoint&&payment.providerEndpoint!==mpesaProvider.endpointBaseUrl)||typeof mpesaProvider.queryStatus!=='function')return r.status(409).json({error:'This payment cannot be safely queried with the currently configured Daraja account; contact an administrator for manual review.'});
   if(payment.status!=='PENDING'||payment.callbackProcessedAt)return r.status(409).json({error:'Only pending Daraja payments can be reconciled'});
   const now=new Date();
   const claimed=await Payment.findOneAndUpdate({_id:payment._id,status:'PENDING',callbackProcessedAt:{$exists:false},$and:[{$or:[{reconciliationAttempts:{$lt:5}},{reconciliationAttempts:{$exists:false}}]},{$or:[{nextReconciliationAt:{$exists:false}},{nextReconciliationAt:{$lte:now}}]},{$or:[{reconciliationClaimedAt:{$exists:false}},{reconciliationClaimedAt:{$lt:new Date(now.getTime()-30000)}}]}]},{$inc:{reconciliationAttempts:1},$set:{reconciliationClaimedAt:now}},{new:true});
@@ -696,17 +707,25 @@ app.post('/api/payments/:id/reopen',auth,async(q,r)=>{const payment=await Paymen
 app.post('/api/payments/:id/reject',auth,async(q,r)=>{const payment=await Payment.findOne({paymentId:q.params.id});if(!await paymentAllowed(payment,q.user._id))return r.status(404).json({error:'Payment not found'});if(!canCancelPayment(payment,q.user._id,true))return r.status(409).json({error:'This request can only be rejected before an M-Pesa prompt is initiated. If a prompt was already sent, close it for yourself and cancel it on your phone if it is still open.'});const byPayer=String(q.user._id)===String(payment.payerId);const updated=await Payment.findOneAndUpdate({_id:payment._id,status:'PENDING',initiatedAt:{$exists:false},initiating:{$ne:true}},{$set:{status:'CANCELLED',resultDescription:byPayer?'Request rejected by payer':'Request withdrawn by requester',completedAt:new Date(),callbackProcessedAt:new Date()},$addToSet:{dismissedBy:q.user._id}},{new:true});if(!updated)return r.status(409).json({error:'This request has already started or has been closed'});emitPayment(updated);r.json({payment:updated});});
 app.post('/api/payments/:id/mock-result',auth,async(q,r)=>{if(!mpesaProvider.isMock)return r.status(404).json({error:'Payment not found'});if(!['SUCCESS','FAILED','CANCELLED'].includes(q.body?.status))return r.status(400).json({error:'Choose SUCCESS, FAILED or CANCELLED'});const payment=await Payment.findOne({paymentId:q.params.id});if(!payment||String(payment.payerId)!==String(q.user._id)||!payment.initiatedAt||!await paymentAllowed(payment,q.user._id))return r.status(404).json({error:'Payment not found'});const changed=await Payment.findOneAndUpdate({paymentId:payment.paymentId,status:'PENDING',provider:'mock'},{$set:{status:q.body.status,resultCode:q.body.status==='SUCCESS'?0:1,resultDescription:'Local mock result; not a Safaricom transaction',completedAt:new Date(),callbackProcessedAt:new Date()}},{new:true});if(!changed)return r.status(409).json({error:'Payment is already complete'});emitPayment(changed);if(changed.status==='SUCCESS'&&changed.billingType&&changed.billingWorkspaceId){try{await applyWorkspaceBillingPayment({mongoose,payment:changed});}catch(error){console.error('Mock workspace billing entitlement update failed');}}r.json({payment:changed,mock:true});});
 app.post('/api/payments/:id/retry',auth,async(q,r)=>{const previous=await Payment.findOne({paymentId:q.params.id});if(!previous||!canRetryPayment(previous,q.user._id,await paymentAllowed(previous,q.user._id)))return r.status(404).json({error:'Retry is unavailable for this payment'});const payment=await Payment.create({paymentId:newPaymentId(),...buildPaymentRetryFields(previous,mpesaProvider.name)});emitPayment(payment);r.status(201).json({payment});});
-app.post('/api/payments/daraja/callback/:token',async(q,r)=>{
+app.post('/api/payments/daraja/callback/:token',darajaCallbackRateLimit,async(q,r)=>{
   if(!isValidDarajaCallbackToken(q.params.token,process.env.MPESA_CALLBACK_TOKEN||''))return r.status(404).json({error:'Not found'});
+  if(mpesaProvider.isMock||typeof mpesaProvider.queryStatus!=='function')return r.status(404).json({error:'Not found'});
   const cb=q.body?.Body?.stkCallback;
-  if(!cb||typeof cb.CheckoutRequestID!=='string'||typeof cb.MerchantRequestID!=='string')return r.status(400).json({error:'Malformed callback'});
-  const providerFilter={checkoutRequestId:cb.CheckoutRequestID,merchantRequestId:cb.MerchantRequestID,provider:{$in:['daraja-sandbox','daraja-production']}};
+  if(!cb||typeof cb.CheckoutRequestID!=='string'||typeof cb.MerchantRequestID!=='string'||!cb.CheckoutRequestID.trim()||!cb.MerchantRequestID.trim()||cb.CheckoutRequestID.length>100||cb.MerchantRequestID.length>100)return r.status(400).json({error:'Malformed callback'});
+  const providerFilter={checkoutRequestId:cb.CheckoutRequestID,merchantRequestId:cb.MerchantRequestID,provider:mpesaProvider.name,providerShortcode:mpesaProvider.shortcode,providerEndpoint:{$in:[mpesaProvider.endpointBaseUrl,null]}};
   const payment=await Payment.findOne({...providerFilter,status:'PENDING',callbackProcessedAt:{$exists:false}});
   if(!payment){
     const completed=await Payment.findOne({...providerFilter,status:'SUCCESS'});
     if(completed?.confirmationSource==='manual_review'){
       const outcome=resolveCallbackOutcome(cb,completed);
       if(outcome.error||outcome.status!=='SUCCESS'||outcome.receipt!==completed.providerReceipt)return r.status(409).json({error:'Provider callback conflicts with the manually reviewed payment; retain both records for investigation'});
+      try {
+        const status=await mpesaProvider.queryStatus({checkoutRequestId:completed.checkoutRequestId});
+        if(!callbackMatchesDarajaStatus(outcome,status))return r.status(409).json({error:'Provider status does not confirm this callback; payment remains under review'});
+      } catch(error) {
+        console.warn('Daraja callback status verification deferred',{stage:String(error?.stage||'query_error').slice(0,40)});
+        return r.status(503).json({error:'Provider status is temporarily unavailable; callback remains under review.'});
+      }
       await Payment.updateOne({_id:completed._id,status:'SUCCESS',confirmationSource:'manual_review',providerReceipt:outcome.receipt},{$set:{confirmationSource:'provider_callback',initiationState:'RESOLVED_PROVIDER'},$push:{reviewHistory:{$each:[{decision:'LATER_PROVIDER_CALLBACK_MATCHED',at:new Date(),providerReceipt:outcome.receipt}],$slice:-20}}});
     }
     const finalPayment=completed?.confirmationSource==='manual_review'?await Payment.findById(completed._id):completed;
@@ -718,6 +737,19 @@ app.post('/api/payments/daraja/callback/:token',async(q,r)=>{
   const outcome=transition.outcome;
   if(outcome.error==='malformed')return r.status(400).json({error:'Malformed callback'});
   if(outcome.error==='mismatch')return r.status(400).json({error:'Callback details did not match the initiated payment'});
+  let providerStatus;
+  try {
+    providerStatus=await mpesaProvider.queryStatus({checkoutRequestId:payment.checkoutRequestId});
+  } catch(error) {
+    console.warn('Daraja callback status verification deferred',{stage:String(error?.stage||'query_error').slice(0,40)});
+    return r.status(503).json({error:'Provider status is temporarily unavailable; callback remains pending.'});
+  }
+  if(!callbackMatchesDarajaStatus(outcome,providerStatus)) {
+    console.warn('Daraja callback did not match provider status',{callbackCode:outcome.resultCode,providerState:providerStatus?.state||'unknown'});
+    return providerStatus?.state==='PENDING'
+      ? r.status(503).json({error:'Provider has not confirmed this callback yet; payment remains pending.'})
+      : r.status(409).json({error:'Provider status conflicts with this callback; payment remains pending for review.'});
+  }
   if(outcome.status==='SUCCESS')Object.assign(transition.update.$set,{confirmationSource:'provider_callback',initiationState:'RESOLVED_PROVIDER'});
   const updated=await Payment.findOneAndUpdate({_id:payment._id,status:'PENDING',callbackProcessedAt:{$exists:false},checkoutRequestId:cb.CheckoutRequestID,merchantRequestId:cb.MerchantRequestID},transition.update,{new:true});
   if(updated){
