@@ -338,6 +338,17 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     checkoutRequestId: 'AUDIT-SCHOOL-CANCEL-CHECKOUT', merchantRequestId: 'AUDIT-SCHOOL-CANCEL-MERCHANT',
   };
   await db.collection('schoolfeepayments').insertOne(cancelledSchoolFee);
+  const schoolDonation = {
+    paymentReference:'AUDIT-DONATION-001', schoolId, donorId:parentId, amount:500,
+    payerPhone:'254712345678', destinationNumber:'123456', paymentMethod:'mpesa_paybill',
+    status:'PENDING_STK', checkoutRequestId:'AUDIT-DONATION-CHECKOUT', merchantRequestId:'AUDIT-DONATION-MERCHANT',
+    providerName:'daraja-sandbox', providerShortcode:'123456', providerEndpoint:'https://sandbox.safaricom.co.ke',
+  };
+  const failedSchoolDonation = {
+    ...schoolDonation, _id:new O(), paymentReference:'AUDIT-DONATION-FAILED', amount:300,
+    checkoutRequestId:'AUDIT-DONATION-FAILED-CHECKOUT', merchantRequestId:'AUDIT-DONATION-FAILED-MERCHANT',
+  };
+  await db.collection('schooldonations').insertMany([schoolDonation,failedSchoolDonation]);
   const wrongDestinationSchoolFee = {
     ...schoolFee, _id: new O(), paymentReference: 'AUDIT-FEE-WRONG-DESTINATION', destinationNumber: '999999',
     checkoutRequestId: 'AUDIT-SCHOOL-WRONG-DESTINATION-CHECKOUT', merchantRequestId: 'AUDIT-SCHOOL-WRONG-DESTINATION-MERCHANT',
@@ -380,6 +391,23 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   assert.equal((await postJson(`/api/schools/daraja/callback/${schoolToken}`,{Body:{data:'x'.repeat(70000)}})).status,413,'oversized school callback bodies are rejected');
   assert.equal((await makeSchoolCallback(wrongDestinationSchoolFee)).status,409,'a callback cannot settle a fee after its provider shortcode differs from the original destination');
   assert.equal((await db.collection('schoolfeepayments').findOne({paymentReference:wrongDestinationSchoolFee.paymentReference})).status,'PENDING_STK');
+  const makeDonationCallback = (donation, resultCode=0, amount=donation.amount, receipt='AUDITDONATION1') => postJson(`/api/schools/daraja/callback/${schoolToken}`,{
+    Body:{stkCallback:{CheckoutRequestID:donation.checkoutRequestId,MerchantRequestID:donation.merchantRequestId,ResultCode:resultCode,ResultDesc:'Synthetic donation callback',...(resultCode===0?{CallbackMetadata:{Item:[{Name:'Amount',Value:amount},{Name:'PhoneNumber',Value:254712345678},{Name:'MpesaReceiptNumber',Value:receipt}]}}:{})}},
+  });
+  assert.equal((await makeDonationCallback(schoolDonation,0,499)).status,200,'donation amount mismatch is acknowledged without settlement');
+  assert.equal((await db.collection('schooldonations').findOne({paymentReference:schoolDonation.paymentReference})).status,'PENDING_STK');
+  const donationCallbacks=await Promise.all([makeDonationCallback(schoolDonation),makeDonationCallback(schoolDonation)]);
+  assert.deepEqual(donationCallbacks.map(response=>response.status),[200,200]);
+  const storedDonation=await db.collection('schooldonations').findOne({paymentReference:schoolDonation.paymentReference});
+  assert.equal(storedDonation.status,'CONFIRMED');
+  assert.equal(storedDonation.mpesaReceipt,'AUDITDONATION1');
+  assert.equal(await db.collection('schooldonations').countDocuments({mpesaReceipt:'AUDITDONATION1'}),1,'concurrent callbacks cannot duplicate a donation receipt');
+  assert.equal((await makeDonationCallback(schoolDonation)).status,200,'duplicate donation callback remains idempotent');
+  nextProviderQueryCode='1';
+  assert.equal((await makeDonationCallback(failedSchoolDonation,1)).status,200);
+  const storedFailedDonation=await db.collection('schooldonations').findOne({paymentReference:failedSchoolDonation.paymentReference});
+  assert.equal(storedFailedDonation.status,'FAILED');
+  assert.equal(storedFailedDonation.mpesaReceipt,undefined,'failed donation has no provider receipt');
   nextProviderQueryCode='1032';
   assert.equal((await makeSchoolCallback(cancelledSchoolFee, schoolToken, 1032)).status, 200);
   assert.equal((await db.collection('schoolfeepayments').findOne({paymentReference: cancelledSchoolFee.paymentReference})).status, 'CANCELLED');
