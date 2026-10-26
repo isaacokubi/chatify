@@ -1,5 +1,35 @@
 # M-Pesa testing and evidence boundaries
 
+## Latest continuation — 2026-10-26
+
+This dated continuation supersedes earlier same-day availability statements where they conflict. It does not replace the historical 2026-10-25 sandbox transaction record below.
+
+- Fresh backend run: `cd server && npm test` — **238 passed, 0 failed, 1 skipped**, exit 0. The one skip is the database integration test guarded when no URI is configured. `cd server && npm run lint` — exit 0.
+- Fresh isolated database/API run: `CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_20261026_numbers node --test --test-reporter=spec src/database.integration.test.js` from `server/` — **1 passed, 0 failed, 0 skipped**, exit 0. It used a uniquely named disposable database and synthetic callback/provider fixtures. The test logged a sanitized provider transport failure for its failure scenario; that is not a sandbox payment attempt.
+- Hosting check: the Render CLI reported its stored login token expired. No hosting integration or Daraja portal session was available. The deployed API health endpoint returned HTTP 200 over TLS with certificate verification successful; DNS resolved to `216.24.57.16` for this request. An intentionally invalid token callback POST returned HTTP 404. These checks establish public DNS/TLS/health and rejection of an invalid token only. They do not establish deployed environment values, valid callback authentication, provider registration, or a provider-delivered callback. Vercel is not linked to this repository.
+- Local ignored server configuration selects `MPESA_ENV=sandbox`; platform Daraja settings and callback token/URL are present, and source validation accepts the HTTPS callback route/token pairing. This is not evidence about hosted configuration. School, POS and C2B deployment settings remain unverified.
+- A real sandbox OAuth request succeeded (HTTP 200). A real Dynamic QR generation request using the same local sandbox app returned HTTP 401 with the error classified safely as a product-entitlement/authorization rejection. The request shape matches the documented Dynamic QR API; no QR was issued and no payment was made. Safaricom portal access is required to confirm or enable the app product entitlement ([Dynamic QR API](https://developer.safaricom.co.ke/apis/DynamicQRCode)).
+- **No STK request or prompt was initiated in this continuation.** The user supplied an approved primary test number and a conditional fallback, but neither number's sandbox eligibility could be checked: Safaricom's guidance requires a registered, active M-Pesa number and directs users to the authenticated Daraja simulator for sandbox test data ([M-Pesa Express Simulate](https://developer.safaricom.co.ke/apis/MpesaExpressSimulate)). The public documentation does not establish whether the supplied primary number is eligible. Since primary ineligibility was not established, the fallback was not used. There was no prompt delivery/completion, new provider callback, receipt or balance change.
+
+### Current per-flow status
+
+| Flow | Current evidence | Status |
+|---|---|---|
+| Chatify Pay/platform STK | Automated unit and disposable Mongo/API tests pass. One separately documented successful sandbox transaction on 2026-10-25 remains historical. No STK initiated in this continuation; hosted token configuration and valid callback delivery were not verified. | Automated; current sandbox run blocked |
+| School fees/donations | Automated fee/balance/receipt and synthetic callback tests pass. No school-specific Daraja profile or provider test was available. | Automated only; sandbox blocked |
+| Merchant POS/storefront | Automated POS and synthetic callback tests pass. Merchant-owned app authorization/configuration and provider callback were unavailable. Real-provider business invoice STK remains HTTP 409 until merchant-scoped settlement exists. | Automated only; sandbox blocked |
+| POS C2B | Receiver and synthetic persistence/idempotency tests exist. Safaricom registration and provider delivery were not checked. | Automated only; provider registration/delivery blocked |
+| Dynamic QR | Automated request/validation coverage; real sandbox generation returned HTTP 401 product-entitlement/authorization rejection. No QR/payment. | Provider generation blocked; payment unverified |
+| Legacy platform fee | Callback retained for old records; new collection is disabled/no-op. No B2C transfer implementation exists. | Not an active flow |
+
+### Operator actions to unblock provider acceptance
+
+1. Run `render login` and complete the Render Dashboard authorization. Then inspect the intended sandbox and production services and masked variable presence. Do not change production payment settings. Confirm `MPESA_ENV`, the public callback host/path, and that hosted token values are set without displaying them.
+2. Sign in to the Daraja portal, inspect the sandbox app's M-Pesa Express and Dynamic QR product access, retrieve the portal's supported test MSISDN guidance, and verify the primary number first. Use the personal fallback only if the portal/provider establishes that the primary is unsupported and the fallback is accepted for this sandbox flow.
+3. Provide an authorized Chatify test account/API session and a reachable sandbox callback configuration, then initiate exactly one platform STK through Chatify. Reconcile before retrying any uncertain request. Have the authorized tester accept or cancel the prompt and verify its persisted payment, callback source, receipt and account association.
+4. Configure authorized school and merchant sandbox profiles independently and repeat their own payment paths. Register C2B validation/confirmation URLs in the authorized Daraja app before a provider simulation. Ask Safaricom/Daraja support or an app administrator to grant Dynamic QR sandbox entitlement before retrying QR generation.
+5. Keep production acceptance blocked until app approval, production callback delivery, monitoring, and statement reconciliation are verified. Do not use production credentials or initiate live-money tests under this sandbox authorization.
+
 ## Verification update — 2026-10-26
 
 ### Current automated evidence
