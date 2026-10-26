@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import {encryptSchoolSecret} from './school.js';
 import {encryptMerchantCredentials} from './business-pos.js';
+import {validateDisposableMongoTestUri} from './database-test-guard.js';
 
 const testMongoUri = String(process.env.CHATIFY_MONGO_TEST_URI || '').trim();
 
@@ -11,20 +12,7 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   skip: !testMongoUri,
   timeout: 180000,
 }, async t => {
-  const uri = new URL(testMongoUri);
-  const databaseName = decodeURIComponent(uri.pathname.replace(/^\//, ''));
-  assert.equal(uri.protocol, 'mongodb:',
-    'destructive integration setup only accepts a direct MongoDB URI');
-  assert.equal(uri.username, '', 'database credentials are not permitted in the disposable test URI');
-  assert.equal(uri.password, '', 'database credentials are not permitted in the disposable test URI');
-  assert.equal(uri.search, '', 'unexpected MongoDB URI options are refused');
-  assert.equal(uri.hash, '', 'unexpected MongoDB URI fragments are refused');
-  assert.ok(databaseName === 'chatify' || /^chatify_audit_test(?:_|$)/.test(databaseName),
-    'refusing to run destructive integration setup outside the isolated Chatify audit database');
-  assert.equal(uri.hostname, '127.0.0.1',
-    'the audit integration DB must use the approved loopback address');
-  assert.equal(uri.port, '27018',
-    'destructive integration setup only targets the approved ephemeral MongoDB container');
+  const {databaseName} = validateDisposableMongoTestUri(testMongoUri);
 
   const jwtSecret = 'local-audit-only-signing-secret-0123456789abcdef';
   const platformToken = 'platform-audit-callback-token-0123456789abcdef';
@@ -120,6 +108,43 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   assert.equal(invoiceStkResponse.status,409,'real invoice STK must not route merchant funds to the platform shortcode');
   assert.equal(providerStkRequests,stkRequestsBeforeInvoice,'blocked invoice STK must not contact Daraja');
   assert.equal(await db.collection('payments').countDocuments({businessDocumentId:invoiceDocument._id}),0,'blocked invoice STK must not create a charge attempt');
+
+  const storefrontOrder = await mongoose.models.BusinessDocument.create({
+    organizationId: invoiceOrganization._id, type: 'order', number: 'AUDIT-ORDER-001', status: 'accepted',
+    currency: 'KES', subtotal: 300, total: 300, paidAmount: 0,
+    items: [{name: 'Synthetic order item', quantity: 1, unitPrice: 300, lineTotal: 300}], createdBy: parentId,
+  });
+  const storefrontOrderPayment = {
+    paymentId: 'AUDIT-STOREFRONT-ORDER-001', requesterId: parentId, payerId: parentId,
+    amount: 300, baseAmount: 300, totalAmount: 300, description: 'Order AUDIT-ORDER-001',
+    purpose: 'REQUEST', status: 'PENDING', provider: 'daraja-sandbox', businessOrganizationId: invoiceOrganization._id,
+    businessDocumentId: storefrontOrder._id, payerPhone: '254712345678', phone: '254712345678',
+    checkoutRequestId: 'AUDIT-STOREFRONT-CHECKOUT', merchantRequestId: 'AUDIT-STOREFRONT-MERCHANT',
+    providerShortcode: '123456', providerEndpoint: 'https://sandbox.safaricom.co.ke',
+    requestedAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
+  };
+  await db.collection('payments').insertOne(storefrontOrderPayment);
+  const stkRequestsBeforeDocumentInitiation = providerStkRequests;
+  const blockedOrderInitiation = await postJson(`/api/payments/${storefrontOrderPayment.paymentId}/initiate`, {phone: '254712345678'}, parentAuth);
+  assert.equal(blockedOrderInitiation.status, 409, 'merchant order must not initiate STK to the platform shortcode');
+  assert.equal(providerStkRequests, stkRequestsBeforeDocumentInitiation, 'blocked merchant order must not contact Daraja');
+  assert.equal((await db.collection('payments').findOne({paymentId: storefrontOrderPayment.paymentId})).status, 'PENDING');
+  assert.equal((await db.collection('businessdocuments').findOne({_id: storefrontOrder._id})).paidAmount, 0, 'blocked order remains unpaid');
+  const statusQueriesBeforeDocumentCallback = providerStatusRequests;
+  const blockedOrderCallback = await postJson(`/api/payments/daraja/callback/${platformToken}`, {Body: {stkCallback: {
+    CheckoutRequestID: storefrontOrderPayment.checkoutRequestId, MerchantRequestID: storefrontOrderPayment.merchantRequestId,
+    ResultCode: 0, ResultDesc: 'Synthetic success', CallbackMetadata: {Item: [
+      {Name: 'Amount', Value: 300}, {Name: 'PhoneNumber', Value: 254712345678}, {Name: 'MpesaReceiptNumber', Value: 'AUDITORDER123'},
+    ]},
+  }}});
+  assert.equal(blockedOrderCallback.status, 409, 'platform callback must not mark a merchant order paid');
+  assert.equal(providerStatusRequests, statusQueriesBeforeDocumentCallback, 'blocked merchant callback must not query or reconcile through the platform provider');
+  assert.equal((await db.collection('payments').findOne({paymentId: storefrontOrderPayment.paymentId})).status, 'PENDING');
+  assert.equal((await db.collection('businessdocuments').findOne({_id: storefrontOrder._id})).paidAmount, 0, 'platform callback cannot credit the merchant order');
+  await db.collection('payments').updateOne({paymentId: storefrontOrderPayment.paymentId}, {$set: {status: 'FAILED'}});
+  const blockedOrderRetry = await postJson(`/api/payments/${storefrontOrderPayment.paymentId}/retry`, {}, parentAuth);
+  assert.equal(blockedOrderRetry.status, 409, 'merchant order must not create a platform-shortcode retry');
+  assert.equal(await db.collection('payments').countDocuments({businessDocumentId: storefrontOrder._id}), 1, 'blocked retry must not create another payment record');
 
   const pendingPayment = {
     paymentId: 'AUDIT-PLATFORM-001', requesterId: parentId, payerId: parentId,
