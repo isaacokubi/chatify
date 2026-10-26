@@ -324,13 +324,23 @@ export function registerBusinessPosRoutes({app, auth, mongoose, mpesaProvider, p
       const charge = buildPosCharge({organization: org, amount: req.body?.amount, description: req.body?.description, reference: req.body?.reference, profile});
       charge.organizationId = org._id;
       charge.createdBy = req.user._id;
-      // Use Safaricom's actual M-Pesa-readable Dynamic QR when live/sandbox Daraja
-      // credentials are configured. Mock mode remains clearly labelled instructions.
-      if (mpesaProvider && !mpesaProvider.isMock) {
-        if (typeof mpesaProvider.generateDynamicQr !== 'function') {
+      // A QR request must authenticate with this merchant's Daraja account. Never
+      // use the platform provider's OAuth token for a merchant shortcode.
+      const encryptedCredentials = org.settings?.posDarajaCredentialsEncrypted;
+      if (encryptedCredentials) {
+        const credentials = decryptMerchantCredentials(encryptedCredentials);
+        const expectedShortcode = profile.method === 'mpesa_till' ? profile.tillNumber : profile.paybillNumber;
+        if (credentials.shortcode !== expectedShortcode) return res.status(409).json({error: 'Merchant Daraja credentials do not match the configured payment destination.'});
+        const callbackToken = String(process.env.POS_C2B_CALLBACK_TOKEN || '').trim();
+        let callbackBase;
+        try { callbackBase = new URL(process.env.POS_C2B_PUBLIC_BASE_URL || process.env.POS_STK_PUBLIC_BASE_URL || ''); } catch { return res.status(503).json({error: 'Merchant C2B callback URL and token must be configured before creating a Dynamic QR.'}); }
+        if (callbackToken.length < 32 || callbackBase.protocol !== 'https:' || !callbackBase.hostname.includes('.') || callbackBase.username || callbackBase.password) return res.status(503).json({error: 'Merchant C2B callback URL and token must be configured before creating a Dynamic QR.'});
+        const callbackUrl = `${callbackBase.origin}/api/business/pos/c2b/confirmation/${callbackToken}`;
+        const qrProvider = createDarajaProvider({mode: credentials.mode, consumerKey: credentials.consumerKey, consumerSecret: credentials.consumerSecret, shortcode: credentials.shortcode, passkey: credentials.passkey, callbackUrl, transactionType: profile.method === 'mpesa_till' ? 'CustomerBuyGoodsOnline' : 'CustomerPayBillOnline'});
+        if (typeof qrProvider.generateDynamicQr !== 'function') {
           return res.status(503).json({error: 'Dynamic QR is not available from the configured payment provider'});
         }
-        const qr = await mpesaProvider.generateDynamicQr({
+        const qr = await qrProvider.generateDynamicQr({
           merchantName: org.name,
           reference: charge.reference,
           amount: charge.baseAmount ?? charge.amount,

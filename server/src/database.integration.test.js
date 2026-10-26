@@ -38,16 +38,18 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   let failNextStk=false;
   let providerStkRequests=0;
   let providerStatusRequests=0;
+  const oauthAuthorizationHeaders=[];
   let nextProviderQueryCode='0';
   const nativeFetch=globalThis.fetch.bind(globalThis);
   globalThis.fetch=async(url,options={})=>{
     if(String(url).startsWith('http://127.0.0.1:'))return nativeFetch(url,options);
-    if(String(url).includes('/oauth/'))return {ok:true,json:async()=>({access_token:'synthetic-access-token',expires_in:3600})};
+    if(String(url).includes('/oauth/')){oauthAuthorizationHeaders.push(options.headers?.Authorization);return {ok:true,json:async()=>({access_token:'synthetic-access-token',expires_in:3600})};}
     if(String(url).includes('/mpesa/stkpush/v1/processrequest')){
       providerStkRequests+=1;
       if(failNextStk){failNextStk=false;throw Error('synthetic lost STK response');}
       return {ok:true,json:async()=>({ResponseCode:'0',CheckoutRequestID:'SYNTHETIC-CHECKOUT',MerchantRequestID:'SYNTHETIC-MERCHANT'})};
     }
+    if(String(url).includes('/mpesa/qrcode/v1/generate'))return {ok:true,json:async()=>({QRCode:'SYNTHETIC-QR-CONTENT-THAT-IS-LONG-ENOUGH',RequestID:'SYNTHETIC-QR-REQUEST'})};
     providerStatusRequests+=1;
     const queryCode=nextProviderQueryCode;
     nextProviderQueryCode='0';
@@ -69,6 +71,7 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   const O = mongoose.Types.ObjectId;
   const parentId = new O();
   const otherUserId = new O();
+  const secondGuardianId = new O();
   const schoolAdminId = new O();
   const platformAdminId = new O();
   const schoolId = new O();
@@ -78,11 +81,13 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   await db.collection('users').insertMany([
     {_id: parentId, name: 'Synthetic Parent', email: 'parent@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
     {_id: otherUserId, name: 'Other Synthetic User', email: 'other@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
+    {_id: secondGuardianId, name: 'Synthetic Second Guardian', email: 'guardian2@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
     {_id: schoolAdminId, name: 'Synthetic School Admin', email: 'admin@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
     {_id: platformAdminId, name: 'Synthetic Platform Admin', email: 'platform-admin@example.test', passwordHash: 'unused', status: 'active', role: 'admin', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
   ]);
   const parentAuth = 'Bearer ' + jwt.sign({sub: String(parentId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const otherAuth = 'Bearer ' + jwt.sign({sub: String(otherUserId), sv: 0}, jwtSecret, {expiresIn: '1h'});
+  const secondGuardianAuth = 'Bearer ' + jwt.sign({sub: String(secondGuardianId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const schoolAdminAuth = 'Bearer ' + jwt.sign({sub: String(schoolAdminId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const platformAdminAuth = 'Bearer ' + jwt.sign({sub: String(platformAdminId), sv: 0}, jwtSecret, {expiresIn: '1h'});
 
@@ -197,6 +202,13 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     name:'Synthetic Invoice Merchant',slug:'synthetic-invoice-merchant',ownerId:parentId,
     industry:'retail',plan:'business_pro',approvalStatus:'APPROVED',billing:{billingEnforced:false},
   });
+  const orderCountBeforeUnsupportedCheckout=await db.collection('businessdocuments').countDocuments({organizationId:invoiceOrganization._id,type:'order'});
+  const paymentCountBeforeUnsupportedCheckout=await db.collection('payments').countDocuments({businessOrganizationId:invoiceOrganization._id});
+  const unsupportedCheckout=await postJson('/api/storefront/synthetic-invoice-merchant/checkout',{phone:'254712345678',items:[{itemId:String(new O()),quantity:1}]},parentAuth);
+  assert.equal(unsupportedCheckout.status,409,'merchant storefront order checkout must fail before creating records when only platform Daraja is configured');
+  assert.match((await unsupportedCheckout.json()).error,/No order or payment was created/);
+  assert.equal(await db.collection('businessdocuments').countDocuments({organizationId:invoiceOrganization._id,type:'order'}),orderCountBeforeUnsupportedCheckout);
+  assert.equal(await db.collection('payments').countDocuments({businessOrganizationId:invoiceOrganization._id}),paymentCountBeforeUnsupportedCheckout);
   const invoiceDocument=await mongoose.models.BusinessDocument.create({
     organizationId:invoiceOrganization._id,type:'invoice',number:'AUDIT-INVOICE-001',status:'sent',
     currency:'KES',subtotal:300,total:300,paidAmount:0,items:[{name:'Synthetic item',quantity:1,unitPrice:300,lineTotal:300}],
@@ -406,6 +418,9 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     schoolId, userId: parentId, role: 'parent', studentNames: ['Synthetic Learner'], active: true,
   });
   await db.collection('schoolmemberships').insertOne({
+    schoolId, userId: secondGuardianId, role: 'parent', studentNames: ['Synthetic Learner'], active: true,
+  });
+  await db.collection('schoolmemberships').insertOne({
     schoolId, userId: schoolAdminId, role: 'admin', studentNames: [], active: true,
   });
   const learnerIds = [new O(), new O()];
@@ -445,6 +460,26 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     totalAmount: 10000, credits: 0, structureId, structureVersion: 1,
     issuedBy: parentId, issuedAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
   });
+  await db.collection('schoolstudents').insertOne({_id:studentId,schoolId,admissionNumber:'AUDIT-001',fullName:'Synthetic Learner',className:'Grade 4',active:true,guardianName:'Synthetic Parent',guardianPhone:'254712345678'});
+  await db.collection('schoolfeestructures').insertOne({_id:structureId,schoolId,className:'Grade 4',academicYear:'2026',term:'Term 1',status:'ACTIVE',version:1,items:[{code:'TUITION',description:'Tuition',amount:10000}],totalAmount:10000,createdBy:schoolAdminId,updatedBy:schoolAdminId});
+  const feeInitiationsBefore=providerStkRequests;
+  const overBalanceFee=await postJson(`/api/schools/${schoolId}/fees`,{studentName:'Synthetic Learner',amount:10001,term:'Term 1',academicYear:'2026',phone:'254712345678',paymentMethod:'mpesa_paybill'},parentAuth);
+  assert.equal(overBalanceFee.status,400,'school fee initiation cannot exceed the server-calculated balance');
+  const validFeeInit=await postJson(`/api/schools/${schoolId}/fees`,{studentName:'Synthetic Learner',amount:5000,term:'Term 1',academicYear:'2026',phone:'254712345678',paymentMethod:'mpesa_paybill'},parentAuth);
+  assert.equal(validFeeInit.status,201,'valid synthetic school fee uses the school Daraja profile');
+  const validFeeData=(await validFeeInit.json()).payment;
+  assert.equal(validFeeData.status,'PENDING_STK','accepted STK initiation is not a paid fee');
+  assert.equal(providerStkRequests,feeInitiationsBefore+1);
+  const savedInitiatedFee=await db.collection('schoolfeepayments').findOne({paymentReference:validFeeData.paymentReference});
+  assert.equal(savedInitiatedFee.destinationNumber,'123456');
+  assert.equal(savedInitiatedFee.providerName,'daraja-sandbox');
+  const duplicateFeeInit=await postJson(`/api/schools/${schoolId}/fees`,{studentName:'Synthetic Learner',amount:5000,term:'Term 1',academicYear:'2026',phone:'254712345678',paymentMethod:'mpesa_paybill'},parentAuth);
+  assert.equal(duplicateFeeInit.status,200,'retry returns the existing unresolved school STK instead of creating another prompt');
+  assert.equal((await duplicateFeeInit.json()).payment.paymentReference,validFeeData.paymentReference);
+  assert.equal(providerStkRequests,feeInitiationsBefore+1);
+  const otherGuardianFeeInit=await postJson(`/api/schools/${schoolId}/fees`,{studentName:'Synthetic Learner',amount:5000,term:'Term 1',academicYear:'2026',phone:'254712345678',paymentMethod:'mpesa_paybill'},secondGuardianAuth);
+  assert.equal(otherGuardianFeeInit.status,409,'a second guardian cannot start another unresolved prompt for the same student and term');
+  assert.equal(providerStkRequests,feeInitiationsBefore+1);
   const schoolFee = {
     paymentReference: 'AUDIT-FEE-001', schoolId, parentId,
     studentName: 'Synthetic Learner', studentId, chargeId,
@@ -585,8 +620,21 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   await db.collection('businessorganizations').insertOne({
     _id: organizationId, name: 'Synthetic Audit Merchant', slug: 'synthetic-audit-merchant',
     ownerId: parentId, country: 'KE', currency: 'KES', members: [],
-    settings: {posDarajaCredentialsEncrypted: encryptMerchantCredentials({mode:'sandbox',consumerKey:'synthetic-key',consumerSecret:'synthetic-secret',passkey:'synthetic-passkey',shortcode:'654321'})}, billing: {},
+    settings: {posPaymentProfile:{method:'mpesa_paybill',tillNumber:'',paybillNumber:'654321',accountNumber:''},posDarajaCredentialsEncrypted: encryptMerchantCredentials({mode:'sandbox',consumerKey:'merchant-synthetic-key',consumerSecret:'merchant-synthetic-secret',passkey:'synthetic-passkey',shortcode:'654321'})}, billing: {},
   });
+  const platformOauthAuth=Buffer.from('synthetic-key:synthetic-secret').toString('base64');
+  const merchantOauthAuth=Buffer.from('merchant-synthetic-key:merchant-synthetic-secret').toString('base64');
+  const oauthHeadersBeforeMerchantQr=oauthAuthorizationHeaders.length;
+  const merchantQrResponse=await postJson(`/api/business/organizations/${organizationId}/pos/charges`,{amount:500,description:'Synthetic QR sale',reference:'QR-AUDIT-1'},parentAuth);
+  const merchantQrBody=await merchantQrResponse.json();
+  assert.equal(merchantQrResponse.status,201,`configured merchant Dynamic QR uses merchant Daraja credentials: ${merchantQrBody.error||'unexpected response'}`);
+  const qrOauthHeaders=oauthAuthorizationHeaders.slice(oauthHeadersBeforeMerchantQr);
+  assert.ok(qrOauthHeaders.includes(`Basic ${merchantOauthAuth}`));
+  assert.ok(!qrOauthHeaders.includes(`Basic ${platformOauthAuth}`),'merchant QR generation must not authenticate with platform credentials');
+  const generatedMerchantQr=merchantQrBody.charge;
+  assert.equal(generatedMerchantQr.status,'PENDING','QR generation is not proof of payment');
+  assert.equal(generatedMerchantQr.destination.paybillNumber,'654321');
+  assert.equal((await db.collection('businessposcharges').findOne({paymentId:generatedMerchantQr.paymentId})).status,'PENDING');
   const stkCharge = {
     _id: new O(), paymentId: 'AUDIT-MERCHANT-STK', organizationId, createdBy: parentId,
     reference: 'AUDITSTK001', amount: 850, baseAmount: 850, totalAmount: 850,

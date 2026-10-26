@@ -1,5 +1,28 @@
 # M-Pesa testing and evidence boundaries
 
+## Business and school payment follow-up — 2026-10-26
+
+This follow-up tests current `main` (initial commit `ca43044d0c741cd96fbb4d617297680cc7946925`) plus the listed local changes. It makes no claim of provider acceptance.
+
+### Results by payment path
+
+- **Storefront order payment:** Disposable API test confirms real-provider checkout returns HTTP 409 before creating an order or payment. Flutter disables the misleading prompt path and directs buyers to contact the seller. Merchant-scoped settlement is not implemented; this flow is unsafe to enable for online production order settlement.
+- **Business POS STK:** Synthetic callback/query tests verify merchant correlation, exact amount/phone/receipt, wrong token and duplicate handling. No external sandbox STK was initiated; provider acceptance is unverified.
+- **Business POS C2B:** Synthetic callback matching and duplicate receipt behavior pass. Safaricom URL registration and provider-delivered callback were not verified.
+- **Business Dynamic QR:** Disposable API regression proves OAuth uses merchant credentials and generated QR remains `PENDING`. The prior sandbox HTTP 401 remains unresolved and was not repeated. Sandbox acceptance requires Daraja Dynamic QR authorization and registered C2B callback delivery.
+- **School fees:** Disposable API test verifies over-balance rejection, school provider/shortcode identity, pending status after accepted initiation, reuse of the unresolved reference on a repeated request, and rejection when a second linked guardian tries to open another prompt. Existing synthetic callback, receipt, fee balance and wrong-destination assertions pass. The check and insert are not protected by an atomic database uniqueness constraint, so simultaneous first-time requests remain a release blocker. No school sandbox prompt or callback was performed.
+- **Donations, manual references and workspace billing:** Existing separate tests remain synthetic/unit or disposable DB coverage; no external acceptance is claimed.
+
+### Exact execution record
+
+- Focused: `node --test src/business-pos.test.js src/school.test.js src/school-fees.test.js src/payments.test.js` (`server/`) — **4 test files passed**, exit 0.
+- Disposable: `/bin/bash -lc 'CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_20261026_business_school node --test src/database.integration.test.js'` (`server/`) — **1 passed, 0 failed, 0 skipped**, exit 0. MongoDB 7 disposable database and intercepted synthetic provider; no Safaricom endpoint contacted.
+- Full backend: `cd server && npm test` — **246 passed, 0 failed, 1 skipped**, exit 0; skip is the database test without URI. Initial restricted run hit startup-listener `EPERM`; permissioned rerun passed.
+- Lint: `cd server && npm run lint` — exit 0.
+- Flutter: `cd mobile && flutter analyze --no-fatal-infos` — no issues; `cd mobile && flutter test --no-pub --concurrency=1` — **35 passed**.
+- Android: `cd mobile && flutter build apk --release` — blocked by missing release-keystore environment values; no fake keystore created.
+- No sandbox STK request, phone prompt, manual PIN action, provider callback, live payment, deployment, or preview was performed.
+
 > **Latest status — 2026-10-26, payment guard commit `b4967e9`:** Automated regression suites reported 246 backend tests passed, 0 failed and 1 skipped; focused payment/school/POS/workspace/provider coverage passed 7/7 test files; a disposable MongoDB regression passed 1/1; Flutter tests passed 35/35; backend lint and Flutter analysis passed. These are source-level and synthetic-test results, **not live Daraja acceptance**. The Dynamic QR sandbox HTTP 401 remains unresolved, merchant-scoped storefront/invoice settlement is not implemented, and production credentials, callback delivery, C2B registration/delivery and school/POS provider acceptance remain unverified. See [current test results](TEST_RESULTS.md).
 
 The full implementation inventory and acceptance matrix is maintained in [MPESA_FLOW_MATRIX.md](MPESA_FLOW_MATRIX.md). The contact Send Money action is a user-controlled handset-menu handoff, not a Chatify-observed transfer. `/api/payments` creates a payment request and platform STK collects to the configured platform shortcode; it does not transfer funds to the request's personal recipient phone. Chatify has no B2C disbursement, automated refund/reversal, or C2B URL-registration flow.

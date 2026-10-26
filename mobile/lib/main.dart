@@ -16482,6 +16482,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
   bool loading = true, checkingOut = false;
   String? error, paymentId, notice;
   AppState get app => context.read<AppState>();
+  bool get orderCheckoutSupported => storefront['orderCheckoutSupported'] == true;
 
   @override
   void initState() {
@@ -16591,7 +16592,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Chat opened. Ask about ' +
               (item['name']?.toString() ?? 'this item') +
-              '; secure M-Pesa checkout is available on this storefront.'),
+              '; ask the seller to confirm an available payment method.'),
         ));
       }
       final draft = item == null
@@ -16685,7 +16686,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
         builder: (dialogContext) => AlertDialog(
           title: const Text('Sign in to pay'),
           content: const Text(
-              'You can browse products without an account. Sign in or create an account to place an order and receive the secure M-Pesa payment prompt.'),
+              'You can browse products without an account. Sign in or create an account to place an order. The store will confirm its available payment method.'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
@@ -16871,7 +16872,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
                             'Browse products, add what you need to your cart, and pay securely with M-Pesa.',
                         style: const TextStyle(color: Colors.white70)),
                     const SizedBox(height: 10),
-                    const Text('Secure checkout · M-Pesa',
+                    const Text('Payment method confirmed with seller',
                         style: TextStyle(
                             color: Colors.white, fontWeight: FontWeight.w700)),
                     if ((storefront['sellerMpesaPhone']?.toString() ?? '')
@@ -17041,7 +17042,9 @@ class _StorefrontPageState extends State<StorefrontPage> {
                         SizedBox(
                             width: double.infinity,
                             child: FilledButton.icon(
-                              onPressed: checkingOut ? null : checkout,
+                              onPressed: checkingOut || !orderCheckoutSupported
+                                  ? null
+                                  : checkout,
                               icon: checkingOut
                                   ? const SizedBox(
                                       width: 18,
@@ -17051,8 +17054,18 @@ class _StorefrontPageState extends State<StorefrontPage> {
                                   : const Icon(Icons.lock_outline),
                               label: Text(checkingOut
                                   ? 'Starting secure checkout…'
-                                  : 'Checkout with M-Pesa'),
+                                  : orderCheckoutSupported
+                                      ? 'Checkout with M-Pesa'
+                                      : 'Online checkout unavailable'),
                             )),
+                        if (!orderCheckoutSupported)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Text(
+                              'This store has not enabled online order settlement. Chat with the seller to arrange payment; no M-Pesa prompt will be sent here.',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                       ]),
                 ),
               ),

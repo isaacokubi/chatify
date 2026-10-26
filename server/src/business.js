@@ -395,7 +395,7 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
             accountNumber: configuredPayment.method === 'mpesa_paybill' ? String(configuredPayment.accountNumber || '') : '',
           }
         : null;
-      res.json({storefront: {name: org.name, slug: org.slug, description: org.description, website: org.website, currency: org.currency, sellerMpesaPhone, sellerUserId: String(org.ownerId), paymentProfile}, items});
+      res.json({storefront: {name: org.name, slug: org.slug, description: org.description, website: org.website, currency: org.currency, sellerMpesaPhone, sellerUserId: String(org.ownerId), paymentProfile, orderCheckoutSupported: Boolean(mpesaProvider?.isMock)}, items});
     } catch (error) { safeError(res, error); }
   });
 
@@ -436,6 +436,9 @@ export function registerBusinessRoutes({app, auth, mongoose, User, Conversation,
       const slug = slugifyBusinessName(req.params.slug);
       const org = await Organization.findOne({slug, 'settings.storefrontPublished': {$ne: false}, $or: [{approvalStatus: 'APPROVED'}, {approvalStatus: {$exists: false}}]});
       if (!org || (await getPublicBillingStatus(org)).locked) return res.status(404).json({error: 'Storefront not found'});
+      // Merchant settlement is not implemented for linked storefront orders. Fail before
+      // creating customer, order or payment records; platform STK cannot pay a merchant.
+      if (!mpesaProvider?.isMock) return res.status(409).json({error: 'Online storefront order checkout is unavailable until merchant-scoped settlement is implemented. No order or payment was created. Contact the store to arrange payment.'});
       if (!await canCreateWithinPlan(org, 'documents', BusinessDocument, res)) return;
       if (String(org.ownerId) === String(req.user._id)) return res.status(400).json({error: 'Use a separate customer account to test a purchase from your own store'});
       const phone = normalizeMpesaPhone(String(req.body?.phone || req.user.phone || ''));

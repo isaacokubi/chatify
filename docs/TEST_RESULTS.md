@@ -1,5 +1,22 @@
 # Production readiness test results
 
+## Business and school M-Pesa follow-up — 2026-10-26
+
+Run from the current checkout (`main`, initially at `ca43044d0c741cd96fbb4d617297680cc7946925`). Changes in this follow-up are not deployed. All provider responses below came from local synthetic mocks; no Daraja request was sent.
+
+| Check | Exact command | Observed result |
+|---|---|---|
+| Focused unit suites | `node --test src/business-pos.test.js src/school.test.js src/school-fees.test.js src/payments.test.js` (`server/`) | **4 test files passed, 0 failed, 0 skipped**, exit 0. |
+| Disposable Mongo/API test | `/bin/bash -lc 'CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_20261026_business_school node --test src/database.integration.test.js'` (`server/`) | **1 passed, 0 failed, 0 skipped**, exit 0. Isolated MongoDB 7 container; API and Daraja transport were locally mocked. Verified storefront 409/no record writes; school profile shortcode/provider, over-balance rejection, pending status and duplicate unresolved initiation reuse; merchant QR OAuth uses merchant credentials and does not mark the charge paid; existing synthetic callbacks, receipts, fee balance, POS STK/C2B and manual verification assertions. |
+| Complete backend suite | `cd server && npm test` | **246 passed, 0 failed, 1 skipped** (247 total), exit 0. Skip: guarded disposable DB integration without URI. The restricted first run hit `listen EPERM` in startup test; permissioned rerun passed. |
+| Backend lint | `cd server && npm run lint` | Exit 0. |
+| Flutter analysis | `cd mobile && flutter analyze --no-fatal-infos` | No issues found, exit 0. |
+| Flutter tests | `cd mobile && flutter test --no-pub --concurrency=1` | **35 passed**, exit 0. |
+| Android release | `cd mobile && flutter build apk --release` | **Blocked**, exit 1: required release keystore path/password/alias/password variables are not configured. No signing material generated. |
+| Whitespace | `git diff --check` | Pass, exit 0. |
+
+This provides mock/unit and disposable database/API evidence only. Storefront order settlement remains unsupported and disabled for real providers. No merchant/school sandbox STK prompt, user completion, real callback or hosted callback configuration was verified. Dynamic QR's prior sandbox HTTP 401 remains an external authorization/entitlement blocker and was not repeated. No production deployment or live-money payment occurred.
+
 ## Latest verification after payment-settlement guard — 2026-10-26
 
 Commit under test: `b4967e999454d7755abc3513a348c4a1b11e074e` (`fix(payments): block platform STK settlement for merchant orders`). This record reflects the test results reported by the repository work session; it does not claim that live M-Pesa or all production hosting paths were exercised.
