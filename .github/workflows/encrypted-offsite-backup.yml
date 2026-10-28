@@ -1,0 +1,53 @@
+name: Chatify encrypted off-site backup
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: chatify-offsite-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MongoDB Database Tools and age
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y age curl
+          curl --fail --location --retry 3 \
+            https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.10.0.deb \
+            --output /tmp/mongodb-tools.deb
+          sudo dpkg -i /tmp/mongodb-tools.deb
+          mongodump --version
+          age --version
+      - name: Configure short-lived AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.CHATIFY_BACKUP_AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.CHATIFY_BACKUP_AWS_REGION }}
+      - name: Create encrypted backup and upload off-site
+        env:
+          MONGODB_URI: ${{ secrets.CHATIFY_BACKUP_MONGODB_URI }}
+          BACKUP_AGE_RECIPIENT: ${{ secrets.CHATIFY_BACKUP_AGE_RECIPIENT }}
+          BACKUP_S3_URI: ${{ secrets.CHATIFY_BACKUP_S3_URI }}
+          BACKUP_DIR: ${{ runner.temp }}/chatify-backups
+          RETENTION_DAYS: '7'
+        run: bash server/scripts/backup-mongodb-encrypted-offsite.sh
+      - name: Verify uploaded backup objects exist
+        env:
+          BACKUP_S3_URI: ${{ secrets.CHATIFY_BACKUP_S3_URI }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="${BACKUP_S3_URI%/}"
+          aws s3 ls "$prefix/" --recursive | grep -E 'chatify-[0-9]{8}T[0-9]{6}Z\.archive\.gz\.age(\.sha256)?$' | tail -n 2
