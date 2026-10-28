@@ -29,6 +29,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:video_player/video_player.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'call_screen.dart';
 
 String _conversationParticipantId(Map participant) {
   final nested = participant['user'];
@@ -11773,6 +11774,7 @@ class _ChatState extends State<Chat> {
   bool loading = true;
   bool _socketConnectedOnce = false;
   bool _flushingOutbox = false;
+  bool _incomingCallDialogShown = false;
   String? _socketToken;
   String? loadError;
   bool showingOfflineData = false;
@@ -12237,6 +12239,82 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> _startCall(String callType) async {
+    final activeSocket = socket;
+    final peerId = _directPeerId();
+    final conversationId = widget.conversation['_id']?.toString() ?? '';
+    if (activeSocket == null || !activeSocket.connected || peerId == null || conversationId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connect to Chatify and reopen this direct conversation before calling.')));
+      return;
+    }
+    final callId = 'c${DateTime.now().microsecondsSinceEpoch}_${(app.user?['id'] ?? app.user?['_id'] ?? 'u').toString().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '').substring(0, ((app.user?['id'] ?? app.user?['_id'] ?? 'u').toString().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '').length).clamp(1, 8))}';
+    activeSocket.emit('call:invite', {
+      'callId': callId,
+      'conversationId': conversationId,
+      'calleeId': peerId,
+      'callType': callType,
+    });
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChatifyCallScreen(
+        socket: activeSocket,
+        callId: callId,
+        conversationId: conversationId,
+        peerId: peerId,
+        peerName: _directPeerName() ?? 'Chatify contact',
+        callType: callType,
+        isCaller: true,
+      ),
+    ));
+  }
+
+  Future<void> _handleIncomingCall(dynamic data) async {
+    if (!mounted || _incomingCallDialogShown || data is! Map ||
+        widget.conversation['type'] != 'direct' ||
+        data['conversationId']?.toString() != widget.conversation['_id']?.toString() ||
+        data['calleeId']?.toString() != (app.user?['id'] ?? app.user?['_id'])?.toString()) return;
+    final callId = data['callId']?.toString() ?? '';
+    final callerId = data['callerId']?.toString() ?? '';
+    final callType = data['callType']?.toString() ?? '';
+    if (callId.isEmpty || callerId != _directPeerId() || !['audio', 'video'].contains(callType)) return;
+    _incomingCallDialogShown = true;
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(callType == 'video' ? 'Incoming video call' : 'Incoming voice call'),
+        content: Text('${_directPeerName() ?? 'Your contact'} is calling you.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Decline'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.call),
+            label: const Text('Answer'),
+          ),
+        ],
+      ),
+    );
+    _incomingCallDialogShown = false;
+    if (!mounted || socket == null) return;
+    if (accepted != true) {
+      socket!.emit('call:reject', {'callId': callId});
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChatifyCallScreen(
+        socket: socket!,
+        callId: callId,
+        conversationId: widget.conversation['_id'].toString(),
+        peerId: callerId,
+        peerName: _directPeerName() ?? 'Chatify contact',
+        callType: callType,
+        isCaller: false,
+      ),
+    ));
+  }
+
   void connect() {
     socket?.dispose();
     final token = app.api.token;
@@ -12267,6 +12345,11 @@ class _ChatState extends State<Chat> {
         unawaited(load());
       }
       _socketConnectedOnce = true;
+    });
+    socket!.on('call:incoming', _handleIncomingCall);
+    socket!.on('call:error', (data) {
+      if (!mounted || data is! Map) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['message']?.toString() ?? 'Call could not be started.')));
     });
     socket!.on('typing:start', (data) {
       if (!mounted ||
@@ -14393,11 +14476,20 @@ class _ChatState extends State<Chat> {
                           style: Theme.of(context).textTheme.labelSmall)
                   ]),
         actions: [
-          if (widget.conversation['type'] == 'direct')
+          if (widget.conversation['type'] == 'direct') ...[
+            IconButton(
+                onPressed: () => _startCall('audio'),
+                tooltip: 'Voice call',
+                icon: const Icon(Icons.call_outlined)),
+            IconButton(
+                onPressed: () => _startCall('video'),
+                tooltip: 'Video call',
+                icon: const Icon(Icons.video_call_outlined)),
             IconButton(
                 onPressed: requestMpesa,
                 tooltip: 'Request M-Pesa',
                 icon: const Icon(Icons.payments_outlined)),
+          ],
           IconButton(
               onPressed: () {
                 setState(() {
