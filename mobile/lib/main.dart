@@ -10285,69 +10285,180 @@ class _HomeState extends State<Home> {
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       appBar: AppBar(
-        title: Text(tab == 0 && showMemoriesInChats ? 'Memories' : titles[tab]),
-        actions: [
-          IconButton(
-            tooltip: 'Log out',
-            icon: const Icon(Icons.logout),
-            onPressed: () => context.read<AppState>().logout(),
-          ),
-          if (tab != 1)
-            IconButton(
-              tooltip: 'Open Business workspace',
-              icon: const Icon(Icons.business_center_outlined),
-              onPressed: () => setState(() => tab = 1),
+        toolbarHeight: 64,
+        titleSpacing: 16,
+        title: Row(
+          children: [
+            const Icon(Icons.forum_rounded, size: 23),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                tab == 0 && showMemoriesInChats ? 'Memories' : titles[tab],
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          IconButton(
-              tooltip: 'Payment history',
-              icon: const Icon(Icons.account_balance_wallet_outlined),
-              onPressed: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const PaymentHistory()))),
-          IconButton(
-              tooltip: 'Pay a merchant by QR',
-              icon: const Icon(Icons.qr_code_scanner),
-              onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const MerchantQrScannerPage()))),
-          if (tab == 0 && !showMemoriesInChats && selectingChats) ...[
-            IconButton(
-                tooltip: 'Select all',
-                icon: const Icon(Icons.select_all),
-                onPressed: () => setState(() {
-                      selectedConversationIds
-                        ..clear()
-                        ..addAll(chats
-                            .whereType<Map>()
-                            .map((c) => c['_id'].toString()));
-                    })),
-            IconButton(
-                tooltip: 'Delete selected conversations',
-                onPressed: selectedConversationIds.isEmpty
-                    ? null
-                    : _deleteSelectedConversations,
-                icon: const Icon(Icons.delete_outline)),
-            IconButton(
-                tooltip: 'Cancel selection',
-                onPressed: () => setState(() {
-                      selectingChats = false;
-                      selectedConversationIds.clear();
-                    }),
-                icon: const Icon(Icons.close)),
-          ] else if (tab == 0 && !showMemoriesInChats) ...[
-            IconButton(
-                tooltip: 'Select conversations',
-                onPressed: () => setState(() => selectingChats = true),
-                icon: const Icon(Icons.checklist)),
-            IconButton(onPressed: loadChats, icon: const Icon(Icons.refresh)),
           ],
-          if (tab == 0 && showMemoriesInChats)
-            IconButton(
-                tooltip: 'Refresh memories',
-                onPressed: loadMemories,
-                icon: const Icon(Icons.refresh)),
-          if (tab == 2)
-            IconButton(onPressed: _newGroup, icon: const Icon(Icons.group_add)),
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'More actions',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (action) {
+              switch (action) {
+                case 'logout':
+                  context.read<AppState>().logout();
+                  break;
+                case 'business':
+                  setState(() => tab = 1);
+                  break;
+                case 'payments':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const PaymentHistory(),
+                    ),
+                  );
+                  break;
+                case 'qr':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const MerchantQrScannerPage(),
+                    ),
+                  );
+                  break;
+                case 'select_all':
+                  setState(() {
+                    selectedConversationIds
+                      ..clear()
+                      ..addAll(chats
+                          .whereType<Map>()
+                          .map((c) => c['_id'].toString()));
+                  });
+                  break;
+                case 'delete_selected':
+                  _deleteSelectedConversations();
+                  break;
+                case 'cancel_selection':
+                  setState(() {
+                    selectingChats = false;
+                    selectedConversationIds.clear();
+                  });
+                  break;
+                case 'select_chats':
+                  setState(() => selectingChats = true);
+                  break;
+                case 'refresh_chats':
+                  loadChats();
+                  break;
+                case 'refresh_memories':
+                  loadMemories();
+                  break;
+                case 'new_group':
+                  _newGroup();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'logout',
+                child: ListTile(
+                  leading: Icon(Icons.logout),
+                  title: Text('Log out'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              if (tab != 1)
+                const PopupMenuItem(
+                  value: 'business',
+                  child: ListTile(
+                    leading: Icon(Icons.business_center_outlined),
+                    title: Text('Business workspace'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              const PopupMenuItem(
+                value: 'payments',
+                child: ListTile(
+                  leading: Icon(Icons.account_balance_wallet_outlined),
+                  title: Text('Payment history'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'qr',
+                child: ListTile(
+                  leading: Icon(Icons.qr_code_scanner),
+                  title: Text('Pay by QR'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              if (tab == 0 && !showMemoriesInChats && selectingChats) ...[
+                const PopupMenuItem(
+                  value: 'select_all',
+                  child: ListTile(
+                    leading: Icon(Icons.select_all),
+                    title: Text('Select all conversations'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'delete_selected',
+                  enabled: selectedConversationIds.isNotEmpty,
+                  child: const ListTile(
+                    leading: Icon(Icons.delete_outline),
+                    title: Text('Delete selected'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'cancel_selection',
+                  child: ListTile(
+                    leading: Icon(Icons.close),
+                    title: Text('Cancel selection'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ] else if (tab == 0 && !showMemoriesInChats) ...[
+                const PopupMenuItem(
+                  value: 'select_chats',
+                  child: ListTile(
+                    leading: Icon(Icons.checklist),
+                    title: Text('Select conversations'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'refresh_chats',
+                  child: ListTile(
+                    leading: Icon(Icons.refresh),
+                    title: Text('Refresh chats'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+              if (tab == 0 && showMemoriesInChats)
+                const PopupMenuItem(
+                  value: 'refresh_memories',
+                  child: ListTile(
+                    leading: Icon(Icons.refresh),
+                    title: Text('Refresh memories'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              if (tab == 2)
+                const PopupMenuItem(
+                  value: 'new_group',
+                  child: ListTile(
+                    leading: Icon(Icons.group_add),
+                    title: Text('Create group'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: Column(children: [
