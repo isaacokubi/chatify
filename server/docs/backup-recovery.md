@@ -31,3 +31,14 @@ The platform-admin backup endpoints use `CHATIFY_BACKUP_DIR` and `MONGODB_URI` /
 ## Limits and monitoring
 
 A green workflow proves that the job completed, not that a disaster-recovery exercise has passed. Record the latest successful backup time, alert on missed runs, periodically run the staging restore, and measure recovery point objective (RPO) and recovery time objective (RTO). The S3 workflow requires repository secrets and AWS OIDC setup before it can run successfully.
+
+
+## Voice/video calling TURN configuration
+
+The authenticated endpoint `GET /api/calls/ice-servers` returns STUN plus short-lived TURN credentials. For reliable calls across mobile carriers, Wi-Fi routers, and restrictive NATs, deploy a TURN server/provider that supports the coturn REST shared-secret authentication model and configure:
+
+- `CHATIFY_TURN_URLS`: comma-separated `turn:` / `turns:` URLs, including transport options as required.
+- `CHATIFY_TURN_SHARED_SECRET`: at least 32 random characters; configure the same secret on the TURN service as its REST shared secret. Never expose this secret in the app or logs.
+- `CHATIFY_TURN_CREDENTIAL_TTL_SECONDS`: optional lifetime from 60 to 3600 seconds (default 3600).
+
+The API sends a per-user, expiring username/password pair and disables caching on the response. Without TURN configuration, calls fall back to public STUN and may fail on restrictive networks. Verify call connectivity across two separate mobile networks and Wi-Fi before production release.
