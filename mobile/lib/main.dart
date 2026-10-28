@@ -16880,10 +16880,45 @@ class _BusinessHubState extends State<BusinessHub> {
                           ? null
                           : () async {
                               try {
-                                final selected = await ImagePicker()
-                                    .pickMultiImage(imageQuality: 85);
-                                if (selected.isEmpty || !dialogContext.mounted)
-                                  return;
+                                final source = await showModalBottomSheet<ImageSource>(
+                                  context: dialogContext,
+                                  builder: (sheetContext) => SafeArea(
+                                    child: Wrap(
+                                      children: [
+                                        ListTile(
+                                          leading: const Icon(Icons.photo_library_outlined),
+                                          title: const Text('Choose from gallery'),
+                                          subtitle: const Text('Select multiple product images'),
+                                          onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+                                        ),
+                                        ListTile(
+                                          leading: const Icon(Icons.photo_camera_outlined),
+                                          title: const Text('Take a photo'),
+                                          subtitle: const Text('Capture a product image now'),
+                                          onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                                if (source == null || !dialogContext.mounted) return;
+                                final List<dynamic> selected;
+                                if (source == ImageSource.camera) {
+                                  final captured = await ImagePicker().pickImage(
+                                    source: ImageSource.camera,
+                                    imageQuality: 85,
+                                    maxWidth: 1800,
+                                    maxHeight: 1800,
+                                  );
+                                  selected = captured == null ? <dynamic>[] : <dynamic>[captured];
+                                } else {
+                                  selected = await ImagePicker().pickMultiImage(
+                                    imageQuality: 85,
+                                    maxWidth: 1800,
+                                    maxHeight: 1800,
+                                  );
+                                }
+                                if (selected.isEmpty || !dialogContext.mounted) return;
                                 setDialogState(
                                     () => uploadingCatalogImages = true);
                                 for (final file in selected) {
@@ -16942,7 +16977,7 @@ class _BusinessHubState extends State<BusinessHub> {
                           : const Icon(Icons.add_photo_alternate_outlined),
                       label: Text(uploadingCatalogImages
                           ? 'Uploading…'
-                          : 'Add product images'),
+                          : 'Add images / take photo'),
                     ),
                     Text('${selectedImageUrls.length}/8 images',
                         style: Theme.of(dialogContext).textTheme.bodySmall),
