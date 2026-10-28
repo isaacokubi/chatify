@@ -14460,6 +14460,8 @@ class _ChatState extends State<Chat> {
     }).toList();
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: 76,
+        titleSpacing: 4,
         title: searching
             ? TextField(
                 controller: searchInput,
@@ -14471,50 +14473,122 @@ class _ChatState extends State<Chat> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                    Text(title),
-                    if (widget.conversation['type'] == 'direct')
-                      Text(
-                          onlineIds.isNotEmpty
-                              ? 'Online'
-                              : (_directPeerLastSeenLabel() ?? 'Offline'),
-                          style: Theme.of(context).textTheme.labelSmall)
-                  ]),
+                  Text(
+                    title,
+                    maxLines: 2,
+                    softWrap: true,
+                    overflow: TextOverflow.clip,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          height: 1.12,
+                        ),
+                  ),
+                  if (widget.conversation['type'] == 'direct')
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: onlineIds.isNotEmpty
+                                  ? Colors.green
+                                  : Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              onlineIds.isNotEmpty
+                                  ? 'Online'
+                                  : (_directPeerLastSeenLabel() ?? 'Offline'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
         actions: [
           if (widget.conversation['type'] == 'direct') ...[
             IconButton(
-                onPressed: () => _startCall('audio'),
-                tooltip: 'Voice call',
-                icon: const Icon(Icons.call_outlined)),
+              onPressed: () => _startCall('audio'),
+              tooltip: 'Voice call',
+              icon: const Icon(Icons.call_outlined),
+            ),
             IconButton(
-                onPressed: () => _startCall('video'),
-                tooltip: 'Video call',
-                icon: const Icon(Icons.video_call_outlined)),
-            IconButton(
-                onPressed: requestMpesa,
-                tooltip: 'Request M-Pesa',
-                icon: const Icon(Icons.payments_outlined)),
+              onPressed: () => _startCall('video'),
+              tooltip: 'Video call',
+              icon: const Icon(Icons.video_call_outlined),
+            ),
           ],
-          IconButton(
-              onPressed: () {
-                setState(() {
-                  searching = !searching;
-                  if (!searching) {
-                    searchInput.clear();
-                    load();
-                  }
-                });
-              },
-              tooltip: 'Search messages',
-              icon: Icon(searching ? Icons.close : Icons.search)),
-          if (widget.conversation['type'] == 'group')
-            IconButton(
-                onPressed: groupOptions,
-                tooltip: 'Group details',
-                icon: const Icon(Icons.group_outlined)),
-          IconButton(
-              onPressed: extractMemory,
-              tooltip: 'Save memory',
-              icon: const Icon(Icons.auto_awesome)),
+          PopupMenuButton<String>(
+            tooltip: 'More chat actions',
+            onSelected: (action) {
+              switch (action) {
+                case 'payment':
+                  requestMpesa();
+                  break;
+                case 'search':
+                  setState(() {
+                    searching = !searching;
+                    if (!searching) {
+                      searchInput.clear();
+                      load();
+                    }
+                  });
+                  break;
+                case 'group':
+                  groupOptions();
+                  break;
+                case 'memory':
+                  extractMemory();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              if (widget.conversation['type'] == 'direct')
+                const PopupMenuItem(
+                  value: 'payment',
+                  child: ListTile(
+                    leading: Icon(Icons.payments_outlined),
+                    title: Text('Request M-Pesa'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              PopupMenuItem(
+                value: 'search',
+                child: ListTile(
+                  leading: Icon(searching ? Icons.close : Icons.search),
+                  title: Text(searching ? 'Close search' : 'Search messages'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              if (widget.conversation['type'] == 'group')
+                const PopupMenuItem(
+                  value: 'group',
+                  child: ListTile(
+                    leading: Icon(Icons.group_outlined),
+                    title: Text('Group details'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              const PopupMenuItem(
+                value: 'memory',
+                child: ListTile(
+                  leading: Icon(Icons.auto_awesome),
+                  title: Text('Save memory'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: Column(children: [
