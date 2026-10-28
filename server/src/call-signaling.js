@@ -7,6 +7,8 @@ const SIGNAL_TYPES = new Set(['offer', 'answer', 'ice']);
 
 export function createCallSignaling({io, Conversation, User, isValidObjectId, now = () => Date.now()}) {
   const activeCalls = new Map();
+  const cleanupTimer = setInterval(() => cleanupExpired(), 30_000);
+  cleanupTimer.unref?.();
 
   async function getConversation(conversationId, userId) {
     if (typeof conversationId !== 'string' || !isValidObjectId(conversationId)) return null;
@@ -54,7 +56,7 @@ export function createCallSignaling({io, Conversation, User, isValidObjectId, no
           return;
         }
         const call = {callId: payload.callId, conversationId: String(conversation._id), callerId: userId,
-          calleeId, callType: payload.callType, createdAt: now()};
+          calleeId, callType: payload.callType, createdAt: now(), acceptedAt: null};
         activeCalls.set(call.callId, call);
         emitToUser(calleeId, 'call:incoming', call);
         socket.emit('call:ringing', {callId: call.callId, calleeId});
@@ -71,6 +73,7 @@ export function createCallSignaling({io, Conversation, User, isValidObjectId, no
         if (event === 'call:accept' && userId !== call.calleeId) return;
         if (event === 'call:cancel' && userId !== call.callerId) return;
         const targetId = userId === call.callerId ? call.calleeId : call.callerId;
+        if (event === 'call:accept') call.acceptedAt = now();
         emitToUser(targetId, event, {callId, byUserId: userId});
         socket.emit(event, {callId, byUserId: userId});
         if (event !== 'call:accept') activeCalls.delete(callId);
@@ -101,9 +104,16 @@ export function createCallSignaling({io, Conversation, User, isValidObjectId, no
   }
 
   function cleanupExpired(maxAgeMs = 2 * 60 * 60 * 1000) {
-    const cutoff = now() - maxAgeMs;
-    for (const [callId, call] of activeCalls) if (call.createdAt < cutoff) activeCalls.delete(callId);
+    const current = now();
+    for (const [callId, call] of activeCalls) {
+      const timeoutMs = call.acceptedAt ? maxAgeMs : 60_000;
+      if (current - call.createdAt < timeoutMs) continue;
+      const reason = call.acceptedAt ? 'expired' : 'no-answer';
+      emitToUser(call.callerId, 'call:end', {callId, reason});
+      emitToUser(call.calleeId, 'call:end', {callId, reason});
+      activeCalls.delete(callId);
+    }
   }
 
-  return {register, cleanupExpired, activeCalls};
+  return {register, cleanupExpired, activeCalls, stop: () => clearInterval(cleanupTimer)};
 }
