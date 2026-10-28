@@ -15,30 +15,26 @@ concurrency:
 jobs:
   hosted-health:
     runs-on: ubuntu-latest
+    env:
+      CHATIFY_API_URL: https://chatify-api-c1eh.onrender.com
+      DEMO_PASSWORD: ${{ secrets.CHATIFY_DEMO_PASSWORD }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Probe deployed API health
-        env:
-          CHATIFY_API_URL: https://chatify-api-c1eh.onrender.com
         run: |
           set -euo pipefail
           echo "Checking hosted API health endpoint (no credentials or payment actions)."
           curl --fail --show-error --silent --max-time 25 "$CHATIFY_API_URL/api/health" -o /tmp/health.json
           node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("/tmp/health.json","utf8")); console.log(JSON.stringify({http:"200",status:d.status ?? null,ok:d.ok ?? null,service:d.service ?? null,db:d.db ?? d.database ?? null}));'
-      - name: Run authenticated demo-account smoke when secret is configured
-        if: ${{ secrets.CHATIFY_DEMO_PASSWORD != '' }}
-        uses: actions/checkout@v4
-      - name: Install Node.js for authenticated smoke
-        if: ${{ secrets.CHATIFY_DEMO_PASSWORD != '' }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - name: Run read-only authenticated demo-account smoke
-        if: ${{ secrets.CHATIFY_DEMO_PASSWORD != '' }}
+        if: ${{ env.DEMO_PASSWORD != '' }}
         working-directory: server
         env:
-          CHATIFY_API_URL: https://chatify-api-c1eh.onrender.com
-          CHATIFY_DEMO_PASSWORD: ${{ secrets.CHATIFY_DEMO_PASSWORD }}
+          CHATIFY_DEMO_PASSWORD: ${{ env.DEMO_PASSWORD }}
         run: node scripts/demo-account-smoke.mjs
       - name: Record authenticated test prerequisite
-        if: ${{ secrets.CHATIFY_DEMO_PASSWORD == '' }}
+        if: ${{ env.DEMO_PASSWORD == '' }}
         run: echo "SKIPPED: configure repository Actions secret CHATIFY_DEMO_PASSWORD to run the eight-account authenticated smoke. No password is embedded in this workflow."
