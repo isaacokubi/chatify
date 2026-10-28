@@ -31,6 +31,7 @@ export function createCallSignaling({io, Conversation, User, isValidObjectId, no
   function register(socket, userId) {
     socket.on('call:invite', async payload => {
       try {
+        cleanupExpired();
         if (!payload || typeof payload !== 'object' || !CALL_ID.test(payload.callId || '') ||
             !['audio', 'video'].includes(payload.callType)) {
           socket.emit('call:error', {callId: payload?.callId, message: 'Invalid call request.'});
