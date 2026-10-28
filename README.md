@@ -1,6 +1,6 @@
 # Chatify — Chat. Remember. Let Go.
 
-> **Latest verification status — 2026-10-26, commit `b4967e9`:** Backend tests **246 passed, 0 failed, 1 skipped**; backend lint passed; Flutter tests **35 passed**; Flutter analysis reported no issues with `--no-fatal-infos`; the disposable MongoDB regression passed **1/1**; and `git diff --check` passed. The Android release APK remains blocked until the four release-signing variables are configured. Live M-Pesa production acceptance and merchant-scoped settlement are **not verified**. See [current test results](docs/TEST_RESULTS.md) and [M-Pesa testing](docs/M-PESA_TESTING.md). These results are not a blanket production-readiness certification.
+> **Latest main-branch CI status — 2026-10-28, commit `0a21f686826286d04d35795e540dc467def6e883`:** GitHub Actions reports backend and mobile CI, quality checks, and Android debug APK build all **passed**. The mobile CI includes Flutter analysis/tests, Flutter web build and Android debug APK build; backend CI includes tests/lint, dependency audit and backup/restore safety checks. GitHub reports a successful Vercel status for this commit. **This does not certify live authenticated module acceptance or M-Pesa provider acceptance.** The current hosted API could not be reached from the audit runtime. Business invoice/storefront real-provider settlement remains blocked pending merchant-scoped implementation; contact person-to-person is currently an external `*334#` handoff, not a Chatify-tracked transfer. See [the 2026-10-28 acceptance audit](docs/ACCEPTANCE_AUDIT_2026-10-28.md), [current test results](docs/TEST_RESULTS.md), and [M-Pesa flow inventory](docs/MPESA_FLOW_MATRIX.md).
 
 > **Historical recovery verification (2026-10-23):** The `recovery/merge-school-improvements-20261023` snapshot recorded backend 211 tests and Flutter 30 tests. It is superseded by later verification; see the [reconciliation audit](docs/RECONCILIATION_AUDIT_2026-10-23.md) and [feature follow-up](docs/FEATURE_FOLLOWUP_2026-10-23.md) for that snapshot's scope.
 
@@ -33,6 +33,7 @@ It does not represent reconciled settlements, refunds, provider fees, or tax acc
 - mobile/ — Flutter/Dart client
 - server/ — Node.js/Express/Socket.IO API
 - docs/ — architecture, API, database, development, security and demo notes
+- [2026-10-28 acceptance audit and demo-account matrix](docs/ACCEPTANCE_AUDIT_2026-10-28.md) — current CI evidence, hosted test limitations, eight-account smoke procedure, and payment release gates.
 - [Production readiness audit and test inventory](docs/PRODUCTION_READINESS_AUDIT.md) — module map, prioritized test matrix and audit status.
 - [Current test results](docs/TEST_RESULTS.md) — commands, results, blocked checks and evidence boundaries for this audit.
 - [M-Pesa testing](docs/M-PESA_TESTING.md) — mock, sandbox, production-configured and live-payment evidence boundaries.

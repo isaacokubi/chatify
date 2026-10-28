@@ -242,3 +242,25 @@ The storefront order path previously linked a merchant order to a platform STK p
 Source tracing confirms Chatify does not implement a programmatic direct personal-account Send Money transfer. “Lipa to this contact” opens the user's Safaricom handset flow and Chatify cannot observe its result. Contact requests, self-STK and workspace billing collect to the platform shortcode; they are not transfers to another user's personal account. Merchant POS STK, POS C2B, QR reconciliation, school fees/donations, and manual receipt/reference entry have automated and synthetic database coverage, but no provider acceptance was demonstrated here. Business invoice real-provider STK continues to return HTTP 409 because merchant-scoped invoice settlement is not implemented. Manual references remain unverified until official statement reconciliation.
 
 No Render configuration, deployment, health, or release metadata was queried. Previously exposed Daraja credentials and callback tokens still require rotation through Safaricom/Render controls; hosted environment mode and callback alignment must be checked privately. Do not enable live payment mode based on this run.
+
+
+## Latest main-branch CI check — 2026-10-28
+
+Reviewed source commit: `0a21f686826286d04d35795e540dc467def6e883`.
+
+| Check | Observed result | Evidence and limits |
+|---|---|---|
+| Full Chatify CI | **Passed** | [Run 40668439993](https://github.com/isaacokubi/chatify/actions/runs/40668439993): backend and mobile jobs successful. Includes backend dependency audit/tests/lint/backup restore-safety checks, Flutter analysis/tests, web build and Android debug APK build. |
+| Quality checks | **Passed** | [Run 40668440051](https://github.com/isaacokubi/chatify/actions/runs/40668440051): Node tests/syntax and Flutter analysis/tests successful. |
+| Android debug APK | **Passed** | [Run 40668440069](https://github.com/isaacokubi/chatify/actions/runs/40668440069): `build/app/outputs/flutter-apk/app-debug.apk` built successfully in CI. This is a debug APK, not a signed release APK or physical-device acceptance. |
+| Vercel status | **Reported success** | [Deployment status](https://vercel.com/isaacokubis-projects/chatify-mobile/ENRJoNn69YgKbZztoPGaGnuEr72A) attached to the reviewed commit. The audit runtime could not independently load the deployed UI. |
+| Hosted demo logins and module smoke | **Not run here** | The audit runtime could not resolve/reach the Render hostname. See [the read-only demo account smoke script](../server/scripts/demo-account-smoke.mjs) and [acceptance matrix](ACCEPTANCE_AUDIT_2026-10-28.md). |
+| Real Daraja sandbox/live provider acceptance | **Not verified** | No STK prompt, provider callback, C2B payment or live-money transaction was initiated during this audit. |
+
+Historical test counts in earlier sections refer to the exact commits and runs named in those sections; they are not re-labelled as counts for commit `0a21f686`.
+
+## Acceptance script
+
+`server/scripts/demo-account-smoke.mjs` tests the eight supplied demo identities against the hosted API using a password provided only at runtime. It checks login, identity/role, profile, contacts, conversations, payment list, school list, business list and admin route authorization. It is read-only except that successful login updates `lastSeen`. It does not test UI rendering, Socket.IO delivery or payment provider acceptance.
+
+Do not add the shared demo password to this repository, a workflow file, issue, log or README. The script was added for repeatable execution but **has not been run against the hosted API in this audit**.
