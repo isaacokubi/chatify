@@ -1,0 +1,65 @@
+name: Chatify recovery drill to staging
+on:
+  workflow_dispatch:
+    inputs:
+      backup_filename:
+        description: Exact encrypted backup filename in the configured S3 prefix
+        required: true
+        type: string
+      confirmation:
+        description: Type RESTORE_TO_STAGING to confirm the target is non-production
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  restore-staging:
+    if: ${{ inputs.confirmation == 'RESTORE_TO_STAGING' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MongoDB Database Tools and age
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y age curl
+          curl --fail --location --retry 3 \
+            https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.10.0.deb \
+            --output /tmp/mongodb-tools.deb
+          sudo dpkg -i /tmp/mongodb-tools.deb
+      - name: Configure short-lived AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.CHATIFY_BACKUP_AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.CHATIFY_BACKUP_AWS_REGION }}
+      - name: Verify archive and restore to isolated staging database
+        env:
+          BACKUP_S3_URI: ${{ secrets.CHATIFY_BACKUP_S3_URI }}
+          AGE_IDENTITY: ${{ secrets.CHATIFY_BACKUP_AGE_IDENTITY }}
+          RESTORE_TARGET_URI: ${{ secrets.CHATIFY_STAGING_RESTORE_MONGODB_URI }}
+          RESTORE_TARGET_IS_NON_PRODUCTION: ${{ secrets.CHATIFY_RESTORE_TARGET_IS_NON_PRODUCTION }}
+          BACKUP_FILENAME: ${{ inputs.backup_filename }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RESTORE_TARGET_IS_NON_PRODUCTION" == "YES" ]] || { echo "Restore blocked: explicitly configure the staging target as non-production." >&2; exit 2; }
+          [[ "$BACKUP_FILENAME" =~ ^chatify-[0-9]{8}T[0-9]{6}Z\.archive\.gz\.age$ ]] || { echo "Invalid backup filename." >&2; exit 2; }
+          [[ -n "$RESTORE_TARGET_URI" ]] || { echo "Staging restore URI is not configured." >&2; exit 2; }
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          prefix="${BACKUP_S3_URI%/}"
+          aws s3 cp "$prefix/$BACKUP_FILENAME" "$tmp/$BACKUP_FILENAME"
+          aws s3 cp "$prefix/$BACKUP_FILENAME.sha256" "$tmp/$BACKUP_FILENAME.sha256"
+          (cd "$tmp" && sha256sum --check "$BACKUP_FILENAME.sha256")
+          printf '%s\n' "$AGE_IDENTITY" > "$tmp/identity.txt"
+          chmod 600 "$tmp/identity.txt"
+          age --decrypt --identity "$tmp/identity.txt" --output "$tmp/chatify.archive.gz" "$tmp/$BACKUP_FILENAME"
+          test -s "$tmp/chatify.archive.gz"
+          # No --drop: this restores into an isolated staging target without deleting existing data.
+          mongorestore --uri="$RESTORE_TARGET_URI" --archive="$tmp/chatify.archive.gz" --gzip
+          echo "Restore command completed in the configured staging database. Run application smoke tests and verify counts/indexes before considering any production recovery."
