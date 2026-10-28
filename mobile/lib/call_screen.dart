@@ -13,6 +13,7 @@ class ChatifyCallScreen extends StatefulWidget {
   final String peerName;
   final String callType;
   final bool isCaller;
+  final Future<Map<String, dynamic>> Function() loadIceServers;
 
   const ChatifyCallScreen({
     super.key,
@@ -23,6 +24,7 @@ class ChatifyCallScreen extends StatefulWidget {
     required this.peerName,
     required this.callType,
     required this.isCaller,
+    required this.loadIceServers,
   });
 
   @override
@@ -69,11 +71,15 @@ class _ChatifyCallScreenState extends State<ChatifyCallScreen> {
       };
       _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
       _localRenderer.srcObject = _localStream;
+      Map<String, dynamic> iceConfig = {};
+      try { iceConfig = await widget.loadIceServers(); } catch (_) {}
+      final configuredServers = iceConfig['iceServers'];
+      final iceServers = configuredServers is List && configuredServers.isNotEmpty
+          ? configuredServers
+          : <Map<String, dynamic>>[{'urls': 'stun:stun.l.google.com:19302'}];
       _peer = await createPeerConnection({
         'sdpSemantics': 'unified-plan',
-        'iceServers': [
-          {'urls': 'stun:stun.l.google.com:19302'},
-        ],
+        'iceServers': iceServers,
       });
       for (final track in _localStream!.getTracks()) {
         await _peer!.addTrack(track, _localStream!);
