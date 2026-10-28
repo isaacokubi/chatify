@@ -12257,6 +12257,7 @@ class _ChatState extends State<Chat> {
         peerName: _directPeerName() ?? 'Chatify contact',
         callType: callType,
         isCaller: true,
+        loadIceServers: () => app.api.call('GET', '/api/calls/ice-servers'),
       ),
     ));
     activeSocket.emit('call:invite', {
@@ -12312,6 +12313,7 @@ class _ChatState extends State<Chat> {
         peerName: _directPeerName() ?? 'Chatify contact',
         callType: callType,
         isCaller: false,
+        loadIceServers: () => app.api.call('GET', '/api/calls/ice-servers'),
       ),
     ));
   }
