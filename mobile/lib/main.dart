@@ -12247,14 +12247,8 @@ class _ChatState extends State<Chat> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connect to Chatify and reopen this direct conversation before calling.')));
       return;
     }
-    final callId = 'c${DateTime.now().microsecondsSinceEpoch}_${(app.user?['id'] ?? app.user?['_id'] ?? 'u').toString().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '').substring(0, ((app.user?['id'] ?? app.user?['_id'] ?? 'u').toString().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '').length).clamp(1, 8))}';
-    activeSocket.emit('call:invite', {
-      'callId': callId,
-      'conversationId': conversationId,
-      'calleeId': peerId,
-      'callType': callType,
-    });
-    await Navigator.of(context).push(MaterialPageRoute<void>(
+    final callId = 'c${DateTime.now().microsecondsSinceEpoch}_${app.user?['id'] ?? app.user?['_id'] ?? 'u'}';
+    final callRoute = Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ChatifyCallScreen(
         socket: activeSocket,
         callId: callId,
@@ -12265,6 +12259,13 @@ class _ChatState extends State<Chat> {
         isCaller: true,
       ),
     ));
+    activeSocket.emit('call:invite', {
+      'callId': callId,
+      'conversationId': conversationId,
+      'calleeId': peerId,
+      'callType': callType,
+    });
+    await callRoute;
   }
 
   Future<void> _handleIncomingCall(dynamic data) async {
@@ -14051,6 +14052,7 @@ class _ChatState extends State<Chat> {
 
   @override
   void dispose() {
+    socket?.off('call:incoming', _handleIncomingCall);
     app.removeListener(_syncPresence);
     _typingTimer?.cancel();
     _remoteTypingTimer?.cancel();
