@@ -39,7 +39,8 @@ class _ChatifyCallScreenState extends State<ChatifyCallScreen> {
   bool _cameraOff = false;
   bool _connected = false;
   bool _ended = false;
-  bool _speakerFront = true;
+  bool _peerReady = false;
+  bool _acceptedPending = false;
   String _status = 'Preparing call…';
   Timer? _durationTimer;
   int _seconds = 0;
@@ -106,10 +107,15 @@ class _ChatifyCallScreenState extends State<ChatifyCallScreen> {
           setState(() => _status = 'Connection interrupted…');
         }
       };
+      _peerReady = true;
       if (!mounted) return;
       setState(() => _status = widget.isCaller ? 'Calling…' : 'Connecting…');
       // The callee acknowledges only after media permissions and local setup succeed.
       if (!widget.isCaller) widget.socket.emit('call:accept', {'callId': widget.callId});
+      if (widget.isCaller && _acceptedPending) {
+        _acceptedPending = false;
+        await _createOffer();
+      }
     } catch (error) {
       if (mounted) setState(() => _status = 'Could not access camera or microphone. Check app permissions.');
       debugPrint('Chatify call initialization failed: $error');
@@ -118,6 +124,15 @@ class _ChatifyCallScreenState extends State<ChatifyCallScreen> {
 
   Future<void> _onAccepted(dynamic data) async {
     if (_ended || !widget.isCaller || data is! Map || data['callId'] != widget.callId) return;
+    if (!_peerReady || _peer == null) {
+      _acceptedPending = true;
+      return;
+    }
+    await _createOffer();
+  }
+
+  Future<void> _createOffer() async {
+    if (_ended || _peer == null) return;
     try {
       final offer = await _peer!.createOffer();
       await _peer!.setLocalDescription(offer);
