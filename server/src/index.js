@@ -18,6 +18,7 @@ import http from 'node:http'; import express from 'express'; import cors from 'c
 import {registerBusinessRoutes} from './business.js';
 import {registerAdminBackupRoutes} from './admin-backups.js';
 import {createCallSignaling} from './call-signaling.js';
+import {buildCallIceServers} from './call-ice-servers.js';
 import {MAX_NOTIFICATION_ATTEMPTS,notificationRetryDelayMs,notificationExpiryDate} from './notification-queue.js';
 import {registerBusinessPosRoutes} from './business-pos.js';
 import {registerBusinessEnterpriseRoutes} from './business-enterprise.js';
@@ -134,6 +135,11 @@ const visibleUser=u=>{const value=u.toObject?u.toObject():{...u};if(value.privac
 const sign=u=>jwt.sign({sub:String(u._id),sv:Number(u.sessionVersion||0)},env.jwt,{expiresIn:env.jwtExpiresIn});
 // Authentication middleware verifies a bearer token and loads its user before protected handlers run.
 const auth=createAuthMiddleware({verifyToken:token=>jwt.verify(token,env.jwt),findUser:id=>User.findById(id)});
+app.get('/api/calls/ice-servers',auth,(q,r)=>{
+  const result=buildCallIceServers({userId:String(q.user._id),turnUrls:process.env.CHATIFY_TURN_URLS||'',sharedSecret:process.env.CHATIFY_TURN_SHARED_SECRET||'',ttlSeconds:Number.parseInt(process.env.CHATIFY_TURN_CREDENTIAL_TTL_SECONDS||'3600',10)});
+  r.set('Cache-Control','no-store');
+  r.json(result);
+});
 import {candidate} from './memory.js';
 // HTTP serves REST; Socket.IO shares this server for authenticated real-time chat events.
 const server=http.createServer(app); const io=new Server(server,{cors:{origin:corsOrigin,credentials:true}});
