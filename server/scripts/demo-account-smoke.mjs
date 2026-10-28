@@ -39,6 +39,7 @@ const commonReads = [
   ['contacts', '/api/contacts'],
   ['conversations', '/api/conversations'],
   ['payments list (read-only)', '/api/payments'],
+  ['storefront catalogue index (read-only)', '/api/storefronts'],
   ['school workspaces (read-only)', '/api/schools'],
   ['business workspaces (read-only)', '/api/business/organizations'],
 ];
