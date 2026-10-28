@@ -29,6 +29,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:video_player/video_player.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'call_screen.dart';
 
 String _conversationParticipantId(Map participant) {
   final nested = participant['user'];
@@ -11773,6 +11774,7 @@ class _ChatState extends State<Chat> {
   bool loading = true;
   bool _socketConnectedOnce = false;
   bool _flushingOutbox = false;
+  bool _incomingCallDialogShown = false;
   String? _socketToken;
   String? loadError;
   bool showingOfflineData = false;
@@ -12237,6 +12239,85 @@ class _ChatState extends State<Chat> {
     }
   }
 
+  Future<void> _startCall(String callType) async {
+    final activeSocket = socket;
+    final peerId = _directPeerId();
+    final conversationId = widget.conversation['_id']?.toString() ?? '';
+    if (activeSocket == null || !activeSocket.connected || peerId == null || conversationId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connect to Chatify and reopen this direct conversation before calling.')));
+      return;
+    }
+    final callId = 'c${DateTime.now().microsecondsSinceEpoch}_${app.user?['id'] ?? app.user?['_id'] ?? 'u'}';
+    final callRoute = Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChatifyCallScreen(
+        socket: activeSocket,
+        callId: callId,
+        conversationId: conversationId,
+        peerId: peerId,
+        peerName: _directPeerName() ?? 'Chatify contact',
+        callType: callType,
+        isCaller: true,
+        loadIceServers: () => app.api.call('GET', '/api/calls/ice-servers'),
+      ),
+    ));
+    activeSocket.emit('call:invite', {
+      'callId': callId,
+      'conversationId': conversationId,
+      'calleeId': peerId,
+      'callType': callType,
+    });
+    await callRoute;
+  }
+
+  Future<void> _handleIncomingCall(dynamic data) async {
+    if (!mounted || _incomingCallDialogShown || data is! Map ||
+        widget.conversation['type'] != 'direct' ||
+        data['conversationId']?.toString() != widget.conversation['_id']?.toString() ||
+        data['calleeId']?.toString() != (app.user?['id'] ?? app.user?['_id'])?.toString()) return;
+    final callId = data['callId']?.toString() ?? '';
+    final callerId = data['callerId']?.toString() ?? '';
+    final callType = data['callType']?.toString() ?? '';
+    if (callId.isEmpty || callerId != _directPeerId() || !['audio', 'video'].contains(callType)) return;
+    _incomingCallDialogShown = true;
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(callType == 'video' ? 'Incoming video call' : 'Incoming voice call'),
+        content: Text('${_directPeerName() ?? 'Your contact'} is calling you.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Decline'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.call),
+            label: const Text('Answer'),
+          ),
+        ],
+      ),
+    );
+    _incomingCallDialogShown = false;
+    if (!mounted || socket == null) return;
+    if (accepted != true) {
+      socket!.emit('call:reject', {'callId': callId});
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChatifyCallScreen(
+        socket: socket!,
+        callId: callId,
+        conversationId: widget.conversation['_id'].toString(),
+        peerId: callerId,
+        peerName: _directPeerName() ?? 'Chatify contact',
+        callType: callType,
+        isCaller: false,
+        loadIceServers: () => app.api.call('GET', '/api/calls/ice-servers'),
+      ),
+    ));
+  }
+
   void connect() {
     socket?.dispose();
     final token = app.api.token;
@@ -12267,6 +12348,11 @@ class _ChatState extends State<Chat> {
         unawaited(load());
       }
       _socketConnectedOnce = true;
+    });
+    socket!.on('call:incoming', _handleIncomingCall);
+    socket!.on('call:error', (data) {
+      if (!mounted || data is! Map) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['message']?.toString() ?? 'Call could not be started.')));
     });
     socket!.on('typing:start', (data) {
       if (!mounted ||
@@ -13968,6 +14054,7 @@ class _ChatState extends State<Chat> {
 
   @override
   void dispose() {
+    socket?.off('call:incoming', _handleIncomingCall);
     app.removeListener(_syncPresence);
     _typingTimer?.cancel();
     _remoteTypingTimer?.cancel();
@@ -14393,11 +14480,20 @@ class _ChatState extends State<Chat> {
                           style: Theme.of(context).textTheme.labelSmall)
                   ]),
         actions: [
-          if (widget.conversation['type'] == 'direct')
+          if (widget.conversation['type'] == 'direct') ...[
+            IconButton(
+                onPressed: () => _startCall('audio'),
+                tooltip: 'Voice call',
+                icon: const Icon(Icons.call_outlined)),
+            IconButton(
+                onPressed: () => _startCall('video'),
+                tooltip: 'Video call',
+                icon: const Icon(Icons.video_call_outlined)),
             IconButton(
                 onPressed: requestMpesa,
                 tooltip: 'Request M-Pesa',
                 icon: const Icon(Icons.payments_outlined)),
+          ],
           IconButton(
               onPressed: () {
                 setState(() {
@@ -16880,10 +16976,45 @@ class _BusinessHubState extends State<BusinessHub> {
                           ? null
                           : () async {
                               try {
-                                final selected = await ImagePicker()
-                                    .pickMultiImage(imageQuality: 85);
-                                if (selected.isEmpty || !dialogContext.mounted)
-                                  return;
+                                final source = await showModalBottomSheet<ImageSource>(
+                                  context: dialogContext,
+                                  builder: (sheetContext) => SafeArea(
+                                    child: Wrap(
+                                      children: [
+                                        ListTile(
+                                          leading: const Icon(Icons.photo_library_outlined),
+                                          title: const Text('Choose from gallery'),
+                                          subtitle: const Text('Select multiple product images'),
+                                          onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+                                        ),
+                                        ListTile(
+                                          leading: const Icon(Icons.photo_camera_outlined),
+                                          title: const Text('Take a photo'),
+                                          subtitle: const Text('Capture a product image now'),
+                                          onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                                if (source == null || !dialogContext.mounted) return;
+                                final List<dynamic> selected;
+                                if (source == ImageSource.camera) {
+                                  final captured = await ImagePicker().pickImage(
+                                    source: ImageSource.camera,
+                                    imageQuality: 85,
+                                    maxWidth: 1800,
+                                    maxHeight: 1800,
+                                  );
+                                  selected = captured == null ? <dynamic>[] : <dynamic>[captured];
+                                } else {
+                                  selected = await ImagePicker().pickMultiImage(
+                                    imageQuality: 85,
+                                    maxWidth: 1800,
+                                    maxHeight: 1800,
+                                  );
+                                }
+                                if (selected.isEmpty || !dialogContext.mounted) return;
                                 setDialogState(
                                     () => uploadingCatalogImages = true);
                                 for (final file in selected) {
@@ -16942,7 +17073,7 @@ class _BusinessHubState extends State<BusinessHub> {
                           : const Icon(Icons.add_photo_alternate_outlined),
                       label: Text(uploadingCatalogImages
                           ? 'Uploading…'
-                          : 'Add product images'),
+                          : 'Add images / take photo'),
                     ),
                     Text('${selectedImageUrls.length}/8 images',
                         style: Theme.of(dialogContext).textTheme.bodySmall),
