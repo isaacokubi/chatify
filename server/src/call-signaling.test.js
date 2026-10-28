@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCallSignaling} from './call-signaling.js';
 
-function harness({blocked = [], validConversation = true} = {}) {
+function harness({blocked = [], validConversation = true, clock = {value: 1000}} = {}) {
   const handlers = new Map();
   const emitted = [];
   const socket = {on: (event, fn) => handlers.set(event, fn), emit: (event, payload) => emitted.push({to:'self', event, payload})};
@@ -15,9 +15,9 @@ function harness({blocked = [], validConversation = true} = {}) {
     {_id:'alice12345678901234567890', status:'active', blockedUsers: blocked.includes('alice') ? ['bob123456789012345678901'] : []},
     {_id:'bob123456789012345678901', status:'active', blockedUsers: blocked.includes('bob') ? ['alice12345678901234567890'] : []},
   ]})})};
-  const service = createCallSignaling({io, Conversation, User, isValidObjectId: value => value === 'conversation123', now: () => 1000});
+  const service = createCallSignaling({io, Conversation, User, isValidObjectId: value => value === 'conversation123', now: () => clock.value});
   service.register(socket, 'alice12345678901234567890');
-  return {handlers, emitted, service};
+  return {handlers, emitted, service, clock};
 }
 
 const alice = 'alice12345678901234567890';
@@ -65,4 +65,15 @@ test('call cancellation cleans up active state', async () => {
   h.handlers.get('call:cancel')({callId:'call_12345678'});
   assert.equal(h.service.activeCalls.size, 0);
   assert.ok(h.emitted.some(item => item.to === 'user:'+bob && item.event === 'call:cancel'));
+});
+
+test('automatically ends unanswered calls after the ringing timeout', async () => {
+  const h = harness();
+  await h.handlers.get('call:invite')({callId:'call_12345678', conversationId:'conversation123', calleeId:bob, callType:'audio'});
+  h.clock.value += 60_001;
+  h.service.cleanupExpired();
+  assert.equal(h.service.activeCalls.size, 0);
+  assert.ok(h.emitted.some(item => item.to === 'user:' + alice && item.event === 'call:end' && item.payload.reason === 'no-answer'));
+  assert.ok(h.emitted.some(item => item.to === 'user:' + bob && item.event === 'call:end' && item.payload.reason === 'no-answer'));
+  h.service.stop();
 });
