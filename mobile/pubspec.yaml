@@ -25,6 +25,7 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   video_player: ^2.14.1
   flutter_ringtone_player: ^4.0.0+4
+  flutter_webrtc: ^0.12.12
 dev_dependencies:
   flutter_test:
     sdk: flutter
