@@ -985,7 +985,7 @@ if(env.mongo)await mongoose.connect(env.mongo,{
 server.listen(env.port,()=>console.log('Chatify API listening on '+server.address().port));
 // GRACEFUL SHUTDOWN: stop timers and close network/database resources as the process exits.
 const shutdown=createShutdownHandler({
-  stopTimers:()=>{clearInterval(expiryTimer);clearInterval(notificationTimer);clearInterval(reconciliationTimer);},
+  stopTimers:()=>{clearInterval(expiryTimer);clearInterval(notificationTimer);clearInterval(reconciliationTimer);callSignaling.stop();},
   closeSockets:()=>new Promise(resolve=>io.close(resolve)),
   closeHttp:()=>new Promise((resolve,reject)=>{
     if(!server.listening)return resolve();
