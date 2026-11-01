@@ -1,0 +1,48 @@
+name: Temporary hosted read-only smoke test
+on:
+  push:
+    branches:
+      - test/remote-main-verification-20261101
+  workflow_dispatch:
+
+jobs:
+  hosted-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe live API health and database readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://chatify-api-c1eh.onrender.com"
+          health="$(curl --silent --show-error --fail --max-time 40 "$base/api/health")"
+          printf '%s\n' "$health"
+          HEALTH_JSON="$health" python - <<'PY'
+          import json, os, sys
+          data=json.loads(os.environ["HEALTH_JSON"])
+          assert data.get("ok") is True, f"API not ready: {data}"
+          assert data.get("database") == "connected", f"Database not connected: {data}"
+          print("PASS: /api/health reports API ready and database connected")
+          PY
+          status="$(curl --silent --show-error --fail --max-time 40 "$base/api/status")"
+          printf '%s\n' "$status"
+          STATUS_JSON="$status" python - <<'PY'
+          import json, os
+          data=json.loads(os.environ["STATUS_JSON"])
+          assert data.get("status") == "operational", f"Service status not operational: {data}"
+          components={item.get("name"):item.get("status") for item in data.get("components",[])}
+          assert components.get("HTTP API") == "operational", components
+          assert components.get("Database") == "operational", components
+          print("PASS: /api/status reports HTTP API and database operational")
+          PY
+      - name: Probe Socket.IO polling handshake without authenticating or sending messages
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --silent --show-error --fail --max-time 40 'https://chatify-api-c1eh.onrender.com/socket.io/?EIO=4&transport=polling&t=chatify-smoke')"
+          printf '%s\n' "$response" | cut -c1-180
+          RESPONSE="$response" python - <<'PY'
+          import os
+          value=os.environ["RESPONSE"]
+          assert value.startswith('0{"sid":'), f"Unexpected Socket.IO handshake: {value[:180]}"
+          print("PASS: Socket.IO Engine.IO v4 polling handshake accepted")
+          PY
