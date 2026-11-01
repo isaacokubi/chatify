@@ -1,0 +1,85 @@
+name: Temporary isolated demo seed and login test
+on:
+  push:
+    branches:
+      - test/remote-main-verification-20261101
+  workflow_dispatch:
+jobs:
+  isolated-demo:
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' "
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install backend dependencies
+        working-directory: server
+        run: npm ci
+      - name: Generate a disposable test password
+        run: echo "SEED_DEMO_PASSWORD=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+      - name: Seed isolated disposable MongoDB and verify integrity
+        working-directory: server
+        env:
+          NODE_ENV: development
+          CHATIFY_SEED_DEMO: YES
+          MONGODB_URI: mongodb://127.0.0.1:27017/chatify_demo_ci
+        run: |
+          set -euo pipefail
+          node src/seed.js > /tmp/demo-seed-result.json
+          cat /tmp/demo-seed-result.json
+          python - <<'PY'
+          import json
+          with open('/tmp/demo-seed-result.json') as f:
+              result=json.load(f)
+          assert len(result.get('accounts', {})) == 8, result.get('accounts')
+          integrity=result.get('dataIntegrity', {})
+          assert integrity.get('brokenRelationships') == 0, integrity
+          assert integrity.get('verifiedRecords', 0) == integrity.get('expectedRecords', -1), integrity
+          counts=result.get('recordCounts', {})
+          business=counts.get('BusinessOrganization', {})
+          assert business.get('created', 0) + business.get('updated', 0) == 1, business
+          school_models={k:v for k,v in counts.items() if k.lower() in ('school','schoolworkspace')}
+          assert sum(v.get('created',0)+v.get('updated',0) for v in school_models.values()) == 1, school_models
+          print('PASS: eight demo accounts, exactly one business organization, exactly one school, and all seed relationships verified')
+          PY
+      - name: Start API against disposable MongoDB and wait for readiness
+        working-directory: server
+        env:
+          NODE_ENV: development
+          MONGODB_URI: mongodb://127.0.0.1:27017/chatify_demo_ci
+          JWT_SECRET: disposable-ci-only-secret-that-is-at-least-32-bytes
+          MPESA_ENV: mock
+          PORT: '5000'
+        run: |
+          set -euo pipefail
+          node src/index.js > /tmp/chatify-api.log 2>&1 &
+          echo $! > /tmp/chatify-api.pid
+          for attempt in $(seq 1 40); do
+            if curl --silent --fail http://127.0.0.1:5000/api/health > /tmp/chatify-health.json; then
+              cat /tmp/chatify-health.json
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/chatify-api.log
+          exit 1
+      - name: Verify all eight demo logins and read-only role-scoped endpoints
+        working-directory: server
+        env:
+          CHATIFY_API_URL: http://127.0.0.1:5000
+        run: node scripts/demo-account-smoke.mjs
+        env:
+          CHATIFY_API_URL: http://127.0.0.1:5000
+          CHATIFY_DEMO_PASSWORD: ${{ env.SEED_DEMO_PASSWORD }}
