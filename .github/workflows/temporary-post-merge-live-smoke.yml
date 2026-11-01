@@ -21,7 +21,7 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 12); do
             code="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$API_BASE/api/health" || true)"
-            if [ "$code" = "200" ] && node -e "const h=require('/tmp/health.json'); process.exit(h.status==='ok' && h.database==='connected' ? 0 : 1)" 2>/dev/null; then
+            if [ "$code" = "200" ] && node -e "const h=require('/tmp/health.json'); process.exit(h.ok === true && h.database === 'connected' ? 0 : 1)" 2>/dev/null; then
               break
             fi
             if [ "$attempt" = "12" ]; then
@@ -34,24 +34,29 @@ jobs:
           node --input-type=module -e '
             import fs from "node:fs";
             const h = JSON.parse(fs.readFileSync("/tmp/health.json", "utf8"));
-            console.log(JSON.stringify({status:h.status,database:h.database,release:h.release}, null, 2));
-            if (h.release !== process.env.EXPECTED_RELEASE) {
-              console.error("Hosted API is not yet running the expected main commit.");
+            console.log(JSON.stringify({ok:h.ok,database:h.database,release:h.release}, null, 2));
+            if (h.ok !== true || h.database !== "connected" || h.release !== process.env.EXPECTED_RELEASE) {
+              console.error("Hosted API is not healthy on the expected main commit.");
               process.exit(1);
             }
           '
       - name: Probe public status endpoint
+        env:
+          API_BASE: https://chatify-api-c1eh.onrender.com
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 25 "$API_BASE/api/status" -o /tmp/status.json
-          node -e "const s=require('/tmp/status.json'); console.log(JSON.stringify(s));"
+          node -e '
+            const s=require("/tmp/status.json");
+            console.log(JSON.stringify(s));
+            const c=Object.fromEntries((s.components || []).map(x => [x.name,x.status]));
+            if (s.status !== "operational" || c["HTTP API"] !== "operational" || c.Database !== "operational") process.exit(1);
+          '
+      - name: Probe Socket.IO Engine.IO v4 polling handshake
         env:
           API_BASE: https://chatify-api-c1eh.onrender.com
-      - name: Probe Socket.IO Engine.IO v4 polling handshake
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 25 "$API_BASE/socket.io/?EIO=4&transport=polling&t=postmerge" -o /tmp/socket.txt
-          grep -q '"sid"' /tmp/socket.txt
+          grep -q '^0{"sid":' /tmp/socket.txt
           echo "Socket.IO polling handshake succeeded."
-        env:
-          API_BASE: https://chatify-api-c1eh.onrender.com
