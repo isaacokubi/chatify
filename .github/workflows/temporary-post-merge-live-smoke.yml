@@ -1,0 +1,57 @@
+name: Temporary post-merge hosted API verification
+
+on:
+  push:
+    branches: [ops/post-merge-live-smoke-20261101]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe live API health and release
+        env:
+          API_BASE: https://chatify-api-c1eh.onrender.com
+          EXPECTED_RELEASE: a2096f6a54dd5c29ae4fe0371a1bfc3660178fd4
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            code="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$API_BASE/api/health" || true)"
+            if [ "$code" = "200" ] && node -e "const h=require('/tmp/health.json'); process.exit(h.status==='ok' && h.database==='connected' ? 0 : 1)" 2>/dev/null; then
+              break
+            fi
+            if [ "$attempt" = "12" ]; then
+              echo "Health probe failed after retries (HTTP $code)."
+              cat /tmp/health.json 2>/dev/null || true
+              exit 1
+            fi
+            sleep 10
+          done
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const h = JSON.parse(fs.readFileSync("/tmp/health.json", "utf8"));
+            console.log(JSON.stringify({status:h.status,database:h.database,release:h.release}, null, 2));
+            if (h.release !== process.env.EXPECTED_RELEASE) {
+              console.error("Hosted API is not yet running the expected main commit.");
+              process.exit(1);
+            }
+          '
+      - name: Probe public status endpoint
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 25 "$API_BASE/api/status" -o /tmp/status.json
+          node -e "const s=require('/tmp/status.json'); console.log(JSON.stringify(s));"
+        env:
+          API_BASE: https://chatify-api-c1eh.onrender.com
+      - name: Probe Socket.IO Engine.IO v4 polling handshake
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 25 "$API_BASE/socket.io/?EIO=4&transport=polling&t=postmerge" -o /tmp/socket.txt
+          grep -q '"sid"' /tmp/socket.txt
+          echo "Socket.IO polling handshake succeeded."
+        env:
+          API_BASE: https://chatify-api-c1eh.onrender.com
