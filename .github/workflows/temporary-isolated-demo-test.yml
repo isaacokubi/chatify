@@ -13,7 +13,7 @@ jobs:
         ports:
           - 27017:27017
         options: >-
-          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' "
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok'"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
@@ -50,8 +50,8 @@ jobs:
           counts=result.get('recordCounts', {})
           business=counts.get('BusinessOrganization', {})
           assert business.get('created', 0) + business.get('updated', 0) == 1, business
-          school_models={k:v for k,v in counts.items() if k.lower() in ('school','schoolworkspace')}
-          assert sum(v.get('created',0)+v.get('updated',0) for v in school_models.values()) == 1, school_models
+          school=counts.get('SchoolWorkspace', {})
+          assert school.get('created', 0) + school.get('updated', 0) == 1, school
           print('PASS: eight demo accounts, exactly one business organization, exactly one school, and all seed relationships verified')
           PY
       - name: Start API against disposable MongoDB and wait for readiness
@@ -65,7 +65,6 @@ jobs:
         run: |
           set -euo pipefail
           node src/index.js > /tmp/chatify-api.log 2>&1 &
-          echo $! > /tmp/chatify-api.pid
           for attempt in $(seq 1 40); do
             if curl --silent --fail http://127.0.0.1:5000/api/health > /tmp/chatify-health.json; then
               cat /tmp/chatify-health.json
@@ -79,7 +78,5 @@ jobs:
         working-directory: server
         env:
           CHATIFY_API_URL: http://127.0.0.1:5000
-        run: node scripts/demo-account-smoke.mjs
-        env:
-          CHATIFY_API_URL: http://127.0.0.1:5000
           CHATIFY_DEMO_PASSWORD: ${{ env.SEED_DEMO_PASSWORD }}
+        run: node scripts/demo-account-smoke.mjs
