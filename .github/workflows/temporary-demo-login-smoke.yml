@@ -1,0 +1,31 @@
+name: Temporary demo-account login smoke
+on:
+  push:
+    branches:
+      - test/remote-main-verification-20261101
+  workflow_dispatch:
+jobs:
+  demo-logins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+      - name: Run read-only demo-account API smoke
+        working-directory: server
+        env:
+          CHATIFY_API_URL: https://chatify-api-c1eh.onrender.com
+          CHATIFY_DEMO_PASSWORD: ${{ secrets.CHATIFY_DEMO_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CHATIFY_DEMO_PASSWORD" ]]; then
+            echo "BLOCKED: GitHub Actions secret CHATIFY_DEMO_PASSWORD is not configured."
+            exit 2
+          fi
+          node scripts/demo-account-smoke.mjs
