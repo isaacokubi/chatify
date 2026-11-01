@@ -195,7 +195,7 @@ async function verifyLoginApi(passwordValue) {
 async function main() {
   const config = resolveDemoSeedConfig(process.env, process.argv.slice(2));
   if (config.dryRun) {
-    console.log(JSON.stringify({ mode: 'dry-run', databaseName: config.databaseName, plannedAccounts: accounts.length, plannedModules: ['Chats', 'Business', 'Stores (Business catalogue/storefront)', 'Schools'], message: 'No database connection or writes were made.' }, null, 2));
+    console.log(JSON.stringify({ mode: 'dry-run', databaseName: config.databaseName, plannedAccounts: accounts.length, plannedTenants: { schools: 1, businesses: 1 }, plannedModules: ['Chats', 'Business', 'Stores (Business catalogue/storefront)', 'Schools'], message: 'No database connection or writes were made.' }, null, 2));
     return;
   }
 
