@@ -15,7 +15,7 @@ const accounts = [
   { key: 'alice', name: 'Alice Mwangi', email: 'alice@demo.chatify.test', role: 'user', module: 'Chats', association: 'Direct and group conversations' },
   { key: 'brian', name: 'Brian Otieno', email: 'brian@demo.chatify.test', role: 'user', module: 'Chats', association: 'Direct conversation and saved contact' },
   { key: 'business-owner', name: 'Nia Kamau', email: 'nia@demo.chatify.test', role: 'user', module: 'Business and Stores', association: "Owner, Makena's Market" },
-  { key: 'business-staff', name: 'Sam Wekesa', email: 'sam@demo.chatify.test', role: 'user', module: 'Business and Stores', association: "Manager, Makena's Market; owner, Jirani Creative Studio" },
+  { key: 'business-staff', name: 'Sam Wekesa', email: 'sam@demo.chatify.test', role: 'user', module: 'Business and Stores', association: "Manager, Makena's Market" },
   { key: 'school-admin', name: 'Grace Achieng', email: 'grace@demo.chatify.test', role: 'user', module: 'Schools', association: 'Administrator and workspace owner, Lakeview Community School' },
   { key: 'teacher', name: 'Peter Maina', email: 'peter@demo.chatify.test', role: 'user', module: 'Schools', association: 'Staff member, Lakeview Community School' },
   { key: 'parent', name: 'Miriam Njeri', email: 'miriam@demo.chatify.test', role: 'user', module: 'Schools', association: 'Parent member and guardian, Lakeview Community School' },
@@ -72,7 +72,7 @@ function makeData(models, people) {
   const catalogKeys = ['woven-basket', 'tea-gift-box', 'delivery-service', 'brand-review', 'honey-jar', 'maasai-coasters', 'studio-workshop'];
   const productIds = catalogKeys.map(key => stableId(`catalog:${key}`));
   const customerId = stableId('customer:amina'), orderId = stableId('document:order');
-  const storeId = stableId('business:makena-market'), studioId = stableId('business:jirani-studio');
+  const storeId = stableId('business:makena-market'), studioId = storeId;
   const schoolId = stableId('school:lakeview');
   const yesterday = new Date('2026-10-19T00:00:00.000Z');
   const records = [
@@ -91,8 +91,7 @@ function makeData(models, people) {
   const Case = mongoose.model('BusinessCase'), Supplier = mongoose.model('BusinessSupplier'), Workflow = mongoose.model('BusinessWorkflow');
   const InboxAssignment = mongoose.model('BusinessInboxAssignment'), TradeRequest = mongoose.model('BusinessTradeRequest');
   const storeData = { _id: storeId, name: "Makena's Market", slug: 'demo-makenas-market', ownerId: owner._id, industry: 'retail', description: 'A neighbourhood shop for Kenyan crafts and gifts.', email: owner.email, phone: '+254700000101', country: 'KE', currency: 'KES', timezone: 'Africa/Nairobi', settings: { storefrontPublished: true }, branches: [{ _id: stableId('branch:makena:westlands'), name: 'Westlands Pickup Point', address: 'Westlands, Nairobi', phone: '+254700000101', active: true }, { _id: stableId('branch:makena:karen'), name: 'Karen Market Stall', address: 'Karen, Nairobi', phone: '+254700000102', active: true }], members: [{ userId: owner._id, role: 'owner' }, { userId: staff._id, role: 'manager' }] };
-  const studioData = { _id: studioId, name: 'Jirani Creative Studio', slug: 'demo-jirani-studio', ownerId: staff._id, industry: 'consulting', description: 'A small team helping local organizations with design and communications.', email: staff.email, country: 'KE', currency: 'KES', settings: { storefrontPublished: true }, branches: [{ _id: stableId('branch:jirani:nairobi'), name: 'Nairobi Studio', address: 'Kilimani, Nairobi', active: true }], members: [{ userId: staff._id, role: 'owner' }] };
-  records.push(record(Organization, 'business:makena-market', storeData), record(Organization, 'business:jirani-studio', studioData));
+  records.push(record(Organization, 'business:makena-market', storeData));
   const catalog = [
     { name: 'Handwoven Sisal Basket', sku: 'DEMO-BASKET-01', category: 'Home and craft', description: 'Handwoven natural-fibre storage basket.', price: 2400, stock: 18, lowStockAt: 4, images: ['https://images.unsplash.com/photo-1590736969955-71cc94901144'], organizationId: storeId },
     { name: 'Kenyan Tea Gift Box', sku: 'DEMO-TEA-01', category: 'Gifts', description: 'A gift selection of locally grown tea.', price: 1850, stock: 24, lowStockAt: 5, images: ['https://images.unsplash.com/photo-1544787219-7f47ccb76574'], organizationId: storeId },
@@ -253,12 +252,12 @@ async function main() {
       if (message?.replyTo) check(records.some(item => String(item.id) === String(message.replyTo) && item.Model.modelName === 'Message'), `${key}: reply target must exist`);
     }
     check(chatParticipants.size === 2, 'direct chat must have exactly two members');
-    for (const key of ['business:makena-market', 'business:jirani-studio']) {
+    for (const key of ['business:makena-market']) {
       const organization = seededRecords.get(key);
       check(Boolean(organization && userIds.has(String(organization.ownerId))), `${key}: owner must be a seeded account`);
       for (const member of organization?.members || []) check(userIds.has(String(member.userId)), `${key}: member must be a seeded account`);
     }
-    const businessIds = new Set(['business:makena-market', 'business:jirani-studio'].map(key => String(seededRecords.get(key)?._id)));
+    const businessIds = new Set([String(seededRecords.get('business:makena-market')?._id)]);
     const businessUsers = new Set(managed.filter(person => ['business-owner', 'business-staff'].includes(person.key)).map(person => String(person.user._id)));
     const catalogById = new Map([...seededRecords].filter(([key]) => key.startsWith('catalog:')).map(([, item]) => [String(item._id), item]));
     for (const [key, item] of seededRecords) {
