@@ -123,7 +123,7 @@ function makeData(models, people) {
 
   const School = mongoose.model('SchoolWorkspace'), Membership = mongoose.model('SchoolMembership'), Student = mongoose.model('SchoolStudent');
   const Attendance = mongoose.model('SchoolAttendance'), Assessment = mongoose.model('SchoolAssessment'), SchoolMessage = mongoose.model('SchoolMessage');
-  const Conference = mongoose.model('SchoolConference'), FeePayment = mongoose.model('SchoolFeePayment');
+  const FeePayment = mongoose.model('SchoolFeePayment');
   const names = ['Amani Njeri', 'Leo Njeri', 'Imani Njeri', 'Taji Njeri', 'Zuri Njeri', 'Kito Njeri'];
   records.push(record(School, 'school:lakeview', { _id: schoolId, name: 'Lakeview Community School', code: 'DEMO-LAKEVIEW', createdBy: schoolAdmin._id }));
   for (const [key, user, role, studentNames] of [
@@ -154,8 +154,8 @@ function makeData(models, people) {
     record(SchoolMessage, 'school:parent-message', { _id: stableId('school:parent-message'), schoolId, senderId: schoolAdmin._id, audience: 'all_parents', subject: 'Learner progress and family meeting', body: 'A progress update is available for your linked learners. Please contact the school office if you need assistance.' }),
     record(SchoolMessage, 'school:parent-inbox', { _id: stableId('school:parent-inbox'), schoolId, senderId: parent._id, recipientId: schoolAdmin._id, audience: 'direct', subject: 'Question about the family meeting', body: 'Could you please confirm whether both learners should attend the Friday meeting?' }),
     record(SchoolMessage, 'school:staff-inbox', { _id: stableId('school:staff-inbox'), schoolId, senderId: teacher._id, recipientId: schoolAdmin._id, audience: 'direct', subject: 'Grade 4 assessment update', body: 'The Grade 4 October exercises have been recorded and are ready for review.' }),
-    record(Conference, 'school:conference', { _id: stableId('school:conference'), schoolId, createdBy: schoolAdmin._id, title: 'Term 3 family meeting', agenda: 'Review learner progress and upcoming activities.', startsAt: new Date('2026-10-23T12:00:00.000Z'), endsAt: new Date('2026-10-23T13:00:00.000Z'), audience: 'all_parents', location: 'School hall' }),
-    record(Conference, 'school:staff-conference', { _id: stableId('school:staff-conference'), schoolId, createdBy: schoolAdmin._id, title: 'Grade team planning', agenda: 'Review class attendance and coordinate the next learning activities.', startsAt: new Date('2026-10-22T13:00:00.000Z'), endsAt: new Date('2026-10-22T14:00:00.000Z'), audience: 'all_staff', location: 'Staff room' }),
+    record(SchoolMessage, 'school:conference', { _id: stableId('school:conference'), schoolId, senderId: schoolAdmin._id, messageType: 'conference', subject: 'Term 3 family meeting', body: 'Review learner progress and upcoming activities.', startsAt: new Date('2026-10-23T12:00:00.000Z'), endsAt: new Date('2026-10-23T13:00:00.000Z'), audience: 'all_parents', location: 'School hall' }),
+    record(SchoolMessage, 'school:staff-conference', { _id: stableId('school:staff-conference'), schoolId, senderId: schoolAdmin._id, messageType: 'conference', subject: 'Grade team planning', body: 'Review class attendance and coordinate the next learning activities.', startsAt: new Date('2026-10-22T13:00:00.000Z'), endsAt: new Date('2026-10-22T14:00:00.000Z'), audience: 'all_staff', location: 'Staff room' }),
     record(FeePayment, 'school:fee:demo-pending', { _id: stableId('school:fee:demo-pending'), paymentReference: 'DEMO-FEE-1001', schoolId, parentId: parent._id, studentId: stableId('school:student:0'), studentName: names[0], admissionNumber: 'DEMO-001', className: 'Grade 4 East', amount: 12500, term: 'Term 3, 2026', status: 'PENDING_VERIFICATION', payerPhone: '+254700000303' }),
   );
   return { records, people, ids: { storeId, studioId, schoolId, directId, groupId } };
@@ -310,7 +310,7 @@ async function main() {
         check(String(item.schoolId) === String(school?._id) && schoolMemberIds.has(String(item.senderId)), `${key}: school and sender membership must exist`);
         if (item.recipientId) check(schoolMemberIds.has(String(item.recipientId)), `${key}: recipient membership must exist`);
       }
-      if (key === 'school:conference') check(String(item.schoolId) === String(school?._id) && userIds.has(String(item.createdBy)), `${key}: school and creator must exist`);
+      if (key === 'school:conference' || key === 'school:staff-conference') check(String(item.schoolId) === String(school?._id) && userIds.has(String(item.senderId)) && item.messageType === 'conference', `${key}: school, sender and conference type must exist`);
       if (key.startsWith('school:fee:')) check(String(item.schoolId) === String(school?._id) && userIds.has(String(item.parentId)) && schoolStudentNames.has(String(item.studentName).toLowerCase()) && item.status === 'PENDING_VERIFICATION', `${key}: school, parent, student and simulated pending status must be valid`);
     }
     if (brokenRelationships.length) throw new Error(`Seed data integrity verification failed (${brokenRelationships.length} issue(s)): ${brokenRelationships.join('; ')}`);
