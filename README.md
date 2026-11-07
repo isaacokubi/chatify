@@ -1,10 +1,31 @@
 # Chatify — Chat. Remember. Let Go.
 
-> **Latest main-branch CI status — 2026-10-28, commit `0a21f686826286d04d35795e540dc467def6e883`:** GitHub Actions reports backend and mobile CI, quality checks, and Android debug APK build all **passed**. The mobile CI includes Flutter analysis/tests, Flutter web build and Android debug APK build; backend CI includes tests/lint, dependency audit and backup/restore safety checks. GitHub reports a successful Vercel status for this commit. **This does not certify live authenticated module acceptance or M-Pesa provider acceptance.** The current hosted API could not be reached from the audit runtime. Business invoice/storefront real-provider settlement remains blocked pending merchant-scoped implementation; contact person-to-person is currently an external `*334#` handoff, not a Chatify-tracked transfer. See [the 2026-10-28 acceptance audit](docs/ACCEPTANCE_AUDIT_2026-10-28.md), [current test results](docs/TEST_RESULTS.md), and [M-Pesa flow inventory](docs/MPESA_FLOW_MATRIX.md).
+Chatify is a mobile-first communication platform that combines real-time messaging, structured conversational memory and configurable message expiry. It is built around helping people communicate, retain useful information and control how long messages remain available.
 
-> **Historical recovery verification (2026-10-23):** The `recovery/merge-school-improvements-20261023` snapshot recorded backend 211 tests and Flutter 30 tests. It is superseded by later verification; see the [reconciliation audit](docs/RECONCILIATION_AUDIT_2026-10-23.md) and [feature follow-up](docs/FEATURE_FOLLOWUP_2026-10-23.md) for that snapshot's scope.
+## Product highlights
 
-Chatify is a final-year-project mobile communication system built around real-time **Chat**, structured conversational **Memory**, and configurable message **Expiration**.
+- Real-time conversations powered by a Flutter client and a Node.js API.
+- Structured Memory Cards for saving useful details from conversations.
+- Message lifecycle controls, including after-read, timed and after-reply expiry.
+- Role-protected administration and account management.
+- Payment-request and school-communication workflows with explicit provider-verification boundaries.
+
+## Technology
+
+- **Mobile:** Flutter and Dart.
+- **Backend:** Node.js, Express and Socket.IO.
+- **Data and authentication:** MongoDB, Mongoose and JWT.
+- **Security:** client-side encryption for supported text messages; see [the E2EE design and limitations](docs/E2EE.md).
+
+## Project documentation
+
+- [Architecture and code walkthrough](docs/PROJECT_WALKTHROUGH.md)
+- [Acceptance audit and demo matrix](docs/ACCEPTANCE_AUDIT_2026-10-28.md)
+- [Current test results](docs/TEST_RESULTS.md)
+- [Security and privacy notes](docs/SECURITY_AND_PRIVACY.md)
+- [M-Pesa flow and acceptance matrix](docs/MPESA_FLOW_MATRIX.md)
+
+The documentation distinguishes automated test results from hosted-service, payment-provider and production acceptance. A passing build does not by itself certify a live payment or deployment.
 
 ## Platform administrator
 
