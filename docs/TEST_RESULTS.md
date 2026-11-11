@@ -264,3 +264,33 @@ Historical test counts in earlier sections refer to the exact commits and runs n
 `server/scripts/demo-account-smoke.mjs` tests the eight supplied demo identities against the hosted API using a password provided only at runtime. It checks login, identity/role, profile, contacts, conversations, payment list, school list, business list and admin route authorization. It is read-only except that successful login updates `lastSeen`. It does not test UI rendering, Socket.IO delivery or payment provider acceptance.
 
 Do not add the shared demo password to this repository, a workflow file, issue, log or README. The script was added for repeatable execution but **has not been run against the hosted API in this audit**.
+
+
+## Onboarding acceptance audit continuation — 2026-11-11
+
+**Working branch:** `audit/first-business-school-readiness-2026-11`  
+**Reference baseline:** Chatify `main` commit `200e26f39c4677917fe97afd7a7fc2411e357b33` (latest commit visible at audit start).  
+**Status:** changes prepared; verification is **PENDING**. No new test pass is claimed in this section.
+
+The continuation adds:
+- Unit tests for demo seed environment, explicit confirmation, production database-name rejection, unclassified database acknowledgement, password bounds and dry-run selection.
+- Database-backed API acceptance for the real first-business creation -> platform-admin review flow, including owner/member authorization and duplicate-review rejection.
+- Database-backed API acceptance for the real first-school verification-request -> authorized review -> workspace creation flow, including disabled direct creation, admin membership, staff/parent enrollment, linked student visibility and non-member denial.
+- Read-only demo-account smoke checks for the canonical one-business/one-school fixture, business catalogue visibility, school membership role and six linked student records.
+- A dedicated [first business and school onboarding runbook](FIRST_BUSINESS_SCHOOL_ACCEPTANCE.md).
+
+The existing `.github/workflows/ci.yml` at the audit baseline does not configure `CHATIFY_MONGO_TEST_URI`; therefore the destructive integration test is expected to remain guarded/skipped in the ordinary CI test command unless CI is given a dedicated disposable MongoDB service and the exact loopback-only test URI. The integration test guard permits only `127.0.0.1:27018` and database names beginning `chatify_audit_test`; it drops only that exact database during setup/teardown. Do not point it at Atlas or production.
+
+Required verification from `server/` after dependencies and a disposable MongoDB 7 service are available:
+
+```bash
+npm ci
+npm test
+CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_first_workspace node --test src/database.integration.test.js
+npm run lint
+npm audit --audit-level=high
+```
+
+The seed smoke must then be run against a separate disposable database, with the API using the same database and a private test-only password. See the runbook for the exact safe environment contract. Do not run the seed or destructive integration test against a real customer database.
+
+**Important:** the new branch changes have not yet been executed by GitHub Actions or a local test runner in this audit session. Historical test totals elsewhere in this file describe their named commits and dates only; they are not evidence for this branch or current `main`. Live Daraja, deployed UI, release signing, production restore and privacy/legal acceptance remain separate gates.
