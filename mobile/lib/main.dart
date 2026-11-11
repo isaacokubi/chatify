@@ -15760,6 +15760,33 @@ class _ProfileState extends State<Profile> {
     } finally { passphrase.dispose(); bundle.dispose(); }
   }
 
+  Future<void> resetEncryptionKey() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Start fresh on this device?'),
+        content: const Text(
+          'Use this only when your old phone and every saved recovery code are unavailable. Chatify will create a new encryption identity for this account. You will be able to send and receive new encrypted messages, but messages encrypted for your previous key cannot be recovered and will remain locked. Other devices using the old key will need to be set up again.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create new key')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<AppState>().resetEncryptionForThisDevice();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('New encryption identity created. You can now send and receive new encrypted messages. Old encrypted history cannot be opened without the previous key.'),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not reset encryption: $error')));
+    }
+  }
+
   Future<void> changePassword() async {
     final current = TextEditingController();
     final next = TextEditingController();
