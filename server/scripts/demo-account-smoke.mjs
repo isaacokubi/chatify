@@ -102,8 +102,8 @@ for (const account of accounts) {
       report(businessResult.status === 200 && organizations.length === expectedBusinessCount,
         account.email, 'business membership scope',
         `expected ${expectedBusinessCount} workspace(s), received ${organizations.length}`);
-      if (account.businessMember && organizations[0]?.id) {
-        const organizationId = organizations[0].id;
+      if (account.businessMember && (organizations[0]?._id || organizations[0]?.id)) {
+        const organizationId = organizations[0]._id || organizations[0].id;
         const details = await request(`/api/business/organizations/${encodeURIComponent(organizationId)}`, { token });
         report(details.status === 200, account.email, 'authorized business workspace detail', `HTTP ${details.status}`);
         const catalogue = await request(`/api/business/organizations/${encodeURIComponent(organizationId)}/catalog`, { token });
