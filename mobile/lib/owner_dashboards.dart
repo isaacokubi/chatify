@@ -36,6 +36,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
   Map<String, int> _metrics = {};
   Map<String, dynamic> _billing = {};
   bool _billingLocked = false;
+  bool _billingBusy = false;
   bool _loading = true;
   String? _error;
 
@@ -100,6 +101,93 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
     }
   }
 
+  Future<void> _payWorkspaceBilling(String billingType) async {
+    final school = _school;
+    if (school == null || _billingBusy || _loading) return;
+    var enteredPhone = '';
+    final phone = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('School workspace payment'),
+        content: TextField(
+          keyboardType: TextInputType.phone,
+          onChanged: (value) => enteredPhone = value,
+          decoration: const InputDecoration(
+            labelText: 'M-Pesa phone number',
+            hintText: '07XXXXXXXX or 2547XXXXXXXX',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, enteredPhone.trim()),
+            child: const Text('Continue to M-Pesa'),
+          ),
+        ],
+      ),
+    );
+    if (phone == null || phone.isEmpty || !mounted) return;
+    setState(() => _billingBusy = true);
+    try {
+      final id = Uri.encodeComponent(school['id'].toString());
+      final checkout = await widget.apiCall(
+        'POST',
+        '/api/workspace-billing/school/$id/checkout',
+        {'billingType': billingType},
+      );
+      if (checkout['paid'] == true) {
+        await _load(schoolId: school['id'].toString());
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(checkout['notice']?.toString() ?? 'School billing updated.'),
+        ));
+        return;
+      }
+      final payment = Map<String, dynamic>.from(checkout['payment'] ?? {});
+      final paymentId = payment['paymentId']?.toString();
+      if (paymentId == null || paymentId.isEmpty) {
+        throw Exception('The school billing checkout did not return a payment reference.');
+      }
+      if (payment['initiatedAt'] == null) {
+        await widget.apiCall(
+          'POST',
+          '/api/payments/${Uri.encodeComponent(paymentId)}/initiate',
+          {'phone': phone},
+        );
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('M-Pesa prompt requested. Approve it on your phone; school access unlocks only after provider confirmation.'),
+      ));
+      for (var attempt = 0; attempt < 20 && mounted; attempt++) {
+        await Future.delayed(const Duration(seconds: 3));
+        final statusResult = await widget.apiCall(
+          'GET',
+          '/api/payments/${Uri.encodeComponent(paymentId)}',
+        );
+        final current = Map<String, dynamic>.from(statusResult['payment'] ?? {});
+        final status = current['status']?.toString().toUpperCase();
+        if (status == 'SUCCESS') {
+          await _load(schoolId: school['id'].toString());
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Payment confirmed. School workspace access refreshed.'),
+          ));
+          return;
+        }
+        if (status == 'FAILED' || status == 'CANCELLED') {
+          throw Exception('M-Pesa payment $status. Refresh billing before retrying.');
+        }
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Payment is still pending. Refresh billing shortly; do not pay again unless the first payment has failed.'),
+      ));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    } finally {
+      if (mounted) setState(() => _billingBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final school = _school;
@@ -149,12 +237,30 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
                   subtitle: Text('Status: ${_billing['status'] ?? 'Unknown'} · Setup fee: ${_billing['setupFeePaid'] == true ? 'Paid' : 'Unpaid'}'),
                 )),
               if (_billingLocked) ...[
-                const Card(child: ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text('School workspace is locked'),
-                  subtitle: Text('School records become available after the required Chatify setup fee or subscription is confirmed. Open the workspace to review its secure billing controls.'),
+                Card(child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.lock_outline),
+                      title: Text('School workspace is locked'),
+                      subtitle: Text('School records remain protected until the required Chatify setup fee or subscription payment is confirmed.'),
+                    ),
+                    if (_billingBusy || _loading) const LinearProgressIndicator(),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: _billingBusy ? null : () => _payWorkspaceBilling(
+                        _billing['setupFeePaid'] == true ? 'workspace_subscription' : 'workspace_setup',
+                      ),
+                      icon: const Icon(Icons.payment),
+                      label: Text(_billing['setupFeePaid'] == true
+                        ? 'Pay monthly · KSh ${_count((_billing['prices'] as Map?)?['monthlyFee'] ?? 2500)}'
+                        : 'Pay setup · KSh ${_count((_billing['prices'] as Map?)?['setupFee'] ?? 5000)}'),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text('Access refreshes only after the payment API confirms success. School fee collections and donations are separate from this Chatify subscription.'),
+                  ]),
                 )),
-                FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.payment), label: const Text('Open school billing')),
               ],
               if (!_billingLocked) ...[
               Text('School overview', style: Theme.of(context).textTheme.titleLarge),

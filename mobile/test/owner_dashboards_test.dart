@@ -264,4 +264,46 @@ void main() {
     expect(find.text('Customers'), findsOneWidget);
     expect(find.text('Business workspace billing'), findsOneWidget);
   });
+
+  testWidgets('approved school owner can complete a zero-priced setup checkout',
+      (tester) async {
+    var setupPaid = false;
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
+      if (path == '/api/schools') {
+        return {'schools': [
+          {'id': 'school-free', 'name': 'Free Setup School', 'code': 'FREE', 'role': 'admin', 'isOwner': true}
+        ]};
+      }
+      if (method == 'POST' && path.endsWith('/checkout')) {
+        setupPaid = true;
+        return {'paid': true, 'notice': 'No school setup fee is due under current pricing.'};
+      }
+      if (path.contains('/workspace-billing/school/')) {
+        return {'billing': {
+          'locked': !setupPaid,
+          'status': setupPaid ? 'ACTIVE' : 'SETUP_PAYMENT_REQUIRED',
+          'setupFeePaid': setupPaid,
+          'prices': {'setupFee': 0, 'monthlyFee': 2500}
+        }};
+      }
+      if (path.contains('/students')) return {'total': 4};
+      return {'total': 0};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: SchoolOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pay setup · KSh 0'), findsOneWidget);
+    await tester.tap(find.text('Pay setup · KSh 0'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '0712345678');
+    await tester.tap(find.text('Continue to M-Pesa'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('School overview'), findsOneWidget);
+    expect(find.text('Students'), findsOneWidget);
+    expect(find.text('School workspace billing'), findsOneWidget);
+  });
 }
