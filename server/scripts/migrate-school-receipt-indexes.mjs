@@ -17,7 +17,7 @@ try {
 if (!['mongodb:', 'mongodb+srv:'].includes(parsed.protocol)) {
   throw new Error('MONGODB_URI must use mongodb:// or mongodb+srv://.');
 }
-const actualDatabaseName = decodeURIComponent(parsed.pathname.replace(/^\\//, '').split('/')[0] || '');
+const actualDatabaseName = decodeURIComponent((parsed.pathname.startsWith('/') ? parsed.pathname.slice(1) : parsed.pathname).split('/')[0] || '');
 if (!actualDatabaseName || actualDatabaseName !== expectedDatabaseName) {
   throw new Error('The database name in MONGODB_URI does not exactly match CHATIFY_EXPECTED_DATABASE_NAME.');
 }
