@@ -29,7 +29,7 @@ Chatify already contains extensive product implementation and historical verific
 - Backup/restore scripts and restore safety tests.
 - CI workflow includes backend dependency audit/tests/lint and Flutter analysis/tests/web/Android debug build.
 
-This is a source and documentation review supported by GitHub Actions quality checks on source commit `b2beb4fd46435b5de3ce1fcb6dcc33497146a3cc`. At the time of this report, the full CI Web/Android build job and the dedicated Android debug workflow were still running. It is not a complete independent penetration test or live production acceptance.
+This is a source and documentation review supported by GitHub Actions quality checks on source commit `b2beb4fd46435b5de3ce1fcb6dcc33497146a3cc`. At the time of this report, the latest-source Web build had passed in full CI run `43012583387`; its Android debug build step was still running. The dedicated Android workflow was cancelled by a newer documentation commit. It is not a complete independent penetration test or live production acceptance.
 
 ## Evidence ledger
 
