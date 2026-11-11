@@ -28,11 +28,11 @@ const accounts = [
   { email: 'admin@demo.chatify.test', label: 'platform administrator', admin: true },
   { email: 'alice@demo.chatify.test', label: 'chat demo user' },
   { email: 'brian@demo.chatify.test', label: 'chat demo user' },
-  { email: 'nia@demo.chatify.test', label: 'business and store owner' },
-  { email: 'sam@demo.chatify.test', label: 'business manager/owner' },
-  { email: 'grace@demo.chatify.test', label: 'school administrator' },
-  { email: 'peter@demo.chatify.test', label: 'school staff member' },
-  { email: 'miriam@demo.chatify.test', label: 'school parent/guardian' },
+  { email: 'nia@demo.chatify.test', label: 'business and store owner', businessMember: true },
+  { email: 'sam@demo.chatify.test', label: 'business manager', businessMember: true },
+  { email: 'grace@demo.chatify.test', label: 'school administrator', schoolRole: 'admin' },
+  { email: 'peter@demo.chatify.test', label: 'school staff member', schoolRole: 'staff' },
+  { email: 'miriam@demo.chatify.test', label: 'school parent/guardian', schoolRole: 'parent' },
 ];
 const commonReads = [
   ['profile', '/api/auth/me'],
@@ -92,6 +92,47 @@ for (const account of accounts) {
         report(false, account.email, name, error?.name === 'TimeoutError' ? 'timeout' : 'request failed');
       }
     }
+
+    // The canonical demo fixture is exactly one business plus one school.
+    // Verify that only enrolled accounts can see each workspace and its records.
+    try {
+      const businessResult = await request('/api/business/organizations', { token });
+      const organizations = Array.isArray(businessResult.data?.organizations) ? businessResult.data.organizations : [];
+      const expectedBusinessCount = account.businessMember ? 1 : 0;
+      report(businessResult.status === 200 && organizations.length === expectedBusinessCount,
+        account.email, 'business membership scope',
+        `expected ${expectedBusinessCount} workspace(s), received ${organizations.length}`);
+      if (account.businessMember && organizations[0]?.id) {
+        const organizationId = organizations[0].id;
+        const details = await request(`/api/business/organizations/${encodeURIComponent(organizationId)}`, { token });
+        report(details.status === 200, account.email, 'authorized business workspace detail', `HTTP ${details.status}`);
+        const catalogue = await request(`/api/business/organizations/${encodeURIComponent(organizationId)}/catalog`, { token });
+        report(catalogue.status === 200 && Array.isArray(catalogue.data?.items) && catalogue.data.items.length === 7,
+          account.email, 'business catalogue records', `HTTP ${catalogue.status}; expected 7 items`);
+      }
+    } catch (error) {
+      report(false, account.email, 'business membership/records', error?.name === 'TimeoutError' ? 'timeout' : 'request failed');
+    }
+
+    try {
+      const schoolResult = await request('/api/schools', { token });
+      const schools = Array.isArray(schoolResult.data?.schools) ? schoolResult.data.schools : [];
+      const expectedSchoolCount = account.schoolRole ? 1 : 0;
+      report(schoolResult.status === 200 && schools.length === expectedSchoolCount,
+        account.email, 'school membership scope',
+        `expected ${expectedSchoolCount} workspace(s), received ${schools.length}`);
+      if (account.schoolRole && schools[0]) {
+        const school = schools[0];
+        report(school.role === account.schoolRole, account.email, 'school membership role',
+          `expected ${account.schoolRole}, received ${String(school.role || 'missing')}`);
+        const students = await request(`/api/schools/${encodeURIComponent(school.id)}/students?limit=100`, { token });
+        report(students.status === 200 && students.data?.total === 6 && Array.isArray(students.data?.students) && students.data.students.length === 6,
+          account.email, 'school student visibility', `HTTP ${students.status}; expected 6 linked students`);
+      }
+    } catch (error) {
+      report(false, account.email, 'school membership/records', error?.name === 'TimeoutError' ? 'timeout' : 'request failed');
+    }
+
     try {
       const adminResult = await request('/api/admin/overview', { token });
       const expectedStatus = account.admin ? 200 : 403;
@@ -104,5 +145,5 @@ for (const account of accounts) {
   }
 }
 console.log(`\nDemo-account smoke summary: ${passed} passed, ${failed} failed; ${accounts.length} accounts attempted.`);
-console.log('Scope: authenticated read-only API smoke only. This is not UI/browser, websocket, data-mutation, M-Pesa sandbox, or live-payment acceptance.');
+console.log('Scope: authenticated read-only API smoke, including one-business/one-school membership and seeded record visibility. This is not approval workflow, UI/browser, websocket, data-mutation, M-Pesa sandbox, or live-payment acceptance.');
 process.exitCode = failed ? 1 : 0;
