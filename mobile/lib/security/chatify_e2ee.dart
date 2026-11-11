@@ -57,6 +57,104 @@ class ChatifyE2EE {
     return pair;
   }
 
+  /// Exports the existing account key as a passphrase-encrypted transfer bundle.
+  /// The bundle contains no plaintext private key and can be moved to a second device.
+  /// Use a unique, long passphrase; the server never receives this bundle.
+  Future<String> exportRecoveryBundle(
+    String accountId, {
+    required String passphrase,
+  }) async {
+    if (passphrase.trim().length < 12) {
+      throw StateError('Use a recovery passphrase with at least 12 characters.');
+    }
+    final stored = await _storage.read(key: _keyName(accountId));
+    if (stored == null) {
+      throw StateError('This device does not have the account encryption key.');
+    }
+    final seed = base64Decode(stored);
+    if (seed.length != 32) throw StateError('The local encryption key is invalid.');
+    final salt = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+    final nonce = List<int>.generate(12, (_) => Random.secure().nextInt(256));
+    final kdf = Pbkdf2(
+      macAlgorithm: Hmac.sha256(),
+      iterations: 310000,
+      bits: 256,
+    );
+    final wrappingKey = await kdf.deriveKey(
+      secretKey: SecretKey(utf8.encode(passphrase)),
+      nonce: salt,
+    );
+    final box = await _aead.encrypt(
+      seed,
+      secretKey: wrappingKey,
+      nonce: nonce,
+      aad: utf8.encode('chatify-e2ee-recovery-v1:$accountId'),
+    );
+    return jsonEncode({
+      'format': 'chatify-e2ee-recovery-v1',
+      'accountId': accountId,
+      'kdf': 'pbkdf2-sha256-310000',
+      'salt': base64Encode(salt),
+      'nonce': base64Encode(box.nonce),
+      'ciphertext': base64Encode(box.cipherText),
+      'mac': base64Encode(box.mac.bytes),
+    });
+  }
+
+  /// Imports a user-approved encrypted transfer bundle without rotating the
+  /// account public key. A wrong passphrase or wrong account leaves storage intact.
+  Future<String> importRecoveryBundle(
+    String accountId,
+    String bundle, {
+    required String passphrase,
+    String? registeredPublicKey,
+  }) async {
+    if (passphrase.trim().length < 12) {
+      throw StateError('Enter the recovery passphrase used to export this key.');
+    }
+    if (await _storage.read(key: _keyName(accountId)) != null) {
+      throw StateError('This device already has a local encryption key; refusing to overwrite it.');
+    }
+    final decoded = jsonDecode(bundle);
+    if (decoded is! Map ||
+        decoded['format'] != 'chatify-e2ee-recovery-v1' ||
+        decoded['accountId'] != accountId ||
+        decoded['kdf'] != 'pbkdf2-sha256-310000') {
+      throw StateError('This recovery bundle is invalid or belongs to another account.');
+    }
+    final salt = base64Decode(decoded['salt'] as String);
+    final nonce = base64Decode(decoded['nonce'] as String);
+    final ciphertext = base64Decode(decoded['ciphertext'] as String);
+    final mac = base64Decode(decoded['mac'] as String);
+    if (salt.length != 16 || nonce.length != 12 || mac.length != 16 || ciphertext.length != 32) {
+      throw StateError('The recovery bundle is incomplete or corrupted.');
+    }
+    final kdf = Pbkdf2(
+      macAlgorithm: Hmac.sha256(),
+      iterations: 310000,
+      bits: 256,
+    );
+    final wrappingKey = await kdf.deriveKey(
+      secretKey: SecretKey(utf8.encode(passphrase)),
+      nonce: salt,
+    );
+    final seed = await _aead.decrypt(
+      SecretBox(ciphertext, nonce: nonce, mac: Mac(mac)),
+      secretKey: wrappingKey,
+      aad: utf8.encode('chatify-e2ee-recovery-v1:$accountId'),
+    );
+    if (seed.length != 32) throw StateError('The recovered encryption key is invalid.');
+    final pair = await _agreement.newKeyPairFromSeed(seed);
+    final publicKey = base64Encode((await pair.extractPublicKey()).bytes);
+    if (registeredPublicKey != null &&
+        registeredPublicKey.isNotEmpty &&
+        registeredPublicKey != publicKey) {
+      throw StateError('This recovery key does not match the account key registered on the server.');
+    }
+    await _storage.write(key: _keyName(accountId), value: base64Encode(seed));
+    return publicKey;
+  }
+
   Future<String> publicKeyFor(
     String accountId, {
     String? registeredPublicKey,
