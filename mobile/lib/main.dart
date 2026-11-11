@@ -15952,6 +15952,11 @@ class _ProfileState extends State<Profile> {
       const SizedBox(height: 8),
       OutlinedButton.icon(onPressed: exportEncryptionKey, icon: const Icon(Icons.ios_share), label: const Text('Transfer key from this device')),
       OutlinedButton.icon(onPressed: importEncryptionKey, icon: const Icon(Icons.key), label: const Text('Restore key on this device')),
+      OutlinedButton.icon(
+        onPressed: resetEncryptionKey,
+        icon: const Icon(Icons.restart_alt),
+        label: const Text('I lost my old phone — set up a new encryption key'),
+      ),
       if (app.encryptionError != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Encryption setup: ${app.encryptionError}', style: TextStyle(color: Theme.of(context).colorScheme.error))),
       const SizedBox(height: 18),
       const Text('Privacy',
