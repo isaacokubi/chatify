@@ -108,3 +108,10 @@ For each release, record the commit SHA, UTC run timestamp, workflow URL, exact 
 ## School receipt-index migration
 
 Before deploying the receipt-index correction to an existing database, run `server/scripts/migrate-school-receipt-indexes.mjs` once against the intended database. The migration requires `MONGODB_URI`, `CHATIFY_EXPECTED_DATABASE_NAME` (an exact match for the URI database name), and `CHATIFY_CONFIRM_SCHOOL_RECEIPT_INDEX_MIGRATION=YES`. It replaces the old sparse compound unique indexes with partial unique indexes that apply only when an actual string M-Pesa receipt (or complete checkout/merchant request pair) exists. This permits multiple pending records with no receipt while continuing to reject duplicate real receipts within a school. The migration does not rewrite payment records. If existing duplicate non-empty receipts are present, index creation fails; reconcile them before retrying. Back up the database first and record the index list before/after.
+
+
+## Automated acceptance result — 2026-11-11
+
+The combined onboarding implementation's isolated MongoDB API acceptance test passed in GitHub Actions on source SHA `d0966d2ac8b3b108005decca5acba933787e7d28`. The full backend suite reported 265 passed, zero failed and zero skipped. The test exercised the first-business create/review/approval/billing boundary and first-school verification/review/workspace/membership path using synthetic records in a disposable MongoDB 7 database. This is automated acceptance evidence, not evidence that a real customer has been onboarded or paid.
+
+The school verification email validator was corrected after the integration test caught an over-escaped regular expression. The fee and donation receipt indexes were changed to partial unique indexes so multiple pending records without M-Pesa receipts can coexist while actual receipt values remain unique. For existing databases, take a verified backup and run the guarded `server/scripts/migrate-school-receipt-indexes.mjs` procedure described in the operations runbook before accepting school fee traffic.

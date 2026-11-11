@@ -117,3 +117,10 @@ Database-backed acceptance must use a dedicated disposable MongoDB database/repl
 ## Scope limitation
 
 The implementation branch includes Flutter owner dashboard source and widget tests, a non-breaking server dependency lockfile remediation, and documentation. No production database, deployment setting, provider credential, demo account or payment record was changed. GitHub Actions ran the backend and Flutter checks; no live tenant login, real payment, provider delivery, production restore drill or production mutation was performed.
+
+
+## Combined onboarding branch verification update — 2026-11-11
+
+The combined implementation was tested on source commit `d0966d2ac8b3b108005decca5acba933787e7d28`. Backend CI passed with 265 tests passed, zero failures and zero skips, including the disposable MongoDB 7 first-business/first-school API acceptance test. Dependency audit at the high-severity threshold, lint and backup/restore safety checks passed. Flutter analysis/tests and Flutter Web build passed; the separate Android ARM64 debug APK workflow passed. The Vercel deployment check remained blocked by the daily build-rate limit. The database-backed tests establish the automated API approval and role/membership paths only; they do not prove an actual customer's onboarding, payment-provider settlement, privacy/legal acceptance or production operation.
+
+The release decision remains **not production-ready for real school/student data or live merchant settlement** until the external release gates in this assessment are completed and recorded.
