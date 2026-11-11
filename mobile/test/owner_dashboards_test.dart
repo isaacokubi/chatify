@@ -5,7 +5,7 @@ import 'package:chatify/owner_dashboards.dart';
 void main() {
   testWidgets('school owner dashboard shows metrics for an owned school',
       (tester) async {
-    Future<Map<String, dynamic>> api(String method, String path) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/schools') {
         return {
           'schools': [
@@ -38,7 +38,7 @@ void main() {
 
   testWidgets('school dashboard does not present staff workspace as owner data',
       (tester) async {
-    Future<Map<String, dynamic>> api(String method, String path) async => {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async => {
       'schools': [
         {'id': 'school-2', 'name': 'Another School', 'role': 'staff', 'isOwner': false}
       ]
@@ -60,7 +60,7 @@ void main() {
 
   testWidgets('business owner dashboard uses only organizations owned by user',
       (tester) async {
-    Future<Map<String, dynamic>> api(String method, String path) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/business/organizations') {
         return {
           'organizations': [
@@ -105,7 +105,7 @@ void main() {
 
   testWidgets('school owner can switch between owned school dashboards',
       (tester) async {
-    Future<Map<String, dynamic>> api(String method, String path) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/schools') {
         return {
           'schools': [
@@ -138,7 +138,7 @@ void main() {
 
   testWidgets('business owner can switch between owned organizations',
       (tester) async {
-    Future<Map<String, dynamic>> api(String method, String path) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/business/organizations') {
         return {
           'organizations': [
@@ -171,7 +171,7 @@ void main() {
   testWidgets('school owner sees billing lock before protected school metrics',
       (tester) async {
     var studentRequests = 0;
-    Future<Map<String, dynamic>> api(String method, String path) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/schools') {
         return {'schools': [
           {'id': 'school-locked', 'name': 'New School', 'code': 'NEW', 'role': 'admin', 'isOwner': true}
@@ -199,7 +199,7 @@ void main() {
   testWidgets('business owner sees platform approval gate before checkout',
       (tester) async {
     var dashboardRequests = 0;
-    Future<Map<String, dynamic>> api(String method, String path) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/business/organizations') {
         return {'organizations': [
           {'_id': 'business-pending', 'ownerId': 'owner-1', 'name': 'Pending Business', 'approvalStatus': 'PENDING', 'branches': []}
@@ -226,7 +226,7 @@ void main() {
   testWidgets('approved business owner can complete a zero-priced setup checkout',
       (tester) async {
     var setupPaid = false;
-    Future<Map<String, dynamic>> api(String method, String path) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/business/organizations') {
         return {'organizations': [
           {'_id': 'business-free', 'ownerId': 'owner-1', 'name': 'Free Setup Business', 'approvalStatus': 'APPROVED', 'branches': []}

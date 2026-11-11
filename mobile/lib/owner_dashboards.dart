@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 typedef OwnerDashboardApiCall = Future<Map<String, dynamic>> Function(
-    String method, String path);
+    String method, String path, [Map<String, dynamic>? body]);
 
 int _count(dynamic value) => value is num ? value.toInt() : int.tryParse('$value') ?? 0;
 T? _firstOrNull<T>(Iterable<T> values) {

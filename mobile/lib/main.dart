@@ -10482,7 +10482,7 @@ class _HomeState extends State<Home> {
           child: IndexedStack(index: tab, children: [
             _chatHub(),
             BusinessOwnerDashboard(
-              apiCall: (method, path) => app.api.call(method, path),
+              apiCall: (method, path, [body]) => app.api.call(method, path, body),
               currentUserId: (app.user?['id'] ?? app.user?['_id'] ?? '').toString(),
               onManage: () => Navigator.of(context).push(MaterialPageRoute<void>(
                 builder: (_) => const BusinessHub(),
