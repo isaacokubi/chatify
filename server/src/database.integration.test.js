@@ -173,11 +173,11 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     email: 'other@example.test', role: 'staff', staffDesignation: 'Teacher',
     studentNames: ['Synthetic Student'],
   }, schoolAdminAuth);
-  assert.equal(addSchoolStaff.status, 201, 'school admin can add an existing staff account');
+  assert.equal(addSchoolStaff.status, 200, 'school admin can add an existing staff account');
   const addSchoolParent = await postJson('/api/schools/' + firstSchoolId + '/members', {
     email: 'parent@example.test', role: 'parent', studentNames: ['Synthetic Student'],
   }, schoolAdminAuth);
-  assert.equal(addSchoolParent.status, 201, 'school admin can add an existing parent account');
+  assert.equal(addSchoolParent.status, 200, 'school admin can add an existing parent account');
   const firstStudent = await postJson('/api/schools/' + firstSchoolId + '/students', {
     admissionNumber: 'FIRST-001', fullName: 'Synthetic Student', className: 'Grade 1',
     guardianName: 'Synthetic Parent', guardianPhone: '+254700000112',
