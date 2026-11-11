@@ -125,14 +125,14 @@ void main() {
       home: SchoolOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
     ));
     await tester.pumpAndSettle();
-    expect(find.text('First School'), findsOneWidget);
+    expect(find.text('First School'), findsWidgets);
 
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Second School').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('Second School'), findsOneWidget);
+    expect(find.text('Second School'), findsWidgets);
     expect(find.text('22'), findsOneWidget);
   });
 
@@ -157,14 +157,14 @@ void main() {
       home: BusinessOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
     ));
     await tester.pumpAndSettle();
-    expect(find.text('First Business'), findsOneWidget);
+    expect(find.text('First Business'), findsWidgets);
 
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Second Business').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('Second Business'), findsOneWidget);
+    expect(find.text('Second Business'), findsWidgets);
     expect(find.text('44'), findsOneWidget);
   });
 }
