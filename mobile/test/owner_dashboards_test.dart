@@ -232,6 +232,10 @@ void main() {
           {'_id': 'business-free', 'ownerId': 'owner-1', 'name': 'Free Setup Business', 'approvalStatus': 'APPROVED', 'branches': []}
         ]};
       }
+      if (method == 'POST' && path.endsWith('/checkout')) {
+        setupPaid = true;
+        return {'paid': true, 'notice': 'No setup fee is due under current pricing.'};
+      }
       if (path.contains('/workspace-billing/business/')) {
         return {'billing': {
           'locked': !setupPaid,
@@ -239,10 +243,6 @@ void main() {
           'setupFeePaid': setupPaid,
           'prices': {'setupFee': 0, 'monthlyFee': 500}
         }};
-      }
-      if (method == 'POST' && path.endsWith('/checkout')) {
-        setupPaid = true;
-        return {'paid': true, 'notice': 'No setup fee is due under current pricing.'};
       }
       if (path.endsWith('/dashboard')) return {'metrics': {'customers': 5}};
       return {};
