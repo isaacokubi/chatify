@@ -191,7 +191,7 @@ void main() {
 
     expect(find.text('New School'), findsOneWidget);
     expect(find.text('School workspace payment required'), findsOneWidget);
-    expect(find.text('Open school billing'), findsOneWidget);
+    expect(find.text('Pay setup · KSh 5000'), findsOneWidget);
     expect(find.text('Students'), findsNothing);
     expect(studentRequests, 0);
   });
