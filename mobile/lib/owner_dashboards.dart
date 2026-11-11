@@ -9,7 +9,8 @@ T? _firstOrNull<T>(Iterable<T> values) {
     return value;
   }
   return null;
-}\nString _idOf(dynamic value) {
+}
+String _idOf(dynamic value) {
   if (value is Map) return (value['_id'] ?? value['id'] ?? '').toString();
   return (value ?? '').toString();
 }
