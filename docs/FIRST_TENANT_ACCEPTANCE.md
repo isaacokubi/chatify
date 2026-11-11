@@ -227,3 +227,10 @@ Widget tests for school owner metrics, school staff exclusion and business owner
 | Backend tenant authorization | EXISTING IMPLEMENTATION; FRESH ACCEPTANCE NOT VERIFIED | Source inspection confirms school membership and business organization authorization paths; database-backed cross-tenant tests still required. |
 | First real school and business | NOT VERIFIED | No live tenant was created or modified as part of this code change. |
 | Production onboarding | NOT APPROVED | Payment, privacy, external provider, monitoring and restore gates remain separate release requirements. |
+
+
+## 12. Latest CI and Android build evidence
+
+On source commit `e993cd61e6d838abfba9167b767b53a13cbe137c`, GitHub Actions passed the backend suite, Flutter analysis, all 43 Flutter tests, Flutter Web build and Android debug build. The separate Android workflow uploaded an ARM64 debug/test APK. The signed release APK steps were skipped because release signing secrets are not configured. See [TEST_RESULTS.md](TEST_RESULTS.md) for workflow IDs, artifact digest and remaining acceptance limits.
+
+This evidence does not complete the live two-school/two-business database isolation test, real first-tenant onboarding, production M-Pesa acceptance, child-data privacy approval, physical-device test or production restore/monitoring drills.

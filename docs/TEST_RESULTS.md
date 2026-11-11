@@ -336,3 +336,18 @@ Do not treat these CI results as a production certification. Check the latest PR
 - The eight widget tests include: school owner overview; staff exclusion; business owner filtering; switching owned schools; switching owned businesses; school billing lock; pending business approval; zero-priced business setup checkout.
 
 The high-severity audit gate passes after the lockfile update. Six moderate glob/minimatch transitive advisories remain. The tests do not establish real M-Pesa provider acceptance, tenant-to-tenant API isolation against a live replica-set database, physical device behavior, production deployment or signed release readiness.
+
+
+### Final build and Android artifact results — 2026-11-11
+
+- Tested source SHA: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
+- Full CI: [Chatify CI — PASS](https://github.com/isaacokubi/chatify/actions/runs/43001852847).
+  - Backend: npm high-severity audit gate PASS; 260 tests (259 passed, 0 failed, 1 skipped); lint PASS; backup/recovery shell checks PASS; production-target restore guard PASS.
+  - Flutter analyzer PASS; Flutter tests PASS (43 passed); Flutter Web release build PASS; Android debug APK build PASS.
+- Android artifact workflow: [Build Chatify Android APK — PASS](https://github.com/isaacokubi/chatify/actions/runs/43001853168).
+  - Artifact: `chatify-android-arm64-debug-test-only`.
+  - SHA-256: `353ca096a8cee6646b9d8f37201b78a84daed6cda10a9a4ffd3f48055a622e27`.
+  - Artifact expiry: 2026-11-25.
+  - Signed release APK steps were skipped because Android release signing secrets were not configured. The uploaded artifact is a debug/test APK, not a store-ready release.
+
+The CI build result does not replace a physical Android device install/upgrade test, production signing, Play Store validation, production deployment smoke test or live M-Pesa callback acceptance.

@@ -44,3 +44,18 @@ Audit snapshot: 2026-10-25, branch `fix/flutter-fee-and-spark-tests-oct-2026`, H
 | Final source review and diff | PASS (local review only) | `git diff --check` exited 0; current branch, HEAD/upstream divergence, staged/unstaged changes and untracked files were reviewed. No files staged. Existing work remains uncommitted. This is not approval to push, merge, preview or deploy. |
 
 Release decision: **NOT READY** until the Daraja external lifecycle, production configuration, signed release/device acceptance, and required operational/privacy gates have evidence and the final reviewed diff is approved.
+
+
+## First school and business owner dashboard acceptance
+
+- [ ] School owner signs in and sees only schools where the server confirms `isOwner: true` and admin membership.
+- [ ] School owner dashboard checks workspace billing before protected student/attendance/fee requests.
+- [ ] Locked school owner is directed to the existing school billing controls; the workspace unlocks only after provider-confirmed settlement.
+- [ ] Business owner sees only organizations whose owner ID matches the authenticated user.
+- [ ] Business owner dashboard shows the platform approval gate; no setup checkout is offered before approval.
+- [ ] Approved business owner can start setup/subscription checkout; the UI does not unlock operations on initiation alone.
+- [ ] Pending payment is reconciled and not duplicated; only server-confirmed success refreshes workspace access.
+- [ ] Multiple owned school and business workspaces can be switched without retaining the previous tenant's metrics.
+- [ ] Staff, parents, managers and unrelated tenant members do not see another owner's dashboard data.
+- [ ] Complete the two-school/two-business database-backed isolation matrix in [FIRST_TENANT_ACCEPTANCE.md](FIRST_TENANT_ACCEPTANCE.md).
+- [ ] Complete live provider, privacy/child-safety, restore, monitoring and physical-device sign-off before production onboarding.
