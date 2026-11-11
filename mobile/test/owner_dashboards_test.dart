@@ -167,4 +167,101 @@ void main() {
     expect(find.text('Second Business'), findsWidgets);
     expect(find.text('44'), findsOneWidget);
   });
+
+  testWidgets('school owner sees billing lock before protected school metrics',
+      (tester) async {
+    var studentRequests = 0;
+    Future<Map<String, dynamic>> api(String method, String path) async {
+      if (path == '/api/schools') {
+        return {'schools': [
+          {'id': 'school-locked', 'name': 'New School', 'code': 'NEW', 'role': 'admin', 'isOwner': true}
+        ]};
+      }
+      if (path.contains('/workspace-billing/school/')) {
+        return {'billing': {'locked': true, 'status': 'SETUP_PAYMENT_REQUIRED', 'setupFeePaid': false}};
+      }
+      if (path.contains('/students')) studentRequests++;
+      return {'total': 0};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: SchoolOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('New School'), findsOneWidget);
+    expect(find.text('School workspace payment required'), findsOneWidget);
+    expect(find.text('Open school billing'), findsOneWidget);
+    expect(find.text('Students'), findsNothing);
+    expect(studentRequests, 0);
+  });
+
+  testWidgets('business owner sees platform approval gate before checkout',
+      (tester) async {
+    var dashboardRequests = 0;
+    Future<Map<String, dynamic>> api(String method, String path) async {
+      if (path == '/api/business/organizations') {
+        return {'organizations': [
+          {'_id': 'business-pending', 'ownerId': 'owner-1', 'name': 'Pending Business', 'approvalStatus': 'PENDING', 'branches': []}
+        ]};
+      }
+      if (path.contains('/workspace-billing/business/')) {
+        return {'billing': {'locked': true, 'status': 'SETUP_PAYMENT_REQUIRED', 'setupFeePaid': false, 'prices': {'setupFee': 1000}}};
+      }
+      if (path.endsWith('/dashboard')) dashboardRequests++;
+      return {};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: BusinessOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pending Business'), findsOneWidget);
+    expect(find.textContaining('Awaiting Chatify platform approval'), findsOneWidget);
+    expect(find.textContaining('Pay setup'), findsNothing);
+    expect(dashboardRequests, 0);
+  });
+
+  testWidgets('approved business owner can complete a zero-priced setup checkout',
+      (tester) async {
+    var setupPaid = false;
+    Future<Map<String, dynamic>> api(String method, String path) async {
+      if (path == '/api/business/organizations') {
+        return {'organizations': [
+          {'_id': 'business-free', 'ownerId': 'owner-1', 'name': 'Free Setup Business', 'approvalStatus': 'APPROVED', 'branches': []}
+        ]};
+      }
+      if (path.contains('/workspace-billing/business/')) {
+        return {'billing': {
+          'locked': !setupPaid,
+          'status': setupPaid ? 'ACTIVE' : 'SETUP_PAYMENT_REQUIRED',
+          'setupFeePaid': setupPaid,
+          'prices': {'setupFee': 0, 'monthlyFee': 500}
+        }};
+      }
+      if (method == 'POST' && path.endsWith('/checkout')) {
+        setupPaid = true;
+        return {'paid': true, 'notice': 'No setup fee is due under current pricing.'};
+      }
+      if (path.endsWith('/dashboard')) return {'metrics': {'customers': 5}};
+      return {};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: BusinessOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pay setup · KSh 0'), findsOneWidget);
+    await tester.tap(find.text('Pay setup · KSh 0'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '0712345678');
+    await tester.tap(find.text('Continue to M-Pesa'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Business overview'), findsOneWidget);
+    expect(find.text('Customers'), findsOneWidget);
+    expect(find.text('Business workspace billing'), findsOneWidget);
+  });
 }
