@@ -10,7 +10,7 @@ Chatify already contains extensive product implementation and historical verific
 
 - Repository: `isaacokubi/chatify`
 - Baseline branch inspected: `main`; implementation branch: `audit/first-school-business-onboarding-2026-11-11`.
-- Application source commit tested by GitHub Actions: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
+- Application source commit tested by GitHub Actions: `b2beb4fd46435b5de3ce1fcb6dcc33497146a3cc`.
 - Subsequent documentation-only commits update acceptance and runbook accuracy without changing the tested application source; see the open PR for the current review head.
 - Latest full CI run: `43002990331` — PASS; quality workflow `43002990086` — PASS; Android workflow `43002990318` — PASS.
 - The successful CI evidence is for the PR implementation branch, not `main`; it does not mean these changes have been merged or deployed.
@@ -29,7 +29,7 @@ Chatify already contains extensive product implementation and historical verific
 - Backup/restore scripts and restore safety tests.
 - CI workflow includes backend dependency audit/tests/lint and Flutter analysis/tests/web/Android debug build.
 
-This is a source and documentation review supported by the GitHub Actions checks listed above. It is not a complete independent penetration test or live production acceptance.
+This is a source and documentation review supported by GitHub Actions quality checks on source commit `b2beb4fd46435b5de3ce1fcb6dcc33497146a3cc`. At the time of this report, the full CI Web/Android build job and the dedicated Android debug workflow were still running. It is not a complete independent penetration test or live production acceptance.
 
 ## Evidence ledger
 
@@ -38,8 +38,8 @@ This is a source and documentation review supported by the GitHub Actions checks
 | Source inventory and documentation | PARTIAL | Existing walkthrough, acceptance audit, security notes, demo guide, payment matrix and commercial-readiness documents exist. New owner dashboards, onboarding, deployment, API, schema, backup/restore and operations guides are linked from README. |
 | Demo school and business data | IMPLEMENTED | One Lakeview Community School and one Makena's Market business organization are represented by the guarded demo seed. Demo data is not a real tenant acceptance result. |
 | Admin bootstrap | IMPLEMENTED | Explicit `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`; 12–72 UTF-8 byte password rule. |
-| Backend tests on implementation branch | PASS | GitHub Actions: 260 tests, 259 passed, 0 failed, 1 guarded skip; lint passed after dependency remediation. |
-| Flutter analysis/tests on implementation branch | PASS | Flutter 3.47.9 analyzer reported no issues; 43 tests passed, including all eight owner dashboard/billing tests. |
+| Backend tests on implementation branch | PASS | GitHub Actions on the latest source: 260 backend tests, 259 passed, 0 failed, 1 guarded skip; lint passed after dependency remediation. |
+| Flutter analysis/tests on implementation branch | PASS | Flutter 3.47.9 analyzer reported no issues; 44 tests passed, including all nine owner dashboard/billing tests. |
 | Dependency audit | PARTIAL | High-severity findings remediated; Mongoose 8.24.8 and fast-xml-parser 5.12.0. Six moderate glob/minimatch findings remain in transitive dependencies. |
 | MongoDB replica-set acceptance | NOT VERIFIED | A disposable database-backed school/business isolation run must be executed on supported MongoDB with transactions enabled. |
 | First real school onboarding | NOT VERIFIED | Requires actual creation, admin/staff/parent access, linked student privacy, fee and communication acceptance. |
@@ -52,7 +52,7 @@ This is a source and documentation review supported by the GitHub Actions checks
 | Backup and restore | PARTIAL / NOT VERIFIED | Scripts and safety tests exist; encrypted off-site backup and isolated restore evidence are still required. |
 | Monitoring and alert delivery | NOT VERIFIED | Must verify live alerts, operational contacts and incident/rollback procedure. |
 | Privacy / school child-safety review | OWNER ACTION REQUIRED | School data processing terms, guardian consent, retention and breach processes require approval. |
-| Production deployment | NOT VERIFIED | A Vercel status alone does not establish backend health, deployed SHA, authenticated user workflows or production configuration. |
+| Production deployment | NOT VERIFIED | Vercel preview is rate-limited by the account's daily deployment quota. A GitHub Actions build does not establish backend health, deployed SHA, authenticated user workflows or production configuration. |
 
 ## Required verification commands
 
