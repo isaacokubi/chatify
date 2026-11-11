@@ -240,7 +240,7 @@ This evidence does not complete the live two-school/two-business database isolat
 This section supersedes older status rows above that say the latest CI is pending or describe this work as documentation-only.
 
 - Application source tested: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
-- Current implementation/documentation head at the time of this update: `06aaecadf31c037c0484b2e63e60d75db18e8a8c`.
+- Documentation-only follow-up commits keep the acceptance records synchronized; see the open PR for the current review head.
 - GitHub Actions full CI run `43002990331`: backend **259 passed, 0 failed, 1 guarded skip**; npm high/critical audit threshold passed; Flutter analyzer reported no issues; Flutter **43 tests passed**; Flutter Web and Android debug builds passed.
 - GitHub Actions quality workflow `43002990086`: PASS.
 - Android workflow `43002990318`: PASS. Debug artifact only; signed release packaging remains blocked on release signing credentials.
