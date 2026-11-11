@@ -275,7 +275,7 @@ The following results are from GitHub-hosted Actions, not local execution. They 
 - Workflow: [Chatify quality checks](https://github.com/isaacokubi/chatify/actions/runs/42998383962)
 - Tested source commit: `c4ae3ecc76354c88959f899a688afc48fc1794bb`
 - Flutter version: 3.47.9
-- `flutter analyze --no-fatal-infos --no-fatal-warnings`: PASS (0 errors; 2 deprecation infos were reported before the dropdown API cleanup; latest rerun on the same dashboard source is tracked separately).
+- `flutter analyze --no-fatal-infos --no-fatal-warnings`: PASS — no issues found.
 - `flutter test`: PASS — 38 passed, 0 failed.
 - New owner dashboard widget tests: 3 passed (school owner metrics; non-owner school exclusion; business owner isolation).
 - The earlier test attempt failed because a scrollable action was not in the viewport; the test was corrected to scroll before asserting the action. The corrected run passed all 38 tests.
