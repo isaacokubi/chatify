@@ -4,7 +4,12 @@ typedef OwnerDashboardApiCall = Future<Map<String, dynamic>> Function(
     String method, String path);
 
 int _count(dynamic value) => value is num ? value.toInt() : int.tryParse('$value') ?? 0;
-T? _firstOrNull<T>(Iterable<T> values) {\n  for (final value in values) { return value; }\n  return null;\n}\nString _idOf(dynamic value) {
+T? _firstOrNull<T>(Iterable<T> values) {
+  for (final value in values) {
+    return value;
+  }
+  return null;
+}\nString _idOf(dynamic value) {
   if (value is Map) return (value['_id'] ?? value['id'] ?? '').toString();
   return (value ?? '').toString();
 }
