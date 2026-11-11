@@ -4,7 +4,7 @@
 
 - Repository: `isaacokubi/chatify`
 - Tested application source commit: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
-- Documentation/PR head: `06aaecadf31c037c0484b2e63e60d75db18e8a8c`. Documentation-only commits after the source-tested commit do not change application code.
+- Documentation changes after this source-tested commit do not change application code; see the open PR for the current review head.
 - GitHub Actions quality workflow run: `43002990086` — PASS (Flutter analysis/tests and Node API tests/syntax).
 - GitHub Actions full CI run: `43002990331` — PASS.
 - GitHub Actions Android workflow run: `43002990318` — PASS.
