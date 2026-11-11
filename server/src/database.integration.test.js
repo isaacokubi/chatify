@@ -118,6 +118,13 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   assert.equal((await postJson('/api/admin/business-approvals/' + firstBusinessId + '/review',
     {decision: 'APPROVE'}, platformAdminAuth)).status, 409,
     'business approval cannot be applied twice');
+  assert.equal((await getJson('/api/business/organizations/' + firstBusinessId, parentAuth)).status, 402,
+    'business approval does not bypass required workspace setup billing');
+  // Only the disposable integration fixture is moved past the billing gate here.
+  // Provider-confirmed billing is covered by the separate workspace-billing tests.
+  await mongoose.models.BusinessOrganization.updateOne(
+    {_id: firstBusinessId}, {$set: {'billing.billingEnforced': false}},
+  );
   const businessManager = await postJson('/api/business/organizations/' + firstBusinessId + '/members',
     {userId: String(otherUserId), role: 'manager'}, parentAuth);
   assert.equal(businessManager.status, 201, 'business owner can add an existing account as manager');
@@ -151,6 +158,16 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   assert.equal((await getJson('/api/schools', platformAdminAuth)).status, 200);
   assert.equal((await (await getJson('/api/schools', platformAdminAuth)).json()).schools.length, 0,
     'platform admin does not become a school member merely by reviewing the request');
+  assert.equal((await postJson('/api/schools/' + firstSchoolId + '/members', {
+    email: 'other@example.test', role: 'staff', staffDesignation: 'Teacher',
+    studentNames: ['Synthetic Student'],
+  }, schoolAdminAuth)).status, 402,
+  'school verification does not bypass required workspace setup billing');
+  // Only the disposable integration fixture is moved past the billing gate here.
+  // Provider-confirmed billing is covered by the separate workspace-billing tests.
+  await mongoose.models.SchoolWorkspace.updateOne(
+    {_id: firstSchoolId}, {$set: {'billing.billingEnforced': false}},
+  );
 
   const addSchoolStaff = await postJson('/api/schools/' + firstSchoolId + '/members', {
     email: 'other@example.test', role: 'staff', staffDesignation: 'Teacher',
