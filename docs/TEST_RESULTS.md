@@ -264,3 +264,50 @@ Historical test counts in earlier sections refer to the exact commits and runs n
 `server/scripts/demo-account-smoke.mjs` tests the eight supplied demo identities against the hosted API using a password provided only at runtime. It checks login, identity/role, profile, contacts, conversations, payment list, school list, business list and admin route authorization. It is read-only except that successful login updates `lastSeen`. It does not test UI rendering, Socket.IO delivery or payment provider acceptance.
 
 Do not add the shared demo password to this repository, a workflow file, issue, log or README. The script was added for repeatable execution but **has not been run against the hosted API in this audit**.
+
+
+## 2026-11-11 owner dashboard and dependency remediation evidence
+
+The following results are from GitHub-hosted Actions, not local execution. They apply to the listed source commits and must be repeated for the exact release commit if any application code changes.
+
+### Flutter quality run
+
+- Workflow: [Chatify quality checks](https://github.com/isaacokubi/chatify/actions/runs/42998383962)
+- Tested source commit: `c4ae3ecc76354c88959f899a688afc48fc1794bb`
+- Flutter version: 3.47.9
+- `flutter analyze --no-fatal-infos --no-fatal-warnings`: PASS (0 errors; 2 deprecation infos were reported before the dropdown API cleanup; latest rerun on the same dashboard source is tracked separately).
+- `flutter test`: PASS — 38 passed, 0 failed.
+- New owner dashboard widget tests: 3 passed (school owner metrics; non-owner school exclusion; business owner isolation).
+- The earlier test attempt failed because a scrollable action was not in the viewport; the test was corrected to scroll before asserting the action. The corrected run passed all 38 tests.
+
+### Backend quality run
+
+- Workflow: [Chatify quality checks](https://github.com/isaacokubi/chatify/actions/runs/42998383962)
+- Tested source commit: `c4ae3ecc76354c88959f899a688afc48fc1794bb`
+- Node.js: 22.23.4
+- `npm test`: PASS — 260 tests, 259 passed, 0 failed, 1 skipped.
+- `npm run lint`: PASS (all configured `node --check` targets).
+- The skipped test remains skipped by its existing guard; it is not counted as a pass.
+
+### Backend dependency remediation
+
+- Workflow: [Safe dependency remediation](https://github.com/isaacokubi/chatify/actions/runs/42998772787)
+- Starting commit: `4339794abc2e31410f1240ef41a3dba8b635c88c`
+- Resulting dependency commit: `5858678e22299e5df38aa8d990756c9dccfe40fe`
+- `npm audit fix` updated the lockfile without forcing major-version upgrades.
+- Mongoose updated to 8.24.8 and fast-xml-parser to 5.12.0.
+- `npm test`: PASS — 260 tests, 259 passed, 0 failed, 1 skipped.
+- `npm run lint`: PASS.
+- `npm audit --audit-level=high`: PASS after remediation.
+- Remaining dependency audit report: 6 moderate findings involving glob/minimatch in transitive Google Cloud / gaxios / rimraf dependency paths. They were not force-upgraded because doing so could require an unsupported major dependency change. They remain a dependency-maintenance item and must be reviewed before a stricter zero-moderate release policy.
+
+### Not established by these results
+
+- Database-backed two-school/two-business cross-tenant API acceptance.
+- First real school or business onboarding.
+- Live M-Pesa, Stripe/PayPal or tenant merchant settlement.
+- Real SMTP, FCM and Cloudinary delivery.
+- Production backup/restore, off-site encryption, monitoring or incident-response drills.
+- Physical Android device acceptance or production deployment.
+
+Do not treat these CI results as a production certification. Check the latest PR checks and exact head SHA before release.
