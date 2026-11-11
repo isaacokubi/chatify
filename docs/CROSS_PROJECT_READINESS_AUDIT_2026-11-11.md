@@ -25,6 +25,17 @@ The Global Tours repository was reviewed through its current README, documentati
 
 ### Reference status must not be overstated
 
+### Documentation coverage is not the same as complete source review
+
+Global Tours' own `DOCUMENTATION_COVERAGE.md` is unusually explicit about the limits of its inventory:
+- 1,017 first-party JavaScript-family files are indexed and linked to explanations.
+- 263 files have a registered SOURCE-VERIFIED scoped review, 195 are PARTIAL and 559 are STRUCTURAL; 754 files have no registered scoped review.
+- Zero files are certified as fully reviewed line-by-line.
+- 629 mounted API method/path entries are documented as source-traced, but 56 domain contract documents explicitly report no focused tests.
+- The coverage script's latest recorded run predates the latest source changes and is called out for rerun.
+
+This is the standard Chatify should follow: show the inventory and review scope, but never convert documentation link coverage, source navigation, or a route index into a claim that all code paths are audited or tested.
+
 Global Tours' production-readiness document still records **NOT PRODUCTION READY** because its production API smoke returned HTTP 503, deployed SHA/runtime cause were unknown, website smoke was skipped, and the protected production archive restore was unverified. Its 2026-11-10 testing guide reports 322 backend tests (317 passed, 0 failed, 5 skipped), `check:all` and client lint/build passed, while 16 Playwright tests were discovered but not run. Those are historical, scoped results—not proof of a production launch.
 
 Recent Global Tours changes on 2026-11-11 also add:
