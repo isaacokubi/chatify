@@ -248,11 +248,11 @@ This section supersedes older status rows above that say the latest CI is pendin
 
 ### Owner dashboard and billing acceptance
 
-The School tab now routes to a dedicated School Owner Dashboard. It filters to server-reported `isOwner: true` and `role: admin` school memberships, then requests server totals for students, attendance, memberships and fee-balance records. It checks `GET /api/workspace-billing/school/:schoolId` before fetching those protected metrics. A locked workspace shows the billing-required state and links to the existing school workspace/billing controls; it does not expose protected metric cards.
+The School tab now routes to a dedicated School Owner Dashboard. It filters to server-reported `isOwner: true` and `role: admin` school memberships, then requests server totals for students, attendance, memberships and fee-balance records. It checks `GET /api/workspace-billing/school/:schoolId` before fetching those protected metrics. A locked workspace suppresses protected metric requests and shows setup/subscription pricing. The owner can initiate the Chatify school workspace checkout directly from the dashboard; the dashboard refreshes protected metrics only after the payment API confirms success.
 
 The Business tab now routes to a dedicated Business Owner Dashboard. It filters organizations to the authenticated owner ID, checks `GET /api/workspace-billing/business/:orgId`, and only requests organization dashboard metrics when billing is not locked. A pending platform approval is shown without offering checkout. Once approved, the owner can start the existing Chatify setup/monthly subscription checkout. The client polls the existing payment status and refreshes access only after provider-reported success; checkout initiation alone does not unlock operations.
 
-Eight widget tests cover school owner metrics, staff exclusion, business owner filtering, multi-workspace switching, school billing lock, business approval gating and zero-priced setup checkout. The tests are automated UI tests, not a live M-Pesa payment.
+Nine widget tests cover school owner metrics, staff exclusion, business owner filtering, multi-workspace switching, school billing lock, school zero-priced setup checkout, business approval gating and business zero-priced setup checkout. The tests are automated UI tests, not a live M-Pesa payment.
 
 ### Remaining release gates
 
