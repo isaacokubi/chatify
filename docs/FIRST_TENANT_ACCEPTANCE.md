@@ -214,7 +214,7 @@ The Business tab now opens the business-owner overview. It filters the authentic
 
 Both overview pages link to the existing full management workspace. They do not replace backend authorization. The client-side owner filters are for presentation only; server-side membership, role and organization checks remain mandatory.
 
-Widget tests were added for school owner metrics, school staff exclusion and business owner organization filtering. These are **added but not yet reported as passing** until the implementation branch's GitHub Actions Flutter job completes.
+Widget tests for school owner metrics, school staff exclusion and business owner organization filtering have passed in GitHub Actions. The Flutter analyzer also reported no issues on the tested dashboard source commit.
 
 ## 11. Updated release status
 
@@ -222,7 +222,7 @@ Widget tests were added for school owner metrics, school staff exclusion and bus
 |---|---|---|
 | Dedicated school owner overview | IMPLEMENTED — CI PENDING | New `SchoolOwnerDashboard` widget and school-tab routing on the implementation branch. |
 | Dedicated business owner overview | IMPLEMENTED — CI PENDING | New `BusinessOwnerDashboard` widget and business-tab routing on the implementation branch. |
-| Owner dashboard widget tests | ADDED — NOT YET VERIFIED | Three widget scenarios added; CI result must be checked. |
+| Owner dashboard widget tests | PASS | Three new widget scenarios passed; full Flutter test suite reports 38 passed. |
 | Existing school/business management workflows | EXISTING IMPLEMENTATION | Full SchoolWorkspacePage and BusinessHub retained and linked from the overview pages. |
 | Backend tenant authorization | EXISTING IMPLEMENTATION; FRESH ACCEPTANCE NOT VERIFIED | Source inspection confirms school membership and business organization authorization paths; database-backed cross-tenant tests still required. |
 | First real school and business | NOT VERIFIED | No live tenant was created or modified as part of this code change. |
