@@ -275,8 +275,10 @@ Do not add the shared demo password to this repository, a workflow file, issue, 
 The continuation adds:
 - Unit tests for demo seed environment, explicit confirmation, production database-name rejection, unclassified database acknowledgement, password bounds and dry-run selection.
 - Database-backed API acceptance for the real first-business creation -> platform-admin review flow, including owner/member authorization and duplicate-review rejection.
+- The business/school integration fixture asserts the setup-billing lock (HTTP 402) after approval/verification. It then disables billing enforcement on those disposable records only to continue testing member/student authorization; this is not provider-payment acceptance.
 - Database-backed API acceptance for the real first-school verification-request -> authorized review -> workspace creation flow, including disabled direct creation, admin membership, staff/parent enrollment, linked student visibility and non-member denial.
 - Read-only demo-account smoke checks for the canonical one-business/one-school fixture, business catalogue visibility, school membership role and six linked student records.
+- The read-only smoke waits for the configured login rate-limit window on HTTP 429 rather than bypassing the limiter.
 - A dedicated [first business and school onboarding runbook](FIRST_BUSINESS_SCHOOL_ACCEPTANCE.md).
 
 The existing `.github/workflows/ci.yml` at the audit baseline does not configure `CHATIFY_MONGO_TEST_URI`; therefore the destructive integration test is expected to remain guarded/skipped in the ordinary CI test command unless CI is given a dedicated disposable MongoDB service and the exact loopback-only test URI. The integration test guard permits only `127.0.0.1:27018` and database names beginning `chatify_audit_test`; it drops only that exact database during setup/teardown. Do not point it at Atlas or production.
