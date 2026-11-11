@@ -234,3 +234,26 @@ Widget tests for school owner metrics, school staff exclusion and business owner
 On source commit `e993cd61e6d838abfba9167b767b53a13cbe137c`, GitHub Actions passed the backend suite, Flutter analysis, all 43 Flutter tests, Flutter Web build and Android debug build. The separate Android workflow uploaded an ARM64 debug/test APK. The signed release APK steps were skipped because release signing secrets are not configured. See [TEST_RESULTS.md](TEST_RESULTS.md) for workflow IDs, artifact digest and remaining acceptance limits.
 
 This evidence does not complete the live two-school/two-business database isolation test, real first-tenant onboarding, production M-Pesa acceptance, child-data privacy approval, physical-device test or production restore/monitoring drills.
+
+## 13. Authoritative implementation-branch update — 2026-11-11
+
+This section supersedes older status rows above that say the latest CI is pending or describe this work as documentation-only.
+
+- Application source tested: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
+- Current implementation/documentation head at the time of this update: `06aaecadf31c037c0484b2e63e60d75db18e8a8c`.
+- GitHub Actions full CI run `43002990331`: backend **259 passed, 0 failed, 1 guarded skip**; npm high/critical audit threshold passed; Flutter analyzer reported no issues; Flutter **43 tests passed**; Flutter Web and Android debug builds passed.
+- GitHub Actions quality workflow `43002990086`: PASS.
+- Android workflow `43002990318`: PASS. Debug artifact only; signed release packaging remains blocked on release signing credentials.
+- The implementation is in the open draft PR, not merged to `main` and not deployed by this change.
+
+### Owner dashboard and billing acceptance
+
+The School tab now routes to a dedicated School Owner Dashboard. It filters to server-reported `isOwner: true` and `role: admin` school memberships, then requests server totals for students, attendance, memberships and fee-balance records. It checks `GET /api/workspace-billing/school/:schoolId` before fetching those protected metrics. A locked workspace shows the billing-required state and links to the existing school workspace/billing controls; it does not expose protected metric cards.
+
+The Business tab now routes to a dedicated Business Owner Dashboard. It filters organizations to the authenticated owner ID, checks `GET /api/workspace-billing/business/:orgId`, and only requests organization dashboard metrics when billing is not locked. A pending platform approval is shown without offering checkout. Once approved, the owner can start the existing Chatify setup/monthly subscription checkout. The client polls the existing payment status and refreshes access only after provider-reported success; checkout initiation alone does not unlock operations.
+
+Eight widget tests cover school owner metrics, staff exclusion, business owner filtering, multi-workspace switching, school billing lock, business approval gating and zero-priced setup checkout. The tests are automated UI tests, not a live M-Pesa payment.
+
+### Remaining release gates
+
+Database-backed two-school/two-business cross-tenant integration, actual first-school and first-business onboarding, live M-Pesa and merchant settlement, real SMTP/FCM/Cloudinary delivery, production restore, monitoring/alert delivery, privacy/child-safety approval, signed release packaging and physical-device acceptance remain unverified or require owner action. Production onboarding remains **NOT APPROVED** until the relevant gates in the readiness report are evidenced.
