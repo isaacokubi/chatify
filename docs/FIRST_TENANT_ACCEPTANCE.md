@@ -241,7 +241,7 @@ This section supersedes older status rows above that say the latest CI is pendin
 
 - Application source tested: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
 - Documentation-only follow-up commits keep the acceptance records synchronized; see the open PR for the current review head.
-- GitHub Actions full CI run `43002990331`: backend **259 passed, 0 failed, 1 guarded skip**; npm high/critical audit threshold passed; Flutter analyzer reported no issues; Flutter **44 tests passed** and analyzer clean on latest source commit `b2beb4fd46435b5de3ce1fcb6dcc33497146a3cc`. The full CI Web/Android build and dedicated Android debug workflow were still running at the time of this update.
+- GitHub Actions full CI run `43002990331`: backend **259 passed, 0 failed, 1 guarded skip**; npm high/critical audit threshold passed; Flutter analyzer reported no issues; Flutter **44 tests passed** and analyzer clean on latest source commit `b2beb4fd46435b5de3ce1fcb6dcc33497146a3cc`. The latest-source Flutter Web build passed in full CI run `43012583387`; its Android debug build step was still running.
 - GitHub Actions quality workflow `43002990086`: PASS.
 - Android workflow `43002990318`: PASS. Debug artifact only; signed release packaging remains blocked on release signing credentials.
 - The implementation is in the open draft PR, not merged to `main` and not deployed by this change.
