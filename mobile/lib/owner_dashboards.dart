@@ -114,7 +114,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
                     if (_ownedSchools.length > 1) ...[
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        value: school['id'].toString(),
+                        initialValue: school['id'].toString(),
                         decoration: const InputDecoration(labelText: 'Owned school'),
                         items: _ownedSchools.map((s) => DropdownMenuItem<String>(value: s['id'].toString(), child: Text(s['name']?.toString() ?? 'School'))).toList(),
                         onChanged: (value) { if (value != null) _load(schoolId: value); },
@@ -252,7 +252,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                   if (_owned.length > 1) ...[
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: _idOf(organization['_id']),
+                      initialValue: _idOf(organization['_id']),
                       decoration: const InputDecoration(labelText: 'Owned business'),
                       items: _owned.map((org) => DropdownMenuItem<String>(value: _idOf(org['_id']), child: Text(org['name']?.toString() ?? 'Business'))).toList(),
                       onChanged: (value) { if (value != null) _load(organizationId: value); },
