@@ -23,6 +23,10 @@ Chatify is a mobile-first communication platform that combines real-time messagi
 - [Production Readiness Assessment (2026-11-11)](docs/PRODUCTION_READINESS_2026-11-11.md) — current evidence ledger, release decision and external blockers.
 
 - [Architecture and code walkthrough](docs/PROJECT_WALKTHROUGH.md)
+- [School owner dashboard](docs/SCHOOL_OWNER_DASHBOARD.md)
+- [Business owner dashboard](docs/BUSINESS_OWNER_DASHBOARD.md)
+- [First school and business onboarding acceptance](docs/FIRST_TENANT_ACCEPTANCE.md)
+- [Dated production readiness assessment](docs/PRODUCTION_READINESS_2026-11-11.md)
 - [Acceptance audit and demo matrix](docs/ACCEPTANCE_AUDIT_2026-10-28.md)
 - [Current test results](docs/TEST_RESULTS.md)
 - [Security and privacy notes](docs/SECURITY_AND_PRIVACY.md)
