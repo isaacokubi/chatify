@@ -1,3 +1,28 @@
+# Latest CI verification — 2026-11-11
+
+> This dated addendum supersedes older test totals and "latest verification" labels below. Older entries are retained as historical evidence and must not be read as the current result.
+
+- Repository: `isaacokubi/chatify`
+- Tested application source commit: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
+- Documentation/PR head: `06aaecadf31c037c0484b2e63e60d75db18e8a8c`. Documentation-only commits after the source-tested commit do not change application code.
+- GitHub Actions quality workflow run: `43002990086` — PASS (Flutter analysis/tests and Node API tests/syntax).
+- GitHub Actions full CI run: `43002990331` — PASS.
+- GitHub Actions Android workflow run: `43002990318` — PASS.
+
+| Check | Result | Evidence / limits |
+|---|---|---|
+| Backend Node test suite | **259 passed, 0 failed, 1 guarded skip (260 total)** | GitHub Actions full CI; skip remains the explicit opt-in database integration test when its dedicated URI is not configured. |
+| Backend lint / syntax | **PASS** | Quality and CI jobs completed successfully. |
+| `npm audit --audit-level=high` | **PASS** | No high/critical findings blocking this threshold. Six moderate transitive glob/minimatch findings remain; no forced major upgrades were applied. |
+| Flutter analyzer | **PASS — no issues found** | Flutter 3.47.9 in CI. |
+| Flutter tests | **43 passed** | Includes eight owner-dashboard/billing widget scenarios. |
+| Flutter Web build | **PASS** | CI build using the configured Chatify API define; this is a build, not a live browser acceptance test. |
+| Android debug APK | **PASS** | ARM64/debug test artifact only; not a signed production release. |
+| Android signed release | **NOT BUILT** | Release signing secrets are not configured. |
+| Live tenant onboarding / production integrations | **NOT VERIFIED** | See release gates in `PRODUCTION_READINESS_2026-11-11.md`. |
+
+The Android workflow artifact from run `43002990318` is a test/debug build. Do not distribute it as a production release. CI does not prove real M-Pesa settlement, email/push/media delivery, production MongoDB isolation, privacy approval, monitoring, or a successful production restore.
+
 # Production readiness test results
 
 ## Latest verification after payment-settlement guard — 2026-10-26
