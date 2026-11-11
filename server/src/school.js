@@ -438,7 +438,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const officialEmail = String(req.body?.officialEmail || '').trim().toLowerCase();
       const officialPhone = String(req.body?.officialPhone || '').trim();
       if (!schoolName || schoolName.length > 160 || !/^[A-Z0-9-]{3,24}$/.test(proposedCode) ||
-          !county || county.length > 80 || !/^\\S+@\\S+\\.\\S+$/.test(officialEmail) ||
+          !county || county.length > 80 || !/^\S+@\S+\.\S+$/.test(officialEmail) ||
           officialEmail.length > 254 || !/^[+0-9() -]{9,24}$/.test(officialPhone)) {
         return res.status(400).json({ error: 'Enter the school name, proposed code, county, official school email and phone number.' });
       }
