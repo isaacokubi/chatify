@@ -2229,6 +2229,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearEncryptionError() {
+    encryptionError = null;
+    notifyListeners();
+  }
+
   Future<void> init() async {
     ready = false;
     restoreError = null;
@@ -2327,6 +2332,26 @@ class AppState extends ChangeNotifier {
       encryptionError = null;
       notifyListeners();
     }
+    return publicKey;
+  }
+
+  /// Starts a new encryption identity after the previous device and recovery
+  /// material are unavailable. Historical ciphertext remains tied to the old key.
+  Future<String> resetEncryptionForThisDevice() async {
+    final accountId = user?['id']?.toString() ?? '';
+    if (accountId.isEmpty) throw StateError('Sign in before resetting encryption.');
+    final publicKey = await ChatifyE2EE.instance.replaceWithFreshKey(
+      accountId,
+      registerPublicKey: (key) async {
+        await api.call('PUT', '/api/users/me/encryption-key', {
+          'publicKey': key,
+          'replaceExisting': true,
+        });
+      },
+    );
+    user!['encryptionPublicKey'] = publicKey;
+    encryptionError = null;
+    notifyListeners();
     return publicKey;
   }
 
@@ -15671,6 +15696,101 @@ class _ProfileState extends State<Profile> {
     }
   }
 
+  Future<void> exportEncryptionKey() async {
+    final passphrase = TextEditingController();
+    String? bundle;
+    try {
+      await showDialog<void>(context: context, builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Transfer encryption to another device'),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Create a strong transfer passphrase (12+ characters). Keep the code and passphrase private. Anyone with both can access your encrypted message history.'),
+            const SizedBox(height: 12),
+            TextField(controller: passphrase, obscureText: true, decoration: const InputDecoration(labelText: 'Transfer passphrase')),
+            if (bundle != null) ...[
+              const SizedBox(height: 12),
+              const Text('Copy this complete transfer code to your new device:'),
+              SelectableText(bundle!, style: const TextStyle(fontSize: 11)),
+            ],
+          ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+            if (bundle == null) FilledButton(onPressed: () async {
+              try {
+                final id = _authenticatedUserId(context.read<AppState>().user);
+                final value = await ChatifyE2EE.instance.exportKeyTransfer(id, passphrase.text);
+                setDialogState(() => bundle = value);
+              } catch (error) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+              }
+            }, child: const Text('Create transfer code')),
+          ],
+        ),
+      ));
+    } finally { passphrase.dispose(); }
+  }
+
+  Future<void> importEncryptionKey() async {
+    final passphrase = TextEditingController();
+    final bundle = TextEditingController();
+    try {
+      await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Restore encryption on this device'),
+        content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('On your existing device, open Profile → Encryption key transfer and create a transfer code. Enter that code and the same passphrase here. Your existing registered identity key will not be replaced.'),
+          const SizedBox(height: 12),
+          TextField(controller: bundle, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: 'Transfer code', border: OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(controller: passphrase, obscureText: true, decoration: const InputDecoration(labelText: 'Transfer passphrase', border: OutlineInputBorder())),
+        ]))),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () async {
+            try {
+              final appState = context.read<AppState>();
+              final id = _authenticatedUserId(appState.user);
+              final registered = appState.user?['encryptionPublicKey']?.toString();
+              await ChatifyE2EE.instance.importKeyTransfer(id, passphrase.text, bundle.text.trim(), registeredPublicKey: registered);
+              await appState.ensureEncryptionKey();
+              appState.clearEncryptionError();
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Encryption key restored. Your encrypted messages can now be opened on this device.')));
+            } catch (error) {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Key transfer failed: $error')));
+            }
+          }, child: const Text('Restore key')),
+        ],
+      ));
+    } finally { passphrase.dispose(); bundle.dispose(); }
+  }
+
+  Future<void> resetEncryptionKey() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Start fresh on this device?'),
+        content: const Text(
+          'Use this only when your old phone and every saved recovery code are unavailable. Chatify will create a new encryption identity for this account. You will be able to send and receive new encrypted messages, but messages encrypted for your previous key cannot be recovered and will remain locked. Other devices using the old key will need to be set up again.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create new key')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<AppState>().resetEncryptionForThisDevice();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('New encryption identity created. You can now send and receive new encrypted messages. Old encrypted history cannot be opened without the previous key.'),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not reset encryption: $error')));
+    }
+  }
+
   Future<void> changePassword() async {
     final current = TextEditingController();
     final next = TextEditingController();
@@ -15830,6 +15950,18 @@ class _ProfileState extends State<Profile> {
           onPressed: saveDefaultPhone,
           icon: const Icon(Icons.account_balance_wallet_outlined),
           label: const Text('Save default M-Pesa number')),
+      const SizedBox(height: 18),
+      const Text('Encryption', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      const Text('Use a passphrase-protected transfer code to move your existing encryption identity to another device. Do not share the code or passphrase.'),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(onPressed: exportEncryptionKey, icon: const Icon(Icons.ios_share), label: const Text('Transfer key from this device')),
+      OutlinedButton.icon(onPressed: importEncryptionKey, icon: const Icon(Icons.key), label: const Text('Restore key on this device')),
+      OutlinedButton.icon(
+        onPressed: resetEncryptionKey,
+        icon: const Icon(Icons.restart_alt),
+        label: const Text('I lost my old phone — set up a new encryption key'),
+      ),
+      if (app.encryptionError != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Encryption setup: ${app.encryptionError}', style: TextStyle(color: Theme.of(context).colorScheme.error))),
       const SizedBox(height: 18),
       const Text('Privacy',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
