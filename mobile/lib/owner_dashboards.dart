@@ -34,6 +34,8 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
   List<Map<String, dynamic>> _ownedSchools = [];
   Map<String, dynamic>? _school;
   Map<String, int> _metrics = {};
+  Map<String, dynamic> _billing = {};
+  bool _billingLocked = false;
   bool _loading = true;
   String? _error;
 
@@ -55,10 +57,24 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
           (_school == null ? null : _firstOrNull(owned.where((s) => s['id'].toString() == _school!['id'].toString()))) ??
           (owned.isEmpty ? null : owned.first);
       if (selected == null) {
-        if (mounted) setState(() { _ownedSchools = owned; _school = null; _metrics = {}; _loading = false; });
+        if (mounted) setState(() { _ownedSchools = owned; _school = null; _metrics = {}; _billing = {}; _billingLocked = false; _loading = false; });
         return;
       }
       final id = Uri.encodeComponent(selected['id'].toString());
+      final billingResult = await widget.apiCall(
+          'GET', '/api/workspace-billing/school/$id');
+      final billing = Map<String, dynamic>.from(billingResult['billing'] ?? {});
+      if (billing['locked'] == true) {
+        if (mounted) setState(() {
+          _ownedSchools = owned;
+          _school = selected;
+          _billing = billing;
+          _billingLocked = true;
+          _metrics = {};
+          _loading = false;
+        });
+        return;
+      }
       final results = await Future.wait([
         widget.apiCall('GET', '/api/schools/$id/students?page=1&limit=1'),
         widget.apiCall('GET', '/api/schools/$id/attendance?page=1&limit=1'),
@@ -69,6 +85,8 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
       setState(() {
         _ownedSchools = owned;
         _school = selected;
+        _billing = billing;
+        _billingLocked = false;
         _metrics = {
           'Students': _count(results[0]['total']),
           'Attendance records': _count(results[1]['total']),
@@ -124,7 +142,21 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
                   ]),
                 ),
               ),
-              const SizedBox(height: 12),
+              if (_billing.isNotEmpty)
+                Card(child: ListTile(
+                  leading: Icon(_billingLocked ? Icons.lock_outline : Icons.workspace_premium_outlined),
+                  title: Text(_billingLocked ? 'School workspace payment required' : 'School workspace billing'),
+                  subtitle: Text('Status: ${_billing['status'] ?? 'Unknown'} · Setup fee: ${_billing['setupFeePaid'] == true ? 'Paid' : 'Unpaid'}'),
+                )),
+              if (_billingLocked) ...[
+                const Card(child: ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('School workspace is locked'),
+                  subtitle: Text('School records become available after the required Chatify setup fee or subscription is confirmed. Open the workspace to review its secure billing controls.'),
+                )),
+                FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.payment), label: const Text('Open school billing')),
+              ],
+              if (!_billingLocked) ...[
               Text('School overview', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               LayoutBuilder(builder: (context, constraints) {
@@ -151,6 +183,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
               const SizedBox(height: 12),
               const Card(child: ListTile(leading: Icon(Icons.verified_user_outlined), title: Text('Workspace privacy'), subtitle: Text('The dashboard requests records through the authenticated school APIs. Server membership and linked-student checks remain authoritative.'))),
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Manage school workspace')),
+              ],
             ],
           ],
         ),
@@ -178,6 +211,9 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
   List<Map<String, dynamic>> _owned = [];
   Map<String, dynamic>? _organization;
   Map<String, dynamic> _metrics = {};
+  Map<String, dynamic> _billing = {};
+  bool _billingLocked = false;
+  bool _billingBusy = false;
   bool _loading = true;
   String? _error;
 
@@ -196,20 +232,130 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
           (_organization == null ? null : _firstOrNull(owned.where((org) => _idOf(org['_id']) == _idOf(_organization!['_id'])))) ??
           (owned.isEmpty ? null : owned.first);
       if (selected == null) {
-        if (mounted) setState(() { _owned = owned; _organization = null; _metrics = {}; _loading = false; });
+        if (mounted) setState(() { _owned = owned; _organization = null; _metrics = {}; _billing = {}; _billingLocked = false; _loading = false; });
         return;
       }
       final id = Uri.encodeComponent(_idOf(selected['_id']));
+      final billingResult = await widget.apiCall('GET', '/api/workspace-billing/business/$id');
+      final billing = Map<String, dynamic>.from(billingResult['billing'] ?? {});
+      if (billing['locked'] == true) {
+        if (mounted) setState(() {
+          _owned = owned;
+          _organization = selected;
+          _billing = billing;
+          _billingLocked = true;
+          _metrics = {};
+          _loading = false;
+        });
+        return;
+      }
       final result = await widget.apiCall('GET', '/api/business/organizations/$id/dashboard');
       if (!mounted) return;
       setState(() {
         _owned = owned;
         _organization = selected;
+        _billing = billing;
+        _billingLocked = false;
         _metrics = Map<String, dynamic>.from(result['metrics'] ?? {});
         _loading = false;
       });
     } catch (error) {
       if (mounted) setState(() { _error = error.toString(); _loading = false; });
+    }
+  }
+
+  Future<void> _payWorkspaceBilling(String billingType) async {
+    final organization = _organization;
+    if (organization == null || _billingBusy || _loading) return;
+    final approval = (organization['approvalStatus'] ?? 'APPROVED').toString().toUpperCase();
+    if (approval != 'APPROVED') {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Workspace payment becomes available after platform approval.'),
+      ));
+      return;
+    }
+    final phoneController = TextEditingController();
+    final phone = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Business workspace payment'),
+        content: TextField(
+          controller: phoneController,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'M-Pesa phone number',
+            hintText: '07XXXXXXXX or 2547XXXXXXXX',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, phoneController.text.trim()),
+            child: const Text('Continue to M-Pesa'),
+          ),
+        ],
+      ),
+    );
+    phoneController.dispose();
+    if (phone == null || phone.isEmpty || !mounted) return;
+    setState(() => _billingBusy = true);
+    try {
+      final id = Uri.encodeComponent(_idOf(organization['_id']));
+      final checkout = await widget.apiCall(
+        'POST',
+        '/api/workspace-billing/business/$id/checkout',
+        {'billingType': billingType},
+      );
+      if (checkout['paid'] == true) {
+        await _load(organizationId: _idOf(organization['_id']));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(checkout['notice']?.toString() ?? 'Business billing updated.'),
+        ));
+        return;
+      }
+      final payment = Map<String, dynamic>.from(checkout['payment'] ?? {});
+      final paymentId = payment['paymentId']?.toString();
+      if (paymentId == null || paymentId.isEmpty) {
+        throw Exception('The billing checkout did not return a payment reference.');
+      }
+      if (payment['initiatedAt'] == null) {
+        await widget.apiCall(
+          'POST',
+          '/api/payments/${Uri.encodeComponent(paymentId)}/initiate',
+          {'phone': phone},
+        );
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('M-Pesa prompt requested. Approve it on your phone; the business workspace unlocks only after provider confirmation.'),
+      ));
+      for (var attempt = 0; attempt < 20 && mounted; attempt++) {
+        await Future.delayed(const Duration(seconds: 3));
+        final statusResult = await widget.apiCall(
+          'GET',
+          '/api/payments/${Uri.encodeComponent(paymentId)}',
+        );
+        final current = Map<String, dynamic>.from(statusResult['payment'] ?? {});
+        final status = current['status']?.toString().toUpperCase();
+        if (status == 'SUCCESS') {
+          await _load(organizationId: _idOf(organization['_id']));
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Payment confirmed. Business workspace access refreshed.'),
+          ));
+          return;
+        }
+        if (status == 'FAILED' || status == 'CANCELLED') {
+          throw Exception('M-Pesa payment $status. Refresh billing before retrying.');
+        }
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Payment is still pending. Refresh billing shortly; do not pay again unless the first payment has failed.'),
+      ));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    } finally {
+      if (mounted) setState(() => _billingBusy = false);
     }
   }
 
@@ -262,7 +408,50 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                   ],
                 ]),
               )),
-              const SizedBox(height: 12),
+              if (_billing.isNotEmpty) ...[
+                Card(child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Icon(_billingLocked ? Icons.lock_outline : Icons.workspace_premium_outlined),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text('Business workspace billing', style: Theme.of(context).textTheme.titleMedium)),
+                      if (_billingBusy || _loading) const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                    ]),
+                    const SizedBox(height: 6),
+                    Text('Status: ${_billing['status'] ?? 'Unknown'} · Setup fee: ${_billing['setupFeePaid'] == true ? 'Paid' : 'Unpaid'}'),
+                    if (organization['approvalStatus']?.toString().toUpperCase() == 'PENDING')
+                      const Text('Awaiting Chatify platform approval. Setup payment becomes available after approval.'),
+                    if (organization['approvalStatus']?.toString().toUpperCase() == 'REJECTED')
+                      const Text('This business application was rejected. Contact Chatify support before subscribing.'),
+                    if (_billingLocked && organization['approvalStatus']?.toString().toUpperCase() == 'APPROVED') ...[
+                      const SizedBox(height: 8),
+                      Text(_billing['setupFeePaid'] == true
+                        ? 'The monthly workspace subscription must be paid before business operations unlock.'
+                        : 'The one-time setup fee must be confirmed before business operations unlock.'),
+                      const SizedBox(height: 8),
+                      FilledButton.icon(
+                        onPressed: _billingBusy ? null : () => _payWorkspaceBilling(_billing['setupFeePaid'] == true ? 'workspace_subscription' : 'workspace_setup'),
+                        icon: const Icon(Icons.payment),
+                        label: Text(_billing['setupFeePaid'] == true
+                          ? 'Pay monthly · KSh ${_count((_billing['prices'] as Map?)?['monthlyFee'] ?? 500)}'
+                          : 'Pay setup · KSh ${_count((_billing['prices'] as Map?)?['setupFee'] ?? 1000)}'),
+                      ),
+                    ],
+                    if (!_billingLocked)
+                      const Text('Workspace billing is currently within its access window. Customer sales and merchant payments are separate from this Chatify subscription.'),
+                  ]),
+                )),
+              ],
+              if (_billingLocked) ...[
+                const Card(child: ListTile(
+                  leading: Icon(Icons.lock_outline),
+                  title: Text('Business operations are locked'),
+                  subtitle: Text('The business identity is retained, but its operational records remain protected until the required subscription payment is confirmed.'),
+                )),
+                FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.open_in_new), label: const Text('Open business workspace')),
+              ],
+              if (!_billingLocked) ...[
               Text('Business overview', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               LayoutBuilder(builder: (context, constraints) {
@@ -290,6 +479,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                 Card(child: ListTile(leading: const Icon(Icons.insights_outlined), title: const Text('Business briefing'), subtitle: Text(_metrics['briefing'].toString()))),
               const Card(child: ListTile(leading: Icon(Icons.verified_user_outlined), title: Text('Workspace privacy'), subtitle: Text('Only organizations whose owner ID matches the authenticated account are shown here. API membership and organization checks remain authoritative.'))),
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Manage business workspace')),
+              ],
             ],
           ],
         ),
