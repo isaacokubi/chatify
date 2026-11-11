@@ -274,14 +274,14 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
       ));
       return;
     }
-    final phoneController = TextEditingController();
+    var enteredPhone = '';
     final phone = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Business workspace payment'),
         content: TextField(
-          controller: phoneController,
           keyboardType: TextInputType.phone,
+          onChanged: (value) => enteredPhone = value,
           decoration: const InputDecoration(
             labelText: 'M-Pesa phone number',
             hintText: '07XXXXXXXX or 2547XXXXXXXX',
@@ -290,13 +290,12 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, phoneController.text.trim()),
+            onPressed: () => Navigator.pop(dialogContext, enteredPhone.trim()),
             child: const Text('Continue to M-Pesa'),
           ),
         ],
       ),
     );
-    phoneController.dispose();
     if (phone == null || phone.isEmpty || !mounted) return;
     setState(() => _billingBusy = true);
     try {
