@@ -41,6 +41,8 @@ The seed inserts records directly so that a demo can be explored. It does **not*
 
 The seed script performs record relationship checks and bcrypt verification. CI must additionally run it against a disposable MongoDB database and perform authenticated HTTP smoke checks for the seeded accounts. The test database must be isolated from Atlas/production and must be safe to drop.
 
+The database-backed onboarding test also asserts that approval/verification alone does not unlock workspace operations: business and school APIs return the setup-billing-required response first. To continue testing member/student authorization in the same isolated fixture, the test explicitly disables the billing-enforcement flag on those disposable test records only. This is not payment acceptance and must never be copied to a real workspace; provider-confirmed billing remains a separate gate.
+
 ## Automated acceptance gates
 
 | Gate | Required evidence | Pass condition |
