@@ -26,7 +26,7 @@ For the selected owned school, the dashboard requests the first page with a one-
 
 The selected school name and code come from the authenticated school list. The dashboard does not fabricate figures or calculate money from client-side data.
 
-## Management workflows
+## Workspace billing gate\n\nBefore requesting student, attendance, member or fee-balance totals, the dashboard calls the authenticated `GET /api/workspace-billing/school/:schoolId` endpoint. If the server reports `locked: true`, it suppresses protected overview requests and metric cards, shows the billing-required state and links to the existing School Workspace billing controls. The dashboard does not mark a fee as paid or unlock a school from a client-side action.\n\n## Management workflows
 
 The **Manage school workspace** action opens the existing SchoolWorkspacePage, which continues to provide the implemented school modules, including messages, fee records, receipts, members, students, attendance, academics and owner/admin settings. Each module retains its existing API permission checks.
 
