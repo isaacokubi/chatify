@@ -15,7 +15,7 @@
 | `npm audit --audit-level=high` | **PASS** | Full CI backend job passed. Six moderate transitive glob/minimatch findings remain; no forced major upgrades were applied. |
 | Flutter analyzer | **PASS — no issues found** | Quality workflow on latest source commit. |
 | Flutter tests | **44 passed** | Includes nine owner-dashboard/billing widget scenarios, including direct school and business setup checkout tests. |
-| Flutter Web build | **PENDING** | Full CI mobile job was still running. An earlier Web build passed on source commit `e993cd61e6d838abfba9167b767b53a13cbe137c`; do not substitute that for the latest-source build. |
+| Flutter Web build | **PASS** | Full CI run `43012583387` built Web successfully on the latest source commit. |
 | Android debug APK | **PENDING** | Full CI and dedicated Android workflows were still running. An earlier debug build passed on source commit `e993cd61e6d838abfba9167b767b53a13cbe137c`; do not substitute that for the latest-source build. |
 | Android signed release | **NOT BUILT** | Release signing credentials are not configured. |
 | Live tenant onboarding / production integrations | **NOT VERIFIED** | See release gates in `PRODUCTION_READINESS_2026-11-11.md`. |
