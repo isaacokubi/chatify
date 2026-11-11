@@ -57,6 +57,72 @@ class ChatifyE2EE {
     return pair;
   }
 
+  /// Exports the existing account key as a passphrase-encrypted transfer bundle.
+  /// The bundle is intended to be copied directly between devices by the account owner.
+  Future<String> exportKeyTransfer(String accountId, String passphrase) async {
+    if (passphrase.length < 12) {
+      throw ArgumentError('Use a transfer passphrase of at least 12 characters.');
+    }
+    final stored = await _storage.read(key: _keyName(accountId));
+    if (stored == null) {
+      throw StateError('This device has no encryption key to transfer.');
+    }
+    final seed = base64Decode(stored);
+    if (seed.length != 32) throw StateError('The local encryption key is invalid.');
+    final salt = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+    final nonce = List<int>.generate(12, (_) => Random.secure().nextInt(256));
+    final wrappingKey = await Pbkdf2(
+      macAlgorithm: Hmac.sha256(), iterations: 310000, bits: 256,
+    ).deriveKeyFromPassword(password: passphrase, nonce: salt);
+    final box = await _aead.encrypt(
+      seed, secretKey: wrappingKey, nonce: nonce,
+      aad: utf8.encode('chatify-key-transfer-v1:$accountId'),
+    );
+    return jsonEncode({
+      'version': 1, 'accountId': accountId,
+      'salt': base64Encode(salt), 'nonce': base64Encode(box.nonce),
+      'ciphertext': base64Encode(box.cipherText), 'mac': base64Encode(box.mac.bytes),
+    });
+  }
+
+  /// Imports a transfer bundle only when it belongs to this signed-in account
+  /// and derives exactly the public key already registered to that account.
+  Future<String> importKeyTransfer(
+    String accountId, String passphrase, String bundle, {
+    String? registeredPublicKey,
+  }) async {
+    if (passphrase.length < 12) throw ArgumentError('Invalid transfer passphrase.');
+    final decoded = jsonDecode(bundle);
+    if (decoded is! Map || decoded['version'] != 1 ||
+        decoded['accountId']?.toString() != accountId) {
+      throw StateError('This transfer bundle is invalid or belongs to another account.');
+    }
+    final salt = base64Decode(decoded['salt'] as String);
+    final nonce = base64Decode(decoded['nonce'] as String);
+    final ciphertext = base64Decode(decoded['ciphertext'] as String);
+    final mac = base64Decode(decoded['mac'] as String);
+    if (salt.length != 16 || nonce.length != 12 || ciphertext.length != 32 || mac.length != 16) {
+      throw StateError('The encryption-key transfer bundle is damaged.');
+    }
+    final wrappingKey = await Pbkdf2(
+      macAlgorithm: Hmac.sha256(), iterations: 310000, bits: 256,
+    ).deriveKeyFromPassword(password: passphrase, nonce: salt);
+    final seed = await _aead.decrypt(
+      SecretBox(ciphertext, nonce: nonce, mac: Mac(mac)),
+      secretKey: wrappingKey,
+      aad: utf8.encode('chatify-key-transfer-v1:$accountId'),
+    );
+    if (seed.length != 32) throw StateError('The transferred key is invalid.');
+    final pair = await _agreement.newKeyPairFromSeed(seed);
+    final publicKey = base64Encode((await pair.extractPublicKey()).bytes);
+    if (registeredPublicKey == null || registeredPublicKey.isEmpty ||
+        registeredPublicKey != publicKey) {
+      throw StateError('The transferred key does not match this account encryption identity. No key was installed.');
+    }
+    await _storage.write(key: _keyName(accountId), value: base64Encode(seed));
+    return publicKey;
+  }
+
   Future<String> publicKeyFor(
     String accountId, {
     String? registeredPublicKey,
