@@ -15757,10 +15757,9 @@ class _ProfileState extends State<Profile> {
       );
       if (registered == null || registered.isEmpty) {
         await app.api.call('PUT', '/api/users/me/encryption-key', {'publicKey': publicKey});
-        app.user?['encryptionPublicKey'] = publicKey;
-      }
+        }
       app.encryptionError = null;
-      app.notifyListeners();
+      app.updateCurrentUser({...?app.user, 'encryptionPublicKey': publicKey});
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Encryption key restored. Your encrypted message history can now be decrypted on this device.')),
       );
