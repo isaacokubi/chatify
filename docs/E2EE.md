@@ -17,7 +17,7 @@ The API accepts encrypted text payloads only for new text messages and stores a 
 
 1. **Legacy messages:** messages created before this change may still contain plaintext in MongoDB. This code does not retroactively encrypt old records. Existing server-side backups may also contain legacy plaintext.
 2. **Attachments:** image/file uploads and media URLs are not end-to-end encrypted by this text-message implementation. Do not send sensitive material as an attachment until attachment encryption is implemented.
-3. **Multi-device recovery:** the private key is stored locally. A second device cannot decrypt existing messages just by logging into the account. The API refuses silent key replacement; a secure, user-approved transfer/recovery flow is still needed.
+3. **Multi-device recovery:** the private key remains device-local by default. The Profile screen now supports an explicit user-controlled transfer: export a PBKDF2-SHA-256 (310,000 iteration) + AES-256-GCM encrypted key bundle on a trusted device, then import it on the new device using the same passphrase. The bundle is account-bound and checked against the registered public key. The server never receives the private key or recovery passphrase. Losing every device copy and the transfer bundle/passphrase still means the old ciphertext cannot be recovered.
 4. **Forward secrecy:** this initial design uses long-lived account key agreement keys. It does not provide a ratcheting protocol or forward secrecy comparable to Signal's Double Ratchet. A compromised long-lived private key may expose recorded ciphertexts.
 5. **Memory Cards:** encrypted message text is excluded from server-side automatic memory extraction so the clear text is not sent to the server for suggestions. Memory-card content is not yet end-to-end encrypted at rest.
 6. **Key verification:** the current implementation does not provide safety-number / QR verification or protection against a malicious server replacing public keys before users verify them.
@@ -25,18 +25,18 @@ The API accepts encrypted text payloads only for new text messages and stores a 
 
 ## Device setup and behavior
 
-On sign-in, the app creates a random X25519 private-key seed in platform secure storage if no server key exists, then registers only the public key through `PUT /api/users/me/encryption-key`. If the account already has a public key but the current device lacks the matching private key, the app refuses to overwrite the registered key. That is intentional: silently rotating the key would make existing messages unreadable.
+On sign-in, the app creates a random X25519 private-key seed in platform secure storage if no server key exists, then registers only the public key through `PUT /api/users/me/encryption-key`. If the account already has a public key but the current device lacks the matching private key, the app refuses to overwrite the registered key. On the original device, open Profile → Message encryption → Transfer key from this device, choose a strong passphrase (at least 12 characters), and copy the encrypted bundle to a private channel/device. On the new device, sign in, open Profile → Message encryption → Restore key on this device, paste the bundle and enter the same passphrase. The imported key must match the server-registered public key; import never replaces an existing local key. Treat both bundle and passphrase as secrets, do not send them to Chatify support, and delete temporary clipboard/message copies after transfer. This is a manual trusted-device transfer, not cloud key escrow.
 
 Every conversation participant must use a compatible version and have a registered key before the sender can send encrypted text. The recipient decrypts locally after history is fetched or a Socket.IO message arrives. Authentication-tag failure or a missing key results in a locked-message placeholder, not a plaintext fallback.
 
 ## Production rollout checklist
 
 - [ ] Add encrypted attachment uploads and local decryption.
-- [ ] Add encrypted key backup / device transfer with user-controlled recovery.
+- [x] Add passphrase-encrypted, user-controlled device key transfer (manual export/import; no server-side private-key storage).
 - [ ] Adopt a reviewed ratcheting protocol for forward secrecy and key rotation.
 - [ ] Add verified identity keys / safety numbers to prevent silent key substitution.
 - [ ] Encrypt Memory Cards locally before any server persistence.
 - [ ] Provide a safe migration or explicit legacy-message warning for pre-E2EE records.
-- [ ] Add automated tests for key agreement, tampering, nonce handling, authorization, and plaintext leakage.
+- [ ] Add automated tests for key agreement, tampering, nonce handling, authorization, plaintext leakage, and real-device multi-device transfer.
 - [ ] Run `flutter pub get`, `flutter analyze`, `flutter test`, `npm test`, and `npm run lint`; then validate on real devices.
 - [ ] Review backups, logs, analytics, crash reporting, push payloads, and search indexing for accidental message-content leakage.
