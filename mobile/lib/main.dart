@@ -10491,7 +10491,7 @@ class _HomeState extends State<Home> {
             _contacts(),
             const Profile(),
             SchoolOwnerDashboard(
-              apiCall: (method, path) => app.api.call(method, path),
+              apiCall: (method, path, [body]) => app.api.call(method, path, body),
               currentUserId: (app.user?['id'] ?? app.user?['_id'] ?? '').toString(),
               onManage: () => Navigator.of(context).push(MaterialPageRoute<void>(
                 builder: (_) => const SchoolWorkspacePage(),
