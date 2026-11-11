@@ -218,7 +218,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
     final values = <String, dynamic>{
       'Customers': _metrics['customers'] ?? 0,
       'Active products / services': _metrics['activeCatalogItems'] ?? 0,
-      'Sales documents': _metrics['documents'] ?? 0,
+      'Business documents': _metrics['documents'] ?? 0,
       'Open tasks': _metrics['openTasks'] ?? 0,
       'Open support cases': _metrics['openCases'] ?? 0,
       'Branches': (organization?['branches'] as List?)?.length ?? 0,
