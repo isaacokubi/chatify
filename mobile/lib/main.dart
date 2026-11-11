@@ -15643,6 +15643,137 @@ class _ProfileState extends State<Profile> {
     );
   }
 
+  Future<void> _exportEncryptionKey() async {
+    final passphrase = TextEditingController();
+    final app = context.read<AppState>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create secure device transfer'),
+        content: TextField(
+          controller: passphrase,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Recovery passphrase (12+ characters)',
+            helperText: 'Keep this private. Chatify cannot recover it for you.',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create transfer')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) { passphrase.dispose(); return; }
+    try {
+      final bundle = await ChatifyE2EE.instance.exportRecoveryBundle(
+        app.user?['id']?.toString() ?? '',
+        passphrase: passphrase.text,
+      );
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Your encrypted transfer bundle'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: SelectableText(bundle, key: const ValueKey('e2ee-recovery-bundle')),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: bundle));
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Encrypted transfer bundle copied. Send it only to your own new device.')),
+                );
+              },
+              child: const Text('Copy bundle'),
+            ),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Done')),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not create transfer bundle: $error')),
+      );
+    } finally {
+      passphrase.dispose();
+    }
+  }
+
+  Future<void> _importEncryptionKey() async {
+    final bundle = TextEditingController();
+    final passphrase = TextEditingController();
+    final app = context.read<AppState>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Restore messages on this device'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(
+                controller: bundle,
+                minLines: 4,
+                maxLines: 8,
+                decoration: const InputDecoration(
+                  labelText: 'Paste encrypted transfer bundle',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passphrase,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Recovery passphrase',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ]),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Restore key')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) { bundle.dispose(); passphrase.dispose(); return; }
+    try {
+      final accountId = app.user?['id']?.toString() ?? '';
+      final registered = app.user?['encryptionPublicKey']?.toString();
+      final publicKey = await ChatifyE2EE.instance.importRecoveryBundle(
+        accountId,
+        bundle.text.trim(),
+        passphrase: passphrase.text,
+        registeredPublicKey: registered,
+      );
+      if (registered == null || registered.isEmpty) {
+        await app.api.call('PUT', '/api/users/me/encryption-key', {'publicKey': publicKey});
+        app.user?['encryptionPublicKey'] = publicKey;
+      }
+      app.encryptionError = null;
+      app.notifyListeners();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Encryption key restored. Your encrypted message history can now be decrypted on this device.')),
+      );
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not restore encryption key: $error')),
+      );
+    } finally {
+      bundle.dispose();
+      passphrase.dispose();
+    }
+  }
+
   Future<void> saveDefaultPhone() async {
     final normalized = normalizeKenyanPhone(phone.text);
     if (normalized == null) {
@@ -15830,6 +15961,29 @@ class _ProfileState extends State<Profile> {
           onPressed: saveDefaultPhone,
           icon: const Icon(Icons.account_balance_wallet_outlined),
           label: const Text('Save default M-Pesa number')),
+      const SizedBox(height: 18),
+      const Text('Message encryption', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 6),
+      const Text('To read your existing encrypted messages on another device, transfer the private key from a device that can still open them. Chatify encrypts the transfer with your passphrase; the server never receives the private key.'),
+      if (app.encryptionError != null)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(app.encryptionError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        OutlinedButton.icon(
+          key: const ValueKey('e2ee-export-device-key'),
+          onPressed: _exportEncryptionKey,
+          icon: const Icon(Icons.ios_share),
+          label: const Text('Transfer key from this device'),
+        ),
+        OutlinedButton.icon(
+          key: const ValueKey('e2ee-import-device-key'),
+          onPressed: _importEncryptionKey,
+          icon: const Icon(Icons.key),
+          label: const Text('Restore key on this device'),
+        ),
+      ]),
       const SizedBox(height: 18),
       const Text('Privacy',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
