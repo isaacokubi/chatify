@@ -2335,11 +2335,15 @@ class AppState extends ChangeNotifier {
   Future<String> resetEncryptionForThisDevice() async {
     final accountId = user?['id']?.toString() ?? '';
     if (accountId.isEmpty) throw StateError('Sign in before resetting encryption.');
-    final publicKey = await ChatifyE2EE.instance.replaceWithFreshKey(accountId);
-    await api.call('PUT', '/api/users/me/encryption-key', {
-      'publicKey': publicKey,
-      'replaceExisting': true,
-    });
+    final publicKey = await ChatifyE2EE.instance.replaceWithFreshKey(
+      accountId,
+      registerPublicKey: (key) async {
+        await api.call('PUT', '/api/users/me/encryption-key', {
+          'publicKey': key,
+          'replaceExisting': true,
+        });
+      },
+    );
     user!['encryptionPublicKey'] = publicKey;
     encryptionError = null;
     notifyListeners();
