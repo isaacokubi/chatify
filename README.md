@@ -182,3 +182,5 @@ An earlier work-session report described a KSh 1 transaction as a successful Dar
 ## First business and school onboarding
 
 See [First Business and School Onboarding Acceptance](docs/FIRST_BUSINESS_SCHOOL_ACCEPTANCE.md) for the real business approval and school verification paths, demo-seed limitations, role/isolation checks, payment boundaries, privacy requirements, and production go-live evidence gates.
+
+See also [Cross-project readiness audit — Global Tours to Chatify](docs/CROSS_PROJECT_READINESS_AUDIT_2026-11-11.md) for the reference findings, adaptations, architecture distinctions and remaining launch blockers.
