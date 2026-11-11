@@ -130,12 +130,19 @@ class ChatifyE2EE {
   /// Creates a new identity key for a device when the previous device and
   /// every recovery copy are unavailable. This intentionally cannot decrypt
   /// ciphertext created for the previous public key.
-  Future<String> replaceWithFreshKey(String accountId) async {
+  Future<String> replaceWithFreshKey(
+    String accountId, {
+    required Future<void> Function(String publicKey) registerPublicKey,
+  }) async {
     if (accountId.isEmpty) throw StateError('Sign in before resetting encryption.');
     final seed = List<int>.generate(32, (_) => Random.secure().nextInt(256));
     final pair = await _agreement.newKeyPairFromSeed(seed);
+    final publicKey = base64Encode((await pair.extractPublicKey()).bytes);
+    // Register first. A rejected/failed server update must not destroy the
+    // currently working local key on this device.
+    await registerPublicKey(publicKey);
     await _storage.write(key: _keyName(accountId), value: base64Encode(seed));
-    return base64Encode((await pair.extractPublicKey()).bytes);
+    return publicKey;
   }
 
   Future<String> publicKeyFor(
