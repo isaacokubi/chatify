@@ -64,15 +64,31 @@ async function request(path, { token, method = 'GET', body } = {}) {
   let data = null;
   const text = await response.text();
   try { data = text ? JSON.parse(text) : null; } catch { /* status checks do not need body parsing */ }
-  return { status: response.status, data };
+  return { status: response.status, data, headers: response.headers };
+}
+async function loginWithRateLimitRetry(account) {
+  // The API intentionally rate-limits authentication. Respect Retry-After /
+  // RateLimit-Reset and never bypass or parallelize the login limiter.
+  for (let retry = 0; retry <= 2; retry += 1) {
+    const result = await request('/api/auth/login', {
+      method: 'POST',
+      body: { email: account.email, password },
+    });
+    if (result.status !== 429) return result;
+    if (retry === 2) throw new Error(`Login rate limit remained active after two full-window waits for ${account.email}.`);
+    const resetSeconds = Number(result.headers?.get('retry-after') || result.headers?.get('ratelimit-reset'));
+    const waitMs = Number.isFinite(resetSeconds) && resetSeconds > 0
+      ? Math.ceil(resetSeconds * 1000) + 1000
+      : 15 * 60 * 1000 + 1000;
+    console.warn(`Login rate limit reached for ${account.email}; waiting ${waitMs}ms before a safe retry.`);
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+  }
+  throw new Error('Unreachable login retry state.');
 }
 for (const account of accounts) {
   let token;
   try {
-    const login = await request('/api/auth/login', {
-      method: 'POST',
-      body: { email: account.email, password },
-    });
+    const login = await loginWithRateLimitRetry(account);
     if (login.status !== 200 || typeof login.data?.token !== 'string' || !login.data?.user) {
       report(false, account.email, 'login', `HTTP ${login.status}; response body intentionally omitted`);
       continue;
