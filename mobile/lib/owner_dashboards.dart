@@ -4,7 +4,7 @@ typedef OwnerDashboardApiCall = Future<Map<String, dynamic>> Function(
     String method, String path);
 
 int _count(dynamic value) => value is num ? value.toInt() : int.tryParse('$value') ?? 0;
-String _idOf(dynamic value) {
+T? _firstOrNull<T>(Iterable<T> values) {\n  for (final value in values) { return value; }\n  return null;\n}\nString _idOf(dynamic value) {
   if (value is Map) return (value['_id'] ?? value['id'] ?? '').toString();
   return (value ?? '').toString();
 }
@@ -45,8 +45,8 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
         (result['schools'] as List? ?? const []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)),
       );
       final owned = all.where((s) => s['isOwner'] == true && s['role'] == 'admin').toList();
-      final selected = owned.where((s) => s['id'].toString() == schoolId).firstOrNull ??
-          (_school == null ? null : owned.where((s) => s['id'].toString() == _school!['id'].toString()).firstOrNull) ??
+      final selected = _firstOrNull(owned.where((s) => s['id'].toString() == schoolId)) ??
+          (_school == null ? null : _firstOrNull(owned.where((s) => s['id'].toString() == _school!['id'].toString()))) ??
           (owned.isEmpty ? null : owned.first);
       if (selected == null) {
         if (mounted) setState(() { _ownedSchools = owned; _school = null; _metrics = {}; _loading = false; });
@@ -185,8 +185,8 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
         (response['organizations'] as List? ?? const []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)),
       );
       final owned = all.where((org) => _idOf(org['ownerId']) == widget.currentUserId).toList();
-      final selected = owned.where((org) => _idOf(org['_id']) == organizationId).firstOrNull ??
-          (_organization == null ? null : owned.where((org) => _idOf(org['_id']) == _idOf(_organization!['_id'])).firstOrNull) ??
+      final selected = _firstOrNull(owned.where((org) => _idOf(org['_id']) == organizationId)) ??
+          (_organization == null ? null : _firstOrNull(owned.where((org) => _idOf(org['_id']) == _idOf(_organization!['_id'])))) ??
           (owned.isEmpty ? null : owned.first);
       if (selected == null) {
         if (mounted) setState(() { _owned = owned; _organization = null; _metrics = {}; _loading = false; });
