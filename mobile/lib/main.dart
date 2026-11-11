@@ -2229,6 +2229,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearEncryptionError() {
+    encryptionError = null;
+    notifyListeners();
+  }
+
   Future<void> init() async {
     ready = false;
     restoreError = null;
@@ -15747,8 +15752,7 @@ class _ProfileState extends State<Profile> {
               final registered = appState.user?['encryptionPublicKey']?.toString();
               await ChatifyE2EE.instance.importKeyTransfer(id, passphrase.text, bundle.text.trim(), registeredPublicKey: registered);
               await appState.ensureEncryptionKey();
-              appState.encryptionError = null;
-              appState.notifyListeners();
+              appState.clearEncryptionError();
               if (dialogContext.mounted) Navigator.pop(dialogContext);
               if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Encryption key restored. Your encrypted messages can now be opened on this device.')));
             } catch (error) {
