@@ -24,11 +24,11 @@ The server returns organization summary data and metrics scoped to that organiza
 |---|---|---|
 | Customers | `customers` | Active, non-archived customers |
 | Active products / services | `activeCatalogItems` | Active catalogue records |
-| Sales documents | `documents` | Documents returned by the dashboard aggregation |
-| Open tasks | `openTasks` | Tasks not done or cancelled |
-| Open support cases | `openCases` | Cases not resolved or closed |
+| Business documents | `documents` | Up to 500 business documents returned by the dashboard aggregation |
+| Open tasks | `openTasks` | Tasks not done or cancelled among up to 500 loaded task records |
+| Open support cases | `openCases` | Cases not resolved or closed among up to 500 loaded case records |
 | Branches | Organization `branches` array length | Configured branch records |
-| Low-stock items | `lowStockItems` length | Active catalogue items at/below configured low-stock threshold |
+| Low-stock items | `lowStockItems` length | Up to 100 active catalogue items at/below configured low-stock threshold |
 
 The dashboard does not infer sales revenue, profit, tax liability or reconciled payment totals from these counts. Where a server briefing is returned, it is displayed as text.
 
