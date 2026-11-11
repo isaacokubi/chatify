@@ -177,3 +177,8 @@ See docs/ for the defense-oriented architecture, API, database, development, sec
 ## Historical Daraja sandbox record — classification caveat
 
 An earlier work-session report described a KSh 1 transaction as a successful Daraja sandbox test. The latest audit could not independently establish the exact endpoint used for that historical request; current source/configuration and payment metadata favor sandbox classification, but this is not network-level proof. The record was not repeated or altered. Do not treat it as evidence of production-mode settlement. Current provider acceptance remains unverified for production payments and for the separate school, merchant POS, C2B and Dynamic QR flows. See [M-Pesa testing evidence](docs/M-PESA_TESTING.md) and [current test results](docs/TEST_RESULTS.md).
+
+
+## First business and school onboarding
+
+See [First Business and School Onboarding Acceptance](docs/FIRST_BUSINESS_SCHOOL_ACCEPTANCE.md) for the real business approval and school verification paths, demo-seed limitations, role/isolation checks, payment boundaries, privacy requirements, and production go-live evidence gates.
