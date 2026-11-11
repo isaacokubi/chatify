@@ -103,3 +103,8 @@ Reviewed against Chatify `main` on 2026-11-11:
 ## Evidence record template
 
 For each release, record the commit SHA, UTC run timestamp, workflow URL, exact command, pass/fail/skip counts, disposable database name (never its credentials), business and school acceptance results, current deployed SHA, health response, provider evidence references (redacted), backup/restore result, reviewer and remaining blockers. Never store passwords, tokens, callback URLs containing secrets, personal student data or full payment payloads in the report.
+
+
+## School receipt-index migration
+
+Before deploying the receipt-index correction to an existing database, run `server/scripts/migrate-school-receipt-indexes.mjs` once against the intended database. The migration requires `MONGODB_URI`, `CHATIFY_EXPECTED_DATABASE_NAME` (an exact match for the URI database name), and `CHATIFY_CONFIRM_SCHOOL_RECEIPT_INDEX_MIGRATION=YES`. It replaces the old sparse compound unique indexes with partial unique indexes that apply only when an actual string M-Pesa receipt (or complete checkout/merchant request pair) exists. This permits multiple pending records with no receipt while continuing to reject duplicate real receipts within a school. The migration does not rewrite payment records. If existing duplicate non-empty receipts are present, index creation fails; reconcile them before retrying. Back up the database first and record the index list before/after.

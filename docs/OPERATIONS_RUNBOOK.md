@@ -43,3 +43,8 @@ Use [Backup and Restore](BACKUP_AND_RESTORE.md) and [Deployment](DEPLOYMENT.md).
 ## Operational evidence
 
 Maintain a dated record of health checks, backup/restore drills, provider callbacks, alert tests, incidents, on-call contacts and release approvals. Monitoring, alert delivery and off-site backups are infrastructure-owned and must be proven in the target deployment.
+
+
+## School receipt-index migration
+
+The school fee and donation receipt indexes must enforce uniqueness only for non-empty receipt values. For an existing deployment, take a verified backup, confirm the exact target database, then run `node scripts/migrate-school-receipt-indexes.mjs` from `server/` with `MONGODB_URI`, `CHATIFY_EXPECTED_DATABASE_NAME` matching the URI database exactly, and `CHATIFY_CONFIRM_SCHOOL_RECEIPT_INDEX_MIGRATION=YES`. The script drops only the known obsolete school receipt/checkout index names and creates the partial unique replacements. It never deletes or rewrites payment records. If a duplicate actual receipt prevents index creation, stop and reconcile the records; do not disable uniqueness. Verify both new index names with `listIndexes()` before accepting school fee traffic.
