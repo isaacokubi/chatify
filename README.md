@@ -19,6 +19,9 @@ Chatify is a mobile-first communication platform that combines real-time messagi
 
 ## Project documentation
 
+- [First School and Business Onboarding Acceptance](docs/FIRST_TENANT_ACCEPTANCE.md) — role, tenant-isolation, school privacy, payment and first-customer acceptance gates.
+- [Production Readiness Assessment (2026-11-11)](docs/PRODUCTION_READINESS_2026-11-11.md) — current evidence ledger, release decision and external blockers.
+
 - [Architecture and code walkthrough](docs/PROJECT_WALKTHROUGH.md)
 - [Acceptance audit and demo matrix](docs/ACCEPTANCE_AUDIT_2026-10-28.md)
 - [Current test results](docs/TEST_RESULTS.md)
