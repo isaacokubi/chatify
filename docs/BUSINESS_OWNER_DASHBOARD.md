@@ -12,7 +12,7 @@ The client-side comparison is not an authorization boundary. Every organization 
 
 Managers and staff who are members but are not the organization owner receive an explanatory state and can open the existing BusinessHub, where the backend remains authoritative for permitted operations.
 
-## Overview data
+## Workspace approval and billing gate\n\nBefore requesting organization dashboard metrics, the page calls the authenticated `GET /api/workspace-billing/business/:orgId` endpoint. A locked workspace does not fetch operational metrics. Pending platform approval is displayed without a checkout action. After approval, the owner can request the one-time setup fee or monthly Chatify workspace subscription through the existing checkout endpoint. If a payment is needed, the client starts the existing M-Pesa payment flow and refreshes access only after the payment API reports provider-confirmed success. A pending/unknown result remains pending; it is not treated as paid. These are Chatify subscription charges, not merchant sales or customer invoices.\n\n## Overview data
 
 For each selected owned organization, the dashboard calls:
 
