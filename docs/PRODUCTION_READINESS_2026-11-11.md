@@ -11,7 +11,7 @@ Chatify already contains extensive product implementation and historical verific
 - Repository: `isaacokubi/chatify`
 - Baseline branch inspected: `main`; implementation branch: `audit/first-school-business-onboarding-2026-11-11`.
 - Application source commit tested by GitHub Actions: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
-- Documentation/PR head after test evidence updates: `06aaecadf31c037c0484b2e63e60d75db18e8a8c` (documentation-only commits after the tested source).
+- Subsequent documentation-only commits update acceptance and runbook accuracy without changing the tested application source; see the open PR for the current review head.
 - Latest full CI run: `43002990331` — PASS; quality workflow `43002990086` — PASS; Android workflow `43002990318` — PASS.
 - The successful CI evidence is for the PR implementation branch, not `main`; it does not mean these changes have been merged or deployed.
 - The older 2026-10-28 acceptance audit and 2026-11-01 demo seed record remain historical context, not fresh live tenant acceptance.
