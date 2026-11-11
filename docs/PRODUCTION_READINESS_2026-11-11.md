@@ -10,11 +10,11 @@ Chatify already contains extensive product implementation and historical verific
 
 - Repository: `isaacokubi/chatify`
 - Baseline branch inspected: `main`; implementation branch: `audit/first-school-business-onboarding-2026-11-11`.
-- Latest source SHA tested by the quality workflow: `e1a0d623035ce138d0374ee970f2b260f4663329`.
-- Latest main commit observed: `200e26f39c4677917fe97afd7a7fc2411e357b33` (2026-11-07).
-- A successful Vercel status was visible for that commit.
-- No GitHub Actions workflow run was returned for that exact commit in the available commit-run lookup. Re-run CI and inspect the Actions page before release.
-- The detailed acceptance audit is dated 2026-10-28 and the demo school/business seed was updated 2026-11-01. Their results must not be represented as fresh verification of the 2026-11-07 source.
+- Application source commit tested by GitHub Actions: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
+- Documentation/PR head after test evidence updates: `06aaecadf31c037c0484b2e63e60d75db18e8a8c` (documentation-only commits after the tested source).
+- Latest full CI run: `43002990331` — PASS; quality workflow `43002990086` — PASS; Android workflow `43002990318` — PASS.
+- The successful CI evidence is for the PR implementation branch, not `main`; it does not mean these changes have been merged or deployed.
+- The older 2026-10-28 acceptance audit and 2026-11-01 demo seed record remain historical context, not fresh live tenant acceptance.
 
 ## Existing implementation observed
 
@@ -29,7 +29,7 @@ Chatify already contains extensive product implementation and historical verific
 - Backup/restore scripts and restore safety tests.
 - CI workflow includes backend dependency audit/tests/lint and Flutter analysis/tests/web/Android debug build.
 
-This is an inspection of selected current source files and documentation, not a complete line-by-line security audit or execution of the application.
+This is a source and documentation review supported by the GitHub Actions checks listed above. It is not a complete independent penetration test or live production acceptance.
 
 ## Evidence ledger
 
@@ -116,4 +116,4 @@ Database-backed acceptance must use a dedicated disposable MongoDB database/repl
 
 ## Scope limitation
 
-The changes associated with this report are documentation-only. No application source, database, deployment setting, provider credential, demo account or payment record was changed. No local backend/mobile test, live login, payment transaction, restore drill or production mutation was performed during this repository documentation pass.
+The implementation branch includes Flutter owner dashboard source and widget tests, a non-breaking server dependency lockfile remediation, and documentation. No production database, deployment setting, provider credential, demo account or payment record was changed. GitHub Actions ran the backend and Flutter checks; no live tenant login, real payment, provider delivery, production restore drill or production mutation was performed.
