@@ -200,3 +200,30 @@ This document is a release gate, not a certificate. The repository inspection fo
 | Privacy and child-safety approval | OWNER ACTION REQUIRED | Requires school/platform legal and operational approval. |
 
 **Release decision: NOT YET APPROVED for real school/business production onboarding.** A controlled, non-production pilot may proceed only after the disposable environment, tenant isolation, role permissions, data privacy and provider boundaries above are verified. Keep real payment and sensitive student-data workflows disabled until their individual gates pass.
+
+
+## 10. Owner dashboard entry points — implementation branch
+
+The implementation branch adds dedicated Flutter owner overview screens:
+- [School Owner Dashboard](SCHOOL_OWNER_DASHBOARD.md)
+- [Business Owner Dashboard](BUSINESS_OWNER_DASHBOARD.md)
+
+The School tab now opens the school-owner overview. It filters to the authenticated user's own school where the API reports `isOwner: true` and `role: admin`, then reads server totals for students, attendance, memberships and fee-balance records. Staff/parent users are directed to the existing role-aware School Workspace.
+
+The Business tab now opens the business-owner overview. It filters the authenticated user's own organizations by the server-returned `ownerId`, then reads the organization-scoped dashboard metrics. Non-owner members are directed to the existing BusinessHub.
+
+Both overview pages link to the existing full management workspace. They do not replace backend authorization. The client-side owner filters are for presentation only; server-side membership, role and organization checks remain mandatory.
+
+Widget tests were added for school owner metrics, school staff exclusion and business owner organization filtering. These are **added but not yet reported as passing** until the implementation branch's GitHub Actions Flutter job completes.
+
+## 11. Updated release status
+
+| Area | Status | Evidence / boundary |
+|---|---|---|
+| Dedicated school owner overview | IMPLEMENTED — CI PENDING | New `SchoolOwnerDashboard` widget and school-tab routing on the implementation branch. |
+| Dedicated business owner overview | IMPLEMENTED — CI PENDING | New `BusinessOwnerDashboard` widget and business-tab routing on the implementation branch. |
+| Owner dashboard widget tests | ADDED — NOT YET VERIFIED | Three widget scenarios added; CI result must be checked. |
+| Existing school/business management workflows | EXISTING IMPLEMENTATION | Full SchoolWorkspacePage and BusinessHub retained and linked from the overview pages. |
+| Backend tenant authorization | EXISTING IMPLEMENTATION; FRESH ACCEPTANCE NOT VERIFIED | Source inspection confirms school membership and business organization authorization paths; database-backed cross-tenant tests still required. |
+| First real school and business | NOT VERIFIED | No live tenant was created or modified as part of this code change. |
+| Production onboarding | NOT APPROVED | Payment, privacy, external provider, monitoring and restore gates remain separate release requirements. |
