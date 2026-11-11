@@ -119,6 +119,10 @@ class ChatifyE2EE {
         registeredPublicKey != publicKey) {
       throw StateError('The transferred key does not match this account encryption identity. No key was installed.');
     }
+    final existing = await _storage.read(key: _keyName(accountId));
+    if (existing != null && existing != base64Encode(seed)) {
+      throw StateError('This device already has a different encryption key. No key was overwritten.');
+    }
     await _storage.write(key: _keyName(accountId), value: base64Encode(seed));
     return publicKey;
   }
