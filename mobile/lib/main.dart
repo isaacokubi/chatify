@@ -30,6 +30,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:video_player/video_player.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'call_screen.dart';
+import 'owner_dashboards.dart';
 
 String _conversationParticipantId(Map participant) {
   final nested = participant['user'];
@@ -10480,10 +10481,22 @@ class _HomeState extends State<Home> {
         Expanded(
           child: IndexedStack(index: tab, children: [
             _chatHub(),
-            const BusinessHub(),
+            BusinessOwnerDashboard(
+              apiCall: (method, path) => app.api.call(method, path),
+              currentUserId: (app.user?['id'] ?? app.user?['_id'] ?? '').toString(),
+              onManage: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const BusinessHub(),
+              )),
+            ),
             _contacts(),
             const Profile(),
-            const SchoolWorkspacePage(),
+            SchoolOwnerDashboard(
+              apiCall: (method, path) => app.api.call(method, path),
+              currentUserId: (app.user?['id'] ?? app.user?['_id'] ?? '').toString(),
+              onManage: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const SchoolWorkspacePage(),
+              )),
+            ),
             if (isAdmin) const AdminDashboard()
           ]),
         ),
