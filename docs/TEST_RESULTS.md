@@ -296,3 +296,21 @@ npm audit --audit-level=high
 The seed smoke must then be run against a separate disposable database, with the API using the same database and a private test-only password. See the runbook for the exact safe environment contract. Do not run the seed or destructive integration test against a real customer database.
 
 **Important:** the new branch changes have not yet been executed by GitHub Actions or a local test runner in this audit session. Historical test totals elsewhere in this file describe their named commits and dates only; they are not evidence for this branch or current `main`. Live Daraja, deployed UI, release signing, production restore and privacy/legal acceptance remain separate gates.
+
+
+### GitHub Actions verification on 2026-11-11
+
+**Reviewed branch commit:** `1991acd864ee035a473c43b1091a9a39afe0aa73`.
+
+| Workflow/job | Result | Evidence |
+|---|---|---|
+| Chatify quality checks #884 — Node API tests | **FAILED, corrected** | One new seed-config test exposed a misleading error for a MongoDB URI with no database name. |
+| Chatify quality checks #884 — Flutter analysis/tests | **PASS** | Flutter analysis and tests completed successfully. |
+| Chatify quality checks #885 — Node API tests | **PASS** | 265 tests; 264 passed, 0 failed, 1 skipped. |
+| Chatify quality checks #885 — server syntax checks | **PASS** | Completed successfully after the seed-config error-message correction. |
+| Chatify quality checks #885 — Flutter analysis/tests | **IN PROGRESS at this record** | Final job result must be refreshed before release. |
+| Chatify CI #1808 | **PENDING at this record** | No job result available yet. |
+
+The failing assertion was fixed by making `resolveDemoSeedConfig` distinguish an absent database name from a production-named database. The new seed-config tests pass in run #885.
+
+**Critical limitation:** the single skipped test is the destructive MongoDB database integration suite. The current CI workflow does not supply `CHATIFY_MONGO_TEST_URI`, so the new real business/school API acceptance assertions have not yet executed. The 264 passing tests are not a substitute for that database-backed run.
