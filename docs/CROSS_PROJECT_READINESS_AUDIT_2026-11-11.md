@@ -33,6 +33,7 @@ Global Tours' own `DOCUMENTATION_COVERAGE.md` is unusually explicit about the li
 - Zero files are certified as fully reviewed line-by-line.
 - 629 mounted API method/path entries are documented as source-traced, but 56 domain contract documents explicitly report no focused tests.
 - The coverage script's latest recorded run predates the latest source changes and is called out for rerun.
+- **Internal count inconsistency:** the coverage table reports 559 STRUCTURAL files (which reconciles to 1,017 total and 754 files without scoped review), while a later interpretation bullet says 563 STRUCTURAL. Re-run the script and reconcile the prose before treating the classifications as current.
 
 This is the standard Chatify should follow: show the inventory and review scope, but never convert documentation link coverage, source navigation, or a route index into a claim that all code paths are audited or tested.
 
