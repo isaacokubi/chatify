@@ -98,6 +98,8 @@ void main() {
     expect(find.text("Makena's Market"), findsOneWidget);
     expect(find.text('Customers'), findsOneWidget);
     expect(find.text('Private Other Business'), findsNothing);
+    await tester.drag(find.byType(ListView), const Offset(0, -900));
+    await tester.pumpAndSettle();
     expect(find.text('Manage business workspace'), findsOneWidget);
   });
 }
