@@ -308,9 +308,11 @@ The seed smoke must then be run against a separate disposable database, with the
 | Chatify quality checks #884 — Flutter analysis/tests | **PASS** | Flutter analysis and tests completed successfully. |
 | Chatify quality checks #885 — Node API tests | **PASS** | 265 tests; 264 passed, 0 failed, 1 skipped. |
 | Chatify quality checks #885 — server syntax checks | **PASS** | Completed successfully after the seed-config error-message correction. |
-| Chatify quality checks #885 — Flutter analysis/tests | **IN PROGRESS at this record** | Final job result must be refreshed before release. |
-| Chatify CI #1808 | **PENDING at this record** | No job result available yet. |
+| Chatify quality checks #885 — Flutter analysis/tests | **PASS** | Flutter analysis and Flutter tests completed successfully. |
+| Chatify CI #1808 | **CANCELLED** | Run was cancelled before any job result was available; it is not a pass. |
 
 The failing assertion was fixed by making `resolveDemoSeedConfig` distinguish an absent database name from a production-named database. The new seed-config tests pass in run #885.
 
 **Critical limitation:** the single skipped test is the destructive MongoDB database integration suite. The current CI workflow does not supply `CHATIFY_MONGO_TEST_URI`, so the new real business/school API acceptance assertions have not yet executed. The 264 passing tests are not a substitute for that database-backed run.
+
+The successful quality workflow is a valid backend/unit and Flutter quality result for the reviewed code commit. It does not include the isolated MongoDB integration acceptance. The separate Chatify CI run was cancelled, so dependency audit, backup/restore shell checks and mobile web/Android build steps from that workflow do not have a completed result in this record.
