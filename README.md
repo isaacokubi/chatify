@@ -22,6 +22,16 @@ Chatify is a mobile-first communication platform that combines real-time messagi
 - [First School and Business Onboarding Acceptance](docs/FIRST_TENANT_ACCEPTANCE.md) — role, tenant-isolation, school privacy, payment and first-customer acceptance gates.
 - [Production Readiness Assessment (2026-11-11)](docs/PRODUCTION_READINESS_2026-11-11.md) — current evidence ledger, release decision and external blockers.
 
+- [School owner dashboard](docs/SCHOOL_OWNER_DASHBOARD.md)
+- [Business owner dashboard](docs/BUSINESS_OWNER_DASHBOARD.md)
+- [Owner onboarding guide](docs/ONBOARDING_GUIDE.md)
+- [Deployment guide](docs/DEPLOYMENT.md)
+- [API reference index](docs/API_REFERENCE.md)
+- [Database schema guide](docs/DATABASE_SCHEMA.md)
+- [Backup and restore](docs/BACKUP_AND_RESTORE.md)
+- [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
+- [First school and business onboarding acceptance](docs/FIRST_TENANT_ACCEPTANCE.md)
+- [Dated production readiness assessment](docs/PRODUCTION_READINESS_2026-11-11.md)
 - [Architecture and code walkthrough](docs/PROJECT_WALKTHROUGH.md)
 - [School owner dashboard](docs/SCHOOL_OWNER_DASHBOARD.md)
 - [Business owner dashboard](docs/BUSINESS_OWNER_DASHBOARD.md)
