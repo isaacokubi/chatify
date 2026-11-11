@@ -2,61 +2,40 @@
 
 ## Purpose
 
-The School tab now opens a dedicated School Owner Dashboard. It is an owner-focused overview and entry point; the existing School Workspace remains the operational area for managing records.
+The School tab opens a dedicated owner overview. The existing SchoolWorkspacePage remains the detailed workspace for managing school records and operations.
 
-## Owner eligibility
+## Owner eligibility and data
 
-The dashboard calls the authenticated `GET /api/schools` endpoint and displays only school workspaces for which the server response contains both:
+The dashboard calls the authenticated `GET /api/schools` endpoint and displays only schools for which the server response reports both `isOwner: true` and `role: "admin"`. This client-side filter is presentation only; backend membership, role and linked-student authorization remain authoritative.
 
-- `isOwner: true` (the authenticated user created the school workspace); and
-- `role: "admin"` (the authenticated user has an active school administrator membership).
-
-The Flutter filter is a presentation rule only. All record access remains protected by the server's school membership, role and linked-student checks. Staff and parents are not shown as school owners; they can still open the existing role-aware School Workspace.
-
-## Overview data
-
-For the selected owned school, the dashboard requests the first page with a one-record page size and uses the API's server-calculated `total` values:
+For an unlocked selected school, the dashboard requests server-calculated totals:
 
 | Card | Authenticated API | Meaning |
 |---|---|---|
-| Students | `GET /api/schools/:schoolId/students?page=1&limit=1` | Total students visible to this school admin |
-| Attendance records | `GET /api/schools/:schoolId/attendance?page=1&limit=1` | Total attendance records in this school |
-| School members | `GET /api/schools/:schoolId/members?page=1&limit=1` | Active school memberships |
-| Fee balances | `GET /api/schools/:schoolId/fee-balances?page=1&limit=1` | Fee-balance records, not a monetary total |
+| Students | `GET /api/schools/:schoolId/students?page=1&limit=1` | Total students visible to the school admin |
+| Attendance records | `GET /api/schools/:schoolId/attendance?page=1&limit=1` | Attendance record count |
+| School members | `GET /api/schools/:schoolId/members?page=1&limit=1` | Membership count |
+| Fee balances | `GET /api/schools/:schoolId/fee-balances?page=1&limit=1` | Fee-balance record count, not a monetary total |
 
-The selected school name and code come from the authenticated school list. The dashboard does not fabricate figures or calculate money from client-side data.
+## Workspace approval and billing
 
-## Workspace billing gate\n\nBefore requesting student, attendance, member or fee-balance totals, the dashboard calls the authenticated `GET /api/workspace-billing/school/:schoolId` endpoint. If the server reports `locked: true`, it suppresses protected overview requests and metric cards, shows the billing-required state and links to the existing School Workspace billing controls. The dashboard does not mark a fee as paid or unlock a school from a client-side action.\n\n## Management workflows
+Before requesting those protected school metrics, the dashboard calls the owner-authenticated `GET /api/workspace-billing/school/:schoolId` endpoint. If the response reports `locked: true`, it does not request student, attendance, member or fee-balance records.
 
-The **Manage school workspace** action opens the existing SchoolWorkspacePage, which continues to provide the implemented school modules, including messages, fee records, receipts, members, students, attendance, academics and owner/admin settings. Each module retains its existing API permission checks.
+The owner can pay the Chatify workspace setup fee or monthly workspace subscription directly from the dashboard. The client calls `POST /api/workspace-billing/school/:schoolId/checkout`; if a payment is due, it initiates the returned payment through the existing `POST /api/payments/:paymentId/initiate` endpoint and polls the authenticated payment status. The dashboard refreshes access only after the payment API reports `SUCCESS`. A checkout request or pending M-Pesa prompt does not unlock school records.
 
-## UX and failure handling
+This Chatify workspace charge is separate from school fee collection, receipts and donations. Those school financial workflows are not altered by this dashboard.
 
-- Supports multiple owned schools with an explicit workspace selector.
-- Refresh action and pull-to-refresh reload the server data.
-- Shows a loading indicator while requests are pending.
-- Shows an API error state without replacing it with zero-valued success metrics.
-- Shows a role-aware empty state for users who do not own a school, with a link to the existing School Workspace.
-- Uses a responsive metric grid for phone, tablet and web widths.
+## Management workflows and UX
 
-## Verification
+- **Manage school workspace** opens the existing SchoolWorkspacePage for detailed messages, fee records, receipts, members, students, attendance, academics and owner/admin settings.
+- Multiple owned schools can be selected with the workspace selector.
+- Refresh and pull-to-refresh reload server data.
+- Loading and API error states are shown explicitly; an API failure is not presented as a successful zero count.
+- Staff and parents are not presented as owners and can continue to the existing role-aware School Workspace.
+- The metric grid adapts to phone, tablet and web widths.
 
-Automated widget coverage is added in `mobile/test/owner_dashboards_test.dart` for:
-- An owner seeing their own school and server-returned metrics.
-- A staff account not seeing a school as owner data.
+## Verification and boundaries
 
-The GitHub Actions Flutter analysis/test/build result must be checked on the implementation PR before release. These widget tests do not replace database-backed school isolation tests or real-device acceptance.
+Widget tests in `mobile/test/owner_dashboards_test.dart` cover owner metrics, staff exclusion, multi-school switching, billing lock behavior and the zero-priced setup checkout path. These tests do not replace database-backed cross-school integration tests, real M-Pesa acceptance or physical-device testing.
 
-## Known boundaries
-
-- Fee balances are a record count, not total fees due or collected.
-- The dashboard is an overview, not a replacement for detailed school reporting.
-- Student data must remain synthetic in demos and acceptance tests until the school privacy, guardian consent, retention and data-processing gates are approved.
-- The app cannot claim first-school production readiness solely because this dashboard renders.
-
-
-## Workspace billing gate
-
-Before requesting school records, the owner dashboard calls the owner-only `GET /api/workspace-billing/school/:schoolId` endpoint. If the returned billing state is locked, the dashboard retains the school identity, displays the setup/subscription status and does not request student, attendance, membership or fee records. **Open school billing** navigates to the existing SchoolWorkspacePage, which contains the supported school workspace billing controls.
-
-The dashboard does not unlock school records on checkout initiation. The existing billing flow must receive provider-confirmed payment before the server removes the access lock. School fee collection and school workspace subscription are separate payment flows.
+Fee balances are a record count, not total fees due or collected. Keep student data synthetic until school privacy, guardian consent, retention and data-processing requirements have been approved. The dashboard rendering alone is not evidence of first-school production readiness.
