@@ -9,7 +9,8 @@ Chatify already contains extensive product implementation and historical verific
 ## Current source baseline
 
 - Repository: `isaacokubi/chatify`
-- Baseline branch inspected: `main`; implementation branch: `audit/first-school-business-onboarding-2026-11-11`
+- Baseline branch inspected: `main`; implementation branch: `audit/first-school-business-onboarding-2026-11-11`.
+- Latest source SHA tested by the quality workflow: `e1a0d623035ce138d0374ee970f2b260f4663329`.
 - Latest main commit observed: `200e26f39c4677917fe97afd7a7fc2411e357b33` (2026-11-07).
 - A successful Vercel status was visible for that commit.
 - No GitHub Actions workflow run was returned for that exact commit in the available commit-run lookup. Re-run CI and inspect the Actions page before release.

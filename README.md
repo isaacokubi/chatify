@@ -19,28 +19,23 @@ Chatify is a mobile-first communication platform that combines real-time messagi
 
 ## Project documentation
 
-- [First School and Business Onboarding Acceptance](docs/FIRST_TENANT_ACCEPTANCE.md) — role, tenant-isolation, school privacy, payment and first-customer acceptance gates.
-- [Production Readiness Assessment (2026-11-11)](docs/PRODUCTION_READINESS_2026-11-11.md) — current evidence ledger, release decision and external blockers.
-
+- [Project walkthrough](docs/PROJECT_WALKTHROUGH.md)
 - [School owner dashboard](docs/SCHOOL_OWNER_DASHBOARD.md)
 - [Business owner dashboard](docs/BUSINESS_OWNER_DASHBOARD.md)
-- [Owner onboarding guide](docs/ONBOARDING_GUIDE.md)
+- [School and business onboarding guide](docs/ONBOARDING_GUIDE.md)
+- [First-tenant acceptance runbook](docs/FIRST_TENANT_ACCEPTANCE.md)
 - [Deployment guide](docs/DEPLOYMENT.md)
-- [API reference index](docs/API_REFERENCE.md)
-- [Database schema guide](docs/DATABASE_SCHEMA.md)
-- [Backup and restore](docs/BACKUP_AND_RESTORE.md)
+- [API reference index](docs/API_REFERENCE.md) and [canonical API details](docs/API.md)
+- [Database schema guide](docs/DATABASE_SCHEMA.md) and [database notes](docs/DATABASE.md)
+- [Backup and restore](docs/BACKUP_AND_RESTORE.md) and [disaster recovery runbook](docs/OPERATIONS_DISASTER_RECOVERY.md)
 - [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
-- [First school and business onboarding acceptance](docs/FIRST_TENANT_ACCEPTANCE.md)
-- [Dated production readiness assessment](docs/PRODUCTION_READINESS_2026-11-11.md)
-- [Architecture and code walkthrough](docs/PROJECT_WALKTHROUGH.md)
-- [School owner dashboard](docs/SCHOOL_OWNER_DASHBOARD.md)
-- [Business owner dashboard](docs/BUSINESS_OWNER_DASHBOARD.md)
-- [First school and business onboarding acceptance](docs/FIRST_TENANT_ACCEPTANCE.md)
-- [Dated production readiness assessment](docs/PRODUCTION_READINESS_2026-11-11.md)
-- [Acceptance audit and demo matrix](docs/ACCEPTANCE_AUDIT_2026-10-28.md)
+- [Production readiness assessment (2026-11-11)](docs/PRODUCTION_READINESS_2026-11-11.md)
 - [Current test results](docs/TEST_RESULTS.md)
-- [Security and privacy notes](docs/SECURITY_AND_PRIVACY.md)
-- [M-Pesa flow and acceptance matrix](docs/MPESA_FLOW_MATRIX.md)
+- [Security and privacy](docs/SECURITY_AND_PRIVACY.md)
+- [M-Pesa flow matrix](docs/MPESA_FLOW_MATRIX.md)
+- [Commercial readiness](docs/COMMERCIAL_READINESS.md)
+- [Release checklist](docs/RELEASE_CHECKLIST.md)
+- [Demo guide](docs/DEMO.md)
 
 The documentation distinguishes automated test results from hosted-service, payment-provider and production acceptance. A passing build does not by itself certify a live payment or deployment.
 

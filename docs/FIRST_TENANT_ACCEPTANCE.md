@@ -214,7 +214,7 @@ The Business tab now opens the business-owner overview. It filters the authentic
 
 Both overview pages link to the existing full management workspace. They do not replace backend authorization. The client-side owner filters are for presentation only; server-side membership, role and organization checks remain mandatory.
 
-Widget tests for school owner metrics, school staff exclusion and business owner organization filtering have passed in GitHub Actions. The Flutter analyzer also reported no issues on the tested dashboard source commit.
+Widget tests for school owner metrics, school staff exclusion and business owner organization filtering have passed in GitHub Actions on source commit `e1a0d623035ce138d0374ee970f2b260f4663329`. The full Flutter suite reports 38 passed and the analyzer reports no issues.
 
 ## 11. Updated release status
 
