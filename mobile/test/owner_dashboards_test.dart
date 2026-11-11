@@ -102,4 +102,69 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Manage business workspace'), findsOneWidget);
   });
+
+  testWidgets('school owner can switch between owned school dashboards',
+      (tester) async {
+    Future<Map<String, dynamic>> api(String method, String path) async {
+      if (path == '/api/schools') {
+        return {
+          'schools': [
+            {'id': 'school-1', 'name': 'First School', 'code': 'ONE', 'role': 'admin', 'isOwner': true},
+            {'id': 'school-2', 'name': 'Second School', 'code': 'TWO', 'role': 'admin', 'isOwner': true}
+          ]
+        };
+      }
+      if (path.contains('/students')) return {'total': path.contains('school-2') ? 22 : 11};
+      if (path.contains('/attendance')) return {'total': 1};
+      if (path.contains('/members')) return {'total': 1};
+      if (path.contains('/fee-balances')) return {'total': 1};
+      return {};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: SchoolOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('First School'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Second School').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Second School'), findsOneWidget);
+    expect(find.text('22'), findsOneWidget);
+  });
+
+  testWidgets('business owner can switch between owned organizations',
+      (tester) async {
+    Future<Map<String, dynamic>> api(String method, String path) async {
+      if (path == '/api/business/organizations') {
+        return {
+          'organizations': [
+            {'_id': 'business-1', 'ownerId': 'owner-1', 'name': 'First Business', 'branches': []},
+            {'_id': 'business-2', 'ownerId': 'owner-1', 'name': 'Second Business', 'branches': []}
+          ]
+        };
+      }
+      if (path.endsWith('/dashboard')) {
+        return {'metrics': {'customers': path.contains('business-2') ? 44 : 33}};
+      }
+      return {};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: BusinessOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('First Business'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Second Business').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Second Business'), findsOneWidget);
+    expect(find.text('44'), findsOneWidget);
+  });
 }
