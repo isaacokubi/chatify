@@ -95,6 +95,104 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     headers: {authorization: token}, signal: AbortSignal.timeout(30000),
   });
 
+  // Exercise the real first-business approval and first-school verification paths.
+  const businessCreate = await postJson('/api/business/organizations', {
+    name: 'First Acceptance Business', slug: 'first-acceptance-business',
+    industry: 'retail', email: 'parent@example.test', country: 'KE', currency: 'KES',
+  }, parentAuth);
+  assert.equal(businessCreate.status, 201, 'authenticated owner can request a business workspace');
+  const businessCreateBody = await businessCreate.json();
+  const firstBusinessId = String(businessCreateBody.organization?._id || '');
+  assert.ok(mongoose.isValidObjectId(firstBusinessId), 'business workspace ID is returned');
+  assert.equal(businessCreateBody.organization.approvalStatus, 'PENDING');
+  assert.equal(businessCreateBody.organization.billing?.status, 'SETUP_PAYMENT_REQUIRED');
+  assert.equal((await getJson('/api/business/organizations/' + firstBusinessId, otherAuth)).status, 404,
+    'unrelated account cannot read the pending business workspace');
+  assert.equal((await postJson('/api/admin/business-approvals/' + firstBusinessId + '/review',
+    {decision: 'APPROVE', reviewNote: 'Unauthorized review attempt'}, parentAuth)).status, 403,
+    'ordinary business owner cannot approve their own workspace');
+  const businessApproval = await postJson('/api/admin/business-approvals/' + firstBusinessId + '/review',
+    {decision: 'APPROVE', reviewNote: 'Synthetic first-business acceptance'}, platformAdminAuth);
+  assert.equal(businessApproval.status, 200, 'platform administrator can approve the first business');
+  assert.equal((await businessApproval.json()).business.approvalStatus, 'APPROVED');
+  assert.equal((await postJson('/api/admin/business-approvals/' + firstBusinessId + '/review',
+    {decision: 'APPROVE'}, platformAdminAuth)).status, 409,
+    'business approval cannot be applied twice');
+  assert.equal((await getJson('/api/business/organizations/' + firstBusinessId, parentAuth)).status, 402,
+    'business approval does not bypass required workspace setup billing');
+  // Only the disposable integration fixture is moved past the billing gate here.
+  // Provider-confirmed billing is covered by the separate workspace-billing tests.
+  await mongoose.models.BusinessOrganization.updateOne(
+    {_id: firstBusinessId}, {$set: {'billing.billingEnforced': false}},
+  );
+  const businessManager = await postJson('/api/business/organizations/' + firstBusinessId + '/members',
+    {userId: String(otherUserId), role: 'manager'}, parentAuth);
+  assert.equal(businessManager.status, 201, 'business owner can add an existing account as manager');
+  assert.equal((await getJson('/api/business/organizations/' + firstBusinessId, otherAuth)).status, 200,
+    'business manager can read the authorized workspace');
+
+  const schoolRequestResponse = await postJson('/api/schools/verification-requests', {
+    schoolName: 'First Acceptance School', proposedCode: 'FIRST-SCH-01',
+    county: 'Nairobi', officialEmail: 'school@example.test', officialPhone: '+254700000111',
+  }, schoolAdminAuth);
+  assert.equal(schoolRequestResponse.status, 202, 'school representative can submit a verification request');
+  const schoolRequestBody = await schoolRequestResponse.json();
+  const schoolRequestId = String(schoolRequestBody.request?.id || '');
+  assert.ok(mongoose.isValidObjectId(schoolRequestId), 'school verification request ID is returned');
+  assert.equal((await postJson('/api/schools', {name: 'Unverified Direct School'}, schoolAdminAuth)).status, 403,
+    'direct school workspace creation remains disabled');
+  assert.equal((await postJson('/api/schools/verification-requests/' + schoolRequestId + '/review',
+    {decision: 'APPROVE'}, otherAuth)).status, 403,
+    'ordinary account cannot approve a school verification request');
+  const schoolApproval = await postJson('/api/schools/verification-requests/' + schoolRequestId + '/review',
+    {decision: 'APPROVE', reviewNote: 'Synthetic first-school acceptance'}, platformAdminAuth);
+  assert.equal(schoolApproval.status, 200, 'authorized platform reviewer can approve and create the school');
+  const schoolApprovalBody = await schoolApproval.json();
+  const firstSchoolId = String(schoolApprovalBody.school?.id || '');
+  assert.ok(mongoose.isValidObjectId(firstSchoolId), 'approved school workspace ID is returned');
+  assert.equal(schoolApprovalBody.status, 'APPROVED');
+  assert.equal((await getJson('/api/schools', schoolAdminAuth)).status, 200);
+  const schoolOwnerList = await (await getJson('/api/schools', schoolAdminAuth)).json();
+  assert.equal(schoolOwnerList.schools.length, 1);
+  assert.equal(schoolOwnerList.schools[0].role, 'admin');
+  assert.equal((await getJson('/api/schools', platformAdminAuth)).status, 200);
+  assert.equal((await (await getJson('/api/schools', platformAdminAuth)).json()).schools.length, 0,
+    'platform admin does not become a school member merely by reviewing the request');
+  assert.equal((await postJson('/api/schools/' + firstSchoolId + '/members', {
+    email: 'other@example.test', role: 'staff', staffDesignation: 'Teacher',
+    studentNames: ['Synthetic Student'],
+  }, schoolAdminAuth)).status, 402,
+  'school verification does not bypass required workspace setup billing');
+  // Only the disposable integration fixture is moved past the billing gate here.
+  // Provider-confirmed billing is covered by the separate workspace-billing tests.
+  await mongoose.models.SchoolWorkspace.updateOne(
+    {_id: firstSchoolId}, {$set: {'billing.billingEnforced': false}},
+  );
+
+  const addSchoolStaff = await postJson('/api/schools/' + firstSchoolId + '/members', {
+    email: 'other@example.test', role: 'staff', staffDesignation: 'Teacher',
+    studentNames: ['Synthetic Student'],
+  }, schoolAdminAuth);
+  assert.equal(addSchoolStaff.status, 200, 'school admin can add an existing staff account');
+  const addSchoolParent = await postJson('/api/schools/' + firstSchoolId + '/members', {
+    email: 'parent@example.test', role: 'parent', studentNames: ['Synthetic Student'],
+  }, schoolAdminAuth);
+  assert.equal(addSchoolParent.status, 200, 'school admin can add an existing parent account');
+  const firstStudent = await postJson('/api/schools/' + firstSchoolId + '/students', {
+    admissionNumber: 'FIRST-001', fullName: 'Synthetic Student', className: 'Grade 1',
+    guardianName: 'Synthetic Parent', guardianPhone: '+254700000112',
+    guardianEmail: 'parent@example.test',
+  }, schoolAdminAuth);
+  assert.equal(firstStudent.status, 201, 'school admin can create a school-scoped student record');
+  const parentStudents = await getJson('/api/schools/' + firstSchoolId + '/students?limit=100', parentAuth);
+  assert.equal(parentStudents.status, 200, 'linked parent can read their school student records');
+  assert.equal((await parentStudents.json()).total, 1);
+  const staffStudents = await getJson('/api/schools/' + firstSchoolId + '/students?limit=100', otherAuth);
+  assert.equal(staffStudents.status, 200, 'linked staff can read assigned school student records');
+  assert.equal((await staffStudents.json()).total, 1);
+  assert.equal((await getJson('/api/schools/' + firstSchoolId + '/students?limit=100', platformAdminAuth)).status, 403,
+    'platform administrator without school membership cannot read school student records');
+
   const invoiceOrganization=await mongoose.models.BusinessOrganization.create({
     name:'Synthetic Invoice Merchant',slug:'synthetic-invoice-merchant',ownerId:parentId,
     industry:'retail',plan:'business_pro',approvalStatus:'APPROVED',billing:{billingEnforced:false},

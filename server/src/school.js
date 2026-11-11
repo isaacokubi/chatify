@@ -223,9 +223,9 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
     reconciliationHistory: { type: [mongoose.Schema.Types.Mixed], default: [] },
     initiationUncertainAt: Date,
   }, { timestamps: true }));
-  SchoolDonation.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
-  FeePayment.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, sparse: true });
-  FeePayment.schema.index({ checkoutRequestId: 1, merchantRequestId: 1 }, { unique: true, sparse: true });
+  SchoolDonation.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, name: 'school_donation_receipt_unique_nonempty_v1', partialFilterExpression: { mpesaReceipt: { $type: 'string' } } });
+  FeePayment.schema.index({ schoolId: 1, mpesaReceipt: 1 }, { unique: true, name: 'school_fee_receipt_unique_nonempty_v1', partialFilterExpression: { mpesaReceipt: { $type: 'string' } } });
+  FeePayment.schema.index({ checkoutRequestId: 1, merchantRequestId: 1 }, { unique: true, name: 'school_fee_checkout_pair_unique_v1', partialFilterExpression: { checkoutRequestId: { $type: 'string' }, merchantRequestId: { $type: 'string' } } });
 
   // Fee structures are versioned templates. Issued student charges copy the item
   // list and total so a later edit cannot silently rewrite historical liabilities.
@@ -438,7 +438,7 @@ export function registerSchoolRoutes({ app, auth, mongoose, User, emailProvider,
       const officialEmail = String(req.body?.officialEmail || '').trim().toLowerCase();
       const officialPhone = String(req.body?.officialPhone || '').trim();
       if (!schoolName || schoolName.length > 160 || !/^[A-Z0-9-]{3,24}$/.test(proposedCode) ||
-          !county || county.length > 80 || !/^\\S+@\\S+\\.\\S+$/.test(officialEmail) ||
+          !county || county.length > 80 || !/^\S+@\S+\.\S+$/.test(officialEmail) ||
           officialEmail.length > 254 || !/^[+0-9() -]{9,24}$/.test(officialPhone)) {
         return res.status(400).json({ error: 'Enter the school name, proposed code, county, official school email and phone number.' });
       }

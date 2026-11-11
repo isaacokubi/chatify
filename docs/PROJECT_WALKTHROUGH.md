@@ -287,3 +287,14 @@ If a script does not exist or a command fails, record the actual result and inve
 - [ ] I can find the relevant source file and explain the main logic in my own words.
 
 **Tip:** Use this guide to learn the flow, then explain it naturally. A strong project defense shows that you understand why the parts connect, not just that you can read comments aloud.
+
+
+## Owner dashboard entry points
+
+The School tab now opens `SchoolOwnerDashboard`; the Business tab opens `BusinessOwnerDashboard`. Both screens are implemented in `mobile/lib/owner_dashboards.dart` and receive the authenticated API adapter and a navigation callback to the existing operational workspace.
+
+The school overview uses `GET /api/schools`, then owner-only `GET /api/workspace-billing/school/:schoolId`. It loads student, attendance, membership and fee-balance totals only when workspace billing is unlocked. A locked school opens the existing SchoolWorkspacePage billing controls.
+
+The business overview filters the authenticated organization's owner ID, then calls `GET /api/workspace-billing/business/:orgId`. If approved and locked, the owner can start Chatify workspace setup or monthly subscription checkout. The UI initiates M-Pesa through the existing payment API and polls the server payment status; only confirmed success refreshes access. The business dashboard calls the organization-scoped dashboard metrics endpoint only when billing permits access.
+
+The overview widgets are intentionally separate from the existing `SchoolWorkspacePage` and `BusinessHub`, which remain the detailed role-aware management workspaces. See [School Owner Dashboard](SCHOOL_OWNER_DASHBOARD.md), [Business Owner Dashboard](BUSINESS_OWNER_DASHBOARD.md), and [Onboarding Guide](ONBOARDING_GUIDE.md).

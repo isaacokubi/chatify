@@ -264,3 +264,80 @@ Historical test counts in earlier sections refer to the exact commits and runs n
 `server/scripts/demo-account-smoke.mjs` tests the eight supplied demo identities against the hosted API using a password provided only at runtime. It checks login, identity/role, profile, contacts, conversations, payment list, school list, business list and admin route authorization. It is read-only except that successful login updates `lastSeen`. It does not test UI rendering, Socket.IO delivery or payment provider acceptance.
 
 Do not add the shared demo password to this repository, a workflow file, issue, log or README. The script was added for repeatable execution but **has not been run against the hosted API in this audit**.
+
+
+## Onboarding acceptance audit continuation — 2026-11-11
+
+**Working branch:** `audit/first-business-school-readiness-2026-11`  
+**Reference baseline:** Chatify `main` commit `200e26f39c4677917fe97afd7a7fc2411e357b33` (latest commit visible at audit start).  
+**Status:** changes prepared; verification is **PENDING**. No new test pass is claimed in this section.
+
+The continuation adds:
+- Unit tests for demo seed environment, explicit confirmation, production database-name rejection, unclassified database acknowledgement, password bounds and dry-run selection.
+- Database-backed API acceptance for the real first-business creation -> platform-admin review flow, including owner/member authorization and duplicate-review rejection.
+- The business/school integration fixture asserts the setup-billing lock (HTTP 402) after approval/verification. It then disables billing enforcement on those disposable records only to continue testing member/student authorization; this is not provider-payment acceptance.
+- Database-backed API acceptance for the real first-school verification-request -> authorized review -> workspace creation flow, including disabled direct creation, admin membership, staff/parent enrollment, linked student visibility and non-member denial.
+- Read-only demo-account smoke checks for the canonical one-business/one-school fixture, business catalogue visibility, school membership role and six linked student records.
+- The read-only smoke waits for the configured login rate-limit window on HTTP 429 rather than bypassing the limiter.
+- A dedicated [first business and school onboarding runbook](FIRST_BUSINESS_SCHOOL_ACCEPTANCE.md).
+
+The existing `.github/workflows/ci.yml` at the audit baseline does not configure `CHATIFY_MONGO_TEST_URI`; therefore the destructive integration test is expected to remain guarded/skipped in the ordinary CI test command unless CI is given a dedicated disposable MongoDB service and the exact loopback-only test URI. The integration test guard permits only `127.0.0.1:27018` and database names beginning `chatify_audit_test`; it drops only that exact database during setup/teardown. Do not point it at Atlas or production.
+
+Required verification from `server/` after dependencies and a disposable MongoDB 7 service are available:
+
+```bash
+npm ci
+npm test
+CHATIFY_MONGO_TEST_URI=mongodb://127.0.0.1:27018/chatify_audit_test_first_workspace node --test src/database.integration.test.js
+npm run lint
+npm audit --audit-level=high
+```
+
+The seed smoke must then be run against a separate disposable database, with the API using the same database and a private test-only password. See the runbook for the exact safe environment contract. Do not run the seed or destructive integration test against a real customer database.
+
+**Important:** the new branch changes have not yet been executed by GitHub Actions or a local test runner in this audit session. Historical test totals elsewhere in this file describe their named commits and dates only; they are not evidence for this branch or current `main`. Live Daraja, deployed UI, release signing, production restore and privacy/legal acceptance remain separate gates.
+
+
+### GitHub Actions verification on 2026-11-11
+
+**Reviewed branch commit:** `1991acd864ee035a473c43b1091a9a39afe0aa73`.
+
+| Workflow/job | Result | Evidence |
+|---|---|---|
+| Chatify quality checks #884 — Node API tests | **FAILED, corrected** | One new seed-config test exposed a misleading error for a MongoDB URI with no database name. |
+| Chatify quality checks #884 — Flutter analysis/tests | **PASS** | Flutter analysis and tests completed successfully. |
+| Chatify quality checks #885 — Node API tests | **PASS** | 265 tests; 264 passed, 0 failed, 1 skipped. |
+| Chatify quality checks #885 — server syntax checks | **PASS** | Completed successfully after the seed-config error-message correction. |
+| Chatify quality checks #885 — Flutter analysis/tests | **PASS** | Flutter analysis and Flutter tests completed successfully. |
+| Chatify CI #1808 | **CANCELLED** | Run was cancelled before any job result was available; it is not a pass. |
+
+The failing assertion was fixed by making `resolveDemoSeedConfig` distinguish an absent database name from a production-named database. The new seed-config tests pass in run #885.
+
+**Critical limitation:** the single skipped test is the destructive MongoDB database integration suite. The current CI workflow does not supply `CHATIFY_MONGO_TEST_URI`, so the new real business/school API acceptance assertions have not yet executed. The 264 passing tests are not a substitute for that database-backed run.
+
+The successful quality workflow is a valid backend/unit and Flutter quality result for the reviewed code commit. It does not include the isolated MongoDB integration acceptance. The separate Chatify CI run was cancelled, so dependency audit, backup/restore shell checks and mobile web/Android build steps from that workflow do not have a completed result in this record.
+
+
+## Owner dashboard and onboarding implementation evidence — 2026-11-11
+
+The business/school owner dashboard implementation was verified on commit `dc79291d036caf505c406a490de5c5e78e4577ad` before the subsequent E2EE recovery merge. GitHub Actions run [Chatify CI #43013482038](https://github.com/isaacokubi/chatify/actions/runs/43013482038) passed both backend and mobile jobs: backend `npm ci`, high-severity dependency audit, full tests, lint and backup/restore safety checks all passed; Flutter analysis, tests, web build and Android debug APK build all passed. The separate [Android APK workflow #43013482225](https://github.com/isaacokubi/chatify/actions/runs/43013482225) passed and uploaded an ARM64 debug/test APK. Signed release APK steps were skipped because signing secrets are not configured.
+
+The database-backed first-business/first-school acceptance additions are a separate change set. Their earlier quality run passed 264 tests with one database integration test skipped because CI had no disposable MongoDB service. The full CI run failed at `npm audit --audit-level=high` because it used the pre-remediation lockfile; the mobile job passed. This combined branch adds a loopback-only MongoDB 7 service to CI and sets `CHATIFY_MONGO_TEST_URI`, so the guarded database integration test runs rather than being silently skipped. The initial combined-branch run exposed school email-validation and fee-receipt index issues; both were corrected and the rerun evidence is recorded below.
+
+These results do not establish live M-Pesa settlement, hosted production deployment, real email/FCM/media delivery, a production backup/restore drill, school legal/privacy approval, or physical-device acceptance.
+
+
+## Combined onboarding acceptance verification — 2026-11-11
+
+**Tested application source:** `d0966d2ac8b3b108005decca5acba933787e7d28`.
+
+- [Chatify CI run 43027285445](https://github.com/isaacokubi/chatify/actions/runs/43027285445): backend job **PASS**. `npm audit --audit-level=high`, `npm test`, `npm run lint`, backup/recovery shell syntax and production-URI restore safety checks all passed.
+- Backend suite: **265 passed, 0 failed, 0 skipped**. The guarded isolated MongoDB API acceptance test ran against the disposable MongoDB 7 service and passed. It exercised authenticated first-business creation, platform-admin approval, billing lock, owner/manager access, school verification request/review, disabled direct school creation, school admin membership, staff/parent enrollment and school membership access.
+- [Chatify quality checks run 43027285711](https://github.com/isaacokubi/chatify/actions/runs/43027285711): **PASS**. Node API tests/syntax and Flutter analysis/tests passed.
+- [Android APK run 43027285571](https://github.com/isaacokubi/chatify/actions/runs/43027285571): **PASS**. ARM64 Android debug/test APK artifact `chatify-android-arm64-debug-test-only` was uploaded (expires 2026-11-25). Signed release APK steps were skipped because signing credentials are not configured.
+- In full CI run 43027285445, Flutter analysis, Flutter tests and Flutter Web build passed; the duplicate Android debug build step was still running when this record was updated. The separate Android workflow above passed for the same source SHA.
+- Vercel reported the deployment free-tier daily build-rate limit. This is not a successful deployment and the merged/live frontend must not be assumed updated.
+
+During database acceptance, the test exposed that the school verification email regex was over-escaped and rejected valid addresses; it was corrected. The test's expected member-create status was aligned to the existing HTTP 200 API contract. It then exposed compound sparse unique receipt indexes rejecting multiple pending payments with null receipts. The schema now uses partial unique indexes for non-empty receipts and complete checkout/request pairs. `server/scripts/migrate-school-receipt-indexes.mjs` safely replaces the old index definitions only after explicit exact-database confirmation; run it against an existing deployment after a verified backup and before accepting school fee traffic.
+
+**Not established:** real business/school onboarding, live Safaricom M-Pesa settlement, merchant-scoped invoice/storefront settlement, hosted deployment, production SMTP/FCM/Cloudinary delivery, production backup/restore drill, monitoring, school privacy/child-safety/legal approval, physical-device acceptance, or signed production APK. These remain release gates.

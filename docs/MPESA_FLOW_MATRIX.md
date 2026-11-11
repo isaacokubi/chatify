@@ -49,3 +49,16 @@ Audit source: current checkout `main` at `54e3fa15659dbb8019161dd31e71710d2376e9
 - No Safaricom API call, STK prompt, QR generation request, C2B registration, callback delivery or live-money operation was made. The previously recorded Dynamic QR sandbox HTTP 401 remains unresolved; current local configuration has no merchant-scoped Daraja credentials/tenant setup to reproduce it safely. Verify the Daraja app's Dynamic QR entitlement and merchant shortcode/product scope in the portal. C2B registration/delivery, school and merchant provider acceptance, and current platform STK sandbox acceptance remain unverified. The prior KSh 1 record was not queried or repeated.
 - Source tracing uncovered that storefront orders could reach the generic platform STK route even though successful callbacks updated the merchant order. Real-provider initiation and retry are now blocked for all business-document payments until merchant-scoped document settlement is implemented; a delayed platform callback also cannot settle a linked business document. The disposable Mongo regression verifies HTTP 409, zero provider STK requests or status queries, pending payment, unpaid order balance, and no duplicate payment record. Such legacy linked attempts remain pending for administrator review; do not retry them. Mock mode remains a clearly labelled simulation. Invoice real-provider STK remains intentionally rejected (HTTP 409). Handset Send Money is an unobservable user handoff; direct programmatic person-to-person Send Money is not implemented; contact/self/workspace platform STK is not direct-to-user transfer. Merchant POS STK/C2B/QR, school fees/donations, and manual-reference paths have automated/synthetic coverage only except for the historical platform sandbox payment already recorded. Production acceptance is not established.
 - No Render environment, deployment, health, or live-release query was performed in this run. No push or deployment was made.
+
+
+## Chatify workspace setup/subscription billing (platform billing)
+
+This is a separate platform-to-workspace subscription flow and must not be confused with school fee collection or business merchant invoice/order settlement.
+
+- Owner status: `GET /api/workspace-billing/school/:schoolId` or `GET /api/workspace-billing/business/:orgId`.
+- Checkout: `POST /api/workspace-billing/:type/:workspaceId/checkout` with the supported `billingType`.
+- M-Pesa initiation for a returned payment record: `POST /api/payments/:paymentId/initiate` with the owner-entered payer phone.
+- Status polling: `GET /api/payments/:paymentId`.
+- The business owner dashboard exposes checkout only after platform approval. School owners are directed to the existing school workspace billing UI.
+- A workspace stays locked until the server confirms successful provider settlement. Checkout initiation, an STK prompt or a client success value is not settlement evidence.
+- Widget tests cover billing-lock rendering, approval gating and the zero-priced checkout branch. Live M-Pesa checkout, callback verification, reconciliation and production settlement remain NOT VERIFIED.

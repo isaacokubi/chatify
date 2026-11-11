@@ -11,7 +11,10 @@ export function resolveDemoSeedConfig(env, argv = []) {
   } catch {
     throw new Error('MONGODB_URI must be a valid MongoDB URI with an explicit database name');
   }
-  if (!databaseName || /prod(?:uction)?/i.test(databaseName)) {
+  if (!databaseName) {
+    throw new Error('MONGODB_URI must include an explicit database name');
+  }
+  if (/prod(?:uction)?/i.test(databaseName)) {
     throw new Error('Refusing to seed a production-named database');
   }
   if (!/(demo|dev(?:elopment)?|test)/i.test(databaseName) && env.CHATIFY_SEED_ALLOW_UNCLASSIFIED_DATABASE !== 'YES') {

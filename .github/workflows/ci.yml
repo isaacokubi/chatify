@@ -12,6 +12,18 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27018:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CHATIFY_MONGO_TEST_URI: mongodb://127.0.0.1:27018/chatify_audit_test_ci
     defaults:
       run:
         working-directory: server
