@@ -222,7 +222,7 @@ Widget tests for school owner metrics, school staff exclusion and business owner
 |---|---|---|
 | Dedicated school owner overview | IMPLEMENTED — CI PENDING | New `SchoolOwnerDashboard` widget and school-tab routing on the implementation branch. |
 | Dedicated business owner overview | IMPLEMENTED — CI PENDING | New `BusinessOwnerDashboard` widget and business-tab routing on the implementation branch. |
-| Owner dashboard widget tests | PASS | Three new widget scenarios passed; full Flutter test suite reports 38 passed. |
+| Owner dashboard widget tests | PASS | Eight new widget scenarios passed; full Flutter test suite reports 43 passed. |
 | Existing school/business management workflows | EXISTING IMPLEMENTATION | Full SchoolWorkspacePage and BusinessHub retained and linked from the overview pages. |
 | Backend tenant authorization | EXISTING IMPLEMENTATION; FRESH ACCEPTANCE NOT VERIFIED | Source inspection confirms school membership and business organization authorization paths; database-backed cross-tenant tests still required. |
 | First real school and business | NOT VERIFIED | No live tenant was created or modified as part of this code change. |

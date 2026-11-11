@@ -61,3 +61,17 @@ The GitHub Actions Flutter analysis/test/build result must be checked on the imp
 - Branch count is the number of configured branch records; it does not imply each branch has been staffed or operationally verified.
 - Low-stock counts depend on configured stock and threshold fields.
 - Payment, tax, POS, subscription and external provider acceptance remain separate release gates.
+
+
+## Workspace billing and first-business onboarding
+
+Before requesting operational metrics, the dashboard calls the owner-only `GET /api/workspace-billing/business/:orgId` endpoint. If billing is locked, it retains the business identity and displays the billing status without requesting protected business dashboard metrics.
+
+- If platform approval is pending, the owner sees an approval-pending message and no checkout action.
+- After approval, if the setup fee is unpaid, the owner can start the Chatify workspace setup checkout.
+- If setup is paid but the subscription is expired/required, the owner can start the monthly workspace subscription checkout.
+- The checkout creates/reuses the server payment record. The dashboard then requests M-Pesa initiation with the owner-entered phone number and polls the payment status.
+- Access refresh occurs only after the server payment endpoint reports provider-confirmed `SUCCESS`. A pending initiation, phone prompt or client-side value does not unlock the workspace.
+- A pending payment is not retried automatically as a new payment. The owner is told to refresh/reconcile before attempting another payment.
+
+This is Chatify platform workspace billing. It is not the business's customer invoice, POS, order or merchant settlement flow. The zero-priced checkout widget test exercises the no-fee branch only; live M-Pesa provider acceptance remains unverified.

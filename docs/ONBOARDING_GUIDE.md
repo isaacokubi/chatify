@@ -57,3 +57,10 @@ The guarded development seed includes Lakeview Community School and Makena's Mar
 ## Acceptance evidence
 
 Complete the two-tenant isolation matrix in [FIRST_TENANT_ACCEPTANCE.md](FIRST_TENANT_ACCEPTANCE.md). A successful dashboard render or seeded demo account is not proof of production onboarding. Keep payments and sensitive student-data workflows disabled until their separate release gates are signed off.
+
+
+## Owner dashboard and billing behavior
+
+The School tab is the school owner overview. It checks the owner-only workspace billing status first; a locked school owner is sent to the existing School Workspace billing controls before school records are requested.
+
+The Business tab is the business owner overview. It checks platform approval and business workspace billing before requesting operational metrics. The owner can initiate Chatify setup/subscription M-Pesa checkout only after platform approval. The workspace becomes available only after server-side provider confirmation. This platform subscription is distinct from merchant payments made by customers to the business.

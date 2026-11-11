@@ -39,7 +39,7 @@ This is an inspection of selected current source files and documentation, not a 
 | Demo school and business data | IMPLEMENTED | One Lakeview Community School and one Makena's Market business organization are represented by the guarded demo seed. Demo data is not a real tenant acceptance result. |
 | Admin bootstrap | IMPLEMENTED | Explicit `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`; 12–72 UTF-8 byte password rule. |
 | Backend tests on implementation branch | PASS | GitHub Actions: 260 tests, 259 passed, 0 failed, 1 guarded skip; lint passed after dependency remediation. |
-| Flutter analysis/tests on implementation branch | PASS | Flutter 3.47.9 analyzer reported no issues; 38 tests passed, including all three new owner dashboard tests. |
+| Flutter analysis/tests on implementation branch | PASS | Flutter 3.47.9 analyzer reported no issues; 43 tests passed, including all eight owner dashboard/billing tests. |
 | Dependency audit | PARTIAL | High-severity findings remediated; Mongoose 8.24.8 and fast-xml-parser 5.12.0. Six moderate glob/minimatch findings remain in transitive dependencies. |
 | MongoDB replica-set acceptance | NOT VERIFIED | A disposable database-backed school/business isolation run must be executed on supported MongoDB with transactions enabled. |
 | First real school onboarding | NOT VERIFIED | Requires actual creation, admin/staff/parent access, linked student privacy, fee and communication acceptance. |

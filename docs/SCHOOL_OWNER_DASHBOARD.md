@@ -53,3 +53,10 @@ The GitHub Actions Flutter analysis/test/build result must be checked on the imp
 - The dashboard is an overview, not a replacement for detailed school reporting.
 - Student data must remain synthetic in demos and acceptance tests until the school privacy, guardian consent, retention and data-processing gates are approved.
 - The app cannot claim first-school production readiness solely because this dashboard renders.
+
+
+## Workspace billing gate
+
+Before requesting school records, the owner dashboard calls the owner-only `GET /api/workspace-billing/school/:schoolId` endpoint. If the returned billing state is locked, the dashboard retains the school identity, displays the setup/subscription status and does not request student, attendance, membership or fee records. **Open school billing** navigates to the existing SchoolWorkspacePage, which contains the supported school workspace billing controls.
+
+The dashboard does not unlock school records on checkout initiation. The existing billing flow must receive provider-confirmed payment before the server removes the access lock. School fee collection and school workspace subscription are separate payment flows.

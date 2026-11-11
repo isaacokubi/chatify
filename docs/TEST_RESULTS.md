@@ -320,3 +320,19 @@ Do not treat these CI results as a production certification. Check the latest PR
 - Backend: 260 tests, 259 passed, 0 failed, 1 skipped; syntax/lint job passed.
 - Flutter 3.47.9: analyzer reported no issues; all 38 tests passed, including the 3 owner dashboard tests.
 - The separate full CI workflow and Android artifact build were still running at the time this entry was written; see the latest Actions runs before release.
+
+
+### Latest owner dashboard, billing and full CI evidence
+
+- Source commit under test: `e993cd61e6d838abfba9167b767b53a13cbe137c`.
+- Quality workflow: [Chatify quality checks](https://github.com/isaacokubi/chatify/actions/runs/43001852939) — PASS.
+- Flutter 3.47.9 analyzer: PASS, no issues.
+- Flutter test suite: **43 passed**, 0 failed; all eight owner dashboard tests passed.
+- Full CI workflow: [Chatify CI](https://github.com/isaacokubi/chatify/actions/runs/43001852847).
+- Backend job: PASS — npm audit at high threshold, 260 tests (259 passed, 0 failed, 1 guarded skip), lint, backup/recovery shell validation and production-URI restore guard tests.
+- Flutter Web build: PASS.
+- Android debug APK build: still running when this entry was written; check the workflow before release.
+- Separate Android workflow: [Build Chatify Android APK](https://github.com/isaacokubi/chatify/actions/runs/43001853168). Release signing preparation and signed release APK steps were skipped because release signing credentials are not configured; ARM64 debug APK build was still running.
+- The eight widget tests include: school owner overview; staff exclusion; business owner filtering; switching owned schools; switching owned businesses; school billing lock; pending business approval; zero-priced business setup checkout.
+
+The high-severity audit gate passes after the lockfile update. Six moderate glob/minimatch transitive advisories remain. The tests do not establish real M-Pesa provider acceptance, tenant-to-tenant API isolation against a live replica-set database, physical device behavior, production deployment or signed release readiness.
