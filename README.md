@@ -33,6 +33,7 @@ Chatify is a mobile-first communication platform that combines real-time messagi
 - [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
 - [Production readiness assessment (2026-11-11)](docs/PRODUCTION_READINESS_2026-11-11.md)
 - [Current test results](docs/TEST_RESULTS.md)
+- [Current test status and pending platform verification (2026-11-12)](docs/TEST_STATUS_2026-11-12.md)
 - [Security and privacy](docs/SECURITY_AND_PRIVACY.md)
 - [M-Pesa flow matrix](docs/MPESA_FLOW_MATRIX.md)
 - [Commercial readiness](docs/COMMERCIAL_READINESS.md)
