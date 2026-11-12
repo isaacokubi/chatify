@@ -15932,6 +15932,30 @@ class _ProfileState extends State<Profile> {
         title: const Text('Dark mode'),
         subtitle: const Text('Use a darker, low-glare appearance'),
       ),
+      Card(
+        key: const ValueKey('profile-encryption-card'),
+        margin: const EdgeInsets.symmetric(vertical: 12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Icon(Icons.lock_outline, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Encryption & key recovery', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+              ]),
+              const SizedBox(height: 8),
+              const Text('Manage your encrypted-message identity and safely move it to another device. Find these options near the top of Profile.'),
+              const SizedBox(height: 10),
+              SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: exportEncryptionKey, icon: const Icon(Icons.ios_share), label: const Text('Transfer key from this device'))),
+              SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: importEncryptionKey, icon: const Icon(Icons.key), label: const Text('Restore key on this device'))),
+              SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: resetEncryptionKey, icon: const Icon(Icons.restart_alt), label: const Text('Lost old phone? Set up a new key'))),
+              if (app.encryptionError != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Encryption setup: ${app.encryptionError}', style: TextStyle(color: Theme.of(context).colorScheme.error))),
+            ],
+          ),
+        ),
+      ),
       TextField(
           controller: name,
           decoration: const InputDecoration(
@@ -15963,18 +15987,6 @@ class _ProfileState extends State<Profile> {
           onPressed: saveDefaultPhone,
           icon: const Icon(Icons.account_balance_wallet_outlined),
           label: const Text('Save default M-Pesa number')),
-      const SizedBox(height: 18),
-      const Text('Encryption', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-      const Text('Use a passphrase-protected transfer code to move your existing encryption identity to another device. Do not share the code or passphrase.'),
-      const SizedBox(height: 8),
-      OutlinedButton.icon(onPressed: exportEncryptionKey, icon: const Icon(Icons.ios_share), label: const Text('Transfer key from this device')),
-      OutlinedButton.icon(onPressed: importEncryptionKey, icon: const Icon(Icons.key), label: const Text('Restore key on this device')),
-      OutlinedButton.icon(
-        onPressed: resetEncryptionKey,
-        icon: const Icon(Icons.restart_alt),
-        label: const Text('I lost my old phone — set up a new encryption key'),
-      ),
-      if (app.encryptionError != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Encryption setup: ${app.encryptionError}', style: TextStyle(color: Theme.of(context).colorScheme.error))),
       const SizedBox(height: 18),
       const Text('Privacy',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
