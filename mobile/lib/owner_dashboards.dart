@@ -49,9 +49,8 @@ class _OwnerMetricCard extends StatelessWidget {
 }
 
 class _OwnerSectionHeading extends StatelessWidget {
-  const _OwnerSectionHeading(this.title, {this.subtitle});
+  const _OwnerSectionHeading(this.title);
   final String title;
-  final String? subtitle;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(top: 20, bottom: 10),
@@ -63,10 +62,9 @@ class _OwnerSectionHeading extends StatelessWidget {
 }
 
 class _OwnerActionTile extends StatelessWidget {
-  const _OwnerActionTile({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  const _OwnerActionTile({required this.icon, required this.title, required this.onTap});
   final IconData icon;
   final String title;
-  final String subtitle;
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => Card(child: ListTile(
@@ -371,11 +369,11 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
                 );
               }),
               const _OwnerSectionHeading('School operations'),
-              _OwnerActionTile(icon: Icons.groups_2_outlined, title: 'Students & admissions', subtitle: 'Review student records and enrolment', onTap: widget.onManage),
-              _OwnerActionTile(icon: Icons.fact_check_outlined, title: 'Attendance', subtitle: 'Open class and daily attendance records', onTap: widget.onManage),
-              _OwnerActionTile(icon: Icons.account_balance_wallet_outlined, title: 'Fees & balances', subtitle: 'Review fee accounts and outstanding balances', onTap: widget.onManage),
-              _OwnerActionTile(icon: Icons.receipt_long_outlined, title: 'Pupil fee receipts', subtitle: 'View and download confirmed receipts for pupils across this school', onTap: widget.onViewReceipts ?? widget.onManage),
-              _OwnerActionTile(icon: Icons.badge_outlined, title: 'Staff & school members', subtitle: 'Manage the people connected to your school', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.groups_2_outlined, title: 'Students & admissions', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.fact_check_outlined, title: 'Attendance', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.account_balance_wallet_outlined, title: 'Fees & balances', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.receipt_long_outlined, title: 'Pupil fee receipts', onTap: widget.onViewReceipts ?? widget.onManage),
+              _OwnerActionTile(icon: Icons.badge_outlined, title: 'Staff & school members', onTap: widget.onManage),
               
               
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Manage school workspace')),
@@ -683,10 +681,10 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
               if ((_metrics['lowStockItems'] as List? ?? const []).isEmpty)
                 const Card(child: ListTile(leading: Icon(Icons.check_circle_outline), title: Text('No low-stock alerts'), subtitle: Text('No catalogue items are currently below their configured reorder level.'))),
               const _OwnerSectionHeading('Manage your business'),
-              _OwnerActionTile(icon: Icons.point_of_sale_outlined, title: 'Sales & documents', subtitle: 'Create and review invoices, orders and sales records', onTap: widget.onManage),
-              _OwnerActionTile(icon: Icons.people_alt_outlined, title: 'Customers', subtitle: 'Manage customer profiles and relationships', onTap: widget.onManage),
-              _OwnerActionTile(icon: Icons.inventory_2_outlined, title: 'Products & stock', subtitle: 'Update your catalogue and stock levels', onTap: widget.onManage),
-              _OwnerActionTile(icon: Icons.task_alt_outlined, title: 'Tasks & support cases', subtitle: 'Follow up on outstanding work and customer issues', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.point_of_sale_outlined, title: 'Sales & documents', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.people_alt_outlined, title: 'Customers', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.inventory_2_outlined, title: 'Products & stock', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.task_alt_outlined, title: 'Tasks & support cases', onTap: widget.onManage),
               
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Manage business workspace')),
               ],
