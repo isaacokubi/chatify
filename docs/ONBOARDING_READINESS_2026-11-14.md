@@ -9,7 +9,7 @@
 - School and business workspace checkout now runs before collecting a payer phone number. A zero-priced setup checkout completes without displaying an M-Pesa phone prompt or initiating a charge.
 - When checkout returns a payment that already has an initiation timestamp, the client resumes status checking rather than starting a second STK prompt.
 - The client refreshes workspace access only after the server reports the checkout as paid or the payment status as SUCCESS. A pending, failed or cancelled payment is not treated as paid.
-- The disposable MongoDB API acceptance test now exercises two business organizations and two schools: cross-tenant reads are denied, customer lists remain tenant-scoped, and a viewer cannot create business records.
+- The disposable MongoDB API acceptance test exercises two business organizations and two schools: cross-tenant reads are denied, customer lists remain tenant-scoped, and a viewer cannot create business records. It also verifies that a revoked bearer token cannot access protected routes.
 
 ## Automated verification
 
@@ -19,7 +19,7 @@ PR #101 runs the repository's existing workflows:
 - Flutter Web build and Android debug build.
 - The first run exposed a test-fixture issue: the test tried to add an extra member beyond the tenant's configured seat limit. The fixture now reuses the existing manager seat for the viewer-permission assertion. The corrected backend quality run passed; the remaining workflow jobs must also finish successfully before merge.
 
-Do not report the automated suite as passed until all final PR checks show success.
+PR #101 was merged as commit `bdd29a75a1f6d8449e4d050f093f7f9d165ca880`. The final pre-merge CI runs completed successfully: backend `npm test` reported 266 passed, 0 failed, 0 skipped; backend lint and syntax checks passed; dependency audit found no high/critical advisories but reported six moderate advisories in transitive `glob`/`minimatch` dependencies; Flutter analysis and tests passed; Flutter Web build passed; and the ARM64 Android debug APK build and artifact upload passed. The separate quality workflow also passed Flutter and Node checks. The Android artifact is explicitly debug/test-only because release signing is not configured.
 
 ## Source-level authorization review
 
@@ -41,10 +41,10 @@ Current Render service observed:
 - Service: `chatify-api`
 - Repository/branch: `isaacokubi/chatify` / `main`
 - Auto-deploy: enabled on commit
-- Current live deploy at audit time: `53f7f2aadc2b301b95d0171fdbf8aa40a35d09e3`
-- Latest merged application commit before PR #101: `26b7dfc60172a664d944fb75a0e6b3864d7cf251`
+- Current live deploy: `bdd29a75a1f6d8449e4d050f093f7f9d165ca880` (Render reports deploy status `live`, started 2026-11-14 09:12:53 UTC and finished 09:13:39 UTC)
+- PR #101 merge commit: `bdd29a75a1f6d8449e4d050f093f7f9d165ca880`
 
-The live Render deployment therefore predates the merged mobile UX change and the PR #101 work. Merge and verify the new main-branch deploy before testing the final client build. Do not manually deploy a stale SHA.
+The live Render deployment now runs the PR #101 merge commit. Render reports the deploy as live. The service's HTTP health-check path remains unset. A direct external health request could not be completed from this environment, so do not treat the deploy status as a successful endpoint health check.
 
 The service currently has no configured HTTP health-check path. The API exposes `/api/health`; configure Render's HTTP health check to use `/api/health`, then verify the endpoint returns 200 with the database connected. The current Render service integration available to this audit did not expose environment-variable values, so `NODE_ENV`, JWT secrets, database credentials, Daraja mode/tokens and other production settings were not verified or changed.
 
@@ -89,8 +89,8 @@ For each pilot, retain a dated checklist, synthetic or consented test records, e
 ## Go-live rule
 
 Open onboarding only after:
-- PR #101 is merged with all required CI checks green.
-- The Render service is running the exact merged main commit and passes HTTP health checks.
+- PR #101 is merged; the backend, Flutter, Web and Android debug CI checks described above are green.
+- The Render service is running the exact merged main commit; configure the health-check path and verify HTTP health returns 200 before launch.
 - Production configuration and secret rotation are verified by the operator.
 - Sandbox payment/callback/reconciliation tests pass for each supported tenant payment flow; production provider approval is documented.
 - Security, privacy, backup/restore and alert-delivery gates are signed off.
