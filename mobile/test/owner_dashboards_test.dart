@@ -270,12 +270,36 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '0712345678');
     await tester.tap(find.text('Continue to M-Pesa'));
+    // The dialog closes synchronously, while the dashboard's async checkout
+    // handler continues after showDialog completes. Pump once more so the
+    // confirmed zero-fee checkout and the subsequent dashboard refresh finish.
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.pumpAndSettle();
-    await scrollBusinessDashboardToBottom(tester);
+    expect(setupPaid, isTrue, reason: 'The zero-priced checkout must complete before asserting the unlocked dashboard.');
+    // Flush any remaining async continuation from the billing refresh. The
+    // mock API completes immediately, but Flutter schedules the resulting
+    // setState after the checkout callback resumes from its awaited dialog.
+    for (var attempt = 0;
+        attempt < 10 && find.text('Business overview').evaluate().isEmpty;
+        attempt++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.pumpAndSettle();
 
-    expect(find.text('Business overview'), findsOneWidget);
-    expect(find.text('Customers'), findsOneWidget);
+    // The dashboard uses a lazy ListView: headings above the current scroll
+    // position may no longer be mounted after scrolling to the bottom.
+    final dashboardList = find.byType(ListView).first;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await tester.drag(dashboardList, const Offset(0, 900));
+      await tester.pumpAndSettle();
+    }
     expect(find.text('Business workspace billing'), findsOneWidget);
+    await tester.ensureVisible(find.text('Business overview'));
+    await tester.pumpAndSettle();
+    expect(find.text('Business overview'), findsOneWidget);
+
+    await scrollBusinessDashboardToBottom(tester);
+    expect(find.text('Customers'), findsOneWidget);
   });
 
   testWidgets('approved school owner can complete a zero-priced setup checkout',
