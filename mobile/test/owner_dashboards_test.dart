@@ -41,7 +41,7 @@ void main() {
     expect(find.text('Lakeview Community School'), findsOneWidget);
     expect(find.text('Students'), findsOneWidget);
     expect(find.text('Attendance records'), findsOneWidget);
-    expect(find.text('Manage school workspace'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Manage school workspace'), 400, scrollable: find.byType(Scrollable).first);\n    expect(find.text('Manage school workspace'), findsOneWidget);
     expect(find.text('School operations'), findsOneWidget);
     expect(find.text('Students & admissions'), findsOneWidget);
     expect(find.text('Fees & balances'), findsOneWidget);
@@ -71,7 +71,7 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Pupil fee receipts'));
+    await tester.scrollUntilVisible(find.text('Pupil fee receipts'), 400, scrollable: find.byType(Scrollable).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Pupil fee receipts'));
     expect(receiptsOpened, isTrue);
