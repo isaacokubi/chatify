@@ -428,4 +428,60 @@ void main() {
     expect(find.text('Students'), findsOneWidget);
     expect(find.text('School workspace billing'), findsOneWidget);
   });
+
+  testWidgets('resumes an initiated workspace payment without another STK prompt',
+      (tester) async {
+    var setupPaid = false;
+    var paymentInitiationCalls = 0;
+    var paymentStatusCalls = 0;
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
+      if (path == '/api/business/organizations') {
+        return {'organizations': [
+          {'_id': 'business-pending', 'ownerId': 'owner-1', 'name': 'Pending Setup Business', 'approvalStatus': 'APPROVED', 'branches': []}
+        ]};
+      }
+      if (method == 'POST' && path.endsWith('/checkout')) {
+        return {'paid': false, 'payment': {
+          'paymentId': 'existing-payment', 'initiatedAt': '2026-11-14T09:00:00.000Z'
+        }};
+      }
+      if (method == 'POST' && path.contains('/initiate')) {
+        paymentInitiationCalls++;
+        return {};
+      }
+      if (method == 'GET' && path == '/api/payments/existing-payment') {
+        paymentStatusCalls++;
+        setupPaid = true;
+        return {'payment': {'status': 'SUCCESS'}};
+      }
+      if (path.contains('/workspace-billing/business/')) {
+        return {'billing': {
+          'locked': !setupPaid,
+          'status': setupPaid ? 'ACTIVE' : 'SETUP_PAYMENT_REQUIRED',
+          'setupFeePaid': setupPaid,
+          'prices': {'setupFee': 1000, 'monthlyFee': 500}
+        }};
+      }
+      if (path.endsWith('/dashboard')) return {'metrics': {'customers': 5}};
+      return {};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: BusinessOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
+    ));
+    await tester.pumpAndSettle();
+    await scrollBusinessDashboardToBottom(tester);
+    expect(find.text('Pay setup · KSh 1,000'), findsOneWidget);
+
+    await tester.tap(find.text('Pay setup · KSh 1,000'));
+    await tester.pump();
+    expect(find.byType(TextField), findsNothing,
+        reason: 'An existing STK request must resume without asking for another phone number.');
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(paymentInitiationCalls, 0);
+    expect(paymentStatusCalls, 1);
+    expect(setupPaid, isTrue);
+  });
 }
