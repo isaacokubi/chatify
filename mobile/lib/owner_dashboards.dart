@@ -631,8 +631,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                           : 'Pay setup · KSh ${_count((_billing['prices'] as Map?)?['setupFee'] ?? 1000)}'),
                       ),
                     ],
-                    if (!_billingLocked)
-                      
+                    
                   ]),
                 )),
               ],
