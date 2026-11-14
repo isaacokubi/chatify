@@ -3,6 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatify/owner_dashboards.dart';
 
 void main() {
+  Future<void> scrollBusinessDashboardToBottom(WidgetTester tester) async {
+    final dashboardList = find.byType(ListView).first;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await tester.drag(dashboardList, const Offset(0, -700));
+      await tester.pumpAndSettle();
+    }
+  }
+
   testWidgets('school owner dashboard shows metrics for an owned school',
       (tester) async {
     Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
@@ -96,6 +104,7 @@ void main() {
 
     expect(find.text('Business owner dashboard'), findsOneWidget);
     expect(find.text("Makena's Market"), findsOneWidget);
+    await scrollBusinessDashboardToBottom(tester);
     expect(find.text('Customers'), findsOneWidget);
     expect(find.text('Private Other Business'), findsNothing);
     await tester.drag(find.byType(ListView), const Offset(0, -900));
@@ -165,6 +174,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Second Business'), findsWidgets);
+    await scrollBusinessDashboardToBottom(tester);
     expect(find.text('44'), findsOneWidget);
   });
 
@@ -218,6 +228,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Pending Business'), findsOneWidget);
+    await scrollBusinessDashboardToBottom(tester);
     expect(find.textContaining('Awaiting Chatify platform approval'), findsOneWidget);
     expect(find.textContaining('Pay setup'), findsNothing);
     expect(dashboardRequests, 0);
@@ -253,12 +264,14 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
+    await scrollBusinessDashboardToBottom(tester);
     expect(find.text('Pay setup · KSh 0'), findsOneWidget);
     await tester.tap(find.text('Pay setup · KSh 0'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '0712345678');
     await tester.tap(find.text('Continue to M-Pesa'));
     await tester.pumpAndSettle();
+    await scrollBusinessDashboardToBottom(tester);
 
     expect(find.text('Business overview'), findsOneWidget);
     expect(find.text('Customers'), findsOneWidget);
