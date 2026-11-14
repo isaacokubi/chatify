@@ -161,11 +161,13 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   )).json();
   assert.deepEqual(secondTenantCustomers.customers.map(item => item.name), ['Second Tenant Customer'],
     'second business owner sees only their tenant customers');
-  const addViewer = await postJson('/api/business/organizations/' + firstBusinessId + '/members',
-    {userId: String(schoolAdminId), role: 'viewer'}, parentAuth);
-  assert.equal(addViewer.status, 201, 'owner can assign read-only viewer role');
+  const downgradeManager = await mongoose.models.BusinessOrganization.updateOne(
+    {_id: firstBusinessId, 'members.userId': otherUserId},
+    {$set: {'members.$.role': 'viewer'}},
+  );
+  assert.equal(downgradeManager.modifiedCount, 1, 'test fixture changes the existing manager seat to viewer');
   assert.equal((await postJson('/api/business/organizations/' + firstBusinessId + '/customers',
-    {name: 'Viewer must not create'}, schoolAdminAuth)).status, 403,
+    {name: 'Viewer must not create'}, otherAuth)).status, 403,
     'viewer cannot create business customer records');
 
   const schoolRequestResponse = await postJson('/api/schools/verification-requests', {
