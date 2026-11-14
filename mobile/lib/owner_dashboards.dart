@@ -12,7 +12,7 @@ T? _firstOrNull<T>(Iterable<T> values) {
 }
 String _ownerFriendlyError(Object error) {
   final message = error.toString().toLowerCase();
-  if (message.contains('socketexception') || message.contains('clientexception') || message.contains('failed host lookup') || message.contains('connection refused') || message.contains('network is unreachable') || message.contains('timeout') || message.contains('timed out') || message.contains('408') || message.contains('handshakeexception')) {
+  if (message.contains('socketexception') || message.contains('clientexception') || message.contains('failed host lookup') || message.contains('connection refused') || message.contains('network is unreachable') || message.contains('no route to host') || message.contains('connection aborted') || message.contains('timeout') || message.contains('timed out') || message.contains('408') || message.contains('handshakeexception')) {
     return 'Connect to the internet or Wi-Fi to continue.';
   }
   if (message.contains('401')) return 'Your session has expired. Please sign in again.';
