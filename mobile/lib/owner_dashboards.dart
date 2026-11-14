@@ -291,7 +291,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
           children: [
             if (_loading) const LinearProgressIndicator(),
             if (_error != null) Card(child: ListTile(leading: const Icon(Icons.error_outline), title: const Text('Could not load school overview'), subtitle: Text(_error!))),
-            if (!_loading && school == null) ...[
+            if (!_loading && _error == null && school == null) ...[
               const Card(child: ListTile(leading: Icon(Icons.school_outlined), title: Text('No school linked'))),
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.open_in_new), label: const Text('Open school workspace')),
             ],
@@ -577,7 +577,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
           children: [
             if (_loading) const LinearProgressIndicator(),
             if (_error != null) Card(child: ListTile(leading: const Icon(Icons.error_outline), title: const Text('Could not load business overview'), subtitle: Text(_error!))),
-            if (!_loading && organization == null) ...[
+            if (!_loading && _error == null && organization == null) ...[
               const Card(child: ListTile(leading: Icon(Icons.business_outlined), title: Text('No business linked'))),
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.open_in_new), label: const Text('Open business workspace')),
             ],
