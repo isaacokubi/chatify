@@ -57,10 +57,7 @@ class _OwnerSectionHeading extends StatelessWidget {
     padding: const EdgeInsets.only(top: 20, bottom: 10),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-      if (false && subtitle != null) ...[
-        const SizedBox(height: 3),
-        Text(subtitle!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      ],
+
     ]),
   );
 }
@@ -247,7 +244,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
         );
       }
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('M-Pesa prompt requested. Approve it on your phone; school access unlocks only after provider confirmation.'),
+        content: Text('M-Pesa prompt sent. Approve it on your phone.'),
       ));
       for (var attempt = 0; attempt < 20 && mounted; attempt++) {
         await Future.delayed(const Duration(seconds: 3));
@@ -269,7 +266,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
         }
       }
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Payment is still pending. Refresh billing shortly; do not pay again unless the first payment has failed.'),
+        content: Text('Payment pending. Check again shortly.'),
       ));
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -524,7 +521,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
         );
       }
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('M-Pesa prompt requested. Approve it on your phone; the business workspace unlocks only after provider confirmation.'),
+        content: Text('M-Pesa prompt sent. Approve it on your phone.'),
       ));
       for (var attempt = 0; attempt < 20 && mounted; attempt++) {
         await Future.delayed(const Duration(seconds: 3));
@@ -546,7 +543,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
         }
       }
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Payment is still pending. Refresh billing shortly; do not pay again unless the first payment has failed.'),
+        content: Text('Payment pending. Check again shortly.'),
       ));
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -583,7 +580,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
             if (_loading) const LinearProgressIndicator(),
             if (_error != null) Card(child: ListTile(leading: const Icon(Icons.error_outline), title: const Text('Could not load business overview'), subtitle: Text(_error!))),
             if (!_loading && organization == null) ...[
-              const Card(child: ListTile(leading: Icon(Icons.business_outlined), title: Text('No business owned by this account'), subtitle: Text('Business owners see their own organization overview here. Managers and staff can continue to the business workspace using the button below.'))),
+              const Card(child: ListTile(leading: Icon(Icons.business_outlined), title: Text('No business owned by this account'), subtitle: Text('No business is linked to this account.'))),
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.open_in_new), label: const Text('Open business workspace')),
             ],
             if (organization != null) ...[
@@ -619,9 +616,9 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                     const SizedBox(height: 6),
                     Text('Status: ${_billing['status'] ?? 'Unknown'} · Setup fee: ${_billing['setupFeePaid'] == true ? 'Paid' : 'Unpaid'}'),
                     if (organization['approvalStatus']?.toString().toUpperCase() == 'PENDING')
-                      const Text('Awaiting Chatify platform approval. Setup payment becomes available after approval.'),
+                      const Text('Awaiting approval.'),
                     if (organization['approvalStatus']?.toString().toUpperCase() == 'REJECTED')
-                      const Text('This business application was rejected. Contact Chatify support before subscribing.'),
+                      const Text('Application rejected.'),
                     if (_billingLocked && organization['approvalStatus']?.toString().toUpperCase() == 'APPROVED') ...[
                       const SizedBox(height: 8),
                       Text(_billing['setupFeePaid'] == true
@@ -637,7 +634,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                       ),
                     ],
                     if (!_billingLocked)
-                      const Text('Workspace billing is currently within its access window. Customer sales and merchant payments are separate from this Chatify subscription.'),
+                      
                   ]),
                 )),
               ],
@@ -645,7 +642,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                 const Card(child: ListTile(
                   leading: Icon(Icons.lock_outline),
                   title: Text('Business operations are locked'),
-                  subtitle: Text('The business identity is retained, but its operational records remain protected until the required subscription payment is confirmed.'),
+                  subtitle: Text('Complete the required payment to restore access.'),
                 )),
                 FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.open_in_new), label: const Text('Open business workspace')),
               ],
@@ -668,7 +665,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                   )).toList(),
                 );
               }),
-              const _OwnerSectionHeading('Operational focus', subtitle: 'Items that may need your attention.'),
+              const _OwnerSectionHeading('Operational focus'),
               if ((_metrics['briefing'] ?? '').toString().trim().isNotEmpty)
                 Card(child: ListTile(leading: const Icon(Icons.auto_awesome_outlined), title: const Text('Owner briefing'), subtitle: Text(_metrics['briefing'].toString()))),
               if ((_metrics['lowStockItems'] as List? ?? const []).isNotEmpty)
@@ -685,12 +682,12 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                 ]))),
               if ((_metrics['lowStockItems'] as List? ?? const []).isEmpty)
                 const Card(child: ListTile(leading: Icon(Icons.check_circle_outline), title: Text('No low-stock alerts'), subtitle: Text('No catalogue items are currently below their configured reorder level.'))),
-              const _OwnerSectionHeading('Manage your business', subtitle: 'Open the workspace to complete these day-to-day tasks.'),
+              const _OwnerSectionHeading('Manage your business'),
               _OwnerActionTile(icon: Icons.point_of_sale_outlined, title: 'Sales & documents', subtitle: 'Create and review invoices, orders and sales records', onTap: widget.onManage),
               _OwnerActionTile(icon: Icons.people_alt_outlined, title: 'Customers', subtitle: 'Manage customer profiles and relationships', onTap: widget.onManage),
               _OwnerActionTile(icon: Icons.inventory_2_outlined, title: 'Products & stock', subtitle: 'Update your catalogue and stock levels', onTap: widget.onManage),
               _OwnerActionTile(icon: Icons.task_alt_outlined, title: 'Tasks & support cases', subtitle: 'Follow up on outstanding work and customer issues', onTap: widget.onManage),
-              const Card(child: ListTile(leading: Icon(Icons.verified_user_outlined), title: Text('Workspace privacy'), subtitle: Text('Only organizations whose owner ID matches the authenticated account are shown here. API membership and organization checks remain authoritative.'))),
+              
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Manage business workspace')),
               ],
             ],
