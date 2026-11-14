@@ -138,14 +138,14 @@ void main() {
 
     expect(find.text('Business owner dashboard'), findsOneWidget);
     expect(find.text("Makena's Market"), findsOneWidget);
-    await scrollBusinessDashboardToBottom(tester);
-    expect(find.text('Customers'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Operational focus'), 400, scrollable: find.byType(Scrollable).first);
     expect(find.text('Operational focus'), findsOneWidget);
     expect(find.text('Owner briefing'), findsOneWidget);
     expect(find.text('No low-stock alerts'), findsOneWidget);
     expect(find.text('Private Other Business'), findsNothing);
-    await tester.drag(find.byType(ListView), const Offset(0, -900));
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Customers'), 400, scrollable: find.byType(Scrollable).first);
+    expect(find.text('Customers'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Manage business workspace'), 400, scrollable: find.byType(Scrollable).first);
     expect(find.text('Manage business workspace'), findsOneWidget);
   });
 
@@ -211,7 +211,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Second Business'), findsWidgets);
-    await scrollBusinessDashboardToBottom(tester);
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await tester.drag(find.byType(ListView).first, const Offset(0, 900));
+      await tester.pumpAndSettle();
+    }
     expect(find.text('44'), findsOneWidget);
   });
 
