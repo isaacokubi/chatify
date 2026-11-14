@@ -12431,7 +12431,7 @@ class _ChatState extends State<Chat> {
     final peerId = _directPeerId();
     final conversationId = widget.conversation['_id']?.toString() ?? '';
     if (activeSocket == null || !activeSocket.connected || peerId == null || conversationId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connect to Chatify and reopen this direct conversation before calling.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connect to Chatify to start a call.')));
       return;
     }
     final callId = 'c${DateTime.now().microsecondsSinceEpoch}_${app.user?['id'] ?? app.user?['_id'] ?? 'u'}';
@@ -15805,7 +15805,7 @@ class _ProfileState extends State<Profile> {
               await appState.ensureEncryptionKey();
               appState.clearEncryptionError();
               if (dialogContext.mounted) Navigator.pop(dialogContext);
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Encryption key restored. Your encrypted messages can now be opened on this device.')));
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Encryption key restored.')));
             } catch (error) {
               if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Key transfer failed: ${friendlyErrorMessage(error)}')));
             }
@@ -18947,9 +18947,9 @@ class _BusinessHubState extends State<BusinessHub> {
             child: ListTile(
                 leading: const Icon(Icons.sync),
                 title: Text('Sync offline records ($pendingOfflineCount)'),
-                subtitle: Text(syncConflicts.isEmpty
-                    ? 'Queued creates sync when connected'
-                    : '${syncConflicts.length} changes need review'),
+                subtitle: syncConflicts.isEmpty
+                    ? null
+                    : Text('${syncConflicts.length} changes need review'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () async {
                   final id = organization!['_id'].toString();
@@ -19918,8 +19918,6 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
             child: ListView(padding: const EdgeInsets.all(16), children: [
               Text(widget.organizationName,
                   style: Theme.of(context).textTheme.headlineSmall),
-              const Text(
-                  'Create cashier checkout requests for retail purchases, restaurant bills, hotel stays and other sales.'),
               if (error != null)
                 Text(error!,
                     style:
@@ -20855,8 +20853,6 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
                         Text('Business command centre',
                             style: Theme.of(context).textTheme.titleLarge),
                         const SizedBox(height: 4),
-                        Text(
-                            'Overview, accountability and follow-up records for this workspace. Sensitive actions are checked by the server.'),
                         const SizedBox(height: 12),
                         Wrap(spacing: 8, runSpacing: 8, children: [
                           _enterpriseMetric('Customers',
