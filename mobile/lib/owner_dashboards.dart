@@ -15,6 +15,87 @@ String _idOf(dynamic value) {
   return (value ?? '').toString();
 }
 
+
+class _OwnerMetricCard extends StatelessWidget {
+  const _OwnerMetricCard({required this.label, required this.value, required this.icon});
+  final String label;
+  final String value;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(clipBehavior: Clip.antiAlias, child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Row(children: [
+        Container(width: 42, height: 42, decoration: BoxDecoration(color: colors.primaryContainer, borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: colors.onPrimaryContainer)),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 3),
+          Text(label, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant)),
+        ])),
+      ]),
+    ));
+  }
+}
+
+class _OwnerSectionHeading extends StatelessWidget {
+  const _OwnerSectionHeading(this.title, {this.subtitle});
+  final String title;
+  final String? subtitle;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 20, bottom: 10),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      if (subtitle != null) ...[
+        const SizedBox(height: 3),
+        Text(subtitle!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      ],
+    ]),
+  );
+}
+
+class _OwnerActionTile extends StatelessWidget {
+  const _OwnerActionTile({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Card(child: ListTile(
+    leading: CircleAvatar(child: Icon(icon)),
+    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+    subtitle: Text(subtitle),
+    trailing: const Icon(Icons.arrow_forward_ios, size: 15),
+    onTap: onTap,
+  ));
+}
+
+IconData _businessMetricIcon(String label) {
+  switch (label) {
+    case 'Customers': return Icons.people_alt_outlined;
+    case 'Active products / services': return Icons.inventory_2_outlined;
+    case 'Business documents': return Icons.receipt_long_outlined;
+    case 'Open tasks': return Icons.task_alt_outlined;
+    case 'Open support cases': return Icons.support_agent_outlined;
+    case 'Branches': return Icons.store_mall_directory_outlined;
+    case 'Low-stock items': return Icons.warning_amber_rounded;
+    default: return Icons.insights_outlined;
+  }
+}
+
+IconData _schoolMetricIcon(String label) {
+  switch (label) {
+    case 'Students': return Icons.groups_2_outlined;
+    case 'Attendance records': return Icons.fact_check_outlined;
+    case 'School members': return Icons.badge_outlined;
+    case 'Fee balances': return Icons.account_balance_wallet_outlined;
+    default: return Icons.insights_outlined;
+  }
+}
+
+
 class SchoolOwnerDashboard extends StatefulWidget {
   const SchoolOwnerDashboard({
     super.key,
