@@ -9733,11 +9733,11 @@ class _HomeState extends State<Home> {
         });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(deletedIds.isEmpty
-                ? error.toString()
+                ? friendlyErrorMessage(error)
                 : 'Deleted ' +
                     deletedIds.length.toString() +
                     ' conversations. Some remaining items could not be deleted: ' +
-                    error.toString())));
+                    friendlyErrorMessage(error))));
       }
     }
   }
