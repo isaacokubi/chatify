@@ -10,6 +10,15 @@ T? _firstOrNull<T>(Iterable<T> values) {
   }
   return null;
 }
+String _ownerFriendlyError(Object error) {
+  final message = error.toString().toLowerCase();
+  if (message.contains('socketexception') || message.contains('clientexception') || message.contains('failed host lookup') || message.contains('connection refused') || message.contains('network is unreachable') || message.contains('timed out') || message.contains('handshakeexception')) {
+    return 'Connect to the internet or Wi-Fi to continue.';
+  }
+  if (message.contains('401')) return 'Your session has expired. Please sign in again.';
+  if (message.contains('403')) return 'You don’t have permission to do that.';
+  return 'Could not complete your request. Please try again.';
+}
 String _idOf(dynamic value) {
   if (value is Map) return (value['_id'] ?? value['id'] ?? '').toString();
   return (value ?? '').toString();
@@ -48,7 +57,7 @@ class _OwnerSectionHeading extends StatelessWidget {
     padding: const EdgeInsets.only(top: 20, bottom: 10),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-      if (subtitle != null) ...[
+      if (false && subtitle != null) ...[
         const SizedBox(height: 3),
         Text(subtitle!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
       ],
@@ -66,7 +75,7 @@ class _OwnerActionTile extends StatelessWidget {
   Widget build(BuildContext context) => Card(child: ListTile(
     leading: CircleAvatar(child: Icon(icon)),
     title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-    subtitle: Text(subtitle),
+    subtitle: const SizedBox.shrink(),
     trailing: const Icon(Icons.arrow_forward_ios, size: 15),
     onTap: onTap,
   ));
@@ -180,7 +189,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
         _loading = false;
       });
     } catch (error) {
-      if (mounted) setState(() { _error = error.toString(); _loading = false; });
+      if (mounted) setState(() { _error = _ownerFriendlyError(error); _loading = false; });
     }
   }
 
@@ -264,7 +273,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
       ));
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString())),
+        SnackBar(content: Text(_ownerFriendlyError(error))),
       );
     } finally {
       if (mounted) setState(() => _billingBusy = false);
@@ -288,7 +297,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
             if (_loading) const LinearProgressIndicator(),
             if (_error != null) Card(child: ListTile(leading: const Icon(Icons.error_outline), title: const Text('Could not load school overview'), subtitle: Text(_error!))),
             if (!_loading && school == null) ...[
-              const Card(child: ListTile(leading: Icon(Icons.school_outlined), title: Text('No school owned by this account'), subtitle: Text('School owners see their own school overview here. Staff and parents can continue to the school workspace using the button below.'))),
+              const Card(child: ListTile(leading: Icon(Icons.school_outlined), title: Text('No school owned by this account'), subtitle: Text('No school is linked to this account.'))),
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.open_in_new), label: const Text('Open school workspace')),
             ],
             if (school != null) ...[
@@ -298,8 +307,8 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(school['name']?.toString() ?? 'School', style: Theme.of(context).textTheme.headlineSmall),
                     const SizedBox(height: 6),
-                    Text('School code: ${school['code'] ?? 'Not available'}'),
-                    Text('Owner access verified by the school membership response'),
+                    
+                    
                     if (_ownedSchools.length > 1) ...[
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
@@ -327,7 +336,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.lock_outline),
                       title: Text('School workspace is locked'),
-                      subtitle: Text('School records remain protected until the required Chatify setup fee or subscription payment is confirmed.'),
+                      subtitle: Text('Complete the required payment to restore access.'),
                     ),
                     if (_billingBusy || _loading) const LinearProgressIndicator(),
                     const SizedBox(height: 8),
@@ -341,7 +350,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
                         : 'Pay setup · KSh ${_count((_billing['prices'] as Map?)?['setupFee'] ?? 5000)}'),
                     ),
                     const SizedBox(height: 4),
-                    const Text('Access refreshes only after the payment API confirms success. School fee collections and donations are separate from this Chatify subscription.'),
+                    
                   ]),
                 )),
               ],
@@ -364,14 +373,14 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
                   )).toList(),
                 );
               }),
-              const _OwnerSectionHeading('School operations', subtitle: 'Quick access to the areas that keep your school running.'),
+              const _OwnerSectionHeading('School operations'),
               _OwnerActionTile(icon: Icons.groups_2_outlined, title: 'Students & admissions', subtitle: 'Review student records and enrolment', onTap: widget.onManage),
               _OwnerActionTile(icon: Icons.fact_check_outlined, title: 'Attendance', subtitle: 'Open class and daily attendance records', onTap: widget.onManage),
               _OwnerActionTile(icon: Icons.account_balance_wallet_outlined, title: 'Fees & balances', subtitle: 'Review fee accounts and outstanding balances', onTap: widget.onManage),
               _OwnerActionTile(icon: Icons.receipt_long_outlined, title: 'Pupil fee receipts', subtitle: 'View and download confirmed receipts for pupils across this school', onTap: widget.onViewReceipts ?? widget.onManage),
               _OwnerActionTile(icon: Icons.badge_outlined, title: 'Staff & school members', subtitle: 'Manage the people connected to your school', onTap: widget.onManage),
-              const _OwnerSectionHeading('Account & data protection'),
-              const Card(child: ListTile(leading: Icon(Icons.verified_user_outlined), title: Text('School data protection'), subtitle: Text('Student and school records are loaded through authenticated school APIs. Server membership and linked-student checks remain authoritative.'))),
+              
+              
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Manage school workspace')),
               ],
             ],
