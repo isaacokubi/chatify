@@ -274,21 +274,21 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
                   childAspectRatio: columns == 1 ? 3.2 : 1.55,
                   crossAxisSpacing: 10,
                   mainAxisSpacing: 10,
-                  children: _metrics.entries.map((entry) => Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Text(entry.value.toString(), style: Theme.of(context).textTheme.headlineMedium),
-                        const SizedBox(height: 4),
-                        Text(entry.key),
-                      ]),
-                    ),
+                  children: _metrics.entries.map((entry) => _OwnerMetricCard(
+                    label: entry.key,
+                    value: entry.value.toString(),
+                    icon: _schoolMetricIcon(entry.key),
                   )).toList(),
                 );
               }),
-              const SizedBox(height: 12),
-              const Card(child: ListTile(leading: Icon(Icons.verified_user_outlined), title: Text('Workspace privacy'), subtitle: Text('The dashboard requests records through the authenticated school APIs. Server membership and linked-student checks remain authoritative.'))),
-              FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Manage school workspace')),
+              const _OwnerSectionHeading('School operations', subtitle: 'Quick access to the areas that keep your school running.'),
+              _OwnerActionTile(icon: Icons.groups_2_outlined, title: 'Students & admissions', subtitle: 'Review student records and enrolment', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.fact_check_outlined, title: 'Attendance', subtitle: 'Open class and daily attendance records', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.account_balance_wallet_outlined, title: 'Fees & balances', subtitle: 'Review fee accounts, balances and receipts', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.badge_outlined, title: 'Staff & school members', subtitle: 'Manage the people connected to your school', onTap: widget.onManage),
+              const _OwnerSectionHeading('Account & data protection'),
+              const Card(child: ListTile(leading: Icon(Icons.verified_user_outlined), title: Text('School data protection'), subtitle: Text('Student and school records are loaded through authenticated school APIs. Server membership and linked-student checks remain authoritative.'))),
+              FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Open full school workspace')),
               ],
             ],
           ],
@@ -568,20 +568,35 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                   childAspectRatio: 1.65,
                   crossAxisSpacing: 10,
                   mainAxisSpacing: 10,
-                  children: values.entries.map((entry) => Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Text(_count(entry.value).toString(), style: Theme.of(context).textTheme.headlineMedium),
-                        const SizedBox(height: 4),
-                        Text(entry.key),
-                      ]),
-                    ),
+                  children: values.entries.map((entry) => _OwnerMetricCard(
+                    label: entry.key,
+                    value: _count(entry.value).toString(),
+                    icon: _businessMetricIcon(entry.key),
                   )).toList(),
                 );
               }),
+              const _OwnerSectionHeading('Operational focus', subtitle: 'Items that may need your attention.'),
               if ((_metrics['briefing'] ?? '').toString().trim().isNotEmpty)
-                Card(child: ListTile(leading: const Icon(Icons.insights_outlined), title: const Text('Business briefing'), subtitle: Text(_metrics['briefing'].toString()))),
+                Card(child: ListTile(leading: const Icon(Icons.auto_awesome_outlined), title: const Text('Owner briefing'), subtitle: Text(_metrics['briefing'].toString()))),
+              if ((_metrics['lowStockItems'] as List? ?? const []).isNotEmpty)
+                Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [const Icon(Icons.inventory_2_outlined), const SizedBox(width: 8), Expanded(child: Text('Low-stock watchlist', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700))), Text('${(_metrics['lowStockItems'] as List).length}', style: Theme.of(context).textTheme.titleMedium)]),
+                  const SizedBox(height: 8),
+                  ...(_metrics['lowStockItems'] as List).whereType<Map>().take(5).map((item) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.warning_amber_rounded),
+                    title: Text((item['name'] ?? 'Unnamed item').toString()),
+                    subtitle: Text('Stock: ${item['stock'] ?? '—'} · Reorder level: ${item['lowStockAt'] ?? '—'}'),
+                  )),
+                ]))),
+              if ((_metrics['lowStockItems'] as List? ?? const []).isEmpty)
+                const Card(child: ListTile(leading: Icon(Icons.check_circle_outline), title: Text('No low-stock alerts'), subtitle: Text('No catalogue items are currently below their configured reorder level.'))),
+              const _OwnerSectionHeading('Manage your business', subtitle: 'Open the workspace to complete these day-to-day tasks.'),
+              _OwnerActionTile(icon: Icons.point_of_sale_outlined, title: 'Sales & documents', subtitle: 'Create and review invoices, orders and sales records', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.people_alt_outlined, title: 'Customers', subtitle: 'Manage customer profiles and relationships', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.inventory_2_outlined, title: 'Products & stock', subtitle: 'Update your catalogue and stock levels', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.task_alt_outlined, title: 'Tasks & support cases', subtitle: 'Follow up on outstanding work and customer issues', onTap: widget.onManage),
               const Card(child: ListTile(leading: Icon(Icons.verified_user_outlined), title: Text('Workspace privacy'), subtitle: Text('Only organizations whose owner ID matches the authenticated account are shown here. API membership and organization checks remain authoritative.'))),
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Manage business workspace')),
               ],
