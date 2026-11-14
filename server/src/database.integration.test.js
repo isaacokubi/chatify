@@ -74,6 +74,7 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   const secondGuardianId = new O();
   const schoolAdminId = new O();
   const platformAdminId = new O();
+  const logoutUserId = new O();
   const schoolId = new O();
   const studentId = new O();
   const structureId = new O();
@@ -84,12 +85,14 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     {_id: secondGuardianId, name: 'Synthetic Second Guardian', email: 'guardian2@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
     {_id: schoolAdminId, name: 'Synthetic School Admin', email: 'admin@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
     {_id: platformAdminId, name: 'Synthetic Platform Admin', email: 'platform-admin@example.test', passwordHash: 'unused', status: 'active', role: 'admin', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
+    {_id: logoutUserId, name: 'Synthetic Logout User', email: 'logout@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
   ]);
   const parentAuth = 'Bearer ' + jwt.sign({sub: String(parentId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const otherAuth = 'Bearer ' + jwt.sign({sub: String(otherUserId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const secondGuardianAuth = 'Bearer ' + jwt.sign({sub: String(secondGuardianId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const schoolAdminAuth = 'Bearer ' + jwt.sign({sub: String(schoolAdminId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const platformAdminAuth = 'Bearer ' + jwt.sign({sub: String(platformAdminId), sv: 0}, jwtSecret, {expiresIn: '1h'});
+  const logoutAuth = 'Bearer ' + jwt.sign({sub: String(logoutUserId), sv: 0}, jwtSecret, {expiresIn: '1h'});
 
   const base = `http://127.0.0.1:${server.address().port}`;
   const postJson = (path, body, token) => fetch(base + path, {
@@ -99,6 +102,11 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   const getJson = (path, token) => fetch(base + path, {
     headers: {authorization: token}, signal: AbortSignal.timeout(30000),
   });
+
+  const logoutResponse = await postJson('/api/auth/logout', {}, logoutAuth);
+  assert.equal(logoutResponse.status, 200, 'authenticated user can revoke the current bearer session');
+  assert.equal((await getJson('/api/auth/me', logoutAuth)).status, 401,
+    'a logged-out bearer token cannot access protected API routes');
 
   // Exercise the real first-business approval and first-school verification paths.
   const businessCreate = await postJson('/api/business/organizations', {
