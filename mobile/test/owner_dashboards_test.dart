@@ -471,9 +471,9 @@ void main() {
     ));
     await tester.pumpAndSettle();
     await scrollBusinessDashboardToBottom(tester);
-    expect(find.text('Pay setup · KSh 1,000'), findsOneWidget);
+    expect(find.text('Pay setup · KSh 1000'), findsOneWidget);
 
-    await tester.tap(find.text('Pay setup · KSh 1,000'));
+    await tester.tap(find.text('Pay setup · KSh 1000'));
     await tester.pump();
     expect(find.byType(TextField), findsNothing,
         reason: 'An existing STK request must resume without asking for another phone number.');
