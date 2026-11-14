@@ -74,6 +74,7 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   const secondGuardianId = new O();
   const schoolAdminId = new O();
   const platformAdminId = new O();
+  const logoutUserId = new O();
   const schoolId = new O();
   const studentId = new O();
   const structureId = new O();
@@ -84,12 +85,14 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     {_id: secondGuardianId, name: 'Synthetic Second Guardian', email: 'guardian2@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
     {_id: schoolAdminId, name: 'Synthetic School Admin', email: 'admin@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
     {_id: platformAdminId, name: 'Synthetic Platform Admin', email: 'platform-admin@example.test', passwordHash: 'unused', status: 'active', role: 'admin', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
+    {_id: logoutUserId, name: 'Synthetic Logout User', email: 'logout@example.test', passwordHash: 'unused', status: 'active', role: 'user', sessionVersion: 0, blockedUsers: [], pushTokens: [], privacy: {}},
   ]);
   const parentAuth = 'Bearer ' + jwt.sign({sub: String(parentId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const otherAuth = 'Bearer ' + jwt.sign({sub: String(otherUserId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const secondGuardianAuth = 'Bearer ' + jwt.sign({sub: String(secondGuardianId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const schoolAdminAuth = 'Bearer ' + jwt.sign({sub: String(schoolAdminId), sv: 0}, jwtSecret, {expiresIn: '1h'});
   const platformAdminAuth = 'Bearer ' + jwt.sign({sub: String(platformAdminId), sv: 0}, jwtSecret, {expiresIn: '1h'});
+  const logoutAuth = 'Bearer ' + jwt.sign({sub: String(logoutUserId), sv: 0}, jwtSecret, {expiresIn: '1h'});
 
   const base = `http://127.0.0.1:${server.address().port}`;
   const postJson = (path, body, token) => fetch(base + path, {
@@ -99,6 +102,11 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   const getJson = (path, token) => fetch(base + path, {
     headers: {authorization: token}, signal: AbortSignal.timeout(30000),
   });
+
+  const logoutResponse = await postJson('/api/auth/logout', {}, logoutAuth);
+  assert.equal(logoutResponse.status, 200, 'authenticated user can revoke the current bearer session');
+  assert.equal((await getJson('/api/auth/me', logoutAuth)).status, 401,
+    'a logged-out bearer token cannot access protected API routes');
 
   // Exercise the real first-business approval and first-school verification paths.
   const businessCreate = await postJson('/api/business/organizations', {
@@ -135,6 +143,40 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
   assert.equal(businessManager.status, 201, 'business owner can add an existing account as manager');
   assert.equal((await getJson('/api/business/organizations/' + firstBusinessId, otherAuth)).status, 200,
     'business manager can read the authorized workspace');
+
+  // Exercise real tenant isolation across two business organizations and role permissions.
+  const secondBusiness = await mongoose.models.BusinessOrganization.create({
+    name: 'Second Private Business', slug: 'second-private-business', ownerId: secondGuardianId,
+    approvalStatus: 'APPROVED', billing: {billingEnforced: false}, members: [],
+  });
+  await mongoose.models.BusinessCustomer.create([
+    {organizationId: firstBusinessId, name: 'First Tenant Customer'},
+    {organizationId: secondBusiness._id, name: 'Second Tenant Customer'},
+  ]);
+  assert.equal((await getJson('/api/business/organizations/' + secondBusiness._id, parentAuth)).status, 404,
+    'first business owner cannot read a different tenant');
+  assert.equal((await getJson('/api/business/organizations/' + secondBusiness._id, otherAuth)).status, 404,
+    'manager cannot read a different tenant');
+  assert.equal((await getJson('/api/business/organizations/' + firstBusinessId, secondGuardianAuth)).status, 404,
+    'second business owner cannot read the first tenant');
+  const firstTenantCustomers = await (await getJson(
+    '/api/business/organizations/' + firstBusinessId + '/customers', otherAuth,
+  )).json();
+  assert.deepEqual(firstTenantCustomers.customers.map(item => item.name), ['First Tenant Customer'],
+    'business manager sees only customers in the authorized tenant');
+  const secondTenantCustomers = await (await getJson(
+    '/api/business/organizations/' + secondBusiness._id + '/customers', secondGuardianAuth,
+  )).json();
+  assert.deepEqual(secondTenantCustomers.customers.map(item => item.name), ['Second Tenant Customer'],
+    'second business owner sees only their tenant customers');
+  const downgradeManager = await mongoose.models.BusinessOrganization.updateOne(
+    {_id: firstBusinessId, 'members.userId': otherUserId},
+    {$set: {'members.$.role': 'viewer'}},
+  );
+  assert.equal(downgradeManager.modifiedCount, 1, 'test fixture changes the existing manager seat to viewer');
+  assert.equal((await postJson('/api/business/organizations/' + firstBusinessId + '/customers',
+    {name: 'Viewer must not create'}, otherAuth)).status, 403,
+    'viewer cannot create business customer records');
 
   const schoolRequestResponse = await postJson('/api/schools/verification-requests', {
     schoolName: 'First Acceptance School', proposedCode: 'FIRST-SCH-01',
@@ -183,6 +225,24 @@ test('isolated MongoDB API acceptance: payment callbacks, fee receipt/balance an
     email: 'parent@example.test', role: 'parent', studentNames: ['Synthetic Student'],
   }, schoolAdminAuth);
   assert.equal(addSchoolParent.status, 200, 'school admin can add an existing parent account');
+
+  // A staff member of one school must not be able to enumerate another school's learners.
+  const secondSchool = await mongoose.models.SchoolWorkspace.create({
+    name: 'Second Private School', code: 'SECOND-PRIVATE', createdBy: secondGuardianId,
+    billing: {billingEnforced: false},
+  });
+  await mongoose.models.SchoolMembership.create({
+    schoolId: secondSchool._id, userId: secondGuardianId, role: 'admin', active: true,
+  });
+  await mongoose.models.SchoolStudent.create({
+    schoolId: secondSchool._id, admissionNumber: 'SECOND-001',
+    fullName: 'Private Second School Learner', className: 'Grade 1',
+  });
+  assert.equal((await getJson('/api/schools/' + secondSchool._id + '/students', otherAuth)).status, 403,
+    'staff member of the first school cannot access a second school');
+  assert.equal((await getJson('/api/schools/' + firstSchoolId + '/students', secondGuardianAuth)).status, 403,
+    'administrator of the second school cannot access the first school');
+
   const firstStudent = await postJson('/api/schools/' + firstSchoolId + '/students', {
     admissionNumber: 'FIRST-001', fullName: 'Synthetic Student', className: 'Grade 1',
     guardianName: 'Synthetic Parent', guardianPhone: '+254700000112',

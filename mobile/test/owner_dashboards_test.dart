@@ -319,6 +319,8 @@ void main() {
   testWidgets('approved business owner can complete a zero-priced setup checkout',
       (tester) async {
     var setupPaid = false;
+    var checkoutCalls = 0;
+    var paymentInitiationCalls = 0;
     Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/business/organizations') {
         return {'organizations': [
@@ -326,9 +328,11 @@ void main() {
         ]};
       }
       if (method == 'POST' && path.endsWith('/checkout')) {
+        checkoutCalls++;
         setupPaid = true;
         return {'paid': true, 'notice': 'No setup fee is due under current pricing.'};
       }
+      if (method == 'POST' && path.contains('/initiate')) paymentInitiationCalls++;
       if (path.contains('/workspace-billing/business/')) {
         return {'billing': {
           'locked': !setupPaid,
@@ -350,17 +354,11 @@ void main() {
     expect(find.text('Pay setup · KSh 0'), findsOneWidget);
     await tester.tap(find.text('Pay setup · KSh 0'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '0712345678');
-    await tester.tap(find.text('Continue to M-Pesa'));
-    // The dialog closes synchronously, while the dashboard's async checkout
-    // handler continues after showDialog completes. Pump once more so the
-    // confirmed zero-fee checkout and the subsequent dashboard refresh finish.
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pumpAndSettle();
-    expect(setupPaid, isTrue, reason: 'The zero-priced checkout must complete before asserting the unlocked dashboard.');
-    // Flush any remaining async continuation from the billing refresh. The
-    // mock API completes immediately, but Flutter schedules the resulting
-    // setState after the checkout callback resumes from its awaited dialog.
+    expect(setupPaid, isTrue, reason: 'The zero-priced checkout must complete without requesting a phone number.');
+    expect(checkoutCalls, 1);
+    expect(paymentInitiationCalls, 0);
+    expect(find.byType(TextField), findsNothing);
+    // Flush any remaining async continuation from the billing refresh.
     for (var attempt = 0;
         attempt < 10 && find.text('Business overview').evaluate().isEmpty;
         attempt++) {
@@ -387,6 +385,8 @@ void main() {
   testWidgets('approved school owner can complete a zero-priced setup checkout',
       (tester) async {
     var setupPaid = false;
+    var checkoutCalls = 0;
+    var paymentInitiationCalls = 0;
     Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/schools') {
         return {'schools': [
@@ -394,9 +394,11 @@ void main() {
         ]};
       }
       if (method == 'POST' && path.endsWith('/checkout')) {
+        checkoutCalls++;
         setupPaid = true;
         return {'paid': true, 'notice': 'No school setup fee is due under current pricing.'};
       }
+      if (method == 'POST' && path.contains('/initiate')) paymentInitiationCalls++;
       if (path.contains('/workspace-billing/school/')) {
         return {'billing': {
           'locked': !setupPaid,
@@ -417,12 +419,69 @@ void main() {
     expect(find.text('Pay setup · KSh 0'), findsOneWidget);
     await tester.tap(find.text('Pay setup · KSh 0'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '0712345678');
-    await tester.tap(find.text('Continue to M-Pesa'));
-    await tester.pumpAndSettle();
+    expect(setupPaid, isTrue, reason: 'The zero-priced checkout must complete without requesting a phone number.');
+    expect(checkoutCalls, 1);
+    expect(paymentInitiationCalls, 0);
+    expect(find.byType(TextField), findsNothing);
 
     expect(find.text('School overview'), findsOneWidget);
     expect(find.text('Students'), findsOneWidget);
     expect(find.text('School workspace billing'), findsOneWidget);
+  });
+
+  testWidgets('resumes an initiated workspace payment without another STK prompt',
+      (tester) async {
+    var setupPaid = false;
+    var paymentInitiationCalls = 0;
+    var paymentStatusCalls = 0;
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
+      if (path == '/api/business/organizations') {
+        return {'organizations': [
+          {'_id': 'business-pending', 'ownerId': 'owner-1', 'name': 'Pending Setup Business', 'approvalStatus': 'APPROVED', 'branches': []}
+        ]};
+      }
+      if (method == 'POST' && path.endsWith('/checkout')) {
+        return {'paid': false, 'payment': {
+          'paymentId': 'existing-payment', 'initiatedAt': '2026-11-14T09:00:00.000Z'
+        }};
+      }
+      if (method == 'POST' && path.contains('/initiate')) {
+        paymentInitiationCalls++;
+        return {};
+      }
+      if (method == 'GET' && path == '/api/payments/existing-payment') {
+        paymentStatusCalls++;
+        setupPaid = true;
+        return {'payment': {'status': 'SUCCESS'}};
+      }
+      if (path.contains('/workspace-billing/business/')) {
+        return {'billing': {
+          'locked': !setupPaid,
+          'status': setupPaid ? 'ACTIVE' : 'SETUP_PAYMENT_REQUIRED',
+          'setupFeePaid': setupPaid,
+          'prices': {'setupFee': 1000, 'monthlyFee': 500}
+        }};
+      }
+      if (path.endsWith('/dashboard')) return {'metrics': {'customers': 5}};
+      return {};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: BusinessOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {}),
+    ));
+    await tester.pumpAndSettle();
+    await scrollBusinessDashboardToBottom(tester);
+    expect(find.text('Pay setup · KSh 1000'), findsOneWidget);
+
+    await tester.tap(find.text('Pay setup · KSh 1000'));
+    await tester.pump();
+    expect(find.byType(TextField), findsNothing,
+        reason: 'An existing STK request must resume without asking for another phone number.');
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(paymentInitiationCalls, 0);
+    expect(paymentStatusCalls, 1);
+    expect(setupPaid, isTrue);
   });
 }

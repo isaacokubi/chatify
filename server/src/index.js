@@ -13,7 +13,7 @@ import {canViewSpark,markSparkViewed,sparkAudienceOwnerIds} from './sparks.js';
 import {resolveMpesaProvider,normalizeMpesaPhone,validPaymentAmount,newPaymentId,PAYMENT_STATUSES,buildDarajaPaymentTransition,resolveCallbackOutcome,callbackMatchesDarajaStatus,calculatePaymentTotal,buildPaymentRetryFields,canAccessPayment,canRetryPayment,canCancelPayment,isValidDarajaCallbackToken,reconciliationRetryAt,classifyStkInitiationFailure} from './payments.js';
 import {createAuthMiddleware,createAdminMiddleware} from './auth.js';
 import {isValidEncryptedPayload} from './e2ee.js';
-import {randomBytes} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
 import http from 'node:http'; import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import mongoose from 'mongoose'; import {Server} from 'socket.io'; import {createEmailProvider,createStorageProvider,createNotificationProvider,isSupportedImageData,isAllowedMessageMediaUrl} from './providers.js'; import {resolveClientOrigins,corsOriginCallback,resolveNodeEnv,requireProductionMongoUri} from './config.js'; import {createResetToken,hashResetToken,resetExpiry,messageExpiry,expiresWhenRepliedTo,validPassword,normalizeLoginCredentials,createShutdownHandler} from './lifecycle.js';
 import {registerBusinessRoutes} from './business.js';
 import {registerAdminBackupRoutes} from './admin-backups.js';
@@ -132,9 +132,15 @@ const PlatformFeeLedger=mongoose.models.PlatformFeeLedger||mongoose.model('Platf
 async function recordPlatformFee(payment,source='personal_request',providerReceipt=null){if(!payment||!payment.platformFee||payment.platformFeeStatus==='NOT_APPLICABLE')return;await Payment.updateOne({paymentId:payment.paymentId,status:'SUCCESS'},{$set:{platformFeeStatus:'PENDING_SETTLEMENT'}});await PlatformFeeLedger.updateOne({paymentId:payment.paymentId},{$setOnInsert:{paymentId:payment.paymentId,source,businessOrganizationId:payment.businessOrganizationId||undefined,baseAmount:payment.baseAmount??payment.amount,feeAmount:payment.platformFee,totalAmount:payment.totalAmount??payment.amount,currency:'KES',status:'PENDING_SETTLEMENT',providerReceipt,confirmedAt:payment.completedAt||new Date()}},{upsert:true});}
 const safe=u=>({id:String(u._id),name:u.name,email:u.email,emailVerified:u.emailVerified!==false,phone:u.phone,encryptionPublicKey:u.encryptionPublicKey,profileImage:u.profileImage,status:u.status,role:u.role||'user',lastSeen:u.lastSeen,privacy:u.privacy,notificationPreferences:u.notificationPreferences});
 const visibleUser=u=>{const value=u.toObject?u.toObject():{...u};if(value.privacy?.lastSeen===false)delete value.lastSeen;return value;};
-const sign=u=>jwt.sign({sub:String(u._id),sv:Number(u.sessionVersion||0)},env.jwt,{expiresIn:env.jwtExpiresIn});
+const RevokedSession=mongoose.models.RevokedSession||mongoose.model('RevokedSession',new mongoose.Schema({
+  tokenHash:{type:String,required:true,unique:true},
+  expiresAt:{type:Date,required:true},
+},{timestamps:true}));
+RevokedSession.schema.index({expiresAt:1},{expireAfterSeconds:0,name:'revoked_session_expiry_v1'});
+const hashSessionToken=token=>createHash('sha256').update(String(token)).digest('hex');
+const sign=u=>jwt.sign({sub:String(u._id),sv:Number(u.sessionVersion||0),jti:randomBytes(16).toString('hex')},env.jwt,{expiresIn:env.jwtExpiresIn});
 // Authentication middleware verifies a bearer token and loads its user before protected handlers run.
-const auth=createAuthMiddleware({verifyToken:token=>jwt.verify(token,env.jwt),findUser:id=>User.findById(id)});
+const auth=createAuthMiddleware({verifyToken:token=>jwt.verify(token,env.jwt),findUser:id=>User.findById(id),isRevoked:token=>RevokedSession.exists({tokenHash:hashSessionToken(token)})});
 app.get('/api/calls/ice-servers',auth,(q,r)=>{
   const result=buildCallIceServers({userId:String(q.user._id),turnUrls:process.env.CHATIFY_TURN_URLS||'',sharedSecret:process.env.CHATIFY_TURN_SHARED_SECRET||'',ttlSeconds:Number.parseInt(process.env.CHATIFY_TURN_CREDENTIAL_TTL_SECONDS||'3600',10)});
   r.set('Cache-Control','no-store');
@@ -166,7 +172,16 @@ registerBusinessPublicApiRoutes({app,auth,mongoose});
 registerPublicStatusRoute({app,mongoose});
 registerSchoolRoutes({app,auth,mongoose,User,emailProvider,platformFeeCollector});
 registerWorkspaceBillingRoutes({app,auth,mongoose,Payment,mpesaProvider});
-io.use(async(s,n)=>{try{s.user=jwt.verify(s.handshake.auth?.token,env.jwt);const account=await User.findOne({_id:s.user.sub,status:'active'}).select('sessionVersion').lean();if(!account||Number(s.user.sv??0)!==Number(account.sessionVersion??0))throw new Error('Inactive or revoked session');n();}catch{n(new Error('Unauthorized'));}});
+io.use(async(s,n)=>{try{
+ const token=s.handshake.auth?.token;
+ s.user=jwt.verify(token,env.jwt);
+ const tokenHash=hashSessionToken(token);
+ if(await RevokedSession.exists({tokenHash}))throw new Error('Revoked session');
+ const account=await User.findOne({_id:s.user.sub,status:'active'}).select('sessionVersion').lean();
+ if(!account||Number(s.user.sv??0)!==Number(account.sessionVersion??0))throw new Error('Inactive or revoked session');
+ s.data.sessionTokenHash=tokenHash;
+ n();
+}catch{n(new Error('Unauthorized'));}});
 const callSignaling=createCallSignaling({io,Conversation,User,isValidObjectId:mongoose.isValidObjectId});
 const presenceTracker=createPresenceTracker();
 const leaveUserConversation=(userId,conversationId)=>io.in('user:'+String(userId)).socketsLeave(String(conversationId));
@@ -457,6 +472,15 @@ app.post('/api/auth/forgot-password',recoveryRateLimit,async(q,r)=>{
   r.json({message:'If the account exists and email delivery succeeds, reset instructions will be sent.'});
 });
 app.post('/api/auth/reset-password',recoveryRateLimit,async(q,r)=>{const {token,newPassword}=q.body||{};if(!validPassword(newPassword))return r.status(400).json({error:'New password must be 8–72 UTF-8 bytes'});if(typeof token!=='string'||token.length>200)return r.status(400).json({error:'A valid reset token is required'});const reset=await PasswordReset.findOneAndDelete({tokenHash:hashResetToken(token),expiresAt:{$gt:new Date()}});if(!reset)return r.status(400).json({error:'Reset token is invalid or expired'});await User.findByIdAndUpdate(reset.userId,{$set:{passwordHash:await bcrypt.hash(newPassword,12)},$inc:{sessionVersion:1}});await PasswordReset.deleteMany({userId:reset.userId});revokeUserSockets(reset.userId);r.json({ok:true});});
+app.post('/api/auth/logout',auth,async(q,r)=>{
+  const expirySeconds=Number(q.authPayload?.exp);
+  if(!Number.isFinite(expirySeconds)||expirySeconds<=Date.now()/1000)return r.status(401).json({error:'Authentication required'});
+  const tokenHash=hashSessionToken(q.authToken);
+  const expiresAt=new Date(expirySeconds*1000);
+  await RevokedSession.updateOne({tokenHash},{$setOnInsert:{tokenHash,expiresAt}},{upsert:true});
+  for(const socket of io.sockets.sockets.values())if(socket.data.sessionTokenHash===tokenHash)socket.disconnect(true);
+  r.json({ok:true});
+});
 app.post('/api/auth/change-password',auth,async(q,r)=>{const {currentPassword,newPassword}=q.body||{};if(!validPassword(newPassword))return r.status(400).json({error:'New password must be 8–72 UTF-8 bytes'});if(!(await bcrypt.compare(currentPassword||'',q.user.passwordHash)))return r.status(401).json({error:'Current password is incorrect'});q.user.passwordHash=await bcrypt.hash(newPassword,12);q.user.sessionVersion=(q.user.sessionVersion||0)+1;await q.user.save();revokeUserSockets(q.user._id);r.json({ok:true,token:sign(q.user)});});
 app.post('/api/users/:id/block',auth,async(q,r)=>{if(String(q.params.id)===String(q.user._id))return r.status(400).json({error:'Cannot block yourself'});const u=await User.findById(q.params.id);if(!u)return r.status(404).json({error:'User not found'});q.user.blockedUsers.addToSet(u._id);await q.user.save();r.json({ok:true});});
 app.delete('/api/users/:id/block',auth,async(q,r)=>{q.user.blockedUsers.pull(q.params.id);await q.user.save();r.json({ok:true});});
@@ -974,16 +998,23 @@ const reconciliationTimer=setInterval(async()=>{
   finally{reconciliationSweepRunning=false;}
 },process.env.NODE_ENV==='test'?1000:60000);
 reconciliationTimer.unref();
-if(env.mongo)await mongoose.connect(env.mongo,{
-  // Keep pool usage predictable as API replicas scale out. Budget total connections as
-  // (maxPoolSize × API replicas) plus workers and operational headroom against Atlas limits.
-  maxPoolSize:Number.parseInt(process.env.MONGO_MAX_POOL_SIZE||'30',10),
-  minPoolSize:Number.parseInt(process.env.MONGO_MIN_POOL_SIZE||'2',10),
-  maxIdleTimeMS:30000,
-  serverSelectionTimeoutMS:10000,
-  socketTimeoutMS:45000,
-  autoIndex:process.env.MONGO_AUTO_INDEX==='true'
-}); else console.warn('MONGODB_URI not set; configure Atlas before persistent use.');
+if(env.mongo){
+  await mongoose.connect(env.mongo,{
+    // Keep pool usage predictable as API replicas scale out. Budget total connections as
+    // (maxPoolSize × API replicas) plus workers and operational headroom against Atlas limits.
+    maxPoolSize:Number.parseInt(process.env.MONGO_MAX_POOL_SIZE||'30',10),
+    minPoolSize:Number.parseInt(process.env.MONGO_MIN_POOL_SIZE||'2',10),
+    maxIdleTimeMS:30000,
+    serverSelectionTimeoutMS:10000,
+    socketTimeoutMS:45000,
+    autoIndex:process.env.MONGO_AUTO_INDEX==='true'
+  });
+  // Session revocation must work even when automatic Mongoose index creation is disabled.
+  await Promise.all([
+    RevokedSession.collection.createIndex({tokenHash:1},{unique:true,name:'tokenHash_1'}),
+    RevokedSession.collection.createIndex({expiresAt:1},{expireAfterSeconds:0,name:'revoked_session_expiry_v1'}),
+  ]);
+}else console.warn('MONGODB_URI not set; configure Atlas before persistent use.');
 server.listen(env.port,()=>console.log('Chatify API listening on '+server.address().port));
 // GRACEFUL SHUTDOWN: stop timers and close network/database resources as the process exits.
 const shutdown=createShutdownHandler({

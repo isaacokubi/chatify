@@ -191,29 +191,6 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
   Future<void> _payWorkspaceBilling(String billingType) async {
     final school = _school;
     if (school == null || _billingBusy || _loading) return;
-    var enteredPhone = '';
-    final phone = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('School workspace payment'),
-        content: TextField(
-          keyboardType: TextInputType.phone,
-          onChanged: (value) => enteredPhone = value,
-          decoration: const InputDecoration(
-            labelText: 'M-Pesa phone number',
-            hintText: '07XXXXXXXX or 2547XXXXXXXX',
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, enteredPhone.trim()),
-            child: const Text('Continue to M-Pesa'),
-          ),
-        ],
-      ),
-    );
-    if (phone == null || phone.isEmpty || !mounted) return;
     setState(() => _billingBusy = true);
     try {
       final id = Uri.encodeComponent(school['id'].toString());
@@ -235,15 +212,42 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
         throw Exception('The school billing checkout did not return a payment reference.');
       }
       if (payment['initiatedAt'] == null) {
+        var enteredPhone = '';
+        final phone = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('School workspace payment'),
+            content: TextField(
+              keyboardType: TextInputType.phone,
+              onChanged: (value) => enteredPhone = value,
+              decoration: const InputDecoration(
+                labelText: 'M-Pesa phone number',
+                hintText: '07XXXXXXXX or 2547XXXXXXXX',
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, enteredPhone.trim()),
+                child: const Text('Continue to M-Pesa'),
+              ),
+            ],
+          ),
+        );
+        if (phone == null || phone.isEmpty || !mounted) return;
         await widget.apiCall(
           'POST',
           '/api/payments/${Uri.encodeComponent(paymentId)}/initiate',
           {'phone': phone},
         );
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('M-Pesa prompt sent. Approve it on your phone.'),
+        ));
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Checking your pending payment.'),
+        ));
       }
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('M-Pesa prompt sent. Approve it on your phone.'),
-      ));
       for (var attempt = 0; attempt < 20 && mounted; attempt++) {
         await Future.delayed(const Duration(seconds: 3));
         final statusResult = await widget.apiCall(
@@ -468,29 +472,6 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
       ));
       return;
     }
-    var enteredPhone = '';
-    final phone = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Business workspace payment'),
-        content: TextField(
-          keyboardType: TextInputType.phone,
-          onChanged: (value) => enteredPhone = value,
-          decoration: const InputDecoration(
-            labelText: 'M-Pesa phone number',
-            hintText: '07XXXXXXXX or 2547XXXXXXXX',
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, enteredPhone.trim()),
-            child: const Text('Continue to M-Pesa'),
-          ),
-        ],
-      ),
-    );
-    if (phone == null || phone.isEmpty || !mounted) return;
     setState(() => _billingBusy = true);
     try {
       final id = Uri.encodeComponent(_idOf(organization['_id']));
@@ -512,15 +493,42 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
         throw Exception('The billing checkout did not return a payment reference.');
       }
       if (payment['initiatedAt'] == null) {
+        var enteredPhone = '';
+        final phone = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Business workspace payment'),
+            content: TextField(
+              keyboardType: TextInputType.phone,
+              onChanged: (value) => enteredPhone = value,
+              decoration: const InputDecoration(
+                labelText: 'M-Pesa phone number',
+                hintText: '07XXXXXXXX or 2547XXXXXXXX',
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, enteredPhone.trim()),
+                child: const Text('Continue to M-Pesa'),
+              ),
+            ],
+          ),
+        );
+        if (phone == null || phone.isEmpty || !mounted) return;
         await widget.apiCall(
           'POST',
           '/api/payments/${Uri.encodeComponent(paymentId)}/initiate',
           {'phone': phone},
         );
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('M-Pesa prompt sent. Approve it on your phone.'),
+        ));
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Checking your pending payment.'),
+        ));
       }
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('M-Pesa prompt sent. Approve it on your phone.'),
-      ));
       for (var attempt = 0; attempt < 20 && mounted; attempt++) {
         await Future.delayed(const Duration(seconds: 3));
         final statusResult = await widget.apiCall(
