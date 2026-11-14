@@ -294,7 +294,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
             if (_loading) const LinearProgressIndicator(),
             if (_error != null) Card(child: ListTile(leading: const Icon(Icons.error_outline), title: const Text('Could not load school overview'), subtitle: Text(_error!))),
             if (!_loading && school == null) ...[
-              const Card(child: ListTile(leading: Icon(Icons.school_outlined), title: Text('No school owned by this account'), subtitle: Text('No school is linked to this account.'))),
+              const Card(child: ListTile(leading: Icon(Icons.school_outlined), title: Text('No school linked'))),
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.open_in_new), label: const Text('Open school workspace')),
             ],
             if (school != null) ...[
@@ -456,7 +456,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
         _loading = false;
       });
     } catch (error) {
-      if (mounted) setState(() { _error = error.toString(); _loading = false; });
+      if (mounted) setState(() { _error = _ownerFriendlyError(error); _loading = false; });
     }
   }
 
@@ -547,7 +547,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
       ));
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString())),
+        SnackBar(content: Text(_ownerFriendlyError(error))),
       );
     } finally {
       if (mounted) setState(() => _billingBusy = false);
@@ -580,7 +580,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
             if (_loading) const LinearProgressIndicator(),
             if (_error != null) Card(child: ListTile(leading: const Icon(Icons.error_outline), title: const Text('Could not load business overview'), subtitle: Text(_error!))),
             if (!_loading && organization == null) ...[
-              const Card(child: ListTile(leading: Icon(Icons.business_outlined), title: Text('No business owned by this account'), subtitle: Text('No business is linked to this account.'))),
+              const Card(child: ListTile(leading: Icon(Icons.business_outlined), title: Text('No business linked'))),
               FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.open_in_new), label: const Text('Open business workspace')),
             ],
             if (organization != null) ...[
