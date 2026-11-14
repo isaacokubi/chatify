@@ -288,7 +288,7 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
               _OwnerActionTile(icon: Icons.badge_outlined, title: 'Staff & school members', subtitle: 'Manage the people connected to your school', onTap: widget.onManage),
               const _OwnerSectionHeading('Account & data protection'),
               const Card(child: ListTile(leading: Icon(Icons.verified_user_outlined), title: Text('School data protection'), subtitle: Text('Student and school records are loaded through authenticated school APIs. Server membership and linked-student checks remain authoritative.'))),
-              FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Open full school workspace')),
+              FilledButton.icon(onPressed: widget.onManage, icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Manage school workspace')),
               ],
             ],
           ],
