@@ -46,7 +46,7 @@ Current Render service observed:
 
 The live Render deployment therefore predates the merged mobile UX change and the PR #101 work. Merge and verify the new main-branch deploy before testing the final client build. Do not manually deploy a stale SHA.
 
-The service currently has no configured HTTP health-check path. The API exposes `/health` and `/ready`; configure Render's HTTP health check to use `/health`, then verify the endpoint returns 200 with the database connected. The current Render service integration available to this audit did not expose environment-variable values, so `NODE_ENV`, JWT secrets, database credentials, Daraja mode/tokens and other production settings were not verified or changed.
+The service currently has no configured HTTP health-check path. The API exposes `/api/health`; configure Render's HTTP health check to use `/api/health`, then verify the endpoint returns 200 with the database connected. The current Render service integration available to this audit did not expose environment-variable values, so `NODE_ENV`, JWT secrets, database credentials, Daraja mode/tokens and other production settings were not verified or changed.
 
 The last observed Render application error-log query returned no error-level entries in its queried seven-day window. HTTP request and latency metrics were empty, so this is not proof of healthy user traffic. The service is on the free single-instance plan. A production capacity/availability decision is required before onboarding paying tenants.
 
