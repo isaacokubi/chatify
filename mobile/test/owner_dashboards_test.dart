@@ -47,6 +47,36 @@ void main() {
     expect(find.text('Fees & balances'), findsOneWidget);
   });
 
+
+  testWidgets('school owner has a direct pupil receipts workspace action',
+      (tester) async {
+    var receiptsOpened = false;
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
+      if (path == '/api/schools') {
+        return {'schools': [
+          {'id': 'school-receipts', 'name': 'Receipt Test School', 'code': 'RTS', 'role': 'admin', 'isOwner': true}
+        ]};
+      }
+      if (path.contains('/workspace-billing/school/')) return {'billing': {'locked': false, 'status': 'ACTIVE'}};
+      if (path.contains('/students') || path.contains('/attendance') || path.contains('/members') || path.contains('/fee-balances')) return {'total': 1};
+      return {};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: SchoolOwnerDashboard(
+        apiCall: api,
+        currentUserId: 'owner-1',
+        onManage: () {},
+        onViewReceipts: () { receiptsOpened = true; },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Pupil fee receipts'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pupil fee receipts'));
+    expect(receiptsOpened, isTrue);
+  });
+
   testWidgets('school dashboard does not present staff workspace as owner data',
       (tester) async {
     Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async => {
