@@ -5640,7 +5640,8 @@ String? _conversationGroupImage(dynamic conversation) {
 
 /// School workspace UI for administrators, parents and staff.
 class SchoolWorkspacePage extends StatefulWidget {
-  const SchoolWorkspacePage({super.key});
+  const SchoolWorkspacePage({super.key, this.initialSection = 0});
+  final int initialSection;
   @override
   State<SchoolWorkspacePage> createState() => _SchoolWorkspacePageState();
 }
@@ -5755,6 +5756,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   @override
   void initState() {
     super.initState();
+    section = widget.initialSection.clamp(0, 10);
     payerPhone.text =
         (app.user?['mpesaPhone'] ?? app.user?['phone'] ?? '').toString();
     loadSchools();
@@ -10520,6 +10522,9 @@ class _HomeState extends State<Home> {
               currentUserId: (app.user?['id'] ?? app.user?['_id'] ?? '').toString(),
               onManage: () => Navigator.of(context).push(MaterialPageRoute<void>(
                 builder: (_) => const SchoolWorkspacePage(),
+              )),
+              onViewReceipts: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const SchoolWorkspacePage(initialSection: 8),
               )),
             ),
             if (isAdmin) const AdminDashboard()
