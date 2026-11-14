@@ -1326,6 +1326,43 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
   return Uint8List.fromList(utf8.encode(output.toString()));
 }
 
+String friendlyErrorMessage(Object error, {String fallback = 'Something went wrong. Please try again.'}) {
+  final raw = error is ApiException ? error.message : error.toString();
+  final message = raw.replaceFirst(RegExp(r'^(Exception|StateError):\\s*'), '').trim();
+  final lower = message.toLowerCase();
+  if (error is TimeoutException ||
+      lower.contains('socketexception') ||
+      lower.contains('clientexception') ||
+      lower.contains('failed host lookup') ||
+      lower.contains('connection refused') ||
+      lower.contains('network is unreachable') ||
+      lower.contains('no address associated') ||
+      lower.contains('connection reset') ||
+      lower.contains('handshakeexception') ||
+      lower.contains('network request failed') ||
+      lower.contains('xmlhttprequest error') ||
+      lower.contains('timed out')) {
+    return 'Connect to the internet or Wi-Fi to continue.';
+  }
+  if (error is ApiException) {
+    if (error.statusCode == 401) return 'Your session has expired. Please sign in again.';
+    if (error.statusCode == 403) return 'You don’t have permission to do that.';
+    if (error.statusCode == 404) return 'This information is not available.';
+    if (error.statusCode >= 500) return 'Service is temporarily unavailable. Please try again shortly.';
+  }
+  if (lower.contains('format exception') ||
+      lower.contains('json') ||
+      lower.contains('html page') ||
+      lower.contains('http ') ||
+      lower.contains('api returned') ||
+      lower.contains('exception') ||
+      lower.contains('stack trace')) {
+    return fallback;
+  }
+  if (message.isEmpty || message.length > 180) return fallback;
+  return message;
+}
+
 class ApiException implements Exception {
   final int statusCode;
   final String message;
@@ -1841,17 +1878,12 @@ class Api {
         if (looksLikeHtml) {
           throw ApiException(
             r.statusCode,
-            'Chatify API returned an HTML page instead of JSON for $path '
-            '(HTTP ${r.statusCode}). This usually means the backend deployment '
-            'is outdated or CHATIFY_API points to the wrong service. '
-            'Check the Render deployment for https://chatify-api-c1eh.onrender.com '
-            'and confirm it is running the latest main branch.',
+            'The service returned an unexpected response. Please try again shortly.',
           );
         }
         throw ApiException(
             r.statusCode,
-            'Chatify API returned an invalid JSON response for $path '
-            '(HTTP ${r.statusCode}).');
+            'The service returned an unexpected response. Please try again shortly.');
       }
     } else {
       decoded = <String, dynamic>{};
@@ -1861,7 +1893,7 @@ class Api {
           r.statusCode,
           decoded is Map && decoded['error'] != null
               ? decoded['error'].toString()
-              : 'Request failed (HTTP ${r.statusCode})');
+              : 'Your request could not be completed. Please try again.');
     }
     final result = decoded is Map
         ? Map<String, dynamic>.from(decoded)
@@ -2285,7 +2317,7 @@ class AppState extends ChangeNotifier {
             api.offlineDataMode = true;
             restoreError = null;
           } else {
-            restoreError = error.toString();
+            restoreError = friendlyErrorMessage(error);
           }
         }
       }
@@ -2305,7 +2337,7 @@ class AppState extends ChangeNotifier {
     try {
       await ensureEncryptionKey().timeout(const Duration(seconds: 12));
     } catch (error) {
-      encryptionError = error.toString();
+      encryptionError = friendlyErrorMessage(error);
       notifyListeners();
     }
     try {
@@ -2531,14 +2563,14 @@ class AppState extends ChangeNotifier {
       try {
         await ensureEncryptionKey();
       } catch (error) {
-        encryptionError = error.toString();
+        encryptionError = friendlyErrorMessage(error);
       }
       _connectPresence();
       await _initializePushNotifications();
       notifyListeners();
       return null;
     } catch (e) {
-      return e.toString().replaceFirst('Exception: ', '');
+      return friendlyErrorMessage(e, fallback: 'Sign in failed. Check your details and try again.');
     }
   }
 
@@ -3560,7 +3592,7 @@ class _AuthState extends State<Auth> {
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(e.toString())));
+                                SnackBar(content: Text(friendlyErrorMessage(e))));
                           }
                         }
                       },
@@ -3605,7 +3637,7 @@ class _AuthState extends State<Auth> {
                           } catch (error) {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(error.toString())));
+                                  SnackBar(content: Text(friendlyErrorMessage(error))));
                             }
                           }
                         },
@@ -3919,7 +3951,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (mounted)
         setState(() {
-          error = e.toString();
+          error = friendlyErrorMessage(e);
           loading = false;
         });
     }
@@ -3937,7 +3969,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (mounted)
         setState(() {
-          statusError = e.toString();
+          statusError = friendlyErrorMessage(e);
         });
     } finally {
       if (mounted) setState(() => statusLoading = false);
@@ -3965,7 +3997,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load users: ' + e.toString())));
+          SnackBar(content: Text(friendlyErrorMessage(e, fallback: 'Could not load users. Please try again.'))));
     } finally {
       if (mounted) setState(() => usersLoading = false);
     }
@@ -3985,7 +4017,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load payments: ' + e.toString())));
+          SnackBar(content: Text(friendlyErrorMessage(e, fallback: 'Could not load payments. Please try again.'))));
     } finally {
       if (mounted) setState(() => paymentsLoading = false);
     }
@@ -4095,7 +4127,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             List<dynamic>.from(businessesResult['businesses'] ?? []);
       });
     } catch (e) {
-      if (mounted) setState(() => approvalsError = e.toString());
+      if (mounted) setState(() => approvalsError = friendlyErrorMessage(e));
     } finally {
       if (mounted) setState(() => approvalsLoading = false);
     }
@@ -4308,7 +4340,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         setState(() => workspaceBillingRows =
             List<dynamic>.from(result['workspaces'] ?? []));
     } catch (e) {
-      if (mounted) setState(() => workspaceBillingRowsError = e.toString());
+      if (mounted) setState(() => workspaceBillingRowsError = friendlyErrorMessage(e));
     } finally {
       if (mounted) setState(() => workspaceBillingRowsLoading = false);
     }
@@ -4330,7 +4362,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         backupToolConfigured = result['backupToolConfigured'] == true;
       });
     } catch (e) {
-      if (mounted) setState(() => backupsError = e.toString());
+      if (mounted) setState(() => backupsError = friendlyErrorMessage(e));
     } finally {
       if (mounted) setState(() => backupsLoading = false);
     }
@@ -4368,7 +4400,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             .showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (e) {
-      if (mounted) setState(() => backupsError = e.toString());
+      if (mounted) setState(() => backupsError = friendlyErrorMessage(e));
     } finally {
       if (mounted) setState(() => backupActionRunning = false);
     }
@@ -4423,7 +4455,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         );
       }
     } catch (e) {
-      if (mounted) setState(() => backupsError = e.toString());
+      if (mounted) setState(() => backupsError = friendlyErrorMessage(e));
     } finally {
       if (mounted) setState(() => backupActionRunning = false);
     }
@@ -4886,7 +4918,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Account status was not changed: ' + e.toString())));
+          content: Text(friendlyErrorMessage(e, fallback: 'Account status was not changed. Please try again.'))));
     }
   }
 
@@ -5848,7 +5880,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         _selectSchool(Map<String, dynamic>.from(schools.first));
       if (mounted) setState(() {});
     } catch (e) {
-      error = e.toString();
+      error = friendlyErrorMessage(e);
     }
     if (mounted) setState(() => loading = false);
   }
@@ -5959,7 +5991,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         setState(() =>
             schoolBilling = Map<String, dynamic>.from(result['billing'] ?? {}));
     } catch (e) {
-      if (mounted && schoolId == id) setState(() => error = e.toString());
+      if (mounted && schoolId == id) setState(() => error = friendlyErrorMessage(e));
     } finally {
       if (mounted && schoolId == id)
         setState(() => schoolBillingLoading = false);
@@ -6048,7 +6080,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     } finally {
       if (mounted) setState(() => schoolBillingLoading = false);
     }
@@ -6140,7 +6172,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
                         setDialogState(() => busy = false);
                         if (dialogContext.mounted)
                           ScaffoldMessenger.of(dialogContext).showSnackBar(
-                              SnackBar(content: Text(error.toString())));
+                              SnackBar(content: Text(friendlyErrorMessage(error))));
                       }
                     },
               icon: busy
@@ -6312,7 +6344,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
         }
       }
     } catch (e) {
-      error = e.toString();
+      error = friendlyErrorMessage(e);
     }
     if (mounted) setState(() => loading = false);
   }
@@ -6591,7 +6623,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     }
   }
 
@@ -6931,7 +6963,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     }
   }
 
@@ -7051,7 +7083,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     }
   }
 
@@ -10131,7 +10163,7 @@ class _HomeState extends State<Home> {
       chatsError = null;
       offlineDataMode = app.api.offlineDataMode;
     } catch (error) {
-      chatsError = error.toString();
+      chatsError = friendlyErrorMessage(error);
       offlineDataMode = app.api.offlineDataMode;
     }
     if (mounted) setState(() => loading = false);
@@ -10159,7 +10191,7 @@ class _HomeState extends State<Home> {
       if (mounted && contactQuery == q) setState(() => users = found);
     } catch (error) {
       if (mounted && contactQuery == q) {
-        setState(() => usersError = error.toString());
+        setState(() => usersError = friendlyErrorMessage(error));
       }
     } finally {
       if (mounted && contactQuery == q) setState(() => usersLoading = false);
@@ -10187,7 +10219,7 @@ class _HomeState extends State<Home> {
       offlineDataMode = app.api.offlineDataMode;
       if (mounted) setState(() {});
     } catch (error) {
-      memoriesError = error.toString();
+      memoriesError = friendlyErrorMessage(error);
       if (mounted) setState(() {});
     } finally {
       if (mounted) setState(() => memoriesLoading = false);
@@ -10900,7 +10932,7 @@ class _HomeState extends State<Home> {
       if (mounted && phoneQuery.trim() == value) {
         setState(() => phoneResults = []);
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     } finally {
       if (mounted && phoneQuery.trim() == value) {
@@ -10921,7 +10953,7 @@ class _HomeState extends State<Home> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -10943,7 +10975,7 @@ class _HomeState extends State<Home> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.toString())),
+          SnackBar(content: Text(friendlyErrorMessage(error))),
         );
       }
     }
@@ -10962,7 +10994,7 @@ class _HomeState extends State<Home> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -10974,7 +11006,7 @@ class _HomeState extends State<Home> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -11261,7 +11293,7 @@ class _HomeState extends State<Home> {
                             } catch (error) {
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(error.toString())),
+                                  SnackBar(content: Text(friendlyErrorMessage(error))),
                                 );
                               }
                             }
@@ -11504,7 +11536,7 @@ class _HomeState extends State<Home> {
               } catch (error) {
                 if (mounted) {
                   ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text(error.toString())));
+                      .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
                 }
               }
             },
@@ -11602,7 +11634,7 @@ class _PaymentHistoryState extends State<PaymentHistory> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      if (mounted) setState(() => error = friendlyErrorMessage(e));
     }
     if (mounted) setState(() => loading = false);
   }
@@ -11655,7 +11687,7 @@ class _PaymentHistoryState extends State<PaymentHistory> {
                                   } catch (e) {
                                     if (mounted) {
                                       messenger.showSnackBar(SnackBar(
-                                          content: Text(e.toString())));
+                                          content: Text(friendlyErrorMessage(e))));
                                     }
                                   }
                                 });
@@ -11739,7 +11771,7 @@ class _PaymentHistoryState extends State<PaymentHistory> {
       }
     } catch (e) {
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+        messenger.showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     } finally {
       phone.dispose();
@@ -11757,7 +11789,7 @@ class _PaymentHistoryState extends State<PaymentHistory> {
       if (mounted) await payHistoryPayment(created);
     } catch (e) {
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+        messenger.showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -12324,7 +12356,7 @@ class _ChatState extends State<Chat> {
       }
     } catch (error) {
       if (messages.isEmpty) {
-        loadError = error.toString();
+        loadError = friendlyErrorMessage(error);
       } else {
         // Keep readable cached history visible if the refresh fails.
         loadError = null;
@@ -12920,7 +12952,7 @@ class _ChatState extends State<Chat> {
         }
       } else if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     } finally {
       if (mounted) setState(() => sending = false);
@@ -13409,7 +13441,7 @@ class _ChatState extends State<Chat> {
           } catch (error) {
             if (mounted) {
               messenger.showSnackBar(SnackBar(
-                content: Text(error.toString()),
+                content: Text(friendlyErrorMessage(error)),
                 duration: const Duration(seconds: 6),
               ));
             }
@@ -13530,7 +13562,7 @@ class _ChatState extends State<Chat> {
       } catch (error) {
         if (mounted) {
           ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(error.toString())));
+              .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
         }
       }
     }
@@ -13617,7 +13649,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     } finally {
       payerPhone.dispose();
@@ -13635,7 +13667,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -13651,7 +13683,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -13670,7 +13702,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -13691,7 +13723,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -13732,7 +13764,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -13749,7 +13781,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -13851,7 +13883,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -13928,7 +13960,7 @@ class _ChatState extends State<Chat> {
                       } catch (error) {
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(error.toString())));
+                              SnackBar(content: Text(friendlyErrorMessage(error))));
                         }
                       } finally {
                         email.dispose();
@@ -13972,7 +14004,7 @@ class _ChatState extends State<Chat> {
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                          content: Text(error.toString())));
+                                          content: Text(friendlyErrorMessage(error))));
                                 }
                               }
                             },
@@ -14008,7 +14040,7 @@ class _ChatState extends State<Chat> {
                       } catch (error) {
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(error.toString())));
+                              SnackBar(content: Text(friendlyErrorMessage(error))));
                         }
                       }
                     })
@@ -14415,7 +14447,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -14431,7 +14463,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -14469,7 +14501,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -15543,7 +15575,7 @@ class _ProfileState extends State<Profile> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     }
   }
 
@@ -15710,7 +15742,7 @@ class _ProfileState extends State<Profile> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.toString())));
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
     }
   }
 
@@ -15739,7 +15771,7 @@ class _ProfileState extends State<Profile> {
                 final value = await ChatifyE2EE.instance.exportKeyTransfer(id, passphrase.text);
                 setDialogState(() => bundle = value);
               } catch (error) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
               }
             }, child: const Text('Create transfer code')),
           ],
@@ -15856,7 +15888,7 @@ class _ProfileState extends State<Profile> {
                           } catch (error) {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(error.toString())));
+                                  SnackBar(content: Text(friendlyErrorMessage(error))));
                             }
                           }
                         },
@@ -16145,7 +16177,7 @@ class _StoreDirectoryPageState extends State<StoreDirectoryPage> {
         }
       });
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      if (mounted) setState(() => error = friendlyErrorMessage(e));
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -16516,7 +16548,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
         products = List<dynamic>.from(result['items'] ?? []);
       });
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      if (mounted) setState(() => error = friendlyErrorMessage(e));
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -16776,7 +16808,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
         cart.clear();
       });
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      if (mounted) setState(() => error = friendlyErrorMessage(e));
     } finally {
       if (mounted) setState(() => checkingOut = false);
     }
@@ -16798,7 +16830,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
                 : 'Payment status: $status. You can contact the store if you need help.');
       }
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      if (mounted) setState(() => error = friendlyErrorMessage(e));
     }
   }
 
@@ -17166,7 +17198,7 @@ class _BusinessHubState extends State<BusinessHub> {
         tasks = [];
       }
     } catch (e) {
-      error = e.toString();
+      error = friendlyErrorMessage(e);
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -17192,7 +17224,7 @@ class _BusinessHubState extends State<BusinessHub> {
       await _overlayOfflineCreates(id);
       error = null;
     } catch (e) {
-      error = e.toString();
+      error = friendlyErrorMessage(e);
     }
     if (syncPending && error == null) {
       final applied = await _flushOfflineQueue(id);
@@ -17269,7 +17301,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -17597,7 +17629,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -17768,7 +17800,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -17851,7 +17883,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -18029,7 +18061,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -18098,7 +18130,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -18192,7 +18224,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -18253,7 +18285,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -18348,7 +18380,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -18444,7 +18476,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -18527,7 +18559,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -18584,7 +18616,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     }
   }
 
@@ -18635,7 +18667,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -18833,7 +18865,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -19573,7 +19605,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
         paybill.text = profile!['paybillNumber']?.toString() ?? '';
       }
     } catch (e) {
-      error = e.toString();
+      error = friendlyErrorMessage(e);
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -19619,7 +19651,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -19666,7 +19698,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -19712,7 +19744,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     }
   }
 
@@ -19771,7 +19803,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       } catch (e) {
         if (mounted)
           ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(e.toString())));
+              .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
     receipt.dispose();
@@ -20268,7 +20300,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
       settings = Map<String, dynamic>.from(results[4]);
       if (mounted) setState(() {});
     } catch (e) {
-      error = e.toString();
+      error = friendlyErrorMessage(e);
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -20335,7 +20367,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     } finally {
       if (mounted) setState(() => searching = false);
@@ -20444,7 +20476,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -20483,7 +20515,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -20517,7 +20549,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -20588,7 +20620,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -20675,7 +20707,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -20727,7 +20759,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -20773,7 +20805,7 @@ class _BusinessEnterprisePageState extends State<BusinessEnterprisePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
