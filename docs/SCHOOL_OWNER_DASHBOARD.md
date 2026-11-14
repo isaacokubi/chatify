@@ -39,3 +39,15 @@ This Chatify workspace charge is separate from school fee collection, receipts a
 Widget tests in `mobile/test/owner_dashboards_test.dart` cover owner metrics, staff exclusion, multi-school switching, billing lock behavior and the zero-priced setup checkout path. These tests do not replace database-backed cross-school integration tests, real M-Pesa acceptance or physical-device testing.
 
 Fee balances are a record count, not total fees due or collected. Keep student data synthetic until school privacy, guardian consent, retention and data-processing requirements have been approved. The dashboard rendering alone is not evidence of first-school production readiness.
+
+
+## Owner dashboard presentation
+
+The school owner landing page presents the existing server-calculated totals in responsive metric cards with clear visual labels. It adds an operational section for students/admissions, attendance, fees/balances, and staff/school members, plus a distinct data-protection section. Each shortcut opens the existing SchoolWorkspacePage, where the authenticated school APIs and role checks continue to govern the actual operations.
+
+The fee-balance KPI remains a record count and is not presented as a currency total. No academic performance, attendance percentage, fee collection rate, or other derived statistic is invented by the overview.
+
+
+## Pupil fee receipt access
+
+The school owner overview includes a dedicated **Pupil fee receipts** action. It opens the authenticated School Workspace directly on the Receipts section instead of leaving the owner to locate the section manually. The receipt list is loaded from the selected school's paginated fee records; school administrators can see all payments for that school, while staff and parent accounts remain restricted by the server to their permitted learner records. Only payments in `CONFIRMED` state appear as official receipts, and the existing authenticated receipt-download endpoint performs the final authorization check.

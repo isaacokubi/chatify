@@ -41,7 +41,44 @@ void main() {
     expect(find.text('Lakeview Community School'), findsOneWidget);
     expect(find.text('Students'), findsOneWidget);
     expect(find.text('Attendance records'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('School operations'), 400, scrollable: find.byType(Scrollable).first);
+    expect(find.text('School operations'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Students & admissions'), 400, scrollable: find.byType(Scrollable).first);
+    expect(find.text('Students & admissions'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Fees & balances'), 400, scrollable: find.byType(Scrollable).first);
+    expect(find.text('Fees & balances'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Manage school workspace'), 400, scrollable: find.byType(Scrollable).first);
     expect(find.text('Manage school workspace'), findsOneWidget);
+  });
+
+
+  testWidgets('school owner has a direct pupil receipts workspace action',
+      (tester) async {
+    var receiptsOpened = false;
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
+      if (path == '/api/schools') {
+        return {'schools': [
+          {'id': 'school-receipts', 'name': 'Receipt Test School', 'code': 'RTS', 'role': 'admin', 'isOwner': true}
+        ]};
+      }
+      if (path.contains('/workspace-billing/school/')) return {'billing': {'locked': false, 'status': 'ACTIVE'}};
+      if (path.contains('/students') || path.contains('/attendance') || path.contains('/members') || path.contains('/fee-balances')) return {'total': 1};
+      return {};
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: SchoolOwnerDashboard(
+        apiCall: api,
+        currentUserId: 'owner-1',
+        onManage: () {},
+        onViewReceipts: () { receiptsOpened = true; },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Pupil fee receipts'), 400, scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pupil fee receipts'));
+    expect(receiptsOpened, isTrue);
   });
 
   testWidgets('school dashboard does not present staff workspace as owner data',
@@ -104,11 +141,14 @@ void main() {
 
     expect(find.text('Business owner dashboard'), findsOneWidget);
     expect(find.text("Makena's Market"), findsOneWidget);
-    await scrollBusinessDashboardToBottom(tester);
-    expect(find.text('Customers'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Operational focus'), 400, scrollable: find.byType(Scrollable).first);
+    expect(find.text('Operational focus'), findsOneWidget);
+    expect(find.text('Owner briefing'), findsOneWidget);
+    expect(find.text('No low-stock alerts'), findsOneWidget);
     expect(find.text('Private Other Business'), findsNothing);
-    await tester.drag(find.byType(ListView), const Offset(0, -900));
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Customers'), 400, scrollable: find.byType(Scrollable).first);
+    expect(find.text('Customers'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Manage business workspace'), 400, scrollable: find.byType(Scrollable).first);
     expect(find.text('Manage business workspace'), findsOneWidget);
   });
 
@@ -174,7 +214,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Second Business'), findsWidgets);
-    await scrollBusinessDashboardToBottom(tester);
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await tester.drag(find.byType(ListView).first, const Offset(0, 900));
+      await tester.pumpAndSettle();
+    }
     expect(find.text('44'), findsOneWidget);
   });
 
