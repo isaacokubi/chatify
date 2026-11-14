@@ -2603,6 +2603,13 @@ class AppState extends ChangeNotifier {
         // Local sign-out must still complete when the API is unavailable.
       }
     }
+    if (api.token != null) {
+      try {
+        await api.call('POST', '/api/auth/logout', {});
+      } catch (_) {
+        // Local sign-out must still complete when the API is unavailable.
+      }
+    }
     _registeredPushToken = null;
     _presenceSocket?.dispose();
     _presenceSocket = null;
