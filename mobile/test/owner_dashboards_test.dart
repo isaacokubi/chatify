@@ -276,6 +276,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pumpAndSettle();
     expect(setupPaid, isTrue, reason: 'The zero-priced checkout must complete before asserting the unlocked dashboard.');
+    // Flush any remaining async continuation from the billing refresh. The
+    // mock API completes immediately, but Flutter schedules the resulting
+    // setState after the checkout callback resumes from its awaited dialog.
+    for (var attempt = 0;
+        attempt < 10 && find.text('Business overview').evaluate().isEmpty;
+        attempt++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.pumpAndSettle();
     await scrollBusinessDashboardToBottom(tester);
 
     expect(find.text('Business overview'), findsOneWidget);
