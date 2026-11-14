@@ -122,6 +122,26 @@ void main() {
     expect(find.textContaining('SocketException'), findsNothing);
   });
 
+  testWidgets('school dashboard does not show an empty state when loading fails', (tester) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
+      throw Exception('SocketException: Failed host lookup');
+    }
+    await tester.pumpWidget(MaterialApp(home: SchoolOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {})));
+    await tester.pumpAndSettle();
+    expect(find.text('Connect to the internet or Wi-Fi to continue.'), findsOneWidget);
+    expect(find.text('No school linked'), findsNothing);
+  });
+
+  testWidgets('business dashboard does not show an empty state when loading fails', (tester) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
+      throw Exception('SocketException: Failed host lookup');
+    }
+    await tester.pumpWidget(MaterialApp(home: BusinessOwnerDashboard(apiCall: api, currentUserId: 'owner-1', onManage: () {})));
+    await tester.pumpAndSettle();
+    expect(find.text('Connect to the internet or Wi-Fi to continue.'), findsOneWidget);
+    expect(find.text('No business linked'), findsNothing);
+  });
+
   testWidgets('business owner dashboard uses only organizations owned by user',
       (tester) async {
     Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
