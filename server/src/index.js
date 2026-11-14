@@ -998,16 +998,23 @@ const reconciliationTimer=setInterval(async()=>{
   finally{reconciliationSweepRunning=false;}
 },process.env.NODE_ENV==='test'?1000:60000);
 reconciliationTimer.unref();
-if(env.mongo)await mongoose.connect(env.mongo,{
-  // Keep pool usage predictable as API replicas scale out. Budget total connections as
-  // (maxPoolSize × API replicas) plus workers and operational headroom against Atlas limits.
-  maxPoolSize:Number.parseInt(process.env.MONGO_MAX_POOL_SIZE||'30',10),
-  minPoolSize:Number.parseInt(process.env.MONGO_MIN_POOL_SIZE||'2',10),
-  maxIdleTimeMS:30000,
-  serverSelectionTimeoutMS:10000,
-  socketTimeoutMS:45000,
-  autoIndex:process.env.MONGO_AUTO_INDEX==='true'
-}); else console.warn('MONGODB_URI not set; configure Atlas before persistent use.');
+if(env.mongo){
+  await mongoose.connect(env.mongo,{
+    // Keep pool usage predictable as API replicas scale out. Budget total connections as
+    // (maxPoolSize × API replicas) plus workers and operational headroom against Atlas limits.
+    maxPoolSize:Number.parseInt(process.env.MONGO_MAX_POOL_SIZE||'30',10),
+    minPoolSize:Number.parseInt(process.env.MONGO_MIN_POOL_SIZE||'2',10),
+    maxIdleTimeMS:30000,
+    serverSelectionTimeoutMS:10000,
+    socketTimeoutMS:45000,
+    autoIndex:process.env.MONGO_AUTO_INDEX==='true'
+  });
+  // Session revocation must work even when automatic Mongoose index creation is disabled.
+  await Promise.all([
+    RevokedSession.collection.createIndex({tokenHash:1},{unique:true,name:'tokenHash_1'}),
+    RevokedSession.collection.createIndex({expiresAt:1},{expireAfterSeconds:0,name:'revoked_session_expiry_v1'}),
+  ]);
+}else console.warn('MONGODB_URI not set; configure Atlas before persistent use.');
 server.listen(env.port,()=>console.log('Chatify API listening on '+server.address().port));
 // GRACEFUL SHUTDOWN: stop timers and close network/database resources as the process exits.
 const shutdown=createShutdownHandler({
