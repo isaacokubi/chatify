@@ -270,7 +270,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '0712345678');
     await tester.tap(find.text('Continue to M-Pesa'));
+    // The dialog closes synchronously, while the dashboard's async checkout
+    // handler continues after showDialog completes. Pump once more so the
+    // confirmed zero-fee checkout and the subsequent dashboard refresh finish.
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.pumpAndSettle();
+    expect(setupPaid, isTrue, reason: 'The zero-priced checkout must complete before asserting the unlocked dashboard.');
     await scrollBusinessDashboardToBottom(tester);
 
     expect(find.text('Business overview'), findsOneWidget);
