@@ -42,7 +42,9 @@ void main() {
     expect(find.text('Students'), findsOneWidget);
     expect(find.text('Attendance records'), findsOneWidget);
     expect(find.text('Manage school workspace'), findsOneWidget);
-    expect(find.text('School operations'), findsOneWidget);\n    expect(find.text('Students & admissions'), findsOneWidget);\n    expect(find.text('Fees & balances'), findsOneWidget);
+    expect(find.text('School operations'), findsOneWidget);
+    expect(find.text('Students & admissions'), findsOneWidget);
+    expect(find.text('Fees & balances'), findsOneWidget);
   });
 
   testWidgets('school dashboard does not present staff workspace as owner data',
@@ -107,6 +109,9 @@ void main() {
     expect(find.text("Makena's Market"), findsOneWidget);
     await scrollBusinessDashboardToBottom(tester);
     expect(find.text('Customers'), findsOneWidget);
+    expect(find.text('Operational focus'), findsOneWidget);
+    expect(find.text('Owner briefing'), findsOneWidget);
+    expect(find.text('No low-stock alerts'), findsOneWidget);
     expect(find.text('Private Other Business'), findsNothing);
     await tester.drag(find.byType(ListView), const Offset(0, -900));
     await tester.pumpAndSettle();
