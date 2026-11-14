@@ -138,7 +138,7 @@ const RevokedSession=mongoose.models.RevokedSession||mongoose.model('RevokedSess
 },{timestamps:true}));
 RevokedSession.schema.index({expiresAt:1},{expireAfterSeconds:0,name:'revoked_session_expiry_v1'});
 const hashSessionToken=token=>createHash('sha256').update(String(token)).digest('hex');
-const sign=u=>jwt.sign({sub:String(u._id),sv:Number(u.sessionVersion||0)},env.jwt,{expiresIn:env.jwtExpiresIn});
+const sign=u=>jwt.sign({sub:String(u._id),sv:Number(u.sessionVersion||0),jti:randomBytes(16).toString('hex')},env.jwt,{expiresIn:env.jwtExpiresIn});
 // Authentication middleware verifies a bearer token and loads its user before protected handlers run.
 const auth=createAuthMiddleware({verifyToken:token=>jwt.verify(token,env.jwt),findUser:id=>User.findById(id),isRevoked:token=>RevokedSession.exists({tokenHash:hashSessionToken(token)})});
 app.get('/api/calls/ice-servers',auth,(q,r)=>{
