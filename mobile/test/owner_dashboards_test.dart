@@ -311,7 +311,7 @@ void main() {
 
     expect(find.text('Pending Business'), findsOneWidget);
     await scrollBusinessDashboardToBottom(tester);
-    expect(find.textContaining('Awaiting Chatify platform approval'), findsOneWidget);
+    expect(find.text('Awaiting approval.'), findsOneWidget);
     expect(find.textContaining('Pay setup'), findsNothing);
     expect(dashboardRequests, 0);
   });
