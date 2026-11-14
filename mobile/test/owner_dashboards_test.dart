@@ -285,11 +285,21 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
     await tester.pumpAndSettle();
-    await scrollBusinessDashboardToBottom(tester);
 
-    expect(find.text('Business overview'), findsOneWidget);
-    expect(find.text('Customers'), findsOneWidget);
+    // The dashboard uses a lazy ListView: headings above the current scroll
+    // position may no longer be mounted after scrolling to the bottom.
+    final dashboardList = find.byType(ListView).first;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await tester.drag(dashboardList, const Offset(0, 900));
+      await tester.pumpAndSettle();
+    }
     expect(find.text('Business workspace billing'), findsOneWidget);
+    await tester.ensureVisible(find.text('Business overview'));
+    await tester.pumpAndSettle();
+    expect(find.text('Business overview'), findsOneWidget);
+
+    await scrollBusinessDashboardToBottom(tester);
+    expect(find.text('Customers'), findsOneWidget);
   });
 
   testWidgets('approved school owner can complete a zero-priced setup checkout',
