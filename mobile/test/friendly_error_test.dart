@@ -21,6 +21,8 @@ void main() {
     });
 
     test('HTTP authorization and service errors are user friendly', () {
+      expect(friendlyErrorMessage(const ApiException(408, 'request timed out')),
+          'Connect to the internet or Wi-Fi to continue.');
       expect(friendlyErrorMessage(const ApiException(401, 'Unauthorized')),
           'Your session has expired. Please sign in again.');
       expect(friendlyErrorMessage(const ApiException(403, 'Forbidden')),
