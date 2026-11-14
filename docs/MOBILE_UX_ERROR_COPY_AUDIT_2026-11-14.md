@@ -20,8 +20,9 @@ Reviewed the shared Flutter client and API layer in `mobile/lib/main.dart`, the 
 - Unit tests cover offline/socket errors, timeouts, browser network errors, HTTP 401/403/5xx handling, technical response sanitization, and readable validation messages.
 - Widget tests cover offline owner-dashboard states and verify that raw SocketException text and false empty states are not shown.
 - Additional tests cover HTTP 408 connection messaging.
+- GitHub Actions on the first code revision: Flutter analysis passed; 51 Flutter tests passed and one existing business-approval label assertion failed after the UI copy was intentionally shortened. The assertion was updated to the concise label and the offline error tests passed. The corrected revision has not yet produced a fresh CI result.
 
 ## Audit notes
 - This is a client-side UX/error-handling audit. Server authorization, payment confirmation, encryption, and data access logic were not weakened or changed.
 - Essential payment-confirmation and encryption-recovery warnings remain because removing them could mislead users or risk account/data recovery.
-- Automated GitHub Actions results are required before calling the branch verified. Real-device offline/online behavior and visual review still require acceptance testing on a phone.
+- Backend tests and server syntax checks passed in the first CI run. The corrected Flutter test suite and a fresh Android build still require a new CI run before the branch can be called verified. Real-device offline/online behavior and visual review still require acceptance testing on a phone.
