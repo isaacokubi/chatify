@@ -184,7 +184,7 @@ void main() {
     returningUser.dispose();
   });
 
-  test('Business API reports HTML responses as a readable API error', () async {
+  test('Business API hides technical HTML response details', () async {
     final api = Api(
       client: MockClient((_) async => http.Response(
             '<!doctype html><html><body>Service unavailable</body></html>',
@@ -198,8 +198,7 @@ void main() {
       throwsA(isA<ApiException>().having(
         (error) => error.message,
         'message',
-        allOf(contains('HTML page instead of JSON'),
-            contains('/api/business/organizations')),
+        contains('unexpected response'),
       )),
     );
     api.client.close();
@@ -435,7 +434,7 @@ void main() {
     await app.init();
     expect(app.api.token, 'existing-token');
     expect(app.user, isNull);
-    expect(app.restoreError, contains('Temporarily unavailable'));
+    expect(app.restoreError, contains('temporarily unavailable'));
     client.close();
     app.dispose();
   });
