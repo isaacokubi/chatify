@@ -98,9 +98,28 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('No school owned by this account'), findsOneWidget);
+    expect(find.text('No school linked'), findsOneWidget);
     expect(find.text('Another School'), findsNothing);
     expect(find.text('Open school workspace'), findsOneWidget);
+  });
+
+  testWidgets('school dashboard gives a clear connection message when data cannot load',
+      (tester) async {
+    Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
+      throw Exception('SocketException: Failed host lookup');
+    }
+
+    await tester.pumpWidget(MaterialApp(
+      home: SchoolOwnerDashboard(
+        apiCall: api,
+        currentUserId: 'owner-1',
+        onManage: () {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connect to the internet or Wi-Fi to continue.'), findsOneWidget);
+    expect(find.textContaining('SocketException'), findsNothing);
   });
 
   testWidgets('business owner dashboard uses only organizations owned by user',
