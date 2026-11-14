@@ -75,3 +75,10 @@ Before requesting operational metrics, the dashboard calls the owner-only `GET /
 - A pending payment is not retried automatically as a new payment. The owner is told to refresh/reconcile before attempting another payment.
 
 This is Chatify platform workspace billing. It is not the business's customer invoice, POS, order or merchant settlement flow. The zero-priced checkout widget test exercises the no-fee branch only; live M-Pesa provider acceptance remains unverified.
+
+
+## Owner dashboard presentation
+
+The owner landing page uses a responsive KPI layout with clear visual labels and operational context. It surfaces the server-provided owner briefing, a low-stock watchlist (up to five named items with current and reorder-level quantities), and shortcuts into sales/documents, customers, products/stock, and tasks/support cases. These shortcuts open the existing role-aware BusinessHub; they do not bypass its permissions.
+
+The dashboard intentionally does not fabricate revenue, profit, conversion, or cash-flow figures. It only presents metrics returned by the organization-scoped dashboard API. A zero low-stock count is shown as a clear no-alert state, not as an inferred inventory health score.
