@@ -41,7 +41,7 @@ void main() {
     expect(find.text('Lakeview Community School'), findsOneWidget);
     expect(find.text('Students'), findsOneWidget);
     expect(find.text('Attendance records'), findsOneWidget);
-    expect(find.text('Manage school workspace'), findsOneWidget);
+    expect(find.text('Manage school workspace'), findsOneWidget);\n    expect(find.text('School operations'), findsOneWidget);\n    expect(find.text('Students & admissions'), findsOneWidget);\n    expect(find.text('Fees & balances'), findsOneWidget);
   });
 
   testWidgets('school dashboard does not present staff workspace as owner data',
