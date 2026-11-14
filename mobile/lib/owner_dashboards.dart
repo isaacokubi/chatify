@@ -12,7 +12,7 @@ T? _firstOrNull<T>(Iterable<T> values) {
 }
 String _ownerFriendlyError(Object error) {
   final message = error.toString().toLowerCase();
-  if (message.contains('socketexception') || message.contains('clientexception') || message.contains('failed host lookup') || message.contains('connection refused') || message.contains('network is unreachable') || message.contains('timed out') || message.contains('handshakeexception')) {
+  if (message.contains('socketexception') || message.contains('clientexception') || message.contains('failed host lookup') || message.contains('connection refused') || message.contains('network is unreachable') || message.contains('timeout') || message.contains('timed out') || message.contains('408') || message.contains('handshakeexception')) {
     return 'Connect to the internet or Wi-Fi to continue.';
   }
   if (message.contains('401')) return 'Your session has expired. Please sign in again.';
@@ -678,7 +678,7 @@ class _BusinessOwnerDashboardState extends State<BusinessOwnerDashboard> {
                   )),
                 ]))),
               if ((_metrics['lowStockItems'] as List? ?? const []).isEmpty)
-                const Card(child: ListTile(leading: Icon(Icons.check_circle_outline), title: Text('No low-stock alerts'), subtitle: Text('No catalogue items are currently below their configured reorder level.'))),
+                const Card(child: ListTile(leading: Icon(Icons.check_circle_outline), title: Text('No low-stock alerts'))),
               const _OwnerSectionHeading('Manage your business'),
               _OwnerActionTile(icon: Icons.point_of_sale_outlined, title: 'Sales & documents', onTap: widget.onManage),
               _OwnerActionTile(icon: Icons.people_alt_outlined, title: 'Customers', onTap: widget.onManage),
