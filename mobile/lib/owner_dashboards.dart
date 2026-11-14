@@ -102,10 +102,12 @@ class SchoolOwnerDashboard extends StatefulWidget {
     required this.apiCall,
     required this.currentUserId,
     required this.onManage,
+    this.onViewReceipts,
   });
   final OwnerDashboardApiCall apiCall;
   final String currentUserId;
   final VoidCallback onManage;
+  final VoidCallback? onViewReceipts;
 
   @override
   State<SchoolOwnerDashboard> createState() => _SchoolOwnerDashboardState();
@@ -365,7 +367,8 @@ class _SchoolOwnerDashboardState extends State<SchoolOwnerDashboard> {
               const _OwnerSectionHeading('School operations', subtitle: 'Quick access to the areas that keep your school running.'),
               _OwnerActionTile(icon: Icons.groups_2_outlined, title: 'Students & admissions', subtitle: 'Review student records and enrolment', onTap: widget.onManage),
               _OwnerActionTile(icon: Icons.fact_check_outlined, title: 'Attendance', subtitle: 'Open class and daily attendance records', onTap: widget.onManage),
-              _OwnerActionTile(icon: Icons.account_balance_wallet_outlined, title: 'Fees & balances', subtitle: 'Review fee accounts, balances and receipts', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.account_balance_wallet_outlined, title: 'Fees & balances', subtitle: 'Review fee accounts and outstanding balances', onTap: widget.onManage),
+              _OwnerActionTile(icon: Icons.receipt_long_outlined, title: 'Pupil fee receipts', subtitle: 'View and download confirmed receipts for pupils across this school', onTap: widget.onViewReceipts ?? widget.onManage),
               _OwnerActionTile(icon: Icons.badge_outlined, title: 'Staff & school members', subtitle: 'Manage the people connected to your school', onTap: widget.onManage),
               const _OwnerSectionHeading('Account & data protection'),
               const Card(child: ListTile(leading: Icon(Icons.verified_user_outlined), title: Text('School data protection'), subtitle: Text('Student and school records are loaded through authenticated school APIs. Server membership and linked-student checks remain authoritative.'))),
