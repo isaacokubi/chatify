@@ -1345,6 +1345,7 @@ String friendlyErrorMessage(Object error, {String fallback = 'Something went wro
     return 'Connect to the internet or Wi-Fi to continue.';
   }
   if (error is ApiException) {
+    if (error.statusCode == 408) return 'Connect to the internet or Wi-Fi to continue.';
     if (error.statusCode == 401) return 'Your session has expired. Please sign in again.';
     if (error.statusCode == 403) return 'You don’t have permission to do that.';
     if (error.statusCode == 404) return 'This information is not available.';
@@ -12538,7 +12539,7 @@ class _ChatState extends State<Chat> {
     socket!.on('call:incoming', _handleIncomingCall);
     socket!.on('call:error', (data) {
       if (!mounted || data is! Map) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['message']?.toString() ?? 'Call could not be started.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(Exception(data['message']?.toString() ?? 'Call could not be started.'), fallback: 'Call could not be started. Please try again.'))));
     });
     socket!.on('typing:start', (data) {
       if (!mounted ||
