@@ -319,6 +319,8 @@ void main() {
   testWidgets('approved business owner can complete a zero-priced setup checkout',
       (tester) async {
     var setupPaid = false;
+    var checkoutCalls = 0;
+    var paymentInitiationCalls = 0;
     Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/business/organizations') {
         return {'organizations': [
@@ -326,9 +328,11 @@ void main() {
         ]};
       }
       if (method == 'POST' && path.endsWith('/checkout')) {
+        checkoutCalls++;
         setupPaid = true;
         return {'paid': true, 'notice': 'No setup fee is due under current pricing.'};
       }
+      if (method == 'POST' && path.contains('/initiate')) paymentInitiationCalls++;
       if (path.contains('/workspace-billing/business/')) {
         return {'billing': {
           'locked': !setupPaid,
@@ -350,17 +354,11 @@ void main() {
     expect(find.text('Pay setup · KSh 0'), findsOneWidget);
     await tester.tap(find.text('Pay setup · KSh 0'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '0712345678');
-    await tester.tap(find.text('Continue to M-Pesa'));
-    // The dialog closes synchronously, while the dashboard's async checkout
-    // handler continues after showDialog completes. Pump once more so the
-    // confirmed zero-fee checkout and the subsequent dashboard refresh finish.
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pumpAndSettle();
-    expect(setupPaid, isTrue, reason: 'The zero-priced checkout must complete before asserting the unlocked dashboard.');
-    // Flush any remaining async continuation from the billing refresh. The
-    // mock API completes immediately, but Flutter schedules the resulting
-    // setState after the checkout callback resumes from its awaited dialog.
+    expect(setupPaid, isTrue, reason: 'The zero-priced checkout must complete without requesting a phone number.');
+    expect(checkoutCalls, 1);
+    expect(paymentInitiationCalls, 0);
+    expect(find.byType(TextField), findsNothing);
+    // Flush any remaining async continuation from the billing refresh.
     for (var attempt = 0;
         attempt < 10 && find.text('Business overview').evaluate().isEmpty;
         attempt++) {
@@ -387,6 +385,8 @@ void main() {
   testWidgets('approved school owner can complete a zero-priced setup checkout',
       (tester) async {
     var setupPaid = false;
+    var checkoutCalls = 0;
+    var paymentInitiationCalls = 0;
     Future<Map<String, dynamic>> api(String method, String path, [Map<String, dynamic>? body]) async {
       if (path == '/api/schools') {
         return {'schools': [
@@ -394,9 +394,11 @@ void main() {
         ]};
       }
       if (method == 'POST' && path.endsWith('/checkout')) {
+        checkoutCalls++;
         setupPaid = true;
         return {'paid': true, 'notice': 'No school setup fee is due under current pricing.'};
       }
+      if (method == 'POST' && path.contains('/initiate')) paymentInitiationCalls++;
       if (path.contains('/workspace-billing/school/')) {
         return {'billing': {
           'locked': !setupPaid,
@@ -417,9 +419,10 @@ void main() {
     expect(find.text('Pay setup · KSh 0'), findsOneWidget);
     await tester.tap(find.text('Pay setup · KSh 0'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '0712345678');
-    await tester.tap(find.text('Continue to M-Pesa'));
-    await tester.pumpAndSettle();
+    expect(setupPaid, isTrue, reason: 'The zero-priced checkout must complete without requesting a phone number.');
+    expect(checkoutCalls, 1);
+    expect(paymentInitiationCalls, 0);
+    expect(find.byType(TextField), findsNothing);
 
     expect(find.text('School overview'), findsOneWidget);
     expect(find.text('Students'), findsOneWidget);
