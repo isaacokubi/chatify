@@ -2605,7 +2605,7 @@ class AppState extends ChangeNotifier {
     }
     if (api.token != null) {
       try {
-        await api.call('POST', '/api/auth/logout', {});
+        await api.call('POST', '/api/auth/logout', {}).timeout(const Duration(seconds: 2));
       } catch (_) {
         // Local sign-out must still complete when the API is unavailable.
       }
