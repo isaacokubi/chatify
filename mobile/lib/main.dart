@@ -5756,7 +5756,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
   @override
   void initState() {
     super.initState();
-    section = widget.initialSection.clamp(0, 10);
+    section = widget.initialSection < 0 ? 0 : (widget.initialSection > 10 ? 10 : widget.initialSection);
     payerPhone.text =
         (app.user?['mpesaPhone'] ?? app.user?['phone'] ?? '').toString();
     loadSchools();
