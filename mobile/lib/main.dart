@@ -2274,7 +2274,7 @@ class AppState extends ChangeNotifier {
       await api.restore().timeout(const Duration(seconds: 5));
     } catch (error) {
       // A storage plugin failure must not leave the app stuck on its splash.
-      restoreError = 'Could not restore the saved session: $error';
+      restoreError = 'Could not restore the saved session: ${friendlyErrorMessage(error)}';
     }
     try {
       final preferences = await SharedPreferences.getInstance()
@@ -2283,7 +2283,7 @@ class AppState extends ChangeNotifier {
           ? ThemeMode.light
           : ThemeMode.dark;
     } catch (error) {
-      restoreError ??= 'Could not load local preferences: $error';
+      restoreError ??= 'Could not load local preferences: ${friendlyErrorMessage(error)}';
     }
     if (api.token != null) {
       try {
@@ -4097,7 +4097,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       } catch (error) {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('Payment review was not applied: $error')));
+              content: Text('Payment review was not applied: ${friendlyErrorMessage(error)}')));
       }
     }
     receipt.dispose();
@@ -4188,7 +4188,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not review $label: $e')));
+            SnackBar(content: Text('Could not review $label: ${friendlyErrorMessage(e)}')));
     }
   }
 
@@ -4703,7 +4703,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (context.mounted)
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Could not load platform wallet settings: $e')));
+            content: Text('Could not load platform wallet settings: ${friendlyErrorMessage(e)}')));
     } finally {
       if (mounted) setState(() => feeWalletLoading = false);
     }
@@ -4737,7 +4737,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Settings were not saved: $e')));
+            SnackBar(content: Text('Settings were not saved: ${friendlyErrorMessage(e)}')));
     } finally {
       if (mounted) setState(() => feeWalletSaving = false);
     }
@@ -4766,7 +4766,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Could not load workspace billing settings: $e')));
+            content: Text('Could not load workspace billing settings: ${friendlyErrorMessage(e)}')));
     } finally {
       if (mounted) setState(() => workspaceBillingSettingsLoading = false);
     }
@@ -4813,7 +4813,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Billing settings were not saved: $e')));
+            SnackBar(content: Text('Billing settings were not saved: ${friendlyErrorMessage(e)}')));
     } finally {
       if (mounted) setState(() => workspaceBillingSettingsSaving = false);
     }
@@ -5959,7 +5959,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not save school stamp: $e')));
+            SnackBar(content: Text('Could not save school stamp: ${friendlyErrorMessage(e)}')));
     }
   }
 
@@ -6548,7 +6548,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
       await loadSection();
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not delete $label: $error')));
+            SnackBar(content: Text('Could not delete $label: ${friendlyErrorMessage(error)}')));
     } finally {
       _pendingSchoolDeletions.remove(key);
     }
@@ -7351,7 +7351,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Could not mark pupil as transferred: $error'),
+        content: Text('Could not mark pupil as transferred: ${friendlyErrorMessage(error)}'),
       ));
     }
   }
@@ -7605,7 +7605,7 @@ class _SchoolWorkspacePageState extends State<SchoolWorkspacePage> {
     } catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not open private chat: $error')));
+            SnackBar(content: Text('Could not open private chat: ${friendlyErrorMessage(error)}')));
     }
   }
 
@@ -9833,7 +9833,7 @@ class _HomeState extends State<Home> {
     } catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not share Spark: $error')));
+            SnackBar(content: Text('Could not share Spark: ${friendlyErrorMessage(error)}')));
     }
   }
 
@@ -9905,7 +9905,7 @@ class _HomeState extends State<Home> {
           } catch (error) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Could not delete Spark: $error')),
+                SnackBar(content: Text('Could not delete Spark: ${friendlyErrorMessage(error)}')),
               );
             }
           }
@@ -10243,7 +10243,7 @@ class _HomeState extends State<Home> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not open the conversation: $error')));
+            SnackBar(content: Text('Could not open the conversation: ${friendlyErrorMessage(error)}')));
       }
     }
   }
@@ -10289,7 +10289,7 @@ class _HomeState extends State<Home> {
       if (alreadyRemoved) await loadMemories();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not delete memory: $error')),
+        SnackBar(content: Text('Could not delete memory: ${friendlyErrorMessage(error)}')),
       );
     } finally {
       _deletingMemoryIds.remove(id);
@@ -10315,7 +10315,7 @@ class _HomeState extends State<Home> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not update memory: $error')),
+        SnackBar(content: Text('Could not update memory: ${friendlyErrorMessage(error)}')),
       );
     }
   }
@@ -10644,7 +10644,7 @@ class _HomeState extends State<Home> {
       await loadChats();
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not remove conversation: $error')));
+            SnackBar(content: Text('Could not remove conversation: ${friendlyErrorMessage(error)}')));
     }
   }
 
@@ -10777,7 +10777,7 @@ class _HomeState extends State<Home> {
                 await loadChats();
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('Could not remove conversation: $error')));
+                    content: Text('Could not remove conversation: ${friendlyErrorMessage(error)}')));
               }
             },
             child: ListTile(
@@ -10873,7 +10873,7 @@ class _HomeState extends State<Home> {
       await loadSavedContacts();
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not remove contact: $error')));
+            SnackBar(content: Text('Could not remove contact: ${friendlyErrorMessage(error)}')));
     } finally {
       _deletingContactIds.remove(id);
     }
@@ -10894,7 +10894,7 @@ class _HomeState extends State<Home> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not load contacts: $error')));
+            SnackBar(content: Text('Could not load contacts: ${friendlyErrorMessage(error)}')));
       }
     } finally {
       if (mounted) setState(() => contactsLoading = false);
@@ -14184,7 +14184,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not download image: $error')),
+          SnackBar(content: Text('Could not download image: ${friendlyErrorMessage(error)}')),
         );
       }
     }
@@ -14370,7 +14370,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not save memory: $error')));
+            SnackBar(content: Text('Could not save memory: ${friendlyErrorMessage(error)}')));
       }
     } finally {
       if (mounted) setState(() => savingMemorySuggestion = false);
@@ -14551,7 +14551,7 @@ class _ChatState extends State<Chat> {
       } catch (error) {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('Could not discard queued message: $error')));
+              content: Text('Could not discard queued message: ${friendlyErrorMessage(error)}')));
       }
       return;
     }
@@ -14573,7 +14573,7 @@ class _ChatState extends State<Chat> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not delete message: $error')));
+          SnackBar(content: Text('Could not delete message: ${friendlyErrorMessage(error)}')));
       await load();
     }
   }
@@ -15620,7 +15620,7 @@ class _ProfileState extends State<Profile> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not update picture: $error')));
+            SnackBar(content: Text('Could not update picture: ${friendlyErrorMessage(error)}')));
       }
     }
   }
@@ -15665,7 +15665,7 @@ class _ProfileState extends State<Profile> {
     } catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not remove profile picture: $error')),
+          SnackBar(content: Text('Could not remove profile picture: ${friendlyErrorMessage(error)}')),
         );
     } finally {
       if (mounted) {
@@ -15754,7 +15754,7 @@ class _ProfileState extends State<Profile> {
         builder: (dialogContext, setDialogState) => AlertDialog(
           title: const Text('Transfer encryption to another device'),
           content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Create a strong transfer passphrase (12+ characters). Keep the code and passphrase private. Anyone with both can access your encrypted message history.'),
+            const Text('Use a passphrase of at least 12 characters. Keep it private.'),
             const SizedBox(height: 12),
             TextField(controller: passphrase, obscureText: true, decoration: const InputDecoration(labelText: 'Transfer passphrase')),
             if (bundle != null) ...[
@@ -15787,7 +15787,7 @@ class _ProfileState extends State<Profile> {
       await showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(
         title: const Text('Restore encryption on this device'),
         content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('On your existing device, open Profile → Encryption key transfer and create a transfer code. Enter that code and the same passphrase here. Your existing registered identity key will not be replaced.'),
+          const Text('Enter the transfer code and passphrase from your old device.'),
           const SizedBox(height: 12),
           TextField(controller: bundle, minLines: 3, maxLines: 6, decoration: const InputDecoration(labelText: 'Transfer code', border: OutlineInputBorder())),
           const SizedBox(height: 12),
@@ -15806,7 +15806,7 @@ class _ProfileState extends State<Profile> {
               if (dialogContext.mounted) Navigator.pop(dialogContext);
               if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Encryption key restored. Your encrypted messages can now be opened on this device.')));
             } catch (error) {
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Key transfer failed: $error')));
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Key transfer failed: ${friendlyErrorMessage(error)}')));
             }
           }, child: const Text('Restore key')),
         ],
@@ -15837,7 +15837,7 @@ class _ProfileState extends State<Profile> {
       ));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not reset encryption: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not reset encryption: ${friendlyErrorMessage(error)}')));
     }
   }
 
@@ -15983,7 +15983,7 @@ class _ProfileState extends State<Profile> {
                 const Expanded(child: Text('Encryption & key recovery', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
               ]),
               const SizedBox(height: 8),
-              const Text('Manage your encrypted-message identity and safely move it to another device. Find these options near the top of Profile.'),
+              const Text('Encryption keys and device transfer.'),
               const SizedBox(height: 10),
               SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: exportEncryptionKey, icon: const Icon(Icons.ios_share), label: const Text('Transfer key from this device'))),
               SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: importEncryptionKey, icon: const Icon(Icons.key), label: const Text('Restore key on this device'))),
@@ -16645,7 +16645,7 @@ class _StorefrontPageState extends State<StorefrontPage> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to open seller chat: $e')),
+          SnackBar(content: Text('Unable to open seller chat: ${friendlyErrorMessage(e)}')),
         );
     }
   }
@@ -17447,7 +17447,7 @@ class _BusinessHubState extends State<BusinessHub> {
                                       .showSnackBar(
                                     SnackBar(
                                         content: Text(
-                                            'Could not add image: $error')),
+                                            'Could not add image: ${friendlyErrorMessage(error)}')),
                                   );
                                 }
                               } finally {
@@ -17973,7 +17973,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not save global tax rate: $error')));
+            SnackBar(content: Text('Could not save global tax rate: ${friendlyErrorMessage(error)}')));
     } finally {
       country.dispose();
       currency.dispose();
@@ -18763,7 +18763,7 @@ class _BusinessHubState extends State<BusinessHub> {
     } catch (error) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not save delivery details: $error')));
+            SnackBar(content: Text('Could not save delivery details: ${friendlyErrorMessage(error)}')));
     } finally {
       address.dispose();
       provider.dispose();
@@ -19072,7 +19072,7 @@ class _BusinessHubState extends State<BusinessHub> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
-              'Could not ${kind == 'customers' ? 'archive' : 'delete'} $title: $error'),
+              'Could not ${kind == 'customers' ? 'archive' : 'delete'} $title: ${friendlyErrorMessage(error)}'),
           action: SnackBarAction(
               label: 'Retry',
               onPressed: () =>
@@ -19818,7 +19818,7 @@ class _MerchantPosPageState extends State<MerchantPosPage> {
       } catch (e) {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Could not load payment QR: $e')));
+              SnackBar(content: Text('Could not load payment QR: ${friendlyErrorMessage(e)}')));
         return;
       }
     }
