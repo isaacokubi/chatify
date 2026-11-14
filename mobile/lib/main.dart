@@ -1328,7 +1328,7 @@ Uint8List _buildSchoolFeeReceiptPdf(Map<String, dynamic> payment) {
 
 String friendlyErrorMessage(Object error, {String fallback = 'Something went wrong. Please try again.'}) {
   final raw = error is ApiException ? error.message : error.toString();
-  final message = raw.replaceFirst(RegExp(r'^(Exception|StateError):\\s*'), '').trim();
+  final message = raw.replaceFirst(RegExp(r'^(Exception|StateError):\s*'), '').trim();
   final lower = message.toLowerCase();
   if (error is TimeoutException ||
       lower.contains('socketexception') ||
